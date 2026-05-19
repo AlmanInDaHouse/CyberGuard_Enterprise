@@ -1,0 +1,6 @@
+# CyberGuard — docker-compose.dev.yml (scaffold).
+# Developer overrides on top of docker-compose.yml (live reload,
+# extra ports, debug builds). Populated by the same SPEC as the base
+# compose. Until then this file is intentionally empty.
+
+services: {}

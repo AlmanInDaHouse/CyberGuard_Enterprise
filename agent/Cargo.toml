@@ -1,0 +1,6 @@
+# CyberGuard agent — Rust workspace.
+# Members are introduced by SPEC-XXX-cg-agent.
+
+[workspace]
+resolver = "2"
+members = []

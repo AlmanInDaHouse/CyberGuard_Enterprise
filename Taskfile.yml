@@ -1,0 +1,40 @@
+# Cross-platform task runner. See https://taskfile.dev
+# Targets are stubs; each will be populated by its corresponding SPEC.
+
+version: "3"
+
+tasks:
+  bootstrap:
+    desc: "Initialize developer environment (dependencies, tools, local stack)."
+    cmds:
+      - echo "task bootstrap — populated by SPEC-XXX-bootstrap"
+
+  up:
+    desc: "Bring up local stack via docker compose."
+    cmds:
+      - echo "task up — populated by SPEC-XXX-infra"
+
+  down:
+    desc: "Tear down local stack."
+    cmds:
+      - echo "task down — populated by SPEC-XXX-infra"
+
+  test:
+    desc: "Run unit and integration tests across services."
+    cmds:
+      - echo "task test — populated by SPEC-XXX-ci"
+
+  harness:
+    desc: "Run end-to-end harness scenarios."
+    cmds:
+      - echo "task harness — populated by SPEC-XXX-harness"
+
+  lint:
+    desc: "Lint code, schemas, rules and docs."
+    cmds:
+      - echo "task lint — populated by SPEC-XXX-ci"
+
+  reset-data:
+    desc: "Wipe local data volumes."
+    cmds:
+      - echo "task reset-data — populated by SPEC-XXX-infra"

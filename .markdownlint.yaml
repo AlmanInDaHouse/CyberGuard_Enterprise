@@ -1,0 +1,17 @@
+# Markdown lint configuration for CyberGuard documentation.
+# Enforced by .github/workflows/markdown-lint.yml.
+
+default: true
+
+# MD013: line length — disabled (we wrap by sentence, not column).
+MD013: false
+
+# MD024: duplicate headings — allow with different nesting.
+MD024:
+  allow_different_nesting: true
+
+# MD033: inline HTML — allowed (occasional tags in READMEs).
+MD033: false
+
+# MD041: first line in file must be a top-level heading — disabled.
+MD041: false

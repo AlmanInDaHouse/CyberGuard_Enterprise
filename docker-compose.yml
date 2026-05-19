@@ -1,0 +1,6 @@
+# CyberGuard — docker-compose.yml (scaffold).
+# Populated by a future SPEC covering the local infrastructure stack
+# (Postgres, ClickHouse, Redis, MinIO, NATS, services, dashboard).
+# Until then this file is intentionally empty.
+
+services: {}
