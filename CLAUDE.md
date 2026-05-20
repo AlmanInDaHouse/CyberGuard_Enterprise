@@ -68,8 +68,9 @@ The agent installs and configures ONLY tools that are declared prerequisites of 
 |---|---|---|
 | Task (go-task) | Project build runner per ADR-0001 §Decision. | Session 1 |
 | Docker Desktop | Runtime for `infra/dev/docker-compose.dev.yml` per ADR-0003. | Session 4 |
+| Rust toolchain (rustup, rustc, cargo, rustfmt, clippy) | Compiler and tooling for the `cg-agent` crate per ADR-0002 §Decision and SPEC-001. Pinned by `rust-toolchain.toml`. | Session 5 |
 
-Future sessions will extend this table: Rust toolchain (`rustup`, `cargo`) in Session 5; Go toolchain when the ingest service begins; Node LTS when the dashboard begins; etc. A new row lands in the same commit as the ADR or SPEC that introduces the dependency.
+Future sessions will extend this table: Go toolchain when the ingest service begins; Node LTS when the dashboard begins; etc. A new row lands in the same commit as the ADR or SPEC that introduces the dependency.
 
 ### Package manager preference (Windows)
 

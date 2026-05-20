@@ -1,0 +1,65 @@
+[package]
+name = "cg-agent"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "CyberGuard endpoint agent — SPEC-001 (heartbeat)."
+
+[[bin]]
+name = "cg-agent"
+path = "src/main.rs"
+
+[lib]
+name = "cg_agent"
+path = "src/lib.rs"
+
+# --- Runtime dependencies ---
+#
+# Pinned to minor versions, with rationale below. Patch updates are
+# allowed by Cargo's default semver behavior. Bumps to a new minor
+# require a commit body justification.
+[dependencies]
+# Async runtime. "full" features in dev to keep the surface easy;
+# narrow when SPEC-001 stabilises and we know what we actually use.
+tokio = { version = "1.42", features = ["full"] }
+
+# Envelope serialization. serde + derive macros + JSON.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Config parsing.
+toml = "0.8"
+
+# HTTP client. rustls-tls backend (no native OpenSSL dependency on
+# Windows). When ADR-0004 (mTLS + Ed25519) lands in code, this crate
+# is the natural place to add the mTLS configuration; the swap to
+# tonic/gRPC happens in a future sub-SPEC.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Structured logging. JSON formatter, env-filter for log.level overrides.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+# CLI args. Minimal use in SPEC-001 (just --config); sets the pattern.
+clap = { version = "4.5", features = ["derive"] }
+
+# Error types. thiserror for library/domain errors, anyhow only at
+# the top-level main() boundary.
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Graceful shutdown helpers. tokio::signal is used directly; tokio-util
+# kept for future CancellationToken when transport gets richer.
+tokio-util = "0.7"
+
+# --- Dev dependencies ---
+#
+# Mock HTTP server for the integration harness (added in commit 4).
+# axum picked over warp / hyper-direct because it builds on tokio +
+# tower, is the most active maintenance line as of 2026, and the
+# learning surface is the smallest of the three.
+[dev-dependencies]
+axum = "0.7"
+tokio = { version = "1.42", features = ["full", "macros", "test-util"] }

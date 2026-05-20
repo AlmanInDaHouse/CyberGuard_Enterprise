@@ -1,0 +1,8 @@
+# CyberGuard — pinned Rust toolchain. See CLAUDE.md §Approved local toolchain.
+# Bumps require updating this file in the same commit as the change that
+# motivates the bump, with rationale in the commit body.
+
+[toolchain]
+channel = "1.93.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
