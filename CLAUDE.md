@@ -109,6 +109,56 @@ After any local-environment operation, report:
 
 If an installation fails, report the full error and stop. The agent does NOT try alternative non-official sources on its own initiative.
 
+## Decision authority
+
+Technical, reversible, in-scope decisions are the agent's. The agent decides, applies, and communicates what was decided and why — it does NOT ask first.
+
+### Decisions the agent takes WITHOUT asking (decide + communicate)
+
+- Default values in dev configs: `.env.example` ports, compose defaults, healthcheck intervals, resource limits for dev.
+- Tooling versions within the *Approved local toolchain*: pinning a minor version, choosing between equivalent images of the same project.
+- File and directory structure consistent with existing conventions and ADR-0001.
+- Commit message wording within the conventional-commits format already in use.
+- Internal naming (variables, functions, types) consistent with the language conventions of ADR-0002.
+- Healthcheck and test parameters in dev that do not change behaviour.
+- Refactors that preserve external behaviour and pass the harness.
+- Linter and formatter rule choices within the accepted tool defaults.
+- Anything where the trade-off space is small and the harness, SPECs and ADRs constrain the answer.
+
+### Decisions that STILL require Manuel's explicit OK (ask first)
+
+- Product scope: what enters or leaves MVP, what gets deferred.
+- Money: paid services, licences, recurring costs, paid tiers.
+- Business-domain decisions that depend on information the agent does not have.
+- Irreversible high-impact operations: force-push to `main`, history rewrites, dropping data, breaking public API contracts, deleting branches with unmerged work.
+- Credentials, secrets, authentication setup.
+- Installations requiring personal EULA acceptance (e.g. Docker Desktop first install).
+- Anything outside the *Approved local toolchain*.
+- New ADRs or amendments to accepted ADRs — the agent drafts and proposes; Manuel ratifies before status changes to `Accepted`.
+- Schema-breaking changes to CGES once it stabilises.
+
+### Communication contract
+
+- When the agent takes an autonomous decision, it REPORTS in the same turn: what was decided, the alternatives considered (one line each, max two), and why this choice.
+- If confidence on the right answer is below roughly 70%, the agent treats the decision as ask-first rather than decide-and-communicate.
+- If a decision turns out wrong, the agent owns the rollback the same way it owned the decision. Report and fix.
+
+### Stop conditions
+
+The agent STOPS and reports to Manuel only for:
+
+- Decisions in the *ask-first* list above.
+- Failures whose root cause cannot be diagnosed with confidence.
+- Repeated failure (third retry on the same target) suggesting a deeper issue.
+- Anything that would require touching the host system beyond the *Local environment operations* scope (firewall, antivirus, WSL config, system-level env vars).
+- Genuinely unexpected output the agent cannot interpret.
+
+The agent does NOT stop for:
+
+- Routine technical fixes within scope: port defaults, escape syntax, healthcheck timing, dev config tweaks.
+- Lint or format errors the agent can fix.
+- Mismatch between briefing and reality where the briefing was written without full info — adapt and report in the same turn.
+
 ## Known CI debt
 
 Workflows that are currently red on `main` and that Manuel has explicitly downgraded to accepted debt. The table is the live state, not a history — when a debt is cleared (workflow back to green), the row is removed in the same commit that clears it.
