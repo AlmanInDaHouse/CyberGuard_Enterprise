@@ -54,6 +54,61 @@ There is no third option. Assuming the failure is unrelated to the current chang
 
 `skipped` workflows (workflow not triggered by the path filters of the pushed commit) are reported as `skipped` and count toward `ALL GREEN`.
 
+## Local environment operations
+
+The agent operates Manuel's local environment directly (not just the repository) for tools the project depends on. The scope, the package manager preference, the allowed operations, and the confirmation rules are below.
+
+### Scope
+
+The agent installs and configures ONLY tools that are declared prerequisites of CyberGuard. The list lives under *Approved local toolchain* below and is extended explicitly per session when a new ADR or SPEC introduces a dependency. Anything outside this list requires explicit chat confirmation.
+
+### Approved local toolchain
+
+| Tool | Reason | Introduced by |
+|---|---|---|
+| Task (go-task) | Project build runner per ADR-0001 §Decision. | Session 1 |
+| Docker Desktop | Runtime for `infra/dev/docker-compose.dev.yml` per ADR-0003. | Session 4 |
+
+Future sessions will extend this table: Rust toolchain (`rustup`, `cargo`) in Session 5; Go toolchain when the ingest service begins; Node LTS when the dashboard begins; etc. A new row lands in the same commit as the ADR or SPEC that introduces the dependency.
+
+### Package manager preference (Windows)
+
+In order of preference:
+
+1. **winget** — primary.
+2. **scoop** — first fallback.
+3. **chocolatey** — second fallback.
+4. **Direct download from the tool's official GitHub release page** — last resort.
+
+Never `iwr | iex` from non-official sources. Never `curl | bash` except from a URL documented on the tool's own official site.
+
+### Operations allowed WITHOUT chat confirmation
+
+- Install an *Approved local toolchain* entry via an official package manager (winget / scoop / choco) or via the tool's official GitHub release.
+- Start Docker Desktop if it is installed but not running. Stop it deliberately if a task requires it.
+- Verify versions and capabilities with `--version`, `--help`, or equivalent.
+- Modify the **user** `PATH` to expose freshly installed binaries.
+
+### Operations that ALWAYS require explicit chat confirmation
+
+- Credentials of any kind: Docker Hub login, additional GitHub PATs beyond the one already configured, cloud provider auth, npm publish credentials, etc.
+- Modifying **system** environment variables (HKLM-level on Windows; anything beyond the current user).
+- Touching firewall, antivirus, or WSL2 configuration.
+- Any installation outside the Approved local toolchain.
+- Any command that writes outside the repository AND outside the standard package-manager paths.
+
+### Reporting
+
+After any local-environment operation, report:
+
+- What was installed, configured, or changed.
+- The exact command used.
+- The verification that passed (`--version` output, `docker ps`, or equivalent).
+
+### On failure
+
+If an installation fails, report the full error and stop. The agent does NOT try alternative non-official sources on its own initiative.
+
 ## Known CI debt
 
 Workflows that are currently red on `main` and that Manuel has explicitly downgraded to accepted debt. The table is the live state, not a history — when a debt is cleared (workflow back to green), the row is removed in the same commit that clears it.
