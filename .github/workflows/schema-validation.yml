@@ -1,0 +1,55 @@
+name: schema-validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "schemas/**"
+      - ".github/workflows/schema-validation.yml"
+  pull_request:
+    paths:
+      - "schemas/**"
+      - ".github/workflows/schema-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate CGES examples against schemas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ajv-cli and ajv-formats
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate every example payload
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          examples=(schemas/cges/v0.1/examples/*.json)
+          if [ ${#examples[@]} -eq 0 ]; then
+            echo "No examples found under schemas/cges/v0.1/examples/. Failing."
+            exit 1
+          fi
+          for f in "${examples[@]}"; do
+            echo "::group::Validate $f"
+            ajv validate \
+              --spec=draft2020 \
+              -c ajv-formats \
+              -s schemas/cges/v0.1/event.json \
+              -r "schemas/cges/v0.1/common/*.json" \
+              -r "schemas/cges/v0.1/objects/*.json" \
+              -r "schemas/cges/v0.1/classes/*.json" \
+              -d "$f" \
+              --all-errors \
+              --strict=false
+            echo "::endgroup::"
+          done

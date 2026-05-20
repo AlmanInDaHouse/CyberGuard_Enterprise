@@ -34,6 +34,11 @@ tasks:
     cmds:
       - echo "task lint — populated by SPEC-XXX-ci"
 
+  validate-schemas:
+    desc: "Validate all CGES example events against the v0.1 schemas (ajv-cli)."
+    cmds:
+      - npx --yes -p ajv-cli -p ajv-formats ajv validate --spec=draft2020 -c ajv-formats -s schemas/cges/v0.1/event.json -r "schemas/cges/v0.1/common/*.json" -r "schemas/cges/v0.1/objects/*.json" -r "schemas/cges/v0.1/classes/*.json" -d "schemas/cges/v0.1/examples/*.json" --all-errors --strict=false
+
   reset-data:
     desc: "Wipe local data volumes."
     cmds:
