@@ -2,7 +2,7 @@
 
 - **ID:** SPEC-001
 - **Title:** Agent heartbeat
-- **Status:** Draft
+- **Status:** Accepted
 - **Depends on:** ADR-0001, ADR-0002, ADR-0004 (partial; see §Scope), ADR-0006
 - **Authors:** Manuel (product owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-05-20

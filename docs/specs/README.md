@@ -21,4 +21,4 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 
 | SPEC | Title | Status |
 |---|---|---|
-| [SPEC-001](SPEC-001-agent-heartbeat.md) | Agent heartbeat | Draft |
+| [SPEC-001](SPEC-001-agent-heartbeat.md) | Agent heartbeat | Accepted |

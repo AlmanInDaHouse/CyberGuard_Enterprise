@@ -54,6 +54,12 @@ anyhow = "1.0"
 # kept for future CancellationToken when transport gets richer.
 tokio-util = "0.7"
 
+# Date / time. Used for the wall-clock `sent_at` field in the
+# heartbeat envelope (RFC 3339 / ISO 8601 UTC with milliseconds per
+# SPEC-001 §Data contracts). default-features off to avoid pulling
+# the legacy `time` 0.1 transitive dep.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
 # --- Dev dependencies ---
 #
 # Mock HTTP server for the integration harness.

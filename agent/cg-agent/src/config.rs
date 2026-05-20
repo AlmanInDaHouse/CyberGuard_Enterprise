@@ -92,11 +92,104 @@ fn default_log_level() -> String {
 
 /// Load and validate the agent configuration from a TOML file at `path`.
 ///
-/// Returns `ConfigError` on:
-///   - missing or unreadable file (`NotFound` / `Io`),
-///   - malformed TOML (`Parse`),
-///   - missing required keys (`MissingKey` — see SPEC-001 §Validation),
-///   - field values that fail validation (`Invalid`).
-pub fn load_from_path(_path: &Path) -> Result<AgentConfig, ConfigError> {
-    todo!("implemented in the heartbeat commit")
+/// Returns `ConfigError` on missing or unreadable file
+/// (`NotFound` / `Io`), malformed TOML (`Parse`), missing required
+/// keys (`MissingKey` — see SPEC-001 §Validation), or field values
+/// that fail validation (`Invalid`).
+pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
+    if !path.exists() {
+        return Err(ConfigError::NotFound(path.display().to_string()));
+    }
+    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Io(e.to_string()))?;
+
+    // Parse the TOML to a Value first so we can produce field-level
+    // error messages that match SPEC-001 §Validation exactly.
+    let raw: toml::Value =
+        toml::from_str(&content).map_err(|e| ConfigError::Parse(e.to_string()))?;
+
+    // Required: server.url. Treat a missing [server] table and a
+    // missing url field within an existing [server] table as the same
+    // condition — the user-facing contract is `server.url`.
+    let server_url = raw
+        .get("server")
+        .and_then(|s| s.get("url"))
+        .ok_or_else(|| ConfigError::MissingKey("server.url".to_string()))?
+        .as_str()
+        .ok_or_else(|| ConfigError::Invalid("server.url must be a string".to_string()))?;
+    if !(server_url.starts_with("http://") || server_url.starts_with("https://")) {
+        return Err(ConfigError::Invalid(
+            "server.url not a valid URL".to_string(),
+        ));
+    }
+
+    // Required: agent.id, agent.hostname. Same collapsing rule.
+    let agent_id = raw
+        .get("agent")
+        .and_then(|a| a.get("id"))
+        .ok_or_else(|| ConfigError::MissingKey("agent.id".to_string()))?
+        .as_str()
+        .ok_or_else(|| ConfigError::Invalid("agent.id must be a string".to_string()))?;
+    if !is_uuidv7(agent_id) {
+        return Err(ConfigError::Invalid("agent.id not a UUIDv7".to_string()));
+    }
+    let agent_hostname = raw
+        .get("agent")
+        .and_then(|a| a.get("hostname"))
+        .ok_or_else(|| ConfigError::MissingKey("agent.hostname".to_string()))?
+        .as_str()
+        .ok_or_else(|| ConfigError::Invalid("agent.hostname must be a string".to_string()))?;
+    if agent_hostname.is_empty() {
+        return Err(ConfigError::Invalid(
+            "agent.hostname must be non-empty".to_string(),
+        ));
+    }
+
+    // Deserialize the whole document now that the required keys have
+    // been validated. serde fills in defaults for the heartbeat / log
+    // sections via the `#[serde(default)]` attribute.
+    let config: AgentConfig =
+        toml::from_str(&content).map_err(|e| ConfigError::Parse(e.to_string()))?;
+
+    // Per SPEC-001 §Validation: numeric heartbeat fields must be > 0
+    // and backoff_factor must be >= 1.0.
+    if config.heartbeat.interval_seconds == 0
+        || config.heartbeat.request_timeout_seconds == 0
+        || config.heartbeat.backoff_initial_ms == 0
+        || config.heartbeat.backoff_max_ms == 0
+    {
+        return Err(ConfigError::Invalid(
+            "heartbeat numeric fields must be > 0".to_string(),
+        ));
+    }
+    if config.heartbeat.backoff_factor < 1.0 {
+        return Err(ConfigError::Invalid(
+            "heartbeat.backoff_factor must be >= 1.0".to_string(),
+        ));
+    }
+
+    Ok(config)
+}
+
+fn is_uuidv7(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 5 {
+        return false;
+    }
+    let expected_lengths = [8usize, 4, 4, 4, 12];
+    for (p, expected) in parts.iter().zip(expected_lengths.iter()) {
+        if p.len() != *expected {
+            return false;
+        }
+        if !p
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        {
+            return false;
+        }
+    }
+    if !parts[2].starts_with('7') {
+        return false;
+    }
+    let variant = parts[3].chars().next().expect("len already verified");
+    matches!(variant, '8' | '9' | 'a' | 'b')
 }
