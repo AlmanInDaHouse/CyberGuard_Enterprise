@@ -2,6 +2,10 @@
 
 Product vision, MVP definition, roadmap and non-goals.
 
+## Catalog
+
+- [`blueprint.md`](blueprint.md) — Foundational document. Referenced by all ADRs and SPECs.
+
 Populated by:
 
 - SPEC-XXX-product-vision.

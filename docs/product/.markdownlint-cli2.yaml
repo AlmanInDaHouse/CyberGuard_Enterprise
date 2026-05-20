@@ -1,0 +1,29 @@
+# Scoped markdownlint override for docs/product/.
+#
+# Reason: this directory hosts the foundational Blueprint, preserved verbatim
+# from the original Phase-0 design conversation. The rules disabled below
+# would force edits to that verbatim content, which is not permitted.
+# Override scoped to this directory only; the root .markdownlint.yaml still
+# governs the rest of the repo.
+#
+# markdownlint-cli2 uses the closest config file to the linted file, so this
+# fully replaces (not merges with) the root .markdownlint.yaml for files
+# under docs/product/. The four rules inherited from root are repeated below
+# so behaviour outside the blueprint-specific exceptions remains identical.
+
+config:
+  default: true
+
+  # --- Inherited from root .markdownlint.yaml ---
+  MD013: false                       # line length off
+  MD024:                             # duplicate headings — allow different nesting
+    allow_different_nesting: true
+  MD033: false                       # inline HTML allowed
+  MD041: false                       # first-line h1 not required
+
+  # --- Blueprint verbatim-preservation exceptions ---
+  MD028: false                       # blank line inside the §18 MVP blockquote
+  MD029: false                       # §20 numbers tasks 1-20 across subsections
+  MD034: false                       # bare URL to https://adr.github.io/madr/ in §20
+  MD040: false                       # ASCII diagrams in §3/§9/§14/§19 have no language
+  MD060: false                       # table column compact style in §6/§9/§13/§16/§17
