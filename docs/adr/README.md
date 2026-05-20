@@ -19,7 +19,10 @@ This directory holds Architecture Decision Records following the [MADR](https://
 |---|---|---|
 | [0001](0001-monorepo-layout.md) | Monorepo layout for CyberGuard | Accepted |
 | [0002](0002-language-per-component.md) | Language per component | Accepted |
+| [0003](0003-polyglot-storage.md) | Polyglot storage | Accepted |
 
 ## Dependencies
 
 - ADR-0002 → ADR-0001 (defines the top-level components this ADR assigns languages to)
+- ADR-0003 → ADR-0001 (defines the components whose data this ADR routes)
+- ADR-0003 → ADR-0002 (language choices cite NATS and ClickHouse Go client maturity)
