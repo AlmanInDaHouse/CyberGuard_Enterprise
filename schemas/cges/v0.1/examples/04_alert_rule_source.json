@@ -1,0 +1,37 @@
+{
+  "schema_version": "0.1.0",
+  "ocsf_version": "1.3.0",
+  "event_id": "01934abc-def0-7400-89ab-000000000001",
+  "time": "2026-05-19T10:23:12.000Z",
+  "cg_ingested_at": "2026-05-19T10:23:12.100Z",
+  "category_uid": 10,
+  "class_uid": 10001,
+  "cg_kind": "alert",
+  "activity_id": 1,
+  "severity_id": 5,
+  "cg_agent": {
+    "agent_id": "01934abc-def0-7000-89ab-000000000001",
+    "agent_version": "0.4.2",
+    "agent_platform": "windows",
+    "agent_hostname": "FIN-PC-014"
+  },
+  "cg_org": {
+    "org_id": "acme",
+    "tenant": "default"
+  },
+  "cg_score": {
+    "heuristic_score": 0.9,
+    "final_score": 0.9
+  },
+  "cg_detection_source": "rule",
+  "cg_mitre": {
+    "tactics": ["execution", "defense-evasion"],
+    "techniques": ["T1059.001", "T1027"]
+  },
+  "alert_id": "01934abc-def0-7200-89ab-000000000001",
+  "title": "PowerShell encoded command spawned from Office process",
+  "description": "WinWord (pid 4012) spawned powershell.exe with -EncodedCommand argument. Classic phishing-to-execution chain.",
+  "source_events": ["01934abc-def0-7100-89ab-000000000001"],
+  "rule_id": "rule.psh_encoded_from_office",
+  "dedup_key": "FIN-PC-014::psh_encoded_from_office::winword.exe"
+}

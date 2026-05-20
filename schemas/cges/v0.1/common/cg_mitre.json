@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/common/cg_mitre.json",
+  "title": "CGES — MITRE ATT&CK mapping",
+  "description": "MITRE ATT&CK tactics and techniques mapped to the event. Inherits OCSF's MITRE mapping structure. See ADR-0006 and MITRE ATT&CK v15.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tactics": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "MITRE ATT&CK tactic names (e.g. 'execution', 'defense-evasion')."
+    },
+    "techniques": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^T[0-9]{4}(\\.[0-9]{3})?$"
+      },
+      "uniqueItems": true,
+      "description": "MITRE ATT&CK technique IDs in the form TNNNN or TNNNN.SSS (sub-technique)."
+    }
+  },
+  "required": ["tactics", "techniques"],
+  "examples": [
+    {
+      "tactics": ["execution", "defense-evasion"],
+      "techniques": ["T1059.001", "T1027"]
+    }
+  ]
+}

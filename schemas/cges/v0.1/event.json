@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/event.json",
+  "title": "CGES Event (v0.1)",
+  "description": "Root schema for the CyberGuard Common Event Schema, v0.1. OCSF-aligned (OCSF v1.3) with cg_* extensions. See ADR-0006.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "ocsf_version": {
+      "const": "1.3.0"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUIDv7. See ADR-0006."
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "occurred_at. ISO 8601 UTC with milliseconds. OCSF-compatible alias."
+    },
+    "cg_ingested_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Server-side ingest timestamp. ISO 8601 UTC with milliseconds. CGES-specific."
+    },
+    "category_uid": {
+      "type": "integer"
+    },
+    "class_uid": {
+      "type": "integer"
+    },
+    "activity_id": {
+      "type": "integer"
+    },
+    "severity_id": {
+      "$ref": "common/ocsf_severity.json"
+    },
+    "cg_agent": {
+      "$ref": "common/cg_agent.json"
+    },
+    "cg_org": {
+      "$ref": "common/cg_org.json"
+    },
+    "raw_data": {
+      "type": "string",
+      "maxLength": 65536,
+      "description": "Inline raw payload, capped at 64 KB. Mutually exclusive with cg_raw_ref."
+    },
+    "cg_raw_ref": {
+      "$ref": "common/cg_raw_ref.json"
+    },
+    "cg_score": {
+      "$ref": "common/cg_score.json"
+    },
+    "cg_detection_source": {
+      "type": "string",
+      "enum": ["rule", "ml", "hybrid"]
+    },
+    "cg_trust_sources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["rule", "ml", "hybrid_only"]
+      },
+      "uniqueItems": true
+    },
+    "cg_mitre": {
+      "$ref": "common/cg_mitre.json"
+    },
+    "message": {
+      "type": "string"
+    },
+    "cg_kind": {
+      "type": "string",
+      "enum": ["alert", "incident"]
+    }
+  },
+  "required": [
+    "schema_version",
+    "ocsf_version",
+    "event_id",
+    "time",
+    "cg_ingested_at",
+    "category_uid",
+    "class_uid",
+    "activity_id",
+    "severity_id",
+    "cg_agent",
+    "cg_org"
+  ],
+  "allOf": [
+    {
+      "description": "raw_data and cg_raw_ref are mutually exclusive: a single event carries one or the other, never both.",
+      "not": {
+        "required": ["raw_data", "cg_raw_ref"]
+      }
+    }
+  ],
+  "oneOf": [
+    { "$ref": "classes/1001_filesystem_activity.json" },
+    { "$ref": "classes/1007_process_activity.json" },
+    { "$ref": "classes/3002_authentication.json" },
+    { "$ref": "classes/4001_network_activity.json" },
+    { "$ref": "classes/alert.json" },
+    { "$ref": "classes/incident.json" }
+  ]
+}

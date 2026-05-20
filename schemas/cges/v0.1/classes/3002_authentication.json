@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/classes/3002_authentication.json",
+  "title": "OCSF 3002 — Authentication",
+  "description": "OCSF Authentication class (category_uid=3 Identity & Access Management). Inherits class semantics from OCSF v1.3.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "category_uid": { "const": 3 },
+    "class_uid": { "const": 3002 },
+    "activity_id": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3, 4, 5, 6, 99],
+      "description": "0=Unknown, 1=Logon, 2=Logoff, 3=Authentication Ticket, 4=Service Ticket Request, 5=Service Ticket Renew, 6=Preauth, 99=Other."
+    },
+    "user": {
+      "$ref": "../objects/user.json"
+    },
+    "auth_factor": {
+      "$ref": "../objects/authentication_factor.json"
+    },
+    "src_endpoint": {
+      "$ref": "../objects/network_endpoint.json"
+    },
+    "dst_endpoint": {
+      "$ref": "../objects/network_endpoint.json"
+    },
+    "logon_type_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status_id": {
+      "type": "integer",
+      "enum": [0, 1, 2, 99],
+      "description": "0=Unknown, 1=Success, 2=Failure, 99=Other."
+    }
+  },
+  "required": ["category_uid", "class_uid", "activity_id", "user"]
+}

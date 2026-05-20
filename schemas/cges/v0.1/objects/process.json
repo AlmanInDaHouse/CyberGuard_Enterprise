@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/objects/process.json",
+  "title": "OCSF Process object",
+  "description": "OCSF Process object as defined in OCSF v1.3. Additional fields are permitted for OCSF extension. See ADR-0006.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "pid": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cmd_line": {
+      "type": "string"
+    },
+    "file": {
+      "$ref": "file.json"
+    },
+    "parent_process": {
+      "$ref": "process.json"
+    },
+    "user": {
+      "$ref": "user.json"
+    }
+  },
+  "required": ["pid", "name"],
+  "examples": [
+    {
+      "pid": 7144,
+      "name": "powershell.exe",
+      "cmd_line": "powershell -enc JABzAD0..."
+    }
+  ]
+}

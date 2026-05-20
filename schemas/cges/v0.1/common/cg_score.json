@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/common/cg_score.json",
+  "title": "CGES — Combined detection score",
+  "description": "Per-alert scoring composition. See ADR-0005 §Scoring composition. At least one score field must be present.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "heuristic_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "ueba_score":      { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "ml_score":        { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "final_score":     { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+  },
+  "anyOf": [
+    { "required": ["heuristic_score"] },
+    { "required": ["ueba_score"] },
+    { "required": ["ml_score"] },
+    { "required": ["final_score"] }
+  ],
+  "examples": [
+    {
+      "heuristic_score": 0.8,
+      "ueba_score": 0.4,
+      "ml_score": 0.6,
+      "final_score": 0.72
+    }
+  ]
+}

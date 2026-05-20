@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/common/cg_raw_ref.json",
+  "title": "CGES — Raw payload reference (MinIO offload)",
+  "description": "When the raw payload exceeds 64 KB, it is offloaded to MinIO and referenced via this object instead of inline raw_data. See ADR-0006 §Deliberate divergence from OCSF and ADR-0003 §Rule 3.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 hex digest of the offloaded payload (lowercase, 64 chars)."
+    },
+    "bucket": {
+      "type": "string",
+      "minLength": 1
+    },
+    "object_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "size_bytes": {
+      "type": "integer",
+      "exclusiveMinimum": 65536,
+      "description": "Payload size in bytes. Strictly greater than 64 KB; smaller payloads must use the inline raw_data field instead."
+    },
+    "content_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+/[a-z0-9.+-]+$",
+      "description": "MIME type of the offloaded payload."
+    }
+  },
+  "required": ["hash", "bucket", "object_key", "size_bytes", "content_type"],
+  "examples": [
+    {
+      "hash": "a7b3c4d5e6f7890123456789abcdef0123456789abcdef0123456789abcdef01",
+      "bucket": "cyberguard-raw",
+      "object_key": "events/2026/05/20/01934abc-def0-7100-89ab-000000000005.bin",
+      "size_bytes": 131072,
+      "content_type": "application/octet-stream"
+    }
+  ]
+}

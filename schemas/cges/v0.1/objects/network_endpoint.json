@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/objects/network_endpoint.json",
+  "title": "OCSF Network Endpoint object",
+  "description": "OCSF Network Endpoint object as defined in OCSF v1.3. Additional fields permitted for OCSF extension.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "ip": { "type": "string", "minLength": 1 },
+    "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "hostname": { "type": "string" },
+    "intermediate_ips": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["ip"],
+  "examples": [
+    {
+      "ip": "10.0.4.18",
+      "port": 49213,
+      "hostname": "fin-pc-014.acme.local"
+    }
+  ]
+}

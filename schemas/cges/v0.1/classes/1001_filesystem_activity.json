@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/classes/1001_filesystem_activity.json",
+  "title": "OCSF 1001 — File System Activity",
+  "description": "OCSF File System Activity class (category_uid=1 System Activity). Inherits class semantics from OCSF v1.3.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "category_uid": { "const": 1 },
+    "class_uid": { "const": 1001 },
+    "activity_id": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 99],
+      "description": "0=Unknown, 1=Create, 2=Read, 3=Update, 4=Delete, 5=Rename, 6=Set Attributes, 7=Set Security, 8=Get Attributes, 99=Other."
+    },
+    "file": {
+      "$ref": "../objects/file.json"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "process": { "$ref": "../objects/process.json" }
+      },
+      "required": ["process"]
+    }
+  },
+  "required": ["category_uid", "class_uid", "activity_id", "file", "actor"]
+}

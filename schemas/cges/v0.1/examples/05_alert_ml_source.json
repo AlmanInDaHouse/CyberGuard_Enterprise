@@ -1,0 +1,40 @@
+{
+  "schema_version": "0.1.0",
+  "ocsf_version": "1.3.0",
+  "event_id": "01934abc-def0-7400-89ab-000000000002",
+  "time": "2026-05-19T10:23:18.000Z",
+  "cg_ingested_at": "2026-05-19T10:23:18.150Z",
+  "category_uid": 10,
+  "class_uid": 10001,
+  "cg_kind": "alert",
+  "activity_id": 1,
+  "severity_id": 4,
+  "cg_agent": {
+    "agent_id": "01934abc-def0-7000-89ab-000000000001",
+    "agent_version": "0.4.2",
+    "agent_platform": "windows",
+    "agent_hostname": "FIN-PC-014"
+  },
+  "cg_org": {
+    "org_id": "acme",
+    "tenant": "default"
+  },
+  "cg_score": {
+    "ml_score": 0.88,
+    "final_score": 0.71
+  },
+  "cg_detection_source": "ml",
+  "cg_raw_ref": {
+    "hash": "b8e5f7a9c3d1e2b4567890abcdef0123456789abcdef0123456789abcdef0123",
+    "bucket": "cyberguard-ml-snapshots",
+    "object_key": "snapshots/2026/05/19/01934abc-def0-7400-89ab-000000000002.features.json",
+    "size_bytes": 81920,
+    "content_type": "application/json"
+  },
+  "alert_id": "01934abc-def0-7200-89ab-000000000002",
+  "title": "Anomalous outbound connection pattern",
+  "description": "Outbound connection to 185.199.108.153:443 scored as anomalous by the connection-anomaly model. Feature snapshot offloaded to MinIO; see cg_raw_ref.",
+  "source_events": ["01934abc-def0-7100-89ab-000000000002"],
+  "model_id": "model.conn_anomaly.v3",
+  "dedup_key": "FIN-PC-014::conn_anomaly::185.199.108.153"
+}

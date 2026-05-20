@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/common/cg_agent.json",
+  "title": "CGES — Agent identity object",
+  "description": "Identifies the CyberGuard agent that emitted the event. CGES-specific extension; not part of OCSF v1.3. See ADR-0006.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUIDv7 identifying the agent instance."
+    },
+    "agent_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].+)?$",
+      "description": "Semver string."
+    },
+    "agent_platform": {
+      "type": "string",
+      "enum": ["windows", "linux", "macos"]
+    },
+    "agent_hostname": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": ["agent_id", "agent_version", "agent_platform", "agent_hostname"],
+  "examples": [
+    {
+      "agent_id": "01934abc-def0-7000-89ab-000000000001",
+      "agent_version": "0.4.2",
+      "agent_platform": "windows",
+      "agent_hostname": "FIN-PC-014"
+    }
+  ]
+}

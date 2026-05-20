@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/classes/alert.json",
+  "title": "CGES — Alert",
+  "description": "CyberGuard-specific Alert class (CGES extension, no OCSF equivalent). Assigned category_uid=10 and class_uid=10001 in the CyberGuard custom UID range. cg_kind discriminator provides human-readable type. See ADR-0005 and ADR-0006.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "category_uid": { "const": 10 },
+    "class_uid": { "const": 10001 },
+    "cg_kind": { "const": "alert" },
+    "activity_id": {
+      "type": "integer",
+      "enum": [0, 1, 99],
+      "description": "0=Unknown, 1=Created, 99=Other."
+    },
+    "alert_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUIDv7."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "cg_detection_source": {
+      "type": "string",
+      "enum": ["rule", "ml", "hybrid"]
+    },
+    "cg_trust_sources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["rule", "ml", "hybrid_only"]
+      },
+      "uniqueItems": true
+    },
+    "source_events": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "rule_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when cg_detection_source is 'rule' or 'hybrid'."
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when cg_detection_source is 'ml' or 'hybrid'."
+    },
+    "dedup_key": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "category_uid",
+    "class_uid",
+    "cg_kind",
+    "activity_id",
+    "alert_id",
+    "title",
+    "cg_detection_source",
+    "source_events",
+    "dedup_key"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "cg_detection_source": { "enum": ["rule", "hybrid"] }
+        },
+        "required": ["cg_detection_source"]
+      },
+      "then": { "required": ["rule_id"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "cg_detection_source": { "enum": ["ml", "hybrid"] }
+        },
+        "required": ["cg_detection_source"]
+      },
+      "then": { "required": ["model_id"] }
+    }
+  ]
+}

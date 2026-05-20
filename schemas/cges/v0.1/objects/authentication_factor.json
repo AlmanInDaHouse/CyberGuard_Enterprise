@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/objects/authentication_factor.json",
+  "title": "OCSF Authentication Factor object",
+  "description": "OCSF Authentication Factor object as defined in OCSF v1.3. Additional fields permitted for OCSF extension.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "factor_type": {
+      "type": "string",
+      "description": "Authentication factor type (e.g. 'password', 'totp', 'webauthn')."
+    },
+    "provider": { "type": "string" }
+  },
+  "required": ["factor_type"],
+  "examples": [
+    {
+      "factor_type": "password",
+      "provider": "local"
+    }
+  ]
+}

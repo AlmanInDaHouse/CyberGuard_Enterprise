@@ -1,0 +1,44 @@
+{
+  "schema_version": "0.1.0",
+  "ocsf_version": "1.3.0",
+  "event_id": "01934abc-def0-7100-89ab-000000000001",
+  "time": "2026-05-19T10:23:10.901Z",
+  "cg_ingested_at": "2026-05-19T10:23:11.482Z",
+  "category_uid": 1,
+  "class_uid": 1007,
+  "activity_id": 1,
+  "severity_id": 5,
+  "cg_agent": {
+    "agent_id": "01934abc-def0-7000-89ab-000000000001",
+    "agent_version": "0.4.2",
+    "agent_platform": "windows",
+    "agent_hostname": "FIN-PC-014"
+  },
+  "cg_org": {
+    "org_id": "acme",
+    "tenant": "default"
+  },
+  "cg_mitre": {
+    "tactics": ["execution", "defense-evasion"],
+    "techniques": ["T1059.001", "T1027"]
+  },
+  "message": "PowerShell encoded command spawned from WinWord",
+  "process": {
+    "pid": 7144,
+    "name": "powershell.exe",
+    "cmd_line": "powershell -enc JABzAD0...",
+    "file": {
+      "name": "powershell.exe",
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "hashes": {
+        "sha256": "a7b3c4d5e6f7890123456789abcdef0123456789abcdef0123456789abcdef01"
+      }
+    }
+  },
+  "actor": {
+    "process": {
+      "pid": 4012,
+      "name": "winword.exe"
+    }
+  }
+}

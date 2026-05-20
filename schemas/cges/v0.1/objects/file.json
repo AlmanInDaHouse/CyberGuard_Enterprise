@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/objects/file.json",
+  "title": "OCSF File object",
+  "description": "OCSF File object as defined in OCSF v1.3. Additional fields permitted for OCSF extension.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "path": { "type": "string" },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+        "sha1": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+        "md5": { "type": "string", "pattern": "^[0-9a-fA-F]{32}$" }
+      }
+    },
+    "size": { "type": "integer", "minimum": 0 }
+  },
+  "required": ["name"],
+  "examples": [
+    {
+      "name": "powershell.exe",
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "hashes": {
+        "sha256": "a7b3c4d5e6f7890123456789abcdef0123456789abcdef0123456789abcdef01"
+      },
+      "size": 449024
+    }
+  ]
+}

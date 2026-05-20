@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/classes/1007_process_activity.json",
+  "title": "OCSF 1007 — Process Activity",
+  "description": "OCSF Process Activity class (category_uid=1 System Activity). Inherits class semantics from OCSF v1.3.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "category_uid": { "const": 1 },
+    "class_uid": { "const": 1007 },
+    "activity_id": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3, 4, 5, 99],
+      "description": "0=Unknown, 1=Launch, 2=Terminate, 3=Open, 4=Inject, 5=Set User ID, 99=Other."
+    },
+    "process": {
+      "$ref": "../objects/process.json"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "process": { "$ref": "../objects/process.json" }
+      }
+    }
+  },
+  "required": ["category_uid", "class_uid", "activity_id", "process"]
+}

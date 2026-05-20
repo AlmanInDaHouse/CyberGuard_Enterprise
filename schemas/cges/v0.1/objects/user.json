@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyberguard.io/schemas/cges/v0.1/objects/user.json",
+  "title": "OCSF User object",
+  "description": "OCSF User object as defined in OCSF v1.3. Additional fields permitted for OCSF extension.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "uid": { "type": "string" },
+    "type": { "type": "string" },
+    "domain": { "type": "string" }
+  },
+  "required": ["name"],
+  "examples": [
+    {
+      "name": "j.lopez",
+      "uid": "S-1-5-21-1004336348-1177238915-682003330-1013",
+      "type": "User",
+      "domain": "acme.local"
+    }
+  ]
+}
