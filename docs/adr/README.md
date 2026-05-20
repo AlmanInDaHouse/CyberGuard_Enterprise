@@ -21,6 +21,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0002](0002-language-per-component.md) | Language per component | Accepted |
 | [0003](0003-polyglot-storage.md) | Polyglot storage | Accepted |
 | [0004](0004-agent-server-protocol.md) | Agent-Server secure protocol | Accepted |
+| [0005](0005-detection-rules-and-ml-in-parallel.md) | Detection — rules and ML in parallel | Accepted |
 
 ## Dependencies
 
@@ -30,3 +31,4 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0004 → ADR-0001 (locates `agent/` and `services/ingest/`)
 - ADR-0004 → ADR-0002 (Rust for agent and Go for ingest are inputs to the protocol)
 - ADR-0004 → ADR-0003 (Redis hosts nonce cache and revocation list)
+- ADR-0005 → none (detection principle is independent of stack and storage)
