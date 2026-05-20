@@ -34,7 +34,7 @@ Same poll cadence (≈10 s) and hard timeout (10 min per workflow). Never log th
 
 ### Report format after every push
 
-```
+```text
 SHA <short-sha>
   <workflow-name-1> → <conclusion>     [run URL if failure]
   <workflow-name-2> → <conclusion>     [run URL if failure]
@@ -60,6 +60,6 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 |---|---|---|---|---|
-| _none_ | — | — | — | — |
+| *none* | — | — | — | — |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
