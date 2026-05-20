@@ -144,6 +144,15 @@ Technical, reversible, in-scope decisions are the agent's. The agent decides, ap
 - If confidence on the right answer is below roughly 70%, the agent treats the decision as ask-first rather than decide-and-communicate.
 - If a decision turns out wrong, the agent owns the rollback the same way it owned the decision. Report and fix.
 
+### Decision reporting
+
+When reporting autonomous decisions taken during a session, distinguish:
+
+1. **Anticipated decisions** — choices made up front based on the briefing or SPEC, before implementation revealed issues.
+2. **Reactive corrections** — changes made because a test or check failed, or because implementation revealed a SPEC gap.
+
+Both are valid. (1) speaks to briefing or SPEC quality; (2) speaks to what reality surfaced. Bundling them loses signal.
+
 ### Stop conditions
 
 The agent STOPS and reports to Manuel only for:
