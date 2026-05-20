@@ -6,7 +6,7 @@ All schemas are **JSON Schema draft 2020-12**.
 
 ## Layout
 
-```
+```text
 schemas/cges/v0.1/
 ├── README.md                            (this file)
 ├── event.json                           Root schema. oneOf across the six classes below.
@@ -47,6 +47,7 @@ schemas/cges/v0.1/
 - `additionalProperties: false` is used on closed CGES objects (`cg_*`). OCSF-inherited objects and classes use `additionalProperties: true` to allow OCSF extension.
 
 > **Note (gotcha):** classes under `classes/` use `additionalProperties: true` **even for CGES-specific classes** (`alert`, `incident`). This is a deliberate workaround for the `oneOf` wrapping in [`event.json`](event.json) — strict `additionalProperties: false` on a class file breaks event-level field resolution, because the class sub-schema would reject the common top-level fields (`cg_agent`, `cg_org`, `time`, etc.) that belong to the wrapping event schema. Do **not** "fix" this to `false` unless you are also refactoring the `event.json` `oneOf` pattern. See Session 3 Vuelta 2 closure notes.
+
 - Required fields are listed explicitly. No implicit optional/required.
 - Timestamps use `format: date-time` (RFC 3339 / ISO 8601 UTC with milliseconds). Server-side ±5 min skew validation lives in `cg-ingest`, not in the schema (see ADR-0004 §Server validation order).
 - `event_id` is UUIDv7 (RFC 9562). Pattern enforced at the schema level.

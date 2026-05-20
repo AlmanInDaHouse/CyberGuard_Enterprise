@@ -30,7 +30,7 @@ We need a repository layout that:
 
 We adopt a single polyglot monorepo with the following top-level structure:
 
-```
+```text
 docs/        — specifications, ADRs, architecture, security, product, operations
 schemas/     — versioned data contracts (CGES, OpenAPI)
 services/    — server-side services, one subdirectory per service

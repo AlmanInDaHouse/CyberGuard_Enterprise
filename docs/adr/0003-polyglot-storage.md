@@ -44,7 +44,7 @@ The total backend surface is bounded to **five**: PostgreSQL (with pgvector), Cl
 
 **Rule 4.** NATS JetStream subjects are hierarchical:
 
-```
+```text
 events.raw.{org}.{agent}
 events.normalized.{org}
 events.enriched.{org}

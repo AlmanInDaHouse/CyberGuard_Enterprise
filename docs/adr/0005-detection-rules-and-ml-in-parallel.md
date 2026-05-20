@@ -28,7 +28,7 @@ Rules and ML detect in parallel. Both can autonomously generate alerts. The diff
 
 Every alert carries a `detection_source` field:
 
-```
+```text
 detection_source: "rule" | "ml" | "hybrid"
 ```
 
@@ -79,7 +79,7 @@ New ML-generated alerts that appear in production without a corresponding harnes
 
 The final score of an alert combines the contributing signals:
 
-```
+```text
 final_score = w_rule · rule_score + w_ml · ml_score + w_ueba · ueba_score
 where w_rule + w_ml + w_ueba = 1.0
 ```
