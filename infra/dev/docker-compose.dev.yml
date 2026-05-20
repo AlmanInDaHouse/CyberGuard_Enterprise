@@ -1,0 +1,120 @@
+# CyberGuard — local development stack (ADR-0003 storage backends).
+# Dev only. Not for production. See infra/dev/README.md.
+
+name: cyberguard-dev
+
+networks:
+  cyberguard-dev:
+    driver: bridge
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    networks: [cyberguard-dev]
+    ports:
+      - "${CG_PG_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${CG_PG_USER:-cyberguard}
+      POSTGRES_PASSWORD: ${CG_PG_PASSWORD:-cyberguard_dev}
+      POSTGRES_DB: ${CG_PG_DB:-cyberguard}
+    volumes:
+      - cg_pg_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    networks: [cyberguard-dev]
+    ports:
+      - "${CG_CH_HTTP_PORT:-8123}:8123"
+      - "${CG_CH_TCP_PORT:-9000}:9000"
+    environment:
+      CLICKHOUSE_USER: ${CG_CH_USER:-cyberguard}
+      CLICKHOUSE_PASSWORD: ${CG_CH_PASSWORD:-cyberguard_dev}
+      CLICKHOUSE_DB: ${CG_CH_DB:-cyberguard}
+    volumes:
+      - cg_ch_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    networks: [cyberguard-dev]
+    ports:
+      - "${CG_REDIS_PORT:-6379}:6379"
+    environment:
+      CG_REDIS_PASSWORD: ${CG_REDIS_PASSWORD:-cyberguard_dev}
+    # Wrapped in sh -c so $CG_REDIS_PASSWORD is expanded by the container shell.
+    command:
+      - sh
+      - -c
+      - 'redis-server --appendonly yes --requirepass "$$CG_REDIS_PASSWORD"'
+    volumes:
+      - cg_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$CG_REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    networks: [cyberguard-dev]
+    ports:
+      - "${CG_NATS_CLIENT_PORT:-4222}:4222"
+      - "${CG_NATS_MONITOR_PORT:-8222}:8222"
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - cg_nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    restart: unless-stopped
+    networks: [cyberguard-dev]
+    ports:
+      # Host 9001/9002 to avoid clash with ClickHouse TCP 9000.
+      - "${CG_MINIO_API_PORT:-9001}:9000"
+      - "${CG_MINIO_CONSOLE_PORT:-9002}:9001"
+    environment:
+      MINIO_ROOT_USER: ${CG_MINIO_ROOT_USER:-cyberguard}
+      MINIO_ROOT_PASSWORD: ${CG_MINIO_ROOT_PASSWORD:-cyberguard_dev_minio_root}
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - cg_minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f -s http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  cg_pg_data:
+  cg_ch_data:
+  cg_redis_data:
+  cg_nats_data:
+  cg_minio_data:

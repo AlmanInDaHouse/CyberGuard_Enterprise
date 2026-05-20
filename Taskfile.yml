@@ -39,6 +39,55 @@ tasks:
     cmds:
       - npx --yes -p ajv-cli -p ajv-formats ajv validate --spec=draft2020 -c ajv-formats -s schemas/cges/v0.1/event.json -r "schemas/cges/v0.1/common/*.json" -r "schemas/cges/v0.1/objects/*.json" -r "schemas/cges/v0.1/classes/*.json" -d "schemas/cges/v0.1/examples/*.json" --all-errors --strict=false
 
+  # ------------------------------------------------------------------
+  # dev: local infrastructure (PG + pgvector / ClickHouse / Redis /
+  # NATS JetStream / MinIO) per ADR-0003. See infra/dev/README.md.
+  # ------------------------------------------------------------------
+  dev:up:
+    desc: "Bring the local dev stack up (detached). Requires infra/dev/.env."
+    preconditions:
+      - sh: 'test -f infra/dev/.env'
+        msg: "infra/dev/.env not found. Run: cp infra/dev/.env.example infra/dev/.env"
+    cmds:
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env up -d
+
+  dev:down:
+    desc: "Stop and remove dev containers. Named volumes are preserved; use dev:reset-data for a clean slate."
+    cmds:
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env down
+
+  dev:ps:
+    desc: "Show status of dev containers."
+    cmds:
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env ps
+
+  dev:logs:
+    desc: "Tail logs (last 100 lines, follow). Optional: svc=<name> to filter to a single service."
+    cmds:
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env logs -f --tail=100 {{.svc}}
+
+  dev:health:
+    desc: "Print healthcheck status per service. Exits non-zero if any service is not healthy."
+    cmds:
+      - |
+        overall=0
+        for svc in postgres clickhouse redis nats minio; do
+          cid=$(docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env ps -q "$svc" 2>/dev/null)
+          if [ -z "$cid" ]; then
+            status="missing"
+          else
+            status=$(docker inspect --format='{{`{{.State.Health.Status}}`}}' "$cid" 2>/dev/null || echo "unknown")
+          fi
+          printf "%-12s %s\n" "$svc" "$status"
+          if [ "$status" != "healthy" ]; then overall=1; fi
+        done
+        exit $overall
+
+  dev:reset-data:
+    desc: "DESTRUCTIVE — stop containers AND remove named volumes (cg_pg_data, cg_ch_data, cg_redis_data, cg_nats_data, cg_minio_data). Use only when you mean to start from scratch."
+    cmds:
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env down -v
+
   reset-data:
     desc: "Wipe local data volumes."
     cmds:
