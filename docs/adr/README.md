@@ -18,3 +18,8 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-monorepo-layout.md) | Monorepo layout for CyberGuard | Accepted |
+| [0002](0002-language-per-component.md) | Language per component | Accepted |
+
+## Dependencies
+
+- ADR-0002 → ADR-0001 (defines the top-level components this ADR assigns languages to)
