@@ -166,6 +166,6 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 |---|---|---|---|---|
-| *none* | — | — | — | — |
+| `rust-ci` | current commit (declares this debt) | Harness-first RED phase for SPEC-001. The 10 integration tests under `agent/cg-agent/tests/` exercise the public API in `cg-agent` that is currently `todo!()`-stubbed; the implementation that turns them green lands in the next commit of this session. `cargo fmt` and `cargo clippy -- -D warnings` continue to pass; only `cargo test` is red. | Manuel | Next commit in this session |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.

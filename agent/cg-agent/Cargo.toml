@@ -56,10 +56,11 @@ tokio-util = "0.7"
 
 # --- Dev dependencies ---
 #
-# Mock HTTP server for the integration harness (added in commit 4).
+# Mock HTTP server for the integration harness.
 # axum picked over warp / hyper-direct because it builds on tokio +
 # tower, is the most active maintenance line as of 2026, and the
 # learning surface is the smallest of the three.
 [dev-dependencies]
 axum = "0.7"
 tokio = { version = "1.42", features = ["full", "macros", "test-util"] }
+tempfile = "3"
