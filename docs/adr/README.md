@@ -22,6 +22,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0003](0003-polyglot-storage.md) | Polyglot storage | Accepted |
 | [0004](0004-agent-server-protocol.md) | Agent-Server secure protocol | Accepted |
 | [0005](0005-detection-rules-and-ml-in-parallel.md) | Detection — rules and ML in parallel | Accepted |
+| [0006](0006-cges-ocsf-alignment.md) | CGES alignment with OCSF v1.3 | Accepted |
 
 ## Dependencies
 
@@ -32,3 +33,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0004 → ADR-0002 (Rust for agent and Go for ingest are inputs to the protocol)
 - ADR-0004 → ADR-0003 (Redis hosts nonce cache and revocation list)
 - ADR-0005 → none (detection principle is independent of stack and storage)
+- ADR-0006 → ADR-0001 (places `schemas/cges/` per the monorepo layout)
+- ADR-0006 → ADR-0003 (ClickHouse partitioning on `event_id` and `occurred_at`; MinIO hosts the offloaded raw payload via `cg_raw_ref`)
+- ADR-0006 → ADR-0004 (CGES is the body inside the signed envelope defined by the agent-server protocol)
+- ADR-0006 → ADR-0005 (`cg_detection_source`, `cg_trust_sources`, and `cg_score` are first-class CGES fields because of the detection decision)
