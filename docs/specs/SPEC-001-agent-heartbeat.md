@@ -41,6 +41,7 @@ It is also the **pattern-setting SPEC** for the project. Future Rust modules, fu
 - Buffered offline mode with disk-encrypted local store — per ADR-0004 §Heartbeat and degraded mode, future SPEC.
 - Telemetry events of any kind (process, network, file, auth). This SPEC carries no `events[]` payload; the heartbeat is liveness-only.
 - Server implementation. SPEC-001 tests use a tiny in-process mock; the production server (TypeScript + Fastify per ADR-0002) is a separate SPEC.
+- Authentication of any kind. The SPEC-001 endpoint trusts whatever `agent.id` is asserted in the envelope. The `agent.id` in `agent.toml` is operator-provisioned for the lifetime of SPEC-001 and is not cryptographically verifiable. A future sub-SPEC (per ADR-0004 §Enrollment) replaces this with X.509-bound identity. SPEC-001 deployments are therefore limited to closed test environments.
 
 ## Functional requirements
 
@@ -48,12 +49,13 @@ It is also the **pattern-setting SPEC** for the project. Future Rust modules, fu
 - **FR-002.** Required configuration keys are: `server.url` (string, base URL of the heartbeat endpoint), `agent.id` (UUIDv7 string), `agent.hostname` (non-empty string). Missing required keys cause the agent to exit with a non-zero code and a clear error message before any network activity.
 - **FR-003.** Optional configuration keys with defaults are: `heartbeat.interval_seconds` (default `30`), `heartbeat.request_timeout_seconds` (default `10`), `heartbeat.max_retries` (default `3`), `heartbeat.backoff_initial_ms` (default `1000`), `heartbeat.backoff_factor` (default `2.0`), `heartbeat.backoff_max_ms` (default `60000`), `log.level` (default `"info"`).
 - **FR-004.** The agent sends an initial heartbeat **within 5 seconds of process start** after configuration is validated. This first heartbeat carries `sequence_number = 1`.
-- **FR-005.** After the initial heartbeat, the agent sends a heartbeat every `heartbeat.interval_seconds` seconds. Each subsequent heartbeat increments `sequence_number` by exactly 1.
+- **FR-005.** After the initial heartbeat, the agent sends a heartbeat every `heartbeat.interval_seconds` seconds. Each subsequent heartbeat increments `sequence_number` by exactly 1. A new `sequence_number` is assigned at each scheduling tick, regardless of whether the previous heartbeat was successfully delivered. Sequence gaps observed at the server therefore indicate undelivered heartbeats, not retries.
 - **FR-006.** The heartbeat envelope is POSTed as JSON to `{server.url}/v1/agents/heartbeat`. The endpoint is fixed in SPEC-001; routing is not configurable.
 - **FR-007.** On transport failure (network error, non-2xx HTTP response, request timeout), the agent retries with exponential backoff: `backoff_initial_ms` × `backoff_factor^n`, capped at `backoff_max_ms`, up to `max_retries` attempts. The `sequence_number` does not increment across retries of the same heartbeat — only one logical heartbeat per interval.
 - **FR-008.** On `SIGINT` / `Ctrl+C`, the agent ceases scheduling new heartbeats, sends a final heartbeat with `status = "going_offline"`, and exits with code `0`. The final heartbeat is best-effort: a single attempt with the normal request timeout, no retries.
 - **FR-009.** All log output goes to stdout as one JSON object per line. No log lines on stderr (stderr is reserved for fatal pre-logging-init errors only).
 - **FR-010.** The agent emits a log entry at level `info` for each heartbeat sent (regardless of success) and at level `warn` for each transport failure, with the failing endpoint, attempt number, and error reason included as structured fields.
+- **FR-011.** Heartbeats are scheduled on an absolute timeline anchored at `start_time` (the agent's UTC clock at the moment the configuration validates). The N-th heartbeat (1-indexed) is scheduled at `start_time + (N − 1) × interval_seconds`. Failures or retries of an earlier heartbeat do not shift the schedule of subsequent heartbeats.
 
 ## Non-functional requirements
 
@@ -141,29 +143,25 @@ Startup
         ├─[invalid]──► ExitConfigError (code 2)
         └─[valid]
               └─► InitLogger
-                    └─► Connecting (first heartbeat)
-                          ├─[success]──► Heartbeating ──┐
-                          └─[exhausted retries]──► Heartbeating (next tick)
-                                                          │
-                                          (every interval)│
-                                                          ▼
-                                              Heartbeating
-                                                          │
-                                  ┌───────────────────────┤
-                                  │ on SIGINT             │
-                                  ▼                       │
-                          ShuttingDown                    │
-                          (final heartbeat, status=
-                           "going_offline", no retry)
+                    └─► Heartbeating ──┐
+                              ▲        │ every interval
+                              └────────┘ (tick N: send heartbeat
+                                          sequence_number = N, schedule
+                                          tick N+1 at start_time + N · interval)
+                                  │
+                                  │ on SIGINT
+                                  ▼
+                          ShuttingDown
+                          (final heartbeat, status =
+                           "going_offline", single attempt)
                                   │
                                   ▼
                               Exit (code 0)
 ```
 
-- **LoadConfig** — read TOML, validate, populate the in-memory config struct.
+- **LoadConfig** — read TOML, validate, populate the in-memory config struct. Record `start_time` (UTC) immediately after validation succeeds; this is the schedule anchor of FR-011.
 - **InitLogger** — initialize tracing-subscriber with JSON formatter at the configured level. After this point, no logs go to stderr except the final panic message (if any).
-- **Connecting** — emit the first heartbeat (`sequence_number = 1`, `status = "online"`, `uptime_seconds = 0`). Apply the retry policy (FR-007).
-- **Heartbeating** — schedule the next heartbeat at `start_time + N × interval`. Track `sequence_number`. Apply the retry policy on each attempt.
+- **Heartbeating** — single state covering the entire heartbeat lifecycle. Tick `N` (1-indexed, starting at 1) fires at `start_time + (N − 1) × interval_seconds`. Each tick assigns `sequence_number = N`, attempts the heartbeat with the retry policy (FR-007), and unconditionally schedules tick `N + 1`. Retry failures of tick `N` do not delay tick `N + 1`.
 - **ShuttingDown** — triggered by `tokio::signal::ctrl_c()`. Cancel the scheduler, send the final heartbeat (`status = "going_offline"`, one attempt only, normal timeout), exit `0` regardless of the final heartbeat's success.
 
 ## Failure modes
@@ -204,13 +202,14 @@ Each AC maps 1:1 to one Rust integration test under `agent/cg-agent/tests/`. Tes
 
 - **AC-001.** Given a valid `agent.toml`, the agent starts, validates config, and reaches the Heartbeating state without error.
 - **AC-002.** Given a valid config and a reachable mock server, the agent sends its first heartbeat within 5 seconds of process start.
-- **AC-003.** Given `heartbeat.interval_seconds = 1` (test override), the agent sends 3 heartbeats over a ~3-second window with intervals within ±500 ms of each other.
+- **AC-003.** Given `heartbeat.interval_seconds = 1` (test override) and `start_time` recorded at process startup, the agent sends 3 heartbeats whose `sent_at` timestamps each fall within ±500 ms of `start_time + (N − 1) × 1 s` for N ∈ {1, 2, 3}. (Anchor-relative drift bound from NFR-002, applied to the test scenario.)
 - **AC-004.** Heartbeat envelopes received by the mock server have `sequence_number` values that are monotonically increasing by exactly 1, starting at 1.
 - **AC-005.** When the mock server returns HTTP 503 on the first 2 attempts of a heartbeat and HTTP 200 on the 3rd, the agent eventually delivers that heartbeat and the next interval still ticks. The retry attempts back off by `backoff_initial_ms × backoff_factor^n`.
 - **AC-006.** When the mock server is unreachable for the entire `max_retries` window of a heartbeat, the agent emits a `warn` log line `heartbeat failed after retries` and continues to the next interval (does NOT exit).
 - **AC-007.** When the agent receives `SIGINT` / `Ctrl+C` while in Heartbeating, it sends one final heartbeat with `status = "going_offline"` and exits with code `0` within 2 seconds of the signal.
 - **AC-008.** Given a config file missing the `server.url` key, the agent exits with code `2` and writes a stderr line containing the substring `missing key 'server.url'`.
 - **AC-009.** All stdout lines emitted by the agent during a normal run are valid JSON, each containing `timestamp`, `level`, and `message` fields.
+- **AC-010.** When the mock server rejects every retry of heartbeat N (so heartbeat N is never accepted), the next scheduling tick still arrives and the next received heartbeat carries `sequence_number = N + 1`. Sequence gaps observed at the server indicate undelivered heartbeats, not retries.
 
 ## References
 
