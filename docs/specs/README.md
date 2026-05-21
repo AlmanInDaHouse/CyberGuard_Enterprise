@@ -23,3 +23,4 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 |---|---|---|
 | [SPEC-001](SPEC-001-agent-heartbeat.md) | Agent heartbeat | Accepted |
 | [SPEC-002](SPEC-002-agent-enrollment.md) | Agent enrollment | Accepted |
+| [SPEC-003](SPEC-003-mtls-signed-envelope.md) | mTLS 1.3 and signed envelope | Draft |
