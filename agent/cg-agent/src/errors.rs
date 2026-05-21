@@ -49,6 +49,13 @@ pub enum SecureStoreError {
 /// documented exit code; see `exit_code()`.
 #[derive(Debug, Error)]
 pub enum EnrollmentError {
+    /// First-run enrollment was requested but `enrollment.token` is
+    /// absent or empty (FR-002). Shares the config-error exit code (2),
+    /// and renders the same `missing key '<path>'` substring as
+    /// `ConfigError::MissingKey` so the stderr contract is uniform.
+    #[error("invalid config: missing key 'enrollment.token'")]
+    MissingToken,
+
     /// Server refused the token (401/403), token already used (409),
     /// or returned a malformed body. Terminal — no retry. Exit 3.
     #[error("enrollment refused: {0}")]
@@ -67,6 +74,7 @@ impl EnrollmentError {
     /// Process exit code per SPEC-002 §Failure modes.
     pub fn exit_code(&self) -> u8 {
         match self {
+            EnrollmentError::MissingToken => 2,
             EnrollmentError::Refused(_) => 3,
             EnrollmentError::Unreachable { .. } => 4,
             EnrollmentError::Persistence(_) => 5,

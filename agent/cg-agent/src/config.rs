@@ -214,7 +214,10 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
     Ok(config)
 }
 
-fn is_uuidv7(s: &str) -> bool {
+/// True if `s` matches the textual UUIDv7 pattern (lowercase hex, version
+/// nibble `7`, RFC 4122 variant). Reused by SPEC-002 enrollment to
+/// validate the server-assigned `agent_id` (FR-006).
+pub(crate) fn is_uuidv7(s: &str) -> bool {
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 5 {
         return false;

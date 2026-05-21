@@ -60,12 +60,99 @@ pub struct DpapiSecureStore;
 
 #[cfg(windows)]
 impl SecureStore for DpapiSecureStore {
-    fn seal(&self, _plaintext: &[u8]) -> Result<Vec<u8>, SecureStoreError> {
-        todo!("CryptProtectData (CRYPTPROTECT_LOCAL_MACHINE) in the enrollment commit")
+    fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecureStoreError> {
+        use windows_sys::Win32::Foundation::GetLastError;
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Cryptography::{
+            CryptProtectData, CRYPTPROTECT_LOCAL_MACHINE, CRYPT_INTEGER_BLOB,
+        };
+
+        let in_blob = CRYPT_INTEGER_BLOB {
+            cbData: plaintext.len() as u32,
+            pbData: plaintext.as_ptr() as *mut u8,
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
+
+        // SAFETY: `in_blob` borrows `plaintext` for the duration of the
+        // call; DPAPI writes the ciphertext into `out_blob`, which we own
+        // and free below. All optional pointer args are null.
+        let ok = unsafe {
+            CryptProtectData(
+                &in_blob as *const CRYPT_INTEGER_BLOB,
+                std::ptr::null(), // szDataDescr
+                std::ptr::null(), // pOptionalEntropy
+                std::ptr::null(), // pvReserved
+                std::ptr::null(), // pPromptStruct
+                CRYPTPROTECT_LOCAL_MACHINE,
+                &mut out_blob as *mut CRYPT_INTEGER_BLOB,
+            )
+        };
+        if ok == 0 {
+            let gle = unsafe { GetLastError() };
+            return Err(SecureStoreError::Seal(format!(
+                "CryptProtectData failed (GetLastError={gle})"
+            )));
+        }
+
+        // SAFETY: on success `out_blob.pbData` is a LocalAlloc'd buffer of
+        // `cbData` bytes. Copy it out, then release it with LocalFree.
+        let sealed = unsafe {
+            std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec()
+        };
+        unsafe {
+            LocalFree(out_blob.pbData as *mut core::ffi::c_void);
+        }
+        Ok(sealed)
     }
 
-    fn unseal(&self, _blob: &[u8]) -> Result<Vec<u8>, SecureStoreError> {
-        todo!("CryptUnprotectData in the enrollment commit")
+    fn unseal(&self, blob: &[u8]) -> Result<Vec<u8>, SecureStoreError> {
+        use windows_sys::Win32::Foundation::GetLastError;
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Cryptography::{
+            CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+        };
+
+        let in_blob = CRYPT_INTEGER_BLOB {
+            cbData: blob.len() as u32,
+            pbData: blob.as_ptr() as *mut u8,
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
+
+        // SAFETY: as `seal`, but in reverse. `CRYPTPROTECT_UI_FORBIDDEN`
+        // guarantees no interactive prompt in a service context. The
+        // machine scope is recorded in the blob at protect time, so it
+        // need not be repeated here.
+        let ok = unsafe {
+            CryptUnprotectData(
+                &in_blob as *const CRYPT_INTEGER_BLOB,
+                std::ptr::null_mut(), // ppszDataDescr
+                std::ptr::null(),     // pOptionalEntropy
+                std::ptr::null(),     // pvReserved
+                std::ptr::null(),     // pPromptStruct
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out_blob as *mut CRYPT_INTEGER_BLOB,
+            )
+        };
+        if ok == 0 {
+            let gle = unsafe { GetLastError() };
+            return Err(SecureStoreError::Unseal(format!(
+                "CryptUnprotectData failed (GetLastError={gle}); key.dat may originate from another machine"
+            )));
+        }
+
+        let plain = unsafe {
+            std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec()
+        };
+        unsafe {
+            LocalFree(out_blob.pbData as *mut core::ffi::c_void);
+        }
+        Ok(plain)
     }
 
     fn backend_name(&self) -> &'static str {

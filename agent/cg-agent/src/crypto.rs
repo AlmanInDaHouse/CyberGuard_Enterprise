@@ -19,15 +19,25 @@ pub struct AgentKeypair {
 
 impl AgentKeypair {
     /// Generate a fresh keypair from OS entropy (`getrandom` →
-    /// BCryptGenRandom on Windows, /dev/urandom on Unix).
+    /// `BCryptGenRandom` on Windows, `/dev/urandom` on Unix). The 32-byte
+    /// seed lives in a `Zeroizing` buffer and is wiped when this function
+    /// returns (NFR-002).
     pub fn generate() -> Result<Self, getrandom::Error> {
-        todo!("implemented in the enrollment commit")
+        let mut seed = zeroize::Zeroizing::new([0u8; KEY_LEN]);
+        getrandom::getrandom(seed.as_mut())?;
+        Ok(Self::from_secret_bytes(&seed))
     }
 
     /// Reconstruct a keypair from a 32-byte secret seed (e.g. after
-    /// unsealing `key.dat`).
-    pub fn from_secret_bytes(_secret: &[u8; KEY_LEN]) -> Self {
-        todo!("implemented in the enrollment commit")
+    /// unsealing `key.dat`). The seed is copied into the `SigningKey`,
+    /// which zeroes its own secret on drop.
+    pub fn from_secret_bytes(secret: &[u8; KEY_LEN]) -> Self {
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(secret);
+        let public_key = signing_key.verifying_key().to_bytes();
+        Self {
+            signing_key,
+            public_key,
+        }
     }
 
     /// The raw 32-byte public key.
