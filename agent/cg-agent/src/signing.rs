@@ -6,6 +6,8 @@
 use crate::crypto::AgentKeypair;
 use crate::envelope::HeartbeatEnvelope;
 use crate::errors::SigningError;
+use base64::Engine as _;
+use ed25519_dalek::Signer as _;
 use serde::{Deserialize, Serialize};
 
 /// Outer envelope version constant (SPEC-003 §Data contracts).
@@ -31,15 +33,48 @@ pub struct OuterEnvelope {
     pub signature: String,
 }
 
+fn b64url(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
 /// Build and sign an outer envelope around `body`: generate a fresh
 /// 16-byte `OsRng` nonce, set `sent_at`, canonicalize the
 /// envelope-minus-signature (JCS), and sign it with the agent key.
 /// `sequence_number` mirrors `body.sequence_number`.
+///
+/// The signed region is built by serializing the assembled envelope to a
+/// JSON value, removing the (placeholder) `signature` field, and running
+/// JCS over the remainder. The server verifies by recomputing the same
+/// canonicalization over the received envelope minus its signature, so
+/// the two byte strings are identical by construction.
 pub fn seal_envelope(
-    _body: HeartbeatEnvelope,
-    _agent_id: &str,
-    _keypair: &AgentKeypair,
-    _sent_at: &str,
+    body: HeartbeatEnvelope,
+    agent_id: &str,
+    keypair: &AgentKeypair,
+    sent_at: &str,
 ) -> Result<OuterEnvelope, SigningError> {
-    todo!("implemented in the SPEC-003 implementation commit")
+    let mut nonce_bytes = [0u8; NONCE_LEN];
+    getrandom::getrandom(&mut nonce_bytes)
+        .map_err(|e| SigningError::Sign(format!("nonce generation failed: {e}")))?;
+
+    let mut envelope = OuterEnvelope {
+        outer_envelope_version: OUTER_ENVELOPE_VERSION.to_string(),
+        agent_id: agent_id.to_string(),
+        sequence_number: body.sequence_number,
+        nonce: b64url(&nonce_bytes),
+        sent_at: sent_at.to_string(),
+        body,
+        signature: String::new(),
+    };
+
+    let mut value = serde_json::to_value(&envelope)
+        .map_err(|e| SigningError::Canonical(format!("serialize envelope: {e}")))?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("signature");
+    }
+    let canonical = crate::canonical::canonical_bytes(&value)?;
+
+    let signature = keypair.signing_key().sign(&canonical);
+    envelope.signature = b64url(&signature.to_bytes());
+    Ok(envelope)
 }

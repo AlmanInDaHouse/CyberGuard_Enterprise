@@ -11,6 +11,6 @@
 use crate::errors::SigningError;
 
 /// Canonicalize a JSON value to its RFC 8785 (JCS) byte form.
-pub fn canonical_bytes(_value: &serde_json::Value) -> Result<Vec<u8>, SigningError> {
-    todo!("implemented in the SPEC-003 implementation commit")
+pub fn canonical_bytes(value: &serde_json::Value) -> Result<Vec<u8>, SigningError> {
+    serde_jcs::to_vec(value).map_err(|e| SigningError::Canonical(e.to_string()))
 }

@@ -172,14 +172,166 @@ where
 /// whose `exit_code()` is 6/7/8 per SPEC-003 §Failure modes; a server
 /// rejection of a signed envelope is non-fatal (logged, next interval).
 pub async fn run_secure<F>(
-    _config: AgentConfig,
-    _identity: crate::identity::Identity,
-    _shutdown_signal: F,
+    config: AgentConfig,
+    identity: crate::identity::Identity,
+    shutdown_signal: F,
 ) -> Result<(), AgentError>
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    todo!("implemented in the SPEC-003 implementation commit")
+    use crate::errors::TlsError;
+
+    let start_time = Instant::now();
+    let interval = Duration::from_secs(config.heartbeat.interval_seconds);
+    let timeout = Duration::from_secs(config.heartbeat.request_timeout_seconds);
+
+    // Build the TLS client config from the trust anchor + SPEC-002 identity.
+    let trust_anchor_path = config.server.trust_anchor_path.as_ref().ok_or_else(|| {
+        TlsError::ClientConfig("secure path requires server.trust_anchor_path".to_string())
+    })?;
+    let trust_anchor_pem = std::fs::read(trust_anchor_path).map_err(|e| {
+        TlsError::ClientConfig(format!("read trust anchor {trust_anchor_path}: {e}"))
+    })?;
+    let client_config = crate::tls::build_client_config(&trust_anchor_pem, &identity)?;
+    let sender = crate::tls::SecureSender::new(client_config, &config.server.url, timeout)?;
+
+    let agent_block = AgentBlock {
+        agent_id: identity.agent_id.clone(),
+        agent_version: env!("CARGO_PKG_VERSION").to_string(),
+        agent_platform: detect_platform().to_string(),
+        agent_hostname: config.agent.hostname.clone(),
+    };
+    let agent_id = identity.agent_id.clone();
+    let keypair = &identity.keypair;
+    const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
+
+    let mut shutdown_signal = pin!(shutdown_signal);
+    let mut sequence: u64 = 0;
+
+    loop {
+        sequence += 1;
+        let target = start_time + interval.saturating_mul((sequence - 1) as u32);
+        let until = target.saturating_duration_since(Instant::now());
+
+        tokio::select! {
+            _ = tokio::time::sleep(until) => {
+                send_secure_with_retry(
+                    &sender, HEARTBEAT_PATH, &agent_block, sequence, start_time,
+                    &agent_id, keypair, &config.heartbeat, HeartbeatStatus::Online,
+                ).await?;
+            }
+            _ = &mut shutdown_signal => {
+                tracing::info!(signal = "shutdown", "shutdown signal received");
+                send_secure_once(
+                    &sender, HEARTBEAT_PATH, &agent_block, sequence, start_time,
+                    &agent_id, keypair, HeartbeatStatus::GoingOffline,
+                ).await;
+                tracing::info!(uptime_seconds = start_time.elapsed().as_secs(), "agent stopping");
+                return Ok(());
+            }
+        }
+    }
+}
+
+/// Seal and send one heartbeat over TLS with the SPEC-001 retry policy.
+/// Returns `Ok(())` on delivery, on a non-fatal server rejection, and on
+/// transient-failure exhaustion (all "warn, next interval"). Returns
+/// `Err` only on a fatal TLS (exit 6/7) or signing (exit 8) failure.
+#[allow(clippy::too_many_arguments)]
+async fn send_secure_with_retry(
+    sender: &crate::tls::SecureSender,
+    path: &str,
+    agent_block: &AgentBlock,
+    sequence: u64,
+    start_time: Instant,
+    agent_id: &str,
+    keypair: &crate::crypto::AgentKeypair,
+    heartbeat: &crate::config::HeartbeatConfig,
+    status: HeartbeatStatus,
+) -> Result<(), AgentError> {
+    use crate::errors::{SigningError, TlsError};
+    use crate::tls::SendResult;
+
+    let mut attempt: u32 = 0;
+    let mut backoff_ms = heartbeat.backoff_initial_ms;
+
+    loop {
+        attempt += 1;
+        let inner = build_envelope(agent_block, sequence, start_time, Utc::now(), status);
+        let sent_at = inner.sent_at.clone();
+        let outer = crate::signing::seal_envelope(inner, agent_id, keypair, &sent_at)?;
+        let bytes = serde_json::to_vec(&outer)
+            .map_err(|e| SigningError::Canonical(format!("serialize outer envelope: {e}")))?;
+
+        match sender.send(path, &bytes).await {
+            SendResult::Status(s) if (200..300).contains(&s) => {
+                tracing::info!(
+                    sequence_number = sequence,
+                    status = ?status,
+                    sent_at = %sent_at,
+                    response_status = s,
+                    "signed heartbeat sent"
+                );
+                return Ok(());
+            }
+            SendResult::Status(s) => {
+                tracing::warn!(
+                    sequence_number = sequence,
+                    response_status = s,
+                    "signed envelope rejected by server"
+                );
+                return Ok(());
+            }
+            SendResult::ServerCertFatal(m) => {
+                return Err(TlsError::ServerCertUntrusted(m).into());
+            }
+            SendResult::ClientCertFatal(m) => {
+                return Err(TlsError::ClientCertRejected(m).into());
+            }
+            SendResult::Transient(m) => {
+                if attempt >= heartbeat.max_retries {
+                    tracing::warn!(
+                        sequence_number = sequence,
+                        attempts = attempt,
+                        error = %m,
+                        "secure heartbeat failed after retries"
+                    );
+                    return Ok(());
+                }
+                tracing::warn!(
+                    sequence_number = sequence,
+                    attempt,
+                    backoff_ms,
+                    error = %m,
+                    "secure heartbeat retry"
+                );
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                backoff_ms = ((backoff_ms as f64) * heartbeat.backoff_factor) as u64;
+                backoff_ms = backoff_ms.min(heartbeat.backoff_max_ms);
+            }
+        }
+    }
+}
+
+/// Best-effort single send for the graceful-shutdown final heartbeat.
+#[allow(clippy::too_many_arguments)]
+async fn send_secure_once(
+    sender: &crate::tls::SecureSender,
+    path: &str,
+    agent_block: &AgentBlock,
+    sequence: u64,
+    start_time: Instant,
+    agent_id: &str,
+    keypair: &crate::crypto::AgentKeypair,
+    status: HeartbeatStatus,
+) {
+    let inner = build_envelope(agent_block, sequence, start_time, Utc::now(), status);
+    let sent_at = inner.sent_at.clone();
+    if let Ok(outer) = crate::signing::seal_envelope(inner, agent_id, keypair, &sent_at) {
+        if let Ok(bytes) = serde_json::to_vec(&outer) {
+            let _ = sender.send(path, &bytes).await;
+        }
+    }
 }
 
 /// The compile-time target platform string carried in the heartbeat

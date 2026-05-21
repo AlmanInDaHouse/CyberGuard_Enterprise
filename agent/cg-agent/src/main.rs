@@ -1,12 +1,13 @@
-//! CyberGuard agent binary — SPEC-001 (heartbeat) + SPEC-002 (enrollment).
+//! CyberGuard agent binary — SPEC-001 (heartbeat) + SPEC-002 (enrollment)
+//! + SPEC-003 (mTLS 1.3 + signed envelope).
 //!
 //! Wires the CLI (`--config <path>`), configuration loading, JSON logger
-//! initialisation, the load-or-enroll identity step (SPEC-002, when an
-//! `[enrollment]` block is configured), and the heartbeat run loop with
-//! graceful shutdown on `Ctrl+C`.
+//! initialisation, the load-or-enroll identity step (SPEC-002), the
+//! secure heartbeat path (SPEC-003, when `server.trust_anchor_path` is
+//! set), and graceful shutdown on `Ctrl+C`.
 
-use cg_agent::errors::EnrollmentError;
-use cg_agent::{config, identity, init_logger_with_writer, log_lifecycle_event, run};
+use cg_agent::errors::{AgentError, EnrollmentError, TlsError};
+use cg_agent::{config, identity, init_logger_with_writer, log_lifecycle_event, run, run_secure};
 use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -40,10 +41,30 @@ async fn main() -> ExitCode {
 
     log_lifecycle_event("agent starting", "main");
 
-    // SPEC-002: when an `[enrollment]` block is configured, resolve the
-    // agent identity (load-or-enroll) before heartbeating, and adopt the
-    // server-assigned `agent_id`. Without the block, run the SPEC-001
-    // closed-test path unchanged.
+    let shutdown = cg_agent::shutdown::wait_for_shutdown();
+
+    // SPEC-003 secure path: TLS 1.3 mTLS + signed envelope, using the
+    // SPEC-002 identity. Requires enrollment to have produced an identity.
+    if cfg.server.trust_anchor_path.is_some() {
+        let id = match identity::ensure_identity(&cfg, &cli.config).await {
+            Ok(id) => id,
+            Err(e) => {
+                report_enrollment_error(&e);
+                return ExitCode::from(e.exit_code());
+            }
+        };
+        cfg.agent.id = id.agent_id.clone();
+        return match run_secure(cfg, id, shutdown).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                report_agent_error(&e);
+                ExitCode::from(agent_exit_code(&e))
+            }
+        };
+    }
+
+    // SPEC-002 path: enroll (if configured) then the SPEC-001 plain-HTTP
+    // heartbeat, adopting the server-assigned agent_id.
     if cfg.enrollment.is_some() {
         match identity::ensure_identity(&cfg, &cli.config).await {
             Ok(id) => cfg.agent.id = id.agent_id,
@@ -54,7 +75,7 @@ async fn main() -> ExitCode {
         }
     }
 
-    let shutdown = cg_agent::shutdown::wait_for_shutdown();
+    // SPEC-001 plain path.
     match run(cfg, shutdown).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -64,9 +85,7 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Emit the SPEC-002 §Failure-modes stderr line for an enrollment error.
-/// The logger is already initialised here, but the documented contract is
-/// a single `cg-agent: ...` line on stderr, so we keep it explicit.
+/// SPEC-002 §Failure-modes stderr line for an enrollment error.
 fn report_enrollment_error(err: &EnrollmentError) {
     match err {
         EnrollmentError::MissingToken => eprintln!("cg-agent: {err}"),
@@ -75,5 +94,33 @@ fn report_enrollment_error(err: &EnrollmentError) {
             eprintln!("cg-agent: enrollment failed: server unreachable after {attempts} attempts")
         }
         EnrollmentError::Persistence(msg) => eprintln!("cg-agent: identity error: {msg}"),
+    }
+}
+
+/// SPEC-003 §Failure-modes stderr line for a secure-path error.
+fn report_agent_error(err: &AgentError) {
+    match err {
+        AgentError::Tls(TlsError::ServerCertUntrusted(m)) => {
+            eprintln!("cg-agent: tls: server certificate verification failed: {m}")
+        }
+        AgentError::Tls(TlsError::ClientConfig(m)) => {
+            eprintln!("cg-agent: tls: client configuration failed: {m}")
+        }
+        AgentError::Tls(TlsError::ClientCertRejected(_)) => {
+            eprintln!("cg-agent: tls: server rejected client certificate")
+        }
+        AgentError::Signing(s) => eprintln!("cg-agent: signing failed: {s}"),
+        other => eprintln!("cg-agent: {other}"),
+    }
+}
+
+/// Map an `AgentError` to its process exit code (SPEC-003 §Failure modes).
+fn agent_exit_code(err: &AgentError) -> u8 {
+    match err {
+        AgentError::Tls(t) => t.exit_code(),
+        AgentError::Signing(s) => s.exit_code(),
+        AgentError::Enrollment(en) => en.exit_code(),
+        AgentError::Config(_) => 2,
+        _ => 1,
     }
 }

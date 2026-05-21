@@ -2,11 +2,11 @@
 
 - **ID:** SPEC-003
 - **Title:** mTLS 1.3 and signed envelope
-- **Status:** Draft
+- **Status:** Accepted
 - **Depends on:** ADR-0001, ADR-0002, ADR-0004 §Transport / §Message integrity / §Server validation order, ADR-0006, SPEC-001, SPEC-002
 - **Authors:** Manuel (product owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-05-21
-- **Last updated:** 2026-05-21
+- **Last updated:** 2026-05-22
 
 ## Motivation
 

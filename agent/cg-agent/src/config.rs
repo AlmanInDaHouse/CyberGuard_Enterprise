@@ -264,6 +264,31 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
         ));
     }
 
+    // SPEC-003 §Configuration: when the secure path is configured, the
+    // server URL must be https, the canonical form must be JCS, and the
+    // minimum TLS version must be 1.3.
+    if config.server.trust_anchor_path.is_some() {
+        if !config.server.url.starts_with("https://") {
+            return Err(ConfigError::Invalid(
+                "server.url must use https when server.trust_anchor_path is set".to_string(),
+            ));
+        }
+        if let Some(tls) = &config.tls {
+            if tls.minimum_version != "1.3" {
+                return Err(ConfigError::Invalid(
+                    "tls.minimum_version must be \"1.3\"".to_string(),
+                ));
+            }
+        }
+        if let Some(envelope_cfg) = &config.envelope {
+            if envelope_cfg.canonical_form != "JCS" {
+                return Err(ConfigError::Invalid(
+                    "envelope.canonical_form must be \"JCS\"".to_string(),
+                ));
+            }
+        }
+    }
+
     Ok(config)
 }
 

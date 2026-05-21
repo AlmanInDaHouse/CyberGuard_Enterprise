@@ -175,6 +175,6 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 |---|---|---|---|---|
-| rust-ci | this commit (B4 harness) | Harness-first RED phase: the 9 SPEC-003 mTLS/signed-envelope AC tests landed before implementation, driving the `run_secure` `todo!()`. Intentional and pre-authorized in the Session 7 briefing (declare debt in the same commit that turns rust-ci red). SPEC-001 (10) + SPEC-002 (11) tests still pass. | Manuel | Cleared by the B5 implementation commit, same session (2026-05-22). |
+| *none* | — | — | — | — |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
