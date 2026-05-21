@@ -12,6 +12,11 @@ pub struct AgentConfig {
     pub heartbeat: HeartbeatConfig,
     #[serde(default)]
     pub log: LogConfig,
+    /// Enrollment block (SPEC-002 §Configuration). Absent for SPEC-001
+    /// closed-test configs (`None`); present once the agent is wired for
+    /// X.509-bound identity. Optional so SPEC-001 configs still parse.
+    #[serde(default)]
+    pub enrollment: Option<EnrollmentConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -45,6 +50,33 @@ pub struct HeartbeatConfig {
 pub struct LogConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
+}
+
+/// Enrollment configuration (SPEC-002 §Configuration). The `[enrollment]`
+/// table in `agent.toml`. Paths are required and explicit — the installer
+/// template points them at the `%ProgramData%\CyberGuard\agent\` defaults
+/// documented in SPEC-002 §Default paths; tests point them at a temp dir.
+#[derive(Debug, Deserialize, Clone)]
+pub struct EnrollmentConfig {
+    /// Single-use, server-issued enrollment token. Required on first run
+    /// only (FR-002); `None` once identity is persisted, and dropped from
+    /// `agent.toml` by post-enrollment hygiene (FR-014).
+    #[serde(default)]
+    pub token: Option<String>,
+    /// Where the issued X.509 client certificate (PEM) is persisted.
+    pub cert_path: String,
+    /// Where the DPAPI-sealed Ed25519 private key (`key.dat`) is persisted.
+    pub key_path: String,
+    /// Where the `identity.json` cross-check file is persisted.
+    pub identity_path: String,
+    #[serde(default = "default_enrollment_timeout_seconds")]
+    pub timeout_seconds: u64,
+    #[serde(default = "default_enrollment_max_retries")]
+    pub max_retries: u32,
+    #[serde(default = "default_enrollment_backoff_initial_ms")]
+    pub backoff_initial_ms: u64,
+    #[serde(default = "default_enrollment_backoff_factor")]
+    pub backoff_factor: f64,
 }
 
 impl Default for HeartbeatConfig {
@@ -88,6 +120,18 @@ fn default_backoff_max_ms() -> u64 {
 }
 fn default_log_level() -> String {
     "info".to_string()
+}
+fn default_enrollment_timeout_seconds() -> u64 {
+    30
+}
+fn default_enrollment_max_retries() -> u32 {
+    3
+}
+fn default_enrollment_backoff_initial_ms() -> u64 {
+    1000
+}
+fn default_enrollment_backoff_factor() -> f64 {
+    2.0
 }
 
 /// Load and validate the agent configuration from a TOML file at `path`.

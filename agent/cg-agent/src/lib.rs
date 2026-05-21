@@ -161,7 +161,11 @@ where
     }
 }
 
-fn detect_platform() -> &'static str {
+/// The compile-time target platform string carried in the heartbeat
+/// envelope (SPEC-001) and the enrollment request (SPEC-002 §FR-004,
+/// AC-003). Public so the integration harness can assert the value the
+/// enrollment request reports matches the host it runs on.
+pub fn detect_platform() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows"
     } else if cfg!(target_os = "linux") {

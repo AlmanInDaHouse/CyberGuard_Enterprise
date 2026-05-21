@@ -47,6 +47,21 @@ impl AgentKeypair {
     }
 }
 
+/// Manual `Debug` that prints only the public-key fingerprint — the
+/// secret seed is never rendered (NFR-002: private-key material must not
+/// leak into logs or panic output). `finish_non_exhaustive` marks the
+/// elided secret field with `..`.
+impl std::fmt::Debug for AgentKeypair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentKeypair")
+            .field(
+                "public_key_fingerprint",
+                &pubkey_fingerprint(&self.public_key),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 /// SHA-256 fingerprint (lowercase hex) of a 32-byte public key. Used as
 /// the tamper-evidence cross-check in `identity.json` (SPEC-002 §FR-008).
 pub fn pubkey_fingerprint(public_key: &[u8; KEY_LEN]) -> String {
