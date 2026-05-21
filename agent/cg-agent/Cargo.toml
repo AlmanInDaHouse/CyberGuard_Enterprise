@@ -63,8 +63,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # --- SPEC-002 enrollment dependencies ---
 #
 # Ed25519 keypair generation and signing (rustcrypto org). The
-# `zeroize` feature zeroes SigningKey material on drop.
-ed25519-dalek = { version = "2.1", features = ["zeroize"] }
+# `zeroize` feature zeroes SigningKey material on drop. The `pkcs8`
+# feature (SPEC-003) exports the key as PKCS#8 DER so rustls can use it
+# as the TLS client-auth private key.
+ed25519-dalek = { version = "2.1", features = ["zeroize", "pkcs8"] }
 
 # OS entropy source for key generation (BCryptGenRandom on Windows,
 # /dev/urandom on Unix). Used directly via getrandom() rather than
@@ -85,6 +87,30 @@ sha2 = "0.10"
 
 # PEM decode/validate of the server-issued certificate (FR-006).
 pem = "3"
+
+# --- SPEC-003 mTLS + signed-envelope dependencies ---
+#
+# TLS 1.3 stack. `default-features = false` + explicit `ring` to match
+# the provider reqwest already pulls (no aws-lc-rs in the tree) and avoid
+# a second crypto backend. `tls12` is intentionally omitted; TLS 1.3 is
+# further enforced at the ClientConfig level (SPEC-003 FR-003). Pinned to
+# 0.23 to match reqwest 0.12's rustls so `use_preconfigured_tls` accepts
+# our ClientConfig.
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "logging",
+] }
+
+# PEM → rustls-pki-types parsing for the trust-anchor roots and the
+# client certificate chain.
+rustls-pemfile = "2"
+
+# JSON Canonicalization Scheme (RFC 8785) for the signed region
+# (SPEC-003 §Data contracts). The envelope carries only ASCII strings,
+# unsigned integers, and nested objects — no floats or sub-millisecond
+# fractions — so the JCS number-format corners do not arise.
+serde_jcs = "0.1"
 
 # DPAPI bindings for at-rest key encryption at CRYPTPROTECT_LOCAL_MACHINE
 # scope (SPEC-002 §Security considerations). Windows-only; the

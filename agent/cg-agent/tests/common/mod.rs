@@ -231,6 +231,7 @@ pub fn config_with_url(server_url: &str, interval_seconds: u64) -> AgentConfig {
     AgentConfig {
         server: ServerConfig {
             url: server_url.to_string(),
+            trust_anchor_path: None,
         },
         agent: AgentIdentity {
             id: "01934abc-def0-7000-89ab-000000000001".to_string(),
@@ -248,6 +249,8 @@ pub fn config_with_url(server_url: &str, interval_seconds: u64) -> AgentConfig {
             level: "info".to_string(),
         },
         enrollment: None,
+        tls: None,
+        envelope: None,
     }
 }
 

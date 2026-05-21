@@ -17,11 +17,25 @@ pub struct AgentConfig {
     /// X.509-bound identity. Optional so SPEC-001 configs still parse.
     #[serde(default)]
     pub enrollment: Option<EnrollmentConfig>,
+    /// TLS block (SPEC-003 §Configuration). Optional; documents the
+    /// (constant) minimum TLS version. Absent ⇒ defaults apply.
+    #[serde(default)]
+    pub tls: Option<TlsConfig>,
+    /// Envelope block (SPEC-003 §Configuration). Optional; documents the
+    /// (constant) canonical form for signing. Absent ⇒ defaults apply.
+    #[serde(default)]
+    pub envelope: Option<EnvelopeConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     pub url: String,
+    /// PEM file of trust-anchor root cert(s) for SERVER identity
+    /// (SPEC-003 §Configuration). Its presence activates the secure
+    /// heartbeat path (TLS 1.3 mTLS + signed envelope); absent ⇒
+    /// SPEC-001 plain-HTTP legacy path.
+    #[serde(default)]
+    pub trust_anchor_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -120,6 +134,45 @@ fn default_backoff_max_ms() -> u64 {
 }
 fn default_log_level() -> String {
     "info".to_string()
+}
+/// TLS configuration (SPEC-003 §Configuration). `minimum_version` is a
+/// documented constant (`"1.3"`); the agent enforces TLS 1.3 in code
+/// regardless and rejects a configured value below 1.3.
+#[derive(Debug, Deserialize, Clone)]
+pub struct TlsConfig {
+    #[serde(default = "default_tls_minimum_version")]
+    pub minimum_version: String,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            minimum_version: default_tls_minimum_version(),
+        }
+    }
+}
+
+/// Envelope configuration (SPEC-003 §Configuration). `canonical_form` is
+/// `"JCS"` (RFC 8785); it is the only supported value in SPEC-003.
+#[derive(Debug, Deserialize, Clone)]
+pub struct EnvelopeConfig {
+    #[serde(default = "default_canonical_form")]
+    pub canonical_form: String,
+}
+
+impl Default for EnvelopeConfig {
+    fn default() -> Self {
+        Self {
+            canonical_form: default_canonical_form(),
+        }
+    }
+}
+
+fn default_tls_minimum_version() -> String {
+    "1.3".to_string()
+}
+fn default_canonical_form() -> String {
+    "JCS".to_string()
 }
 fn default_enrollment_timeout_seconds() -> u64 {
     30

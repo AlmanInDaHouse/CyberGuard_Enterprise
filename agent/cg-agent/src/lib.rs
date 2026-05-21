@@ -8,6 +8,7 @@
 //!   - `shutdown` — Signal-driven graceful shutdown helper.
 //!   - `errors`   — Domain error enums.
 
+pub mod canonical;
 pub mod config;
 pub mod crypto;
 pub mod enrollment;
@@ -16,6 +17,8 @@ pub mod errors;
 pub mod identity;
 pub mod secure_storage;
 pub mod shutdown;
+pub mod signing;
+pub mod tls;
 pub mod transport;
 
 use crate::config::AgentConfig;

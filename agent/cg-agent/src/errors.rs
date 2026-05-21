@@ -82,6 +82,57 @@ impl EnrollmentError {
     }
 }
 
+/// TLS / mutual-auth handshake errors on the secure heartbeat path
+/// (SPEC-003 §Failure modes). Terminal; each maps to a documented exit
+/// code via `exit_code()`. Transient TLS failures (reset, timeout) are
+/// reported through `TransportError` and retried, not represented here.
+#[derive(Debug, Error)]
+pub enum TlsError {
+    /// The server certificate did not validate against the configured
+    /// trust anchor (untrusted chain, expired, hostname mismatch). The
+    /// agent fails closed. Exit 6.
+    #[error("server certificate verification failed: {0}")]
+    ServerCertUntrusted(String),
+
+    /// The server rejected our client certificate at the TLS layer
+    /// (unknown / revoked / expired). Operator must re-enroll. Exit 7.
+    #[error("server rejected client certificate: {0}")]
+    ClientCertRejected(String),
+
+    /// The rustls `ClientConfig` could not be built (bad trust-anchor PEM,
+    /// unusable client key). A local configuration fault. Exit 6.
+    #[error("tls client configuration failed: {0}")]
+    ClientConfig(String),
+}
+
+impl TlsError {
+    /// Process exit code per SPEC-003 §Failure modes.
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            TlsError::ServerCertUntrusted(_) | TlsError::ClientConfig(_) => 6,
+            TlsError::ClientCertRejected(_) => 7,
+        }
+    }
+}
+
+/// Local signing / canonicalization failure (SPEC-003 §Failure modes).
+/// Terminal. Exit 8.
+#[derive(Debug, Error)]
+pub enum SigningError {
+    #[error("canonicalization failed: {0}")]
+    Canonical(String),
+
+    #[error("signature operation failed: {0}")]
+    Sign(String),
+}
+
+impl SigningError {
+    /// Process exit code per SPEC-003 §Failure modes.
+    pub fn exit_code(&self) -> u8 {
+        8
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error(transparent)]
@@ -95,4 +146,10 @@ pub enum AgentError {
 
     #[error(transparent)]
     SecureStore(#[from] SecureStoreError),
+
+    #[error(transparent)]
+    Tls(#[from] TlsError),
+
+    #[error(transparent)]
+    Signing(#[from] SigningError),
 }
