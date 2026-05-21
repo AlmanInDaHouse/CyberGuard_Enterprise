@@ -9,15 +9,22 @@
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use base64::Engine as _;
 use cg_agent::config::{
-    load_from_path, AgentConfig, AgentIdentity, HeartbeatConfig, LogConfig, ServerConfig,
+    load_from_path, AgentConfig, AgentIdentity, EnvelopeConfig, HeartbeatConfig, LogConfig,
+    ServerConfig, TlsConfig,
 };
+use ed25519_dalek::pkcs8::DecodePrivateKey;
+use rcgen::{CertificateParams, DnType, KeyPair, SanType, PKCS_ED25519};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::io::Write;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tempfile::{NamedTempFile, TempDir};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio_rustls::TlsAcceptor;
 
 /// A valid self-signed Ed25519 X.509 certificate (PEM). Generated with
 /// `openssl req -x509 -newkey ed25519` and `CN` set to a UUIDv7. Used as
@@ -357,4 +364,395 @@ pub fn base64url_decode(s: &str) -> Vec<u8> {
     base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(s)
         .expect("valid base64url-unpadded")
+}
+
+// =====================================================================
+// SPEC-003 TLS harness (test-only). Trust material is generated fresh at
+// setup with rcgen and never committed.
+// =====================================================================
+
+/// Test PKI: a CA the agent trusts for the server, a CA-signed server
+/// cert (good) and a rogue-CA-signed one (for the untrusted-server case),
+/// and an Ed25519 client cert (the agent identity) signed by the trusted
+/// CA. `agent_seed` / `agent_pubkey` are the raw key bytes behind the
+/// client cert, so the agent can sign and the mock can verify.
+pub struct TlsTestPki {
+    pub agent_id: String,
+    pub trust_anchor_pem: String,
+    pub agent_seed: [u8; 32],
+    pub agent_pubkey: [u8; 32],
+    pub client_cert_pem: String,
+    good_server_cert: rustls::pki_types::CertificateDer<'static>,
+    good_server_key_der: Vec<u8>,
+    rogue_server_cert: rustls::pki_types::CertificateDer<'static>,
+    rogue_server_key_der: Vec<u8>,
+    trusted_client_root: rustls::pki_types::CertificateDer<'static>,
+    rogue_client_root: rustls::pki_types::CertificateDer<'static>,
+}
+
+fn make_ca(cn: &str) -> (rcgen::Certificate, KeyPair) {
+    let key = KeyPair::generate().expect("ca key");
+    let mut params = CertificateParams::new(Vec::<String>::new()).expect("ca params");
+    params.distinguished_name.push(DnType::CommonName, cn);
+    params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let cert = params.self_signed(&key).expect("self-signed ca");
+    (cert, key)
+}
+
+fn make_server_cert(ca: &rcgen::Certificate, ca_key: &KeyPair) -> (rcgen::Certificate, KeyPair) {
+    let key = KeyPair::generate().expect("server key");
+    let mut params = CertificateParams::new(vec!["localhost".to_string()]).expect("server params");
+    params
+        .subject_alt_names
+        .push(SanType::IpAddress(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+    params
+        .distinguished_name
+        .push(DnType::CommonName, "localhost");
+    let cert = params
+        .signed_by(&key, ca, ca_key)
+        .expect("ca-signed server cert");
+    (cert, key)
+}
+
+/// Generate a fresh test PKI bound to `agent_id`.
+pub fn generate_test_pki(agent_id: &str) -> TlsTestPki {
+    let (ca, ca_key) = make_ca("CyberGuard Test CA");
+    let (server, server_key) = make_server_cert(&ca, &ca_key);
+    let (rogue_ca, rogue_ca_key) = make_ca("Rogue CA");
+    let (rogue_server, rogue_server_key) = make_server_cert(&rogue_ca, &rogue_ca_key);
+
+    let client_key = KeyPair::generate_for(&PKCS_ED25519).expect("client ed25519 key");
+    let mut client_params = CertificateParams::new(Vec::<String>::new()).expect("client params");
+    client_params
+        .distinguished_name
+        .push(DnType::CommonName, agent_id);
+    let client_cert = client_params
+        .signed_by(&client_key, &ca, &ca_key)
+        .expect("ca-signed client cert");
+
+    let signing = ed25519_dalek::SigningKey::from_pkcs8_der(&client_key.serialize_der())
+        .expect("ed25519 from pkcs8");
+
+    TlsTestPki {
+        agent_id: agent_id.to_string(),
+        trust_anchor_pem: ca.pem(),
+        agent_seed: signing.to_bytes(),
+        agent_pubkey: signing.verifying_key().to_bytes(),
+        client_cert_pem: client_cert.pem(),
+        good_server_cert: server.der().clone(),
+        good_server_key_der: server_key.serialize_der(),
+        rogue_server_cert: rogue_server.der().clone(),
+        rogue_server_key_der: rogue_server_key.serialize_der(),
+        trusted_client_root: ca.der().clone(),
+        rogue_client_root: rogue_ca.der().clone(),
+    }
+}
+
+/// Adversarial knob for the TLS mock.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TlsMockMode {
+    /// Valid server cert chaining to the trust anchor; accepts the client.
+    Normal,
+    /// Server presents a cert NOT chaining to the agent's trust anchor.
+    UntrustedServerCert,
+    /// Client verifier uses a root the agent's cert does not chain to.
+    RejectClientCert,
+    /// Server offers only TLS 1.2.
+    Tls12Only,
+}
+
+/// In-process TLS-terminating mock for the secure heartbeat path. Records
+/// every accepted outer envelope. Verifies the Ed25519 signature over the
+/// JCS(outer-minus-signature), rejects replayed nonces, and (optionally)
+/// rejects every envelope to exercise the agent's warn-and-continue path.
+pub struct TlsMockServer {
+    pub base_url: String,
+    received: Arc<Mutex<Vec<Value>>>,
+    _task: JoinHandle<()>,
+}
+
+struct TlsMockState {
+    received: Arc<Mutex<Vec<Value>>>,
+    seen_nonces: Mutex<HashSet<String>>,
+    agent_pubkey: [u8; 32],
+    /// When set, every envelope is answered with this status (simulates a
+    /// server-side rejection, e.g. timestamp skew — AC-005).
+    reject_status: Option<u16>,
+}
+
+fn ring_provider() -> Arc<rustls::crypto::CryptoProvider> {
+    Arc::new(rustls::crypto::ring::default_provider())
+}
+
+fn build_server_config(pki: &TlsTestPki, mode: TlsMockMode) -> rustls::ServerConfig {
+    let (cert, key_der) = match mode {
+        TlsMockMode::UntrustedServerCert => (
+            pki.rogue_server_cert.clone(),
+            pki.rogue_server_key_der.clone(),
+        ),
+        _ => (
+            pki.good_server_cert.clone(),
+            pki.good_server_key_der.clone(),
+        ),
+    };
+    let client_root = match mode {
+        TlsMockMode::RejectClientCert => pki.rogue_client_root.clone(),
+        _ => pki.trusted_client_root.clone(),
+    };
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(client_root).expect("add client root");
+    let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+        Arc::new(roots),
+        ring_provider(),
+    )
+    .build()
+    .expect("client verifier");
+
+    let v13 = [&rustls::version::TLS13];
+    let v12 = [&rustls::version::TLS12];
+    let versions: &[&rustls::SupportedProtocolVersion] = match mode {
+        TlsMockMode::Tls12Only => &v12,
+        _ => &v13,
+    };
+
+    let key = rustls::pki_types::PrivateKeyDer::try_from(key_der).expect("server key der");
+    rustls::ServerConfig::builder_with_provider(ring_provider())
+        .with_protocol_versions(versions)
+        .expect("protocol versions")
+        .with_client_cert_verifier(verifier)
+        .with_single_cert(vec![cert], key)
+        .expect("server cert")
+}
+
+impl TlsMockServer {
+    /// Start a TLS mock in the given `mode`, accepting valid signed
+    /// envelopes.
+    pub async fn start(pki: &TlsTestPki, mode: TlsMockMode) -> Self {
+        Self::start_inner(pki, mode, None).await
+    }
+
+    /// Start a TLS mock that completes the handshake but answers every
+    /// signed envelope with `reject_status` (simulates a server-side
+    /// rejection such as timestamp skew — AC-005). TLS itself is Normal.
+    pub async fn start_rejecting(pki: &TlsTestPki, reject_status: u16) -> Self {
+        Self::start_inner(pki, TlsMockMode::Normal, Some(reject_status)).await
+    }
+
+    async fn start_inner(pki: &TlsTestPki, mode: TlsMockMode, reject_status: Option<u16>) -> Self {
+        let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let acceptor = TlsAcceptor::from(Arc::new(build_server_config(pki, mode)));
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind tls mock");
+        let port = listener.local_addr().expect("local_addr").port();
+
+        let state = Arc::new(TlsMockState {
+            received: received.clone(),
+            seen_nonces: Mutex::new(HashSet::new()),
+            agent_pubkey: pki.agent_pubkey,
+            reject_status,
+        });
+
+        let task = tokio::spawn(async move {
+            loop {
+                let (tcp, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let acceptor = acceptor.clone();
+                let state = state.clone();
+                tokio::spawn(async move {
+                    if let Ok(tls) = acceptor.accept(tcp).await {
+                        let _ = handle_tls_conn(tls, state).await;
+                    }
+                });
+            }
+        });
+
+        Self {
+            base_url: format!("https://localhost:{port}"),
+            received,
+            _task: task,
+        }
+    }
+
+    pub fn received(&self) -> Vec<Value> {
+        self.received.lock().expect("received lock").clone()
+    }
+
+    pub fn received_count(&self) -> usize {
+        self.received.lock().expect("received lock").len()
+    }
+}
+
+async fn handle_tls_conn(
+    mut tls: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+    state: Arc<TlsMockState>,
+) -> std::io::Result<()> {
+    let mut buf = [0u8; 8192];
+    let mut data: Vec<u8> = Vec::new();
+
+    loop {
+        let n = tls.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        data.extend_from_slice(&buf[..n]);
+
+        if let Some(hdr_end) = find_subsequence(&data, b"\r\n\r\n") {
+            let content_length = parse_content_length(&data[..hdr_end]);
+            let body_start = hdr_end + 4;
+            if data.len() >= body_start + content_length {
+                let status = process_body(&data[body_start..body_start + content_length], &state);
+                let resp = format!(
+                    "HTTP/1.1 {status} {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                    status_text(status)
+                );
+                tls.write_all(resp.as_bytes()).await?;
+                let _ = tls.shutdown().await;
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn process_body(body: &[u8], state: &TlsMockState) -> u16 {
+    let envelope: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return 400,
+    };
+    if let Some(status) = state.reject_status {
+        return status;
+    }
+
+    // Verify the Ed25519 signature over JCS(outer minus signature).
+    let sig_b64 = match envelope.get("signature").and_then(Value::as_str) {
+        Some(s) => s,
+        None => return 400,
+    };
+    let sig_bytes = base64url_decode(sig_b64);
+    let sig_arr: [u8; 64] = match sig_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return 400,
+    };
+    let mut signed = envelope.clone();
+    if let Some(obj) = signed.as_object_mut() {
+        obj.remove("signature");
+    }
+    let canonical = match serde_jcs::to_vec(&signed) {
+        Ok(c) => c,
+        Err(_) => return 400,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&state.agent_pubkey) {
+        Ok(k) => k,
+        Err(_) => return 400,
+    };
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
+    if verifying_key.verify_strict(&canonical, &signature).is_err() {
+        return 401;
+    }
+
+    // Replay defense: reject a nonce we have already seen.
+    let nonce = envelope
+        .get("nonce")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    {
+        let mut seen = state.seen_nonces.lock().expect("nonce lock");
+        if !seen.insert(nonce) {
+            return 409;
+        }
+    }
+
+    state.received.lock().expect("received lock").push(envelope);
+    200
+}
+
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+fn parse_content_length(headers: &[u8]) -> usize {
+    let text = String::from_utf8_lossy(headers).to_lowercase();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("content-length:") {
+            return rest.trim().parse().unwrap_or(0);
+        }
+    }
+    0
+}
+
+fn status_text(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        409 => "Conflict",
+        _ => "Error",
+    }
+}
+
+/// A secure-path fixture: an `AgentConfig` whose `trust_anchor_path`
+/// points at a temp PEM of the test CA (activating the SPEC-003 secure
+/// path), plus the matching agent `Identity`. Keep it alive for the test
+/// (its temp file backs `trust_anchor_path`).
+pub struct SecureFixture {
+    pub config: AgentConfig,
+    pub identity: cg_agent::identity::Identity,
+    /// Backs `config.server.trust_anchor_path`; keep alive for the test.
+    pub trust_anchor: NamedTempFile,
+}
+
+/// Build a [`SecureFixture`] pointing the secure path at `server_url`,
+/// trusting `pki`'s CA, and carrying `pki`'s agent identity.
+pub fn secure_fixture(server_url: &str, pki: &TlsTestPki) -> SecureFixture {
+    let mut trust_anchor = NamedTempFile::new().expect("trust anchor tempfile");
+    trust_anchor
+        .write_all(pki.trust_anchor_pem.as_bytes())
+        .expect("write trust anchor");
+    trust_anchor.flush().expect("flush trust anchor");
+
+    let config = AgentConfig {
+        server: ServerConfig {
+            url: server_url.to_string(),
+            trust_anchor_path: Some(trust_anchor.path().display().to_string()),
+        },
+        agent: AgentIdentity {
+            id: pki.agent_id.clone(),
+            hostname: "FIN-PC-014".to_string(),
+        },
+        heartbeat: HeartbeatConfig {
+            interval_seconds: 1,
+            request_timeout_seconds: 5,
+            max_retries: 3,
+            backoff_initial_ms: 50,
+            backoff_factor: 2.0,
+            backoff_max_ms: 1000,
+        },
+        log: LogConfig {
+            level: "info".to_string(),
+        },
+        enrollment: None,
+        tls: Some(TlsConfig {
+            minimum_version: "1.3".to_string(),
+        }),
+        envelope: Some(EnvelopeConfig {
+            canonical_form: "JCS".to_string(),
+        }),
+    };
+
+    let identity = cg_agent::identity::Identity {
+        agent_id: pki.agent_id.clone(),
+        keypair: cg_agent::crypto::AgentKeypair::from_secret_bytes(&pki.agent_seed),
+        client_certificate_pem: pki.client_cert_pem.clone(),
+    };
+
+    SecureFixture {
+        config,
+        identity,
+        trust_anchor,
+    }
 }

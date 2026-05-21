@@ -131,3 +131,21 @@ windows-sys = { version = "0.59", features = [
 axum = "0.7"
 tokio = { version = "1.42", features = ["full", "macros", "test-util"] }
 tempfile = "3"
+
+# --- SPEC-003 TLS harness (test-only) ---
+#
+# Generates the test trust material at setup (a test CA, the mock's
+# server cert, and the agent's client cert) — never committed. `ring`
+# (not the default aws-lc-rs) to match the in-tree provider and avoid a
+# C build.
+rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
+# Server side of the TLS-enabled mock (TlsAcceptor over a raw TCP
+# listener). rustls / rustls-pemfile are runtime deps, already available.
+# `ring` provider (not the default aws-lc-rs) to match the tree and skip
+# the aws-lc-sys C build; `tls12` so the mock can present a TLS-1.2-only
+# server for AC-006 (the agent must refuse it).
+tokio-rustls = { version = "0.26", default-features = false, features = [
+    "ring",
+    "logging",
+    "tls12",
+] }

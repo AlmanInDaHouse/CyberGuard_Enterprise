@@ -164,6 +164,24 @@ where
     }
 }
 
+/// Run the SPEC-003 secure heartbeat loop: TLS 1.3 mutual authentication
+/// presenting the SPEC-002 `identity`, with each heartbeat wrapped in a
+/// signed outer envelope (nonce + timestamp + Ed25519 signature). Mirrors
+/// [`run`]'s scheduling and graceful-shutdown semantics over a TLS-only
+/// transport. A fatal TLS or signature failure returns an [`AgentError`]
+/// whose `exit_code()` is 6/7/8 per SPEC-003 §Failure modes; a server
+/// rejection of a signed envelope is non-fatal (logged, next interval).
+pub async fn run_secure<F>(
+    _config: AgentConfig,
+    _identity: crate::identity::Identity,
+    _shutdown_signal: F,
+) -> Result<(), AgentError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    todo!("implemented in the SPEC-003 implementation commit")
+}
+
 /// The compile-time target platform string carried in the heartbeat
 /// envelope (SPEC-001) and the enrollment request (SPEC-002 §FR-004,
 /// AC-003). Public so the integration harness can assert the value the
