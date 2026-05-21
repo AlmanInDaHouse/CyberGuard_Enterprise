@@ -175,6 +175,6 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 |---|---|---|---|---|
-| *none* | — | — | — | — |
+| rust-ci | `fec683c` | Harness-first RED phase: the 12 SPEC-002 enrollment AC tests landed before implementation, driving `todo!()` stubs. Intentional and pre-authorized by Manuel in the Session 6 ratification. SPEC-001's 10 tests still pass. | Manuel | Cleared by the B5 implementation commit, same session (2026-05-21). |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
