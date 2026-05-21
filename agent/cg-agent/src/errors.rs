@@ -35,6 +35,45 @@ pub enum TransportError {
     Timeout { timeout_ms: u64 },
 }
 
+/// At-rest secure-storage errors (SPEC-002 §Security considerations).
+#[derive(Debug, Error)]
+pub enum SecureStoreError {
+    #[error("seal failed: {0}")]
+    Seal(String),
+
+    #[error("unseal failed (wrong machine, or corrupted blob): {0}")]
+    Unseal(String),
+}
+
+/// Enrollment errors (SPEC-002 §Failure modes). Each variant maps to a
+/// documented exit code; see `exit_code()`.
+#[derive(Debug, Error)]
+pub enum EnrollmentError {
+    /// Server refused the token (401/403), token already used (409),
+    /// or returned a malformed body. Terminal — no retry. Exit 3.
+    #[error("enrollment refused: {0}")]
+    Refused(String),
+
+    /// Server 5xx or network failure after exhausting retries. Exit 4.
+    #[error("server unreachable after {attempts} attempts: {last_error}")]
+    Unreachable { attempts: u32, last_error: String },
+
+    /// Could not persist or load identity artifacts. Exit 5.
+    #[error("identity persistence/load failed: {0}")]
+    Persistence(String),
+}
+
+impl EnrollmentError {
+    /// Process exit code per SPEC-002 §Failure modes.
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            EnrollmentError::Refused(_) => 3,
+            EnrollmentError::Unreachable { .. } => 4,
+            EnrollmentError::Persistence(_) => 5,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error(transparent)]
@@ -42,4 +81,10 @@ pub enum AgentError {
 
     #[error(transparent)]
     Transport(#[from] TransportError),
+
+    #[error(transparent)]
+    Enrollment(#[from] EnrollmentError),
+
+    #[error(transparent)]
+    SecureStore(#[from] SecureStoreError),
 }

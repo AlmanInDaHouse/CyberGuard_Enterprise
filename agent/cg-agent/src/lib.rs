@@ -9,8 +9,12 @@
 //!   - `errors`   — Domain error enums.
 
 pub mod config;
+pub mod crypto;
+pub mod enrollment;
 pub mod envelope;
 pub mod errors;
+pub mod identity;
+pub mod secure_storage;
 pub mod shutdown;
 pub mod transport;
 

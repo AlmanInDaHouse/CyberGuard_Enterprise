@@ -60,6 +60,41 @@ tokio-util = "0.7"
 # the legacy `time` 0.1 transitive dep.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+# --- SPEC-002 enrollment dependencies ---
+#
+# Ed25519 keypair generation and signing (rustcrypto org). The
+# `zeroize` feature zeroes SigningKey material on drop.
+ed25519-dalek = { version = "2.1", features = ["zeroize"] }
+
+# OS entropy source for key generation (BCryptGenRandom on Windows,
+# /dev/urandom on Unix). Used directly via getrandom() rather than
+# pulling the full `rand` stack — SigningKey::from_bytes takes a raw
+# [u8; 32] seed, so getrandom alone suffices.
+getrandom = "0.2"
+
+# Zero-on-drop wrapper for raw key bytes before they become a
+# SigningKey, and for decrypted material in transit (NFR-002).
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+
+# base64url (unpadded) encoding of the 32-byte public key in the
+# enrollment request (SPEC-002 §Data contracts).
+base64 = "0.22"
+
+# SHA-256 for the agent_pubkey_fingerprint cross-check (FR-008).
+sha2 = "0.10"
+
+# PEM decode/validate of the server-issued certificate (FR-006).
+pem = "3"
+
+# DPAPI bindings for at-rest key encryption at CRYPTPROTECT_LOCAL_MACHINE
+# scope (SPEC-002 §Security considerations). Windows-only; the
+# non-Windows SecureStore impl is test-only and uses no native deps.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
+
 # --- Dev dependencies ---
 #
 # Mock HTTP server for the integration harness.
