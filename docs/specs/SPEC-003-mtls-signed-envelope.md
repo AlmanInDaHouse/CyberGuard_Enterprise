@@ -70,8 +70,8 @@ No drift in: TLS 1.3-only enforcement, the cipher-suite set, server-certificate 
 - **FR-010.** The `signature` is a detached Ed25519 signature, made with the SPEC-002 private key, over the **canonical serialization (JCS, RFC 8785) of the outer envelope with the `signature` field removed** — i.e. over `{outer_envelope_version, agent_id, sequence_number, nonce, sent_at, body}`. It is base64url-encoded without padding. The on-the-wire envelope is standard JSON; only the *signed bytes* are canonical. The server recomputes the identical JCS canonicalization to verify (§Data contracts).
 - **FR-011.** The inner `body` is the SPEC-001 heartbeat envelope **verbatim and unchanged** (`envelope_version` stays `"0.1.0"`, all SPEC-001 fields intact). SPEC-003 wraps; it does not modify the inner shape.
 - **FR-012.** **Failure handling.** The agent reacts to secure-path failures as follows (codes in §Failure modes):
-  - Server certificate untrusted / expired / hostname mismatch → terminal (default; ratification-pending — see §Ratification record), exit `6`.
-  - TLS handshake rejected by the server because of the **client** certificate (server does not recognize / has revoked / sees an expired cert) → terminal (default; ratification-pending), exit `7`.
+  - Server certificate untrusted / expired / hostname mismatch → terminal, exit `6` (fail closed; ratified Session 7).
+  - TLS handshake rejected by the server because of the **client** certificate (server does not recognize / has revoked / sees an expired cert) → terminal, exit `7` (ratified Session 7).
   - TLS handshake transient failure (connection reset, timeout, DNS) → transport failure: retry with the SPEC-001 backoff policy; on exhaustion log `warn` and wait for the next interval (do not exit).
   - Local signature/crypto operation failure → terminal, exit `8`.
   - Server accepts the TLS connection but **rejects the signed envelope** (bad signature, replayed nonce, stale timestamp, unknown agent) → log `warn`, do not exit, proceed to the next interval. The agent cannot self-correct most of these mid-run; continuing lets transient conditions (e.g. clock drift corrected by NTP) recover.
@@ -211,8 +211,8 @@ Startup
 |---|---|---|---|
 | Config: `trust_anchor_path` set but `server.url` is `http://`, or `canonical_form` ≠ `JCS`, or `tls.minimum_version` < 1.3 | Config validation | `2` | `cg-agent: invalid config: <detail>` |
 | Secure path on but no loadable identity (SPEC-002) | Identity load | `5` | SPEC-002 identity-load stderr line |
-| Server certificate untrusted / expired / hostname mismatch | TLS handshake (server-cert validation) | `6` *(default; ratification-pending)* | `cg-agent: tls: server certificate verification failed: <detail>` |
-| TLS handshake rejected by server due to client cert (unknown/revoked/expired) | TLS handshake (alert from server) | `7` *(default; ratification-pending)* | `cg-agent: tls: server rejected client certificate` |
+| Server certificate untrusted / expired / hostname mismatch | TLS handshake (server-cert validation) | `6` | `cg-agent: tls: server certificate verification failed: <detail>` |
+| TLS handshake rejected by server due to client cert (unknown/revoked/expired) | TLS handshake (alert from server) | `7` | `cg-agent: tls: server rejected client certificate` |
 | Transient TLS/transport failure (reset, timeout, DNS) | TLS/IO error | — | Retry per SPEC-001 backoff; on exhaustion log `warn`, next interval. No exit. |
 | Local signature/crypto operation failure | signing error | `8` | `cg-agent: signing failed: <detail>` |
 | Server rejects the signed envelope (bad signature / replayed nonce / stale timestamp / unknown agent) | non-2xx from server | — | Log `warn` (`signed envelope rejected by server`), next interval. No exit. |
@@ -244,13 +244,13 @@ The private key and the raw signature bytes are never logged at `info`. The nonc
 Each AC maps 1:1 to a Rust integration test under `agent/cg-agent/tests/`, named `mtls_ac_NNN_*` to avoid collision with SPEC-001 `ac_NNN_*` and SPEC-002 `enroll_ac_NNN_*`. Tests run against a TLS-enabled in-process mock whose trust material (server cert + test CA, and an agent identity whose pubkey the mock knows) is generated at test setup and never committed.
 
 - **AC-001.** Given a valid identity and a trust anchor matching the mock's server cert, the agent completes a TLS 1.3 mutual handshake and delivers its first signed heartbeat, which the mock accepts.
-- **AC-002.** When the mock presents a server certificate that does **not** chain to the configured trust anchor, the agent refuses the connection and exits `6` with a stderr line containing `server certificate verification failed`. *(Behavior ratification-pending — see §Ratification record.)*
+- **AC-002.** When the mock presents a server certificate that does **not** chain to the configured trust anchor, the agent refuses the connection and exits `6` with a stderr line containing `server certificate verification failed`.
 - **AC-003.** A signed envelope the mock receives verifies: recomputing `JCS(outer minus signature)` and checking the Ed25519 signature against the agent's enrolled public key succeeds. Tampering with any signed field (e.g. flipping a `nonce` byte) makes verification fail.
 - **AC-004.** Across N heartbeats the `nonce` values are all distinct and each decodes to exactly 16 bytes. A replayed envelope (identical `nonce` re-POSTed) is rejected by the mock, and the agent treats a server rejection as non-fatal (logs `warn`, continues to the next interval, does not exit).
 - **AC-005.** An envelope whose `sent_at` is outside ±5 min of the mock's clock is rejected by the mock; the agent logs `warn` and continues (does not exit). *(Driven by injecting skew at the mock's validation, since the agent uses its real clock.)*
 - **AC-006.** Against a mock that offers only TLS 1.2, the agent refuses to negotiate and never transmits a signed envelope; the failure surfaces as a handshake error (no cleartext or sub-1.3 transmission occurs).
 - **AC-007.** On every handshake the mock (configured to require client auth) receives the agent's SPEC-002 client certificate; the certificate's `CN` equals the outer envelope `agent_id`.
-- **AC-008.** When the mock rejects the client certificate at the TLS layer, the agent exits `7` with a stderr line containing `server rejected client certificate`. *(Behavior ratification-pending.)*
+- **AC-008.** When the mock rejects the client certificate at the TLS layer, the agent exits `7` with a stderr line containing `server rejected client certificate`.
 - **AC-009.** The inner `body` of the outer envelope equals the SPEC-001 envelope verbatim: `envelope_version = "0.1.0"`, the four-field `agent` block, `sequence_number`, `sent_at`, `status`, `uptime_seconds` — byte-for-byte the shape SPEC-001 emits. (Backward-compat regression.)
 - **AC-010.** With `server.trust_anchor_path` **absent**, the agent uses the SPEC-001 plain-HTTP path and the bare inner envelope — confirmed by the unchanged SPEC-001 integration tests continuing to pass. (Config-gating regression; no new test, asserted by the SPEC-001 suite.)
 
@@ -290,11 +290,11 @@ TLS 1.3 only, enforced at the client config (FR-003). No 1.2/1.1/1.0/SSL is offe
 
 ## Ratification record
 
-Three decisions are surfaced for Manuel's call. SPEC-003 documents the recommended default; the harness ACs are written to that default and will be adjusted if Manuel rules otherwise.
+The three decisions surfaced for Manuel's call were ratified in the Session 7 review, each at the recommended default:
 
-1. **Behavior on persistent server-certificate verification failure.** *Recommended:* exit immediately (`6`). A failing chain is either misconfiguration (wrong trust anchor) or an active MITM — neither self-heals by retrying, and silently retrying against an unvalidated server is dangerous (fail closed). *Alternative:* treat as a transient transport failure and retry next interval, to ride out a brief window during a legitimate server-cert rotation. Trade-off: availability vs. fail-closed security.
-2. **Behavior on TLS handshake client-certificate rejection** (server: "I don't know you"). *Recommended:* exit immediately (`7`). A rejected client cert means expired / revoked / unknown — operator action (re-enroll) is required, and retrying the same rejected cert is futile and noisy. *Alternative:* retry, in case the rejection reflects transient server-side state. Trade-off: fast operator signal vs. resilience to server flakiness.
-3. **SPKI pinning of the server leaf certificate in addition to the trust-anchor PEM.** *Recommended:* off for SPEC-003. ADR-0004 §Transport requires CA pinning (the trust anchor), not leaf SPKI pinning. Leaf pinning is stronger against a compromised-CA MITM but operationally fragile — it breaks on every legitimate server-cert rotation and needs coordinated pin updates. *Alternative:* pin the server SPKI hash for stronger MITM resistance, accepting the rotation-coordination burden. Trade-off: MITM resistance vs. operational fragility.
+1. **Persistent server-certificate verification failure → exit `6` (fail closed).** A failing chain is either misconfiguration (wrong trust anchor) or an active MITM; neither self-heals by retrying, and silently retrying against an unvalidated server is dangerous. Reflected in FR-012, the §Failure modes table, and AC-002. (Alternative considered and rejected: retry as a transient transport failure to ride out a legitimate server-cert rotation window — rejected in favor of fail-closed security.)
+2. **TLS client-certificate rejection by the server → exit `7`.** A rejected client cert means expired / revoked / unknown — operator action (re-enroll) is required, and retrying the same rejected cert is futile and noisy. Reflected in FR-012, the §Failure modes table, and AC-008. (Alternative considered and rejected: retry in case the rejection is transient server-side state — rejected to give a fast, clear operator signal.)
+3. **No server-leaf SPKI pinning — CA trust anchor only.** ADR-0004 §Transport requires CA pinning (the trust anchor), not leaf SPKI pinning. Leaf pinning is stronger against a compromised-CA MITM but operationally fragile (breaks on every legitimate server-cert rotation, needs coordinated pin updates). Reflected in §Scope OUT and §Security considerations > Trust anchor distribution. (Alternative considered and rejected: pin the server SPKI hash, accepting the rotation-coordination burden.)
 
 ## References
 
