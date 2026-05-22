@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-20
+- Last updated: 2026-05-23
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -54,7 +55,7 @@ Every event batch the agent sends carries a signed envelope:
 }
 ```
 
-- `sequence_number` is monotonic and persisted on the agent.
+- `sequence_number` is monotonic per agent process lifetime; not persisted across restarts. See SPEC-003 §Drift D3 for the rationale.
 - `timestamp` is ISO 8601 UTC with milliseconds.
 - `batch_hash` is the SHA-256 of the canonicalised events array.
 - `signature` is Ed25519 over the canonicalised envelope minus the signature field itself.
@@ -64,7 +65,7 @@ The server validates in this order, rejecting on the first failure:
 1. mTLS handshake completed with a valid client certificate.
 2. `agent_id` in the envelope matches the `CN` of the client certificate.
 3. `timestamp` falls within ±5 min of server clock.
-4. `sequence_number` is strictly greater than `last_seen_for_agent`.
+4. (Informational only since SPEC-003 §Drift D3.) `sequence_number` is logged for ordering within a session but is not used for anti-replay enforcement.
 5. `nonce` is not present in the Redis nonce cache.
 6. `signature` validates under `agent_id`'s known public key.
 7. `batch_hash` matches `sha256(canonical(events[]))` recomputed server-side.
@@ -135,7 +136,7 @@ Rejected as a pragmatic preference for HTTP/2 with JSON envelopes.
 ### Positive
 
 - Three independent layers of defense — TLS for transport, X.509 client certificate for identity, Ed25519 signature for message integrity. Compromise of any single layer does not yield full impersonation.
-- Anti-replay defense (`sequence_number` plus `nonce` plus `timestamp` window) closes the classic attack of replaying captured agent traffic.
+- Anti-replay defense (`nonce` plus `timestamp` window) closes the classic attack of replaying captured agent traffic.
 - Local key storage uses OS-native protected stores. An attacker with user-level access on the endpoint still has to escalate to extract the key.
 - The version header lets the server reject incompatible agents cleanly, preventing silent contract drift across releases.
 
@@ -149,13 +150,35 @@ Rejected as a pragmatic preference for HTTP/2 with JSON envelopes.
 ### Neutral
 
 - Ed25519 is chosen over Ed448, ECDSA, or RSA: smaller signatures, faster verification, no curve-parameter footguns. It is standard in modern crypto stacks (`libsodium`, `ring`, `rustls`).
-- The `/v1/` in the enrollment URL implies versioned API endpoints. API-versioning policy is a future concern, likely tied to ADR-0008 (contract generation tooling).
+- The `/v1/` in the enrollment URL implies versioned API endpoints. API-versioning policy is a future concern.
 
 ## Compliance
 
 Subsequent ADRs and SPECs that touch the agent-server boundary must reference this ADR. Any change to enrollment, transport, message integrity, rotation, revocation, heartbeat, or version compatibility opens a superseding ADR; configuration tuning (timeouts, buffer caps, cipher-suite ordering) lives in operations documentation rather than ADRs.
 
 The wire format of events themselves is reserved for a dedicated future ADR (`ADR-0006` — CGES alignment with OCSF), which depends on this one for the envelope semantics in which CGES events travel.
+
+## Amendment 2026-05-23: persistent disk buffer deferred; sequence_number persistence retired; stale ADR-0008 cross-reference corrected
+
+**Status.** This amendment supersedes parts of §Message integrity per batch, §Heartbeat and degraded mode, and §Consequences. ADR-0004 remains `Accepted`; the amendment convention is in-place per [docs/engineering-notes.md](../engineering-notes.md).
+
+**Context.** This amendment carries three corrections to ADR-0004, all surfaced by Session 10's work and closed here in one atomic move. **(a)** ADR-0009 (Event delivery semantics + agent buffer model) adopts an in-memory ring buffer, ephemeral, FIFO drop on overflow — no disk persistence in SPEC-005. The persistent disk-backed encrypted buffer originally specified in §Heartbeat and degraded mode is deferred to a future SPEC. **(b)** That decision has a downstream consequence in this document: the cross-restart `sequence_number` persistence claim and its anti-replay role — already drifted by SPEC-003 §Drift D3 in Session 7 but never landed in this ADR's prose — loses its remaining justification once the persistent buffer is also gone. **(c)** ADR-0008 was reserved for "contract generation tooling" at the time of ADR-0004's original writing; it has since been ratified earlier in this same session as "ETW crate selection," and a §Consequences > Neutral cross-reference written under the old assumption is now misleading. Three causes, three effects, closed in one amendment per the established convention.
+
+**Amendment, part (a) — buffer model deferred.** The third and fourth bullets of §Heartbeat and degraded mode (the disk-backed encrypted buffer with the 200 MB / 24 h cap, and the `sequence_number`-ordered drain on reconnect) are superseded by ADR-0009's in-memory ring buffer contract. The §Consequences > Negative bullet beginning *"An encrypted local buffer means…"* is similarly superseded — no persistent buffer exists in MVP, so the consequence is moot. The original bullets remain at their positions for historical context per the amendment convention; the binding contract is ADR-0009. Persistent disk-backed encrypted buffering for offline events is reserved for a future SPEC that will address at-rest encryption, file rotation, crash recovery, and the renewed cross-restart `sequence_number` persistence question.
+
+**Amendment, part (b) — `sequence_number` persistence consequence retired.** Three bullets have been rewritten in-place to close the Session 7 SPEC-003 §Drift D3 declaration that never landed in ADR-0004's prose:
+
+- §Message integrity per batch, first bullet — `sequence_number` is no longer claimed as "persisted on the agent"; the new text declares per-process monotonicity and cross-references SPEC-003 §Drift D3.
+- §Message integrity per batch, server validation order step 4 — the strictly-greater-than check is rewritten as informational only; `sequence_number` is logged for ordering, not used for anti-replay enforcement.
+- §Consequences > Positive, anti-replay bullet — `sequence_number` is removed from the anti-replay defense enumeration; only `nonce` plus `timestamp` window remain.
+
+Cross-reference convention applied: each rewritten bullet cites SPEC-003 §Drift D3 (origin of the drift), not this amendment (closure of the drift). Provenance points to the cause, not the effect.
+
+**Amendment, part (c) — stale ADR-0008 cross-reference corrected.** ADR-0008 was reserved at the time of ADR-0004's original writing for "contract generation tooling"; it has since been ratified earlier in this session as ADR-0008: ETW crate selection for Windows event capture, unrelated to API-versioning or contract generation. The §Consequences > Neutral bullet that referenced "ADR-0008 (contract generation tooling)" is rewritten in-place to drop the now-misleading attribution. API-versioning policy remains a future concern; if and when a future ADR addresses it, that ADR can cross-reference ADR-0004 — the reverse pointer is removed.
+
+**Backward compatibility.** Strictly tightening. The wire envelope is unchanged: agent emits the same fields, server reads the same fields. The semantics of `sequence_number` no longer claim cross-restart persistence (the agent never honoured that claim since SPEC-003 D3 anyway) and no longer participate in anti-replay enforcement (the server's secure path was already `nonce` + `sent_at` per D3). No SPEC needs revision; SPEC-003 §Drift D3 stands and is now matched by ADR-0004's own prose.
+
+**Effect on other sections.** §Context point 4 (must define server-unreachable behavior) — unchanged; the new model still defines it. §Enrollment, §Transport in operation, §Rotation and revocation, §Version compatibility, §Out of scope — all unchanged. §Consequences > Neutral — second bullet rewritten by part (c); first bullet (Ed25519 choice) unchanged. §Compliance — unchanged; the term "buffer caps" remains valid for the ephemeral ring's size cap.
 
 ## References
 

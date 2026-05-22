@@ -25,6 +25,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0006](0006-cges-ocsf-alignment.md) | CGES alignment with OCSF v1.3 | Accepted |
 | [0007](0007-ingest-language-typescript-mvp.md) | Ingest service language — TypeScript for the MVP control plane | Accepted |
 | [0008](0008-etw-crate-selection.md) | ETW crate selection for Windows event capture | Accepted |
+| [0009](0009-event-delivery-and-buffer.md) | Event delivery semantics and agent buffer model | Accepted |
 
 ## Dependencies
 
@@ -44,3 +45,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0008 → ADR-0001 (the agent at `agent/cg-agent/` is where the ETW consumer lives)
 - ADR-0008 → ADR-0002 (Rust for the agent; this ADR picks a Rust crate)
 - ADR-0008 — additive new decision; supersedes nothing, amends nothing
+- ADR-0009 → ADR-0003 (ClickHouse engine + partitioning unchanged from this ADR)
+- ADR-0009 → ADR-0004 (amends in part via the in-place 2026-05-23 amendment; does not supersede)
+- ADR-0009 → ADR-0006 (`event_id` is UUIDv7 per CGES; the dedup contract relies on this)
+- ADR-0009 → ADR-0008 (the ring's enqueue side is the ferrisetw callback path)
