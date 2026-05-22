@@ -239,6 +239,7 @@ pub fn config_with_url(server_url: &str, interval_seconds: u64) -> AgentConfig {
         server: ServerConfig {
             url: server_url.to_string(),
             trust_anchor_path: None,
+            heartbeat_url: None,
         },
         agent: AgentIdentity {
             id: "01934abc-def0-7000-89ab-000000000001".to_string(),
@@ -719,6 +720,7 @@ pub fn secure_fixture(server_url: &str, pki: &TlsTestPki) -> SecureFixture {
         server: ServerConfig {
             url: server_url.to_string(),
             trust_anchor_path: Some(trust_anchor.path().display().to_string()),
+            heartbeat_url: None,
         },
         agent: AgentIdentity {
             id: pki.agent_id.clone(),

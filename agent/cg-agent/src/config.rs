@@ -36,6 +36,22 @@ pub struct ServerConfig {
     /// SPEC-001 plain-HTTP legacy path.
     #[serde(default)]
     pub trust_anchor_path: Option<String>,
+    /// Optional separate URL for the secure heartbeat path (SPEC-003
+    /// Amendment 2026-05-22). When enroll and heartbeat live on different
+    /// ports/schemes (SPEC-004's two-port topology), this is the mTLS
+    /// heartbeat target; `url` is always used for enrollment. If set it
+    /// must be `https://`; if absent the secure path falls back to `url`.
+    #[serde(default)]
+    pub heartbeat_url: Option<String>,
+}
+
+impl ServerConfig {
+    /// The URL the secure heartbeat path connects to: `heartbeat_url` if
+    /// set, otherwise `url` (SPEC-003 Amendment 2026-05-22). Enrollment
+    /// always uses `url`, never this.
+    pub fn heartbeat_target(&self) -> &str {
+        self.heartbeat_url.as_deref().unwrap_or(&self.url)
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -289,6 +305,16 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
         }
     }
 
+    // SPEC-003 Amendment 2026-05-22: if heartbeat_url is set it must be
+    // https (the secure path requires TLS). Validated whenever present.
+    if let Some(hb) = &config.server.heartbeat_url {
+        if !hb.starts_with("https://") {
+            return Err(ConfigError::Invalid(
+                "server.heartbeat_url must use https".to_string(),
+            ));
+        }
+    }
+
     Ok(config)
 }
 
@@ -317,4 +343,29 @@ pub(crate) fn is_uuidv7(s: &str) -> bool {
     }
     let variant = parts[3].chars().next().expect("len already verified");
     matches!(variant, '8' | '9' | 'a' | 'b')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(url: &str, heartbeat_url: Option<&str>) -> ServerConfig {
+        ServerConfig {
+            url: url.to_string(),
+            trust_anchor_path: None,
+            heartbeat_url: heartbeat_url.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn heartbeat_target_uses_heartbeat_url_when_set() {
+        let s = server("http://localhost:8080", Some("https://localhost:8443"));
+        assert_eq!(s.heartbeat_target(), "https://localhost:8443");
+    }
+
+    #[test]
+    fn heartbeat_target_falls_back_to_url_when_absent() {
+        let s = server("https://localhost:8443", None);
+        assert_eq!(s.heartbeat_target(), "https://localhost:8443");
+    }
 }

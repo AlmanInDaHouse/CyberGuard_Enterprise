@@ -193,7 +193,10 @@ where
         TlsError::ClientConfig(format!("read trust anchor {trust_anchor_path}: {e}"))
     })?;
     let client_config = crate::tls::build_client_config(&trust_anchor_pem, &identity)?;
-    let sender = crate::tls::SecureSender::new(client_config, &config.server.url, timeout)?;
+    // SPEC-003 Amendment 2026-05-22: heartbeat connects to heartbeat_url
+    // when set (enroll/heartbeat on different ports), else server.url.
+    let sender =
+        crate::tls::SecureSender::new(client_config, config.server.heartbeat_target(), timeout)?;
 
     let agent_block = AgentBlock {
         agent_id: identity.agent_id.clone(),
