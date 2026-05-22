@@ -1,27 +1,23 @@
-import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, expect, test } from "vitest";
-import { buildApp } from "../src/app.js";
+import { afterAll, beforeAll, expect, inject, test } from "vitest";
+import type { Config } from "../src/config.js";
+import { type IngestServer, startIngest } from "../src/server.js";
 
-let app: FastifyInstance;
+// /health smoke test on the real plain-HTTP enroll listener (FR-002).
+
+let config: Config;
+let server: IngestServer;
 
 beforeAll(async () => {
-  app = buildApp();
-  await app.ready();
+  config = inject("ingestConfig");
+  server = await startIngest(config);
 });
 
 afterAll(async () => {
-  await app.close();
+  await server?.close();
 });
 
 test("GET /health returns 200 ok", async () => {
-  const res = await app.inject({ method: "GET", url: "/health" });
-  expect(res.statusCode).toBe(200);
-  expect(res.json()).toEqual({ status: "ok" });
-});
-
-test("enroll/heartbeat are 501 placeholders in the scaffold", async () => {
-  const enroll = await app.inject({ method: "POST", url: "/v1/agents/enroll" });
-  const heartbeat = await app.inject({ method: "POST", url: "/v1/agents/heartbeat" });
-  expect(enroll.statusCode).toBe(501);
-  expect(heartbeat.statusCode).toBe(501);
+  const res = await fetch(`${server.enrollUrl}/health`);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ status: "ok" });
 });

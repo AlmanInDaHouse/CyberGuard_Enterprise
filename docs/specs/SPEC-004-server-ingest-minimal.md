@@ -2,7 +2,7 @@
 
 - **ID:** SPEC-004
 - **Title:** Server ingest minimal
-- **Status:** Draft
+- **Status:** Accepted
 - **Depends on:** ADR-0002, ADR-0003, ADR-0004, ADR-0007, SPEC-002, SPEC-003
 - **Authors:** Manuel (product owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-05-22

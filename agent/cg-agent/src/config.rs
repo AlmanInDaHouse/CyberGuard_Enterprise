@@ -284,9 +284,16 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
     // server URL must be https, the canonical form must be JCS, and the
     // minimum TLS version must be 1.3.
     if config.server.trust_anchor_path.is_some() {
-        if !config.server.url.starts_with("https://") {
+        // SPEC-003 Amendment 2026-05-22 (b): the https requirement applies to
+        // the secure heartbeat *target*. When `heartbeat_url` is set it carries
+        // the mTLS scheme (validated below) and `server.url` is the plain-HTTP
+        // enroll endpoint (SPEC-004 FR-002 / SPEC-002 §Scope); the constraint on
+        // `server.url` therefore applies only when `heartbeat_url` is absent (the
+        // secure path then falls back to `server.url`).
+        if config.server.heartbeat_url.is_none() && !config.server.url.starts_with("https://") {
             return Err(ConfigError::Invalid(
-                "server.url must use https when server.trust_anchor_path is set".to_string(),
+                "server.url must use https when server.trust_anchor_path is set and server.heartbeat_url is absent"
+                    .to_string(),
             ));
         }
         if let Some(tls) = &config.tls {
@@ -367,5 +374,53 @@ mod tests {
     fn heartbeat_target_falls_back_to_url_when_absent() {
         let s = server("https://localhost:8443", None);
         assert_eq!(s.heartbeat_target(), "https://localhost:8443");
+    }
+
+    /// Write `toml` to a temp file and run the full `load_from_path`
+    /// validation against it.
+    fn load_toml(toml: &str) -> Result<AgentConfig, ConfigError> {
+        use std::io::Write as _;
+        let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+        f.write_all(toml.as_bytes()).expect("write toml");
+        f.flush().expect("flush");
+        load_from_path(f.path())
+    }
+
+    const SECURE_BASE: &str = "\
+[agent]
+id = \"01934abc-def0-7000-89ab-0000000000bb\"
+hostname = \"TEST-PC\"
+";
+
+    /// SPEC-003 Amendment 2026-05-22 (b): with `heartbeat_url` (https) set,
+    /// `server.url` may be plain http — the SPEC-004 two-port topology.
+    #[test]
+    fn secure_path_allows_http_url_when_heartbeat_url_is_https() {
+        let toml = format!(
+            "[server]\n\
+             url = \"http://127.0.0.1:8080\"\n\
+             trust_anchor_path = \"/tmp/ca.pem\"\n\
+             heartbeat_url = \"https://127.0.0.1:8443\"\n\
+             {SECURE_BASE}"
+        );
+        let cfg = load_toml(&toml).expect("config with http url + https heartbeat_url must load");
+        assert_eq!(cfg.server.url, "http://127.0.0.1:8080");
+        assert_eq!(cfg.server.heartbeat_target(), "https://127.0.0.1:8443");
+    }
+
+    /// Backward compat: without `heartbeat_url`, an http `server.url` with a
+    /// trust anchor set is still a config error (the secure path falls back to
+    /// `server.url`, which must be https).
+    #[test]
+    fn secure_path_rejects_http_url_when_heartbeat_url_absent() {
+        let toml = format!(
+            "[server]\n\
+             url = \"http://127.0.0.1:8443\"\n\
+             trust_anchor_path = \"/tmp/ca.pem\"\n\
+             {SECURE_BASE}"
+        );
+        let err =
+            load_toml(&toml).expect_err("http url + trust anchor + no heartbeat_url must fail");
+        assert!(matches!(err, ConfigError::Invalid(_)));
     }
 }

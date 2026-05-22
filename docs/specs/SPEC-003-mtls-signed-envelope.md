@@ -315,6 +315,21 @@ The three decisions surfaced for Manuel's call were ratified in the Session 7 re
 
 **Effect on other sections.** None to §Data contracts, §Behavior, §Failure modes, or §Security considerations — the cryptographic and validation semantics are identical; only the configuration surface (which URL the established TLS connection targets) changes. No §Acceptance criteria change: a fallback-behavior AC would merely duplicate existing coverage at the cost of more test surface, so the A1 implementation locks the contract with two inexpensive unit tests instead.
 
+## Amendment 2026-05-22 (b): relax server.url scheme constraint
+
+**Context.** SPEC-004 AC-001 (the polyglot marquee) is the first exercise of the agent's `main()` flow against a server topology with separate enroll (plain HTTP) and heartbeat (mTLS) ports. It surfaces a residual inconsistency the first amendment did not cover: SPEC-003 §Configuration requires `server.url` to use `https://` when `server.trust_anchor_path` is set, but this SPEC (§Configuration, "`server.url` is always used for enrollment") together with SPEC-004 FR-002 and SPEC-002 §Scope establish that `server.url` is the plain-HTTP enroll endpoint. The two requirements are jointly unsatisfiable: `server.url` cannot be both `https://` and the plain-HTTP enroll endpoint. The first amendment (A1) added `heartbeat_url` semantics but left the pre-existing `server.url` scheme constraint intact; the review missed that the constraint was implicit in the original prose and survived the amendment.
+
+**Amendment.** The §Configuration scheme constraint moves from `server.url` to the secure heartbeat *target*:
+
+- When `server.heartbeat_url` is set, **only** `server.heartbeat_url` must start with `https://`. `server.url` is then the plain-HTTP enroll endpoint and need only be a parseable URL (`http://` or `https://`; `http://` in the SPEC-004 two-port topology).
+- When `server.heartbeat_url` is absent, `server.url` is used for both enroll and heartbeat, so the original constraint applies: if `trust_anchor_path` is set, `server.url` must start with `https://`. This preserves pre-amendment configs and the rust-ci tests that depend on them.
+
+Validation in `config.rs` moves accordingly: the guard that rejected a non-https `server.url` in the presence of `trust_anchor_path` now fires **only when `heartbeat_url` is absent**. When `heartbeat_url` is present, the existing `heartbeat_url` https-validation (from A1) suffices.
+
+**Backward compatibility.** Strictly additive in permissiveness. No prior SPEC-001/002/003 test sets `heartbeat_url`; all either set `server.url` to `https://` (when `trust_anchor` is set) or omit `trust_anchor`. A new `config.rs` unit test locks both halves of the new contract (http `url` + https `heartbeat_url` loads; http `url` + no `heartbeat_url` + `trust_anchor` still rejected).
+
+**Effect on other sections.** None to §Data contracts, §Behavior, §Failure modes, §Security considerations, or §Acceptance criteria — purely the configuration surface. The behavior is exercised end-to-end by SPEC-004 AC-001.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (`agent/`, `docs/specs/`).

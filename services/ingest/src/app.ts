@@ -1,22 +1,32 @@
+import type { ServerOptions as HttpsServerOptions } from "node:https";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import { registerEnrollRoutes } from "./routes/enroll.js";
+import { registerHeartbeatRoutes } from "./routes/heartbeat.js";
+import type { Services } from "./services.js";
+
+type LoggerOpt = FastifyServerOptions["logger"];
 
 /**
- * Build the Fastify application. SPEC-004 scaffold: serves `/health` and
- * 501 placeholders for the two agent endpoints. The B5 implementation
- * replaces the placeholders and adds the mTLS heartbeat listener.
+ * Plain-HTTP listener app (FR-002): `/health` + `POST /v1/agents/enroll`.
+ * Accepts clients with no certificate yet (enrollment chicken-and-egg).
  */
-export function buildApp(opts: { logger?: FastifyServerOptions["logger"] } = {}): FastifyInstance {
-  const app = Fastify({ logger: opts.logger ?? false });
+export function buildEnrollApp(services: Services, logger: LoggerOpt = false): FastifyInstance {
+  const app = Fastify({ logger });
+  registerEnrollRoutes(app, services);
+  return app;
+}
 
-  app.get("/health", async () => ({ status: "ok" }));
-
-  app.post("/v1/agents/enroll", async (_req, reply) =>
-    reply.code(501).send({ error: "not_implemented" }),
-  );
-
-  app.post("/v1/agents/heartbeat", async (_req, reply) =>
-    reply.code(501).send({ error: "not_implemented" }),
-  );
-
+/**
+ * mTLS listener app (FR-002): `POST /v1/agents/heartbeat`. The TLS options
+ * (`requestCert` + `rejectUnauthorized` against the CA) are applied by the
+ * caller via Fastify's `https` server options.
+ */
+export function buildHeartbeatApp(
+  services: Services,
+  https: HttpsServerOptions,
+  logger: LoggerOpt = false,
+): FastifyInstance {
+  const app = Fastify({ logger, https });
+  registerHeartbeatRoutes(app, services);
   return app;
 }

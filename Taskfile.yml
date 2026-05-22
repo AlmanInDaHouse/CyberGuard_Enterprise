@@ -92,3 +92,19 @@ tasks:
     desc: "Wipe local data volumes."
     cmds:
       - echo "task reset-data — populated by SPEC-XXX-infra"
+
+  # ------------------------------------------------------------------
+  # ingest: server ingest service operations (SPEC-004). Run from the
+  # services/ingest workspace; env comes from the shell / compose.
+  # ------------------------------------------------------------------
+  ingest:migrate:
+    desc: "Apply ingest Postgres migrations + bootstrap the ClickHouse table (single applier, SPEC-004 MUST-2)."
+    dir: services/ingest
+    cmds:
+      - pnpm run migrate
+
+  ingest:issue-token:
+    desc: "Issue a single-use enrollment token (SPEC-004 FR-015). Optional: org=<id>. Prints the token to stdout."
+    dir: services/ingest
+    cmds:
+      - pnpm run issue-token -- --org {{.org | default "default"}}

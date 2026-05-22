@@ -2,6 +2,10 @@ import { type Kysely, sql } from "kysely";
 
 /** SPEC-004 §Data contracts — Postgres schema. Idempotent (MUST-2). */
 export async function up(db: Kysely<unknown>): Promise<void> {
+  // pgcrypto provides pgp_sym_encrypt/decrypt for the CA private key at
+  // rest (SPEC-004 §Security / §Ratification decision 1).
+  await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`.execute(db);
+
   await sql`
     CREATE TABLE IF NOT EXISTS ca (
       id          smallint    PRIMARY KEY DEFAULT 1 CHECK (id = 1),

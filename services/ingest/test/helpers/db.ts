@@ -48,7 +48,6 @@ export async function getAgent(config: Config, agentId: string): Promise<AgentRo
 }
 
 export interface HeartbeatRow {
-  agent_id: string;
   sequence_number: string;
   status: string;
   arrived_at: string;
@@ -64,7 +63,7 @@ export async function getHeartbeats(config: Config, agentId: string): Promise<He
   try {
     const rs = await ch.query({
       query:
-        "SELECT agent_id, toString(sequence_number) AS sequence_number, status, toString(arrived_at) AS arrived_at FROM heartbeats WHERE agent_id = {id:String} ORDER BY arrived_at",
+        "SELECT toString(sequence_number) AS sequence_number, status, toString(arrived_at) AS arrived_at FROM heartbeats WHERE agent_id = toUUID({id:String}) ORDER BY arrived_at",
       query_params: { id: agentId },
       format: "JSONEachRow",
     });
