@@ -26,16 +26,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enable Corepack (pnpm)
-        run: corepack enable
-
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: pnpm
-          cache-dependency-path: services/ingest/pnpm-lock.yaml
 
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      # No setup-node pnpm cache: with corepack, the cache save post-step
+      # cannot find pnpm and fails the job. Install is fast enough without
+      # it; a pnpm store cache can be added later via pnpm/action-setup.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
