@@ -112,9 +112,53 @@ services:
       retries: 12
       start_period: 10s
 
+  # SPEC-004 server ingest (TypeScript + Fastify, per ADR-0007). Built
+  # from services/ingest/. Connects to the backends over the compose
+  # network by service name (internal ports), independent of the host
+  # port mappings above. This instance runs migrations (single applier).
+  ingest:
+    build:
+      context: ../../services/ingest
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [cyberguard-dev]
+    ports:
+      - "${CG_INGEST_ENROLL_PORT:-8080}:8080"
+      - "${CG_INGEST_HEARTBEAT_PORT:-8443}:8443"
+    environment:
+      INGEST_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}
+      INGEST_CH_URL: http://clickhouse:8123
+      INGEST_CH_USER: ${CG_CH_USER:-cyberguard}
+      INGEST_CH_PASSWORD: ${CG_CH_PASSWORD:-cyberguard_dev}
+      INGEST_CH_DB: ${CG_CH_DB:-cyberguard}
+      INGEST_REDIS_URL: redis://:${CG_REDIS_PASSWORD:-cyberguard_dev}@redis:6379
+      INGEST_ENROLL_PORT: "8080"
+      INGEST_HEARTBEAT_PORT: "8443"
+      INGEST_SERVER_CERT_PATH: /certs/server.pem
+      INGEST_SERVER_KEY_PATH: /certs/server-key.pem
+      INGEST_CA_PASSPHRASE: ${CG_INGEST_CA_PASSPHRASE:-cyberguard_dev_ca_pass}
+      INGEST_RUN_MIGRATIONS: "true"
+      INGEST_LOG_LEVEL: ${CG_INGEST_LOG_LEVEL:-info}
+    volumes:
+      - cg_ingest_certs:/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
 volumes:
   cg_pg_data:
   cg_ch_data:
   cg_redis_data:
   cg_nats_data:
   cg_minio_data:
+  cg_ingest_certs:
