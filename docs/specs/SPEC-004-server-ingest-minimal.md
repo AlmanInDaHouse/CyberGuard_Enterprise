@@ -84,14 +84,14 @@ Scope is deliberately minimal: ingest + persist + reject. No read/query API, no 
 - **FR-010. Server validation order** (ADR-0004 §Server validation order), rejecting on the first failure:
   1. **mTLS handshake** completed with a cert chaining to the CA (FR-008, TLS layer).
   2. The envelope `agent_id` equals the **CN** of the presented client certificate, and that `agent_id` exists in the `agents` table. Mismatch / unknown ⇒ `401`.
-  3. `sent_at` is within **±5 min** of server time. Outside ⇒ `422`.
+  3. `sent_at` is within **±5 min** of server time. Outside ⇒ `422`. "Server time" is the Node process wall clock (`Date.now()`) at the moment validation runs, under the assumption that the host is NTP-synced. The service does **not** validate its own clock against an external source; clock skew on the server host becomes server skew. Running NTP on the server host is an **operational prerequisite, documented not enforced** (the agent host has the same NTP requirement per ADR-0004 §Consequences).
   4. `nonce` has **not** been seen — checked against Redis (FR-011). Seen ⇒ `409`.
   5. `signature` verifies as Ed25519 over the **canonical body** (RFC 8785 JCS of the outer envelope minus the `signature` field — SPEC-003 §Data contracts) under the agent's public key (from the client cert / `agents` row). Invalid ⇒ `401`.
   6. On success: persist the nonce in Redis (FR-011), persist the heartbeat in ClickHouse (FR-012), update `agents.last_seen`, return `200`.
 
   `sequence_number` is recorded but not used for rejection in SPEC-004 (cross-restart monotonic sequence is deferred per SPEC-003 drift D3). The server canonicalizes with the `canonicalize` npm package (RFC 8785); cross-language byte-identity with the agent's `serde_jcs` holds for the envelope's value space (ASCII strings, unsigned integers, nested objects — no floats), and the marquee AC proves the interop end-to-end.
 - **FR-011. Nonce store.** Nonces are stored in Redis with `SET nonce:<b64> 1 NX EX 600` (10 min TTL — comfortably above the ±5 min skew window so a replay cannot outlive its timestamp validity). `NX` makes the check-and-set atomic: if the key already exists, it is a replay (`409`).
-- **FR-012. Heartbeat persistence.** Each accepted heartbeat is one row in the ClickHouse `heartbeats` table: the inner-envelope fields (`agent_id`, `sequence_number`, `inner_sent_at`, `status`, `uptime_seconds`), the outer fields (`outer_sent_at`, `nonce`), and the server `arrived_at`. Ordered by `(agent_id, arrived_at)`, partitioned by `toYYYYMMDD(arrived_at)`.
+- **FR-012. Heartbeat persistence.** Each accepted heartbeat is one row in the ClickHouse `heartbeats` table: the inner-envelope fields (`agent_id`, `sequence_number`, `inner_sent_at`, `status`, `uptime_seconds`), the outer fields (`outer_sent_at`, `nonce`), and the server `arrived_at`. Ordered by `(agent_id, arrived_at)`, partitioned by `toYYYYMMDD(arrived_at)`. The insert is **synchronous**: the server `await`s the ClickHouse acknowledgement before returning `200` and does **not** use `async_insert`. So a `200` means the row is durable and immediately queryable — this is what makes the cross-store ordering (§Behavior) well-defined and lets the marquee AC read the row back with no buffer-flush race.
 
 ### Errors, logging
 
@@ -171,7 +171,9 @@ Heartbeats are transport meta-messages, so the ordering key is heartbeat-appropr
 
 ### Migrations
 
-Schema is created by the kysely migrator (timestamped migration files under `services/ingest/src/db/migrations/`). One initial migration creates the Postgres tables; the ClickHouse table is created by a small bootstrap step (kysely targets PG; ClickHouse DDL runs via `@clickhouse/client` at migrate time). Migrations run as a `task ingest:migrate` step and on container start.
+Schema is created by the kysely migrator (timestamped migration files under `services/ingest/src/db/migrations/`). One initial migration creates the Postgres tables; the ClickHouse table is created by a small bootstrap step (kysely targets PG; ClickHouse DDL runs via `@clickhouse/client` at migrate time).
+
+**Migration runtime ownership (single applier).** Migrations are applied by a dedicated `task ingest:migrate` step, or by a single designated service instance gated on `INGEST_RUN_MIGRATIONS=true` (**default `false`**). Plain container start does **not** run migrations unless that flag is set — so scaling to N instances (NFR-002) cannot have N instances race to migrate. Migrations are **idempotent** (`CREATE TABLE IF NOT EXISTS`, `CREATE TYPE` guarded by existence checks, ClickHouse `CREATE TABLE IF NOT EXISTS`) and sequenced by kysely's migration version table. Concurrent application of the same migration is made safe by wrapping the Postgres migration run in a session-level **advisory lock** (`pg_try_advisory_lock(<fixed key>)`; skip if not acquired), so even two instances that both have the flag set cannot double-apply. This matters for SPEC-004 specifically because the marquee AC-001 may stand the service up multiple times in one test run.
 
 ## Configuration
 
@@ -186,6 +188,7 @@ INGEST_HEARTBEAT_PORT    8443                    # mTLS heartbeat listener
 INGEST_SERVER_CERT_PATH  /…/server.pem           # server TLS identity (see §Ratification)
 INGEST_SERVER_KEY_PATH   /…/server-key.pem
 INGEST_CA_PASSPHRASE     <secret>                # CA private-key protection (see §Ratification)
+INGEST_RUN_MIGRATIONS    false                   # if true, this instance applies migrations on start (single applier)
 INGEST_LOG_LEVEL         info
 ```
 
@@ -197,7 +200,17 @@ Defaults target `task dev:up`'s backends. The two ports are separate (rather tha
 
 **Heartbeat lifecycle:** TLS handshake (mTLS, client cert validated by Node TLS against the CA) → receive → Zod-validate → run the §FR-010 validation order → on success `SET nonce NX EX 600`, insert ClickHouse row, update `last_seen`, return `200`. On any validation failure, return the mapped status (§FR-013) and log at `warn`; no persistence occurs.
 
-**First run:** if the `ca` table is empty, generate the Ed25519 CA root and insert the single row before serving. The server TLS identity is materialised per §Ratification.
+**First run:** if the `ca` table is empty, generate the Ed25519 CA root and insert the single row before serving. The server TLS identity is materialised per §Ratification: the server **generates a self-signed/self-issued cert+key only if `INGEST_SERVER_CERT_PATH`/`INGEST_SERVER_KEY_PATH` are absent**; if a cert already exists at those paths it is used as-is and **never overwritten** (an operator-provided cert is thus honoured, and a regenerated CA cannot silently clobber a deployed identity). Generation creating only one of the two files, or an unreadable existing pair, is a fatal start-up error rather than a silent regenerate.
+
+### Cross-store ordering and partial-failure semantics
+
+A successful heartbeat touches three stores and there is **no cross-store transaction**. The order is fixed and each partial-failure fork has a committed behavior, so B5 implements a specified contract rather than discovering it under load:
+
+**Order:** Redis nonce `SET NX` → ClickHouse insert → Postgres `last_seen` UPDATE.
+
+- **Redis fails** (cannot `SET NX`): respond `503`, no ClickHouse row, no `last_seen` update. The nonce was never persisted, so the agent's next-interval retry carries the **same** nonce and is accepted normally. No loss.
+- **ClickHouse fails after a successful Redis `SET NX`:** respond `503`. The nonce is now **burned** (it is in Redis for its TTL and cannot be replayed), the heartbeat is **lost** from ClickHouse, and `last_seen` is not updated. The agent retries next interval with a **new** nonce, which is accepted and produces a new ClickHouse row + `last_seen`. The single lost heartbeat is **accepted data loss** for SPEC-004 — there is no retry queue or WAL; durability of the event stream is a concern for the future firehose SPEC (ADR-0007), not this control-plane minimal.
+- **Postgres `last_seen` UPDATE fails after successful Redis + ClickHouse:** respond **`200`**. The heartbeat **is** persisted — ClickHouse is the source of truth; `last_seen` is a denormalized convenience cache on the `agents` row. Log `warn` (`last_seen update failed`). The agent does **not** retry (it got `200`); `last_seen` converges on the next successful heartbeat. This is the one fork where a downstream-store failure does not surface as a non-2xx.
 
 ## Failure modes
 
@@ -213,11 +226,13 @@ Defaults target `task dev:up`'s backends. The two ports are separate (rather tha
 | Replayed nonce | `409` | `{error:"replay"}` | warn | none |
 | Timestamp skew > ±5 min | `422` | `{error:"stale_timestamp"}` | warn | none |
 | Bad/absent client cert (mTLS) | — | (connection refused at TLS) | warn | none |
-| Postgres unavailable | `503` | `{error:"unavailable"}` | error | none |
-| ClickHouse unavailable | `503` | `{error:"unavailable"}` | error | nonce already set (accepted; heartbeat retried next interval) |
-| Redis unavailable | `503` | `{error:"unavailable"}` | error | none |
+| Postgres unavailable during enroll | `503` | `{error:"unavailable"}` | error | transaction rolls back atomically — token **not** consumed and agent **not** created; no half-state (FR-007) |
+| Postgres unavailable during heartbeat agent lookup (step 2) | `503` | `{error:"unavailable"}` | error | none |
+| Postgres `last_seen` UPDATE fails (after Redis + ClickHouse succeed) | `200` | (success) | warn | heartbeat persisted in ClickHouse (source of truth); `last_seen` converges next beat (§Cross-store) |
+| ClickHouse unavailable (after Redis `SET NX`) | `503` | `{error:"unavailable"}` | error | nonce burned, heartbeat lost (accepted data loss); agent retries with a **new** nonce (§Cross-store) |
+| Redis unavailable | `503` | `{error:"unavailable"}` | error | none; agent retries with the **same** nonce, accepted (§Cross-store) |
 
-A `503` on a heartbeat is, to the SPEC-003 agent, just another non-2xx → it logs a warning and tries the next interval; no agent crash.
+A `503` on a heartbeat is, to the SPEC-003 agent, just another non-2xx → it logs a warning and tries the next interval; no agent crash. The one exception is a post-persist `last_seen` failure, which returns `200` (the heartbeat is already durable in ClickHouse) — see §Behavior > Cross-store ordering.
 
 ## Observability
 
@@ -251,6 +266,8 @@ Each AC maps 1:1 to one integration test under `services/ingest/test/` (or `harn
 ### CA private-key protection
 
 The CA private key is the highest-value secret in SPEC-004: whoever holds it can mint client certs for arbitrary `agent_id`s. The proposal (see §Ratification) is to store it in the `ca` table encrypted with Postgres `pgcrypto` (`pgp_sym_encrypt`) under a passphrase supplied via `INGEST_CA_PASSPHRASE`, so a database dump alone does not yield the key. This is a real but bounded protection: an attacker with both the DB contents **and** the environment passphrase has the key, and an attacker with code execution on the server process can read the decrypted key in memory. It is materially better than plaintext-in-DB and materially weaker than an HSM/KMS — which is the named hardening path, out of SPEC-004 scope.
+
+**Passphrase rotation is deferred work, named so it is not invisible.** SPEC-004 does not implement `INGEST_CA_PASSPHRASE` rotation. An operator who must rotate the passphrase has to re-encrypt the stored CA private key (decrypt under the old passphrase, re-encrypt under the new) via a manual procedure; specifying and tooling that procedure is a future ops SPEC concern, not SPEC-004. Until that SPEC lands, treat the passphrase as long-lived and protect it accordingly.
 
 ### Nonce-store collision bound
 
