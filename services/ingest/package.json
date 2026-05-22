@@ -1,0 +1,50 @@
+{
+  "name": "@cyberguard/ingest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CyberGuard server ingest — agent enroll + heartbeat (SPEC-004).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "bin": {
+    "cg-ingest-token": "./dist/cli/issue-token.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "issue-token": "tsx src/cli/issue-token.ts",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "dependencies": {
+    "@clickhouse/client": "^1.7.0",
+    "@peculiar/x509": "^2.0.0",
+    "canonicalize": "^2.0.0",
+    "fastify": "^5.2.0",
+    "ioredis": "^5.4.2",
+    "kysely": "^0.27.5",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0",
+    "reflect-metadata": "^0.2.2",
+    "uuid": "^11.0.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+  }
+}
