@@ -23,6 +23,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0004](0004-agent-server-protocol.md) | Agent-Server secure protocol | Accepted |
 | [0005](0005-detection-rules-and-ml-in-parallel.md) | Detection — rules and ML in parallel | Accepted |
 | [0006](0006-cges-ocsf-alignment.md) | CGES alignment with OCSF v1.3 | Accepted |
+| [0007](0007-ingest-language-typescript-mvp.md) | Ingest service language — TypeScript for the MVP control plane | Proposed |
 
 ## Dependencies
 
@@ -37,3 +38,5 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0006 → ADR-0003 (ClickHouse partitioning on `event_id` and `occurred_at`; MinIO hosts the offloaded raw payload via `cg_raw_ref`)
 - ADR-0006 → ADR-0004 (CGES is the body inside the signed envelope defined by the agent-server protocol)
 - ADR-0006 → ADR-0005 (`cg_detection_source`, `cg_trust_sources`, and `cg_score` are first-class CGES fields because of the detection decision)
+- ADR-0007 → ADR-0002 (amends the `services/ingest/` language row to TypeScript for the MVP)
+- ADR-0007 → ADR-0004 (the agent-server protocol is language-agnostic; ingest implements it in TypeScript)

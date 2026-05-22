@@ -42,6 +42,8 @@ Each top-level runtime component in the monorepo is implemented in a single lang
 
 The total language surface is bounded to **four**: Rust, Go, TypeScript, Python.
 
+> **Amended (2026-05-22):** the `services/ingest/` row is superseded for the MVP by [ADR-0007](0007-ingest-language-typescript-mvp.md) — the agent control-plane ingest (enroll + heartbeat) is **TypeScript + Fastify**. The high-throughput event firehose that motivated `ingest = Go` is deferred and will get its own ADR. The four-language bound is unaffected (TypeScript is already in the set).
+
 ### Cross-cutting rules
 
 **Rule 1.** Python lives in `services/ml/` only. No Python anywhere else in the repository, including scripts, tooling, or harness internals. If a build or dev script is needed, write it as a Task target invoking Go, Node, or PowerShell / Bash — not Python.
