@@ -196,6 +196,6 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 |---|---|---|---|---|
-| *none* | — | — | — | — |
+| `ts-ci` | B4 harness commit (`test(services): harness for SPEC-004 ACs`) | Harness-first red phase: the 7 SPEC-004 acceptance tests + the polyglot marquee land before the server. `startIngest` is a stub that throws, so all 7 AC test files fail in `beforeAll` **by design**; testcontainers start and migrations apply cleanly — only the server logic is absent. Rationale + locked resumption plan: [[project-session-8-close]]. | Manuel | B5 (same Session 9) — `feat(services): implement SPEC-004 server ingest` |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.

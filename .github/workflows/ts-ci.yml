@@ -46,5 +46,17 @@ jobs:
       - name: Lint (biome)
         run: pnpm run lint
 
+      # The marquee acceptance test (SPEC-004 AC-001) runs the REAL cg-agent
+      # binary against the real testcontainers-backed server — no mock. Build
+      # it here so vitest can spawn it from <repo-root>/target/debug/cg-agent.
+      - name: Install Rust toolchain (reads rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+
+      - name: Build cg-agent (for the polyglot marquee test)
+        working-directory: ${{ github.workspace }}
+        run: cargo build -p cg-agent
+
       - name: Test (vitest)
         run: pnpm test

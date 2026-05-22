@@ -4,9 +4,14 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
-    // Integration tests (B4) spin up testcontainers; give them room.
+    // Shared PG/CH/Redis backends are started once for the whole suite.
+    globalSetup: ["./test/global-setup.ts"],
+    // Integration tests spin up testcontainers; give them room.
     testTimeout: 120_000,
-    hookTimeout: 120_000,
+    hookTimeout: 180_000,
+    // Single fork: the suite shares one set of containers + one ingest
+    // server; the marquee runs a real agent against it.
     pool: "forks",
+    poolOptions: { forks: { singleFork: true } },
   },
 });

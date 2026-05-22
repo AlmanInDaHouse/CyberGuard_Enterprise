@@ -1,14 +1,45 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createClient } from "@clickhouse/client";
-import { FileMigrationProvider, Kysely, Migrator, PostgresDialect, sql } from "kysely";
+import {
+  Kysely,
+  type Migration,
+  type MigrationProvider,
+  Migrator,
+  PostgresDialect,
+  sql,
+} from "kysely";
 import pg from "pg";
 import { type Config, loadConfig } from "../config.js";
 
 // Fixed key for the Postgres advisory lock that serialises migration
 // application across instances (SPEC-004 MUST-2 single-applier).
 const MIGRATION_LOCK_KEY = 4_927_004;
+
+/**
+ * Auto-discovering migration provider that imports each file via a `file://`
+ * URL. Kysely's bundled `FileMigrationProvider` `import()`s raw absolute
+ * paths, which fail on Windows ESM (`ERR_UNSUPPORTED_ESM_URL_SCHEME`); this
+ * keeps the same drop-a-file-in-the-folder convention but is cross-platform.
+ */
+function folderMigrationProvider(migrationFolder: string): MigrationProvider {
+  return {
+    async getMigrations(): Promise<Record<string, Migration>> {
+      const entries = (await fs.readdir(migrationFolder))
+        .filter((f) => /\.(?:js|mjs|ts)$/.test(f) && !f.endsWith(".d.ts"))
+        .sort();
+      const migrations: Record<string, Migration> = {};
+      for (const file of entries) {
+        const name = file.replace(/\.(?:js|mjs|ts)$/, "");
+        migrations[name] = (await import(
+          pathToFileURL(path.join(migrationFolder, file)).href
+        )) as Migration;
+      }
+      return migrations;
+    },
+  };
+}
 
 /**
  * Apply Postgres migrations (under a `pg_try_advisory_lock`, so concurrent
@@ -29,11 +60,9 @@ export async function runMigrations(config: Config = loadConfig()): Promise<void
     try {
       const migrator = new Migrator({
         db,
-        provider: new FileMigrationProvider({
-          fs,
-          path,
-          migrationFolder: path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations"),
-        }),
+        provider: folderMigrationProvider(
+          path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations"),
+        ),
       });
       const { error, results } = await migrator.migrateToLatest();
       for (const r of results ?? []) {
