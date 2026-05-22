@@ -54,6 +54,14 @@ There is no third option. Assuming the failure is unrelated to the current chang
 
 `skipped` workflows (workflow not triggered by the path filters of the pushed commit) are reported as `skipped` and count toward `ALL GREEN`.
 
+### Harness-first red phases and debt co-locality
+
+When a commit will turn a workflow RED **by design** — the harness-first red phase, where acceptance-criteria tests land before the implementation — the *Known CI debt* declaration MUST live in the **same SHA** that turns the workflow red, not in a separate prior or follow-up commit. The spirit of the rule is that the red workflow and its debt entry are visible together at one commit: anyone inspecting that SHA sees both the failing run and the recorded, accepted reason.
+
+Splitting them across commits to exploit path filters (e.g. landing the debt row in a docs-only commit that does not trigger the workflow, then landing the red tests separately) satisfies the letter but violates the spirit, and is not permitted. The implementation commit that turns the workflow green removes the debt row in that same SHA (already required above).
+
+This was the implicit lesson of Sessions 6–7; it is codified here so future sessions inherit it.
+
 ## Local environment operations
 
 The agent operates Manuel's local environment directly (not just the repository) for tools the project depends on. The scope, the package manager preference, the allowed operations, and the confirmation rules are below.
