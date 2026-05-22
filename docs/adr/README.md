@@ -24,6 +24,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0005](0005-detection-rules-and-ml-in-parallel.md) | Detection — rules and ML in parallel | Accepted |
 | [0006](0006-cges-ocsf-alignment.md) | CGES alignment with OCSF v1.3 | Accepted |
 | [0007](0007-ingest-language-typescript-mvp.md) | Ingest service language — TypeScript for the MVP control plane | Accepted |
+| [0008](0008-etw-crate-selection.md) | ETW crate selection for Windows event capture | Accepted |
 
 ## Dependencies
 
@@ -40,3 +41,6 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0006 → ADR-0005 (`cg_detection_source`, `cg_trust_sources`, and `cg_score` are first-class CGES fields because of the detection decision)
 - ADR-0007 → ADR-0002 (amends the `services/ingest/` language row to TypeScript for the MVP)
 - ADR-0007 → ADR-0004 (the agent-server protocol is language-agnostic; ingest implements it in TypeScript)
+- ADR-0008 → ADR-0001 (the agent at `agent/cg-agent/` is where the ETW consumer lives)
+- ADR-0008 → ADR-0002 (Rust for the agent; this ADR picks a Rust crate)
+- ADR-0008 — additive new decision; supersedes nothing, amends nothing
