@@ -144,6 +144,10 @@ JCS canonicalization (RFC 8785) recursively sorts object keys (including inside 
 ```toml
 [server]
 url = "https://ingest.cyberguard.example:8443"
+# optional; the secure heartbeat target when enroll and heartbeat are on
+# different ports/schemes (see Amendment 2026-05-22). Falls back to
+# `server.url` when absent.
+heartbeat_url = "https://ingest.cyberguard.example:8443"
 trust_anchor_path = "C:/ProgramData/CyberGuard/agent/server-ca.pem"
 
 [tls]
@@ -154,6 +158,7 @@ canonical_form = "JCS"    # RFC 8785; the only supported value in SPEC-003
 ```
 
 - `server.trust_anchor_path` — PEM file with one or more root certificates the agent trusts for **server** identity. Its presence activates the secure path (FR-001).
+- `server.heartbeat_url` *(optional; added by Amendment 2026-05-22)* — the URL the secure heartbeat path connects to. If set it must start with `https://`; if absent the secure path falls back to `server.url`. `server.url` is always used for enrollment. See the amendment section for the full rationale.
 - `tls.minimum_version` — documented as `"1.3"`. The agent rejects any configured value below 1.3 at load time; it exists to make the floor explicit and auditable, not to allow downgrade.
 - `envelope.canonical_form` — `"JCS"`. Documented for forward-compatibility; any other value is a config error in SPEC-003.
 
@@ -295,6 +300,20 @@ The three decisions surfaced for Manuel's call were ratified in the Session 7 re
 1. **Persistent server-certificate verification failure → exit `6` (fail closed).** A failing chain is either misconfiguration (wrong trust anchor) or an active MITM; neither self-heals by retrying, and silently retrying against an unvalidated server is dangerous. Reflected in FR-012, the §Failure modes table, and AC-002. (Alternative considered and rejected: retry as a transient transport failure to ride out a legitimate server-cert rotation window — rejected in favor of fail-closed security.)
 2. **TLS client-certificate rejection by the server → exit `7`.** A rejected client cert means expired / revoked / unknown — operator action (re-enroll) is required, and retrying the same rejected cert is futile and noisy. Reflected in FR-012, the §Failure modes table, and AC-008. (Alternative considered and rejected: retry in case the rejection is transient server-side state — rejected to give a fast, clear operator signal.)
 3. **No server-leaf SPKI pinning — CA trust anchor only.** ADR-0004 §Transport requires CA pinning (the trust anchor), not leaf SPKI pinning. Leaf pinning is stronger against a compromised-CA MITM but operationally fragile (breaks on every legitimate server-cert rotation, needs coordinated pin updates). Reflected in §Scope OUT and §Security considerations > Trust anchor distribution. (Alternative considered and rejected: pin the server SPKI hash, accepting the rotation-coordination burden.)
+
+## Amendment 2026-05-22: separate enroll and heartbeat URLs
+
+**Context.** SPEC-004's marquee acceptance criterion (AC-001) — a real `cg-agent` enrolling and then heartbeating against the real ingest server — surfaced that the agent's single `server.url` cannot simultaneously satisfy the SPEC-002 **plain-HTTP enroll** endpoint and the SPEC-003 **mTLS heartbeat** endpoint when those run on different ports, which is exactly SPEC-004 FR-002's two-port topology (`:8080` plain enroll, `:8443` mTLS heartbeat). A single TLS port cannot both not-require a client cert (enroll: the agent has none yet) and require one (heartbeat). The original SPEC-003 assumption that one URL serves both was implicit and never ratified.
+
+**Amendment.** SPEC-003 §Configuration gains an optional `server.heartbeat_url` string:
+
+- If `server.heartbeat_url` is set, the secure path (`SecureSender`) uses it. It must start with `https://`.
+- If `server.heartbeat_url` is absent, the secure path falls back to `server.url` (existing behavior; the `https://` requirement is unchanged).
+- `server.url` is **always** used for enrollment, regardless of `heartbeat_url`.
+
+**Backward compatibility.** Configs without `heartbeat_url` are unchanged. The field is purely additive; **no SPEC-003 test needs revision**.
+
+**Effect on other sections.** None to §Data contracts, §Behavior, §Failure modes, or §Security considerations — the cryptographic and validation semantics are identical; only the configuration surface (which URL the established TLS connection targets) changes. No §Acceptance criteria change: a fallback-behavior AC would merely duplicate existing coverage at the cost of more test surface, so the A1 implementation locks the contract with two inexpensive unit tests instead.
 
 ## References
 

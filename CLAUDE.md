@@ -161,6 +161,17 @@ When reporting autonomous decisions taken during a session, distinguish:
 
 Both are valid. (1) speaks to briefing or SPEC quality; (2) speaks to what reality surfaced. Bundling them loses signal.
 
+### SPEC amendment workflow
+
+When implementation reality contradicts an already-`Accepted` SPEC (or ADR) in a way that needs a contract change, amend it in place rather than rewriting history:
+
+- Append an explicit `## Amendment <YYYY-MM-DD>: <short title>` section near the bottom of the SPEC (before `## References`), stating what surfaced the conflict, the amendment, and its effect (or lack of effect) on each affected section. The original requirement text stays; the amendment supersedes it where they differ.
+- **Status stays `Accepted`**; bump `Last updated`. Summarise the amendment in the catalog (`docs/specs/README.md` / `docs/adr/README.md`) if one exists.
+- **No re-ratification pause is required if the amendment was authorized in chat at the moment the conflict was surfaced** (the STOP that raised it *is* the ratification). If it was not, surface it and wait, like any ask-first decision.
+- Prefer additive, backward-compatible amendments (a new optional field) so prior tests need no revision; call out explicitly when an amendment is *not* backward-compatible.
+
+This was established when SPEC-004's marquee AC surfaced that the agent's single `server.url` could not address SPEC-004's two-port topology, amended into SPEC-003 (optional `server.heartbeat_url`).
+
 ### Stop conditions
 
 The agent STOPS and reports to Manuel only for:
