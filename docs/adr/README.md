@@ -23,7 +23,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0004](0004-agent-server-protocol.md) | Agent-Server secure protocol | Accepted |
 | [0005](0005-detection-rules-and-ml-in-parallel.md) | Detection — rules and ML in parallel | Accepted |
 | [0006](0006-cges-ocsf-alignment.md) | CGES alignment with OCSF v1.3 | Accepted |
-| [0007](0007-ingest-language-typescript-mvp.md) | Ingest service language — TypeScript for the MVP control plane | Proposed |
+| [0007](0007-ingest-language-typescript-mvp.md) | Ingest service language — TypeScript for the MVP control plane | Accepted |
 
 ## Dependencies
 
@@ -31,7 +31,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0003 → ADR-0001 (defines the components whose data this ADR routes)
 - ADR-0003 → ADR-0002 (language choices cite NATS and ClickHouse Go client maturity)
 - ADR-0004 → ADR-0001 (locates `agent/` and `services/ingest/`)
-- ADR-0004 → ADR-0002 (Rust for agent and Go for ingest are inputs to the protocol)
+- ADR-0004 → ADR-0002 (Rust for agent is an input to the protocol; server language is language-agnostic per ADR-0007)
 - ADR-0004 → ADR-0003 (Redis hosts nonce cache and revocation list)
 - ADR-0005 → none (detection principle is independent of stack and storage)
 - ADR-0006 → ADR-0001 (places `schemas/cges/` per the monorepo layout)

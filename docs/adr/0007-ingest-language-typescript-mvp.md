@@ -1,6 +1,6 @@
 # ADR-0007: Ingest service language — TypeScript for the MVP control plane
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-05-22
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
@@ -17,6 +17,8 @@ SPEC-004 — the first server-side SPEC — does **not** build that high-through
 This is exactly the workload ADR-0002 §A3 argues TypeScript is *best* for: *"an API and BFF that must validate untrusted input from the dashboard and from agents"* — type-safe validation (Fastify + Zod) of untrusted agent input, with a path to type-sharing the contracts with the dashboard. The high-throughput telemetry firehose (process / network / file events at 10–100k eps) that motivated `ingest = Go` is a **future** concern, out of SPEC-004 scope.
 
 A decision-critical viability question — can a Node service issue the Ed25519 client certificates SPEC-002/003 require? — was investigated and **answered yes**: `@peculiar/x509` on Node 20+ (verified on Node 24) issues an X.509 certificate with an Ed25519 subject public key, signed by an Ed25519 CA private key, consuming the agent's raw 32-byte public key directly (the SPEC-002 wire form). So the language choice is not constrained by the cryptography.
+
+Concretely verified (so this ADR is self-contained regardless of later SPEC-004 paths): `@peculiar/x509` **2.0.0** on **Node 24.12.0** using Node's native WebCrypto Ed25519 — import the raw key via `crypto.subtle.importKey("raw", <32 bytes>, { name: "Ed25519" }, …)`, issue with `X509CertificateGenerator.create({ signingAlgorithm: { name: "Ed25519" }, publicKey, signingKey: caPrivateKey })`. The issued certificate verified against the CA and round-tripped to the identical 32 subject-key bytes. (`@peculiar/x509` v2 requires `import "reflect-metadata"` at the entry point.)
 
 The conflict surfaced during the SPEC-004 pre-redaction sanity reads and was escalated to the project owner rather than resolved silently, per ADR-0002's own Compliance clause: *"Adding a non-Go server-side artifact requires a new ADR that supersedes this one for that artifact."*
 
@@ -69,7 +71,7 @@ Cons: when the high-throughput firehose lands, `services/ingest/` may need to ei
 ### Negative
 
 - A second server-side language now has runtime code under `services/` (TypeScript joins Go). It is **not** a new language for the system, but it does mean the ingest tier is not uniformly Go.
-- The deferred high-throughput firehose may reintroduce Go at or beside `services/ingest/`, requiring a future ADR and a component seam. This cost is named, not hidden.
+- The deferred high-throughput firehose may reintroduce Go at or beside `services/ingest/`, requiring a future ADR and a component seam. This cost is named, not hidden. When that future ADR opens, it must explicitly decide whether the control-plane TypeScript ingest and the data-plane firehose coexist in `services/ingest/` as sub-components, split into `services/ingest/` (TS, control plane) + a sibling Go service (e.g. `services/event-ingest/`), or follow a different decomposition. The decision is deferred but the question is locked in.
 - The local toolchain and CI matrix grow by a Node.js LTS install and the `ts-ci` workflow.
 
 ### Neutral
