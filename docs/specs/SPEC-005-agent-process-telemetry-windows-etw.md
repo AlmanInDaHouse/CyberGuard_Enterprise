@@ -194,11 +194,79 @@ AC-001 is the polyglot marquee per the harness-first invariant: real `cg-agent` 
 
   Empirical falsifiability of the spike claim is the AC's core value: a future ferrisetw upgrade or Windows kernel change that quietly removes the lost-events signal would surface here, not in production telemetry. This is the load-bearing defense for the dispatch-callback NFR forthcoming in §NFR (the spike's 7649-lost evidence is the NFR's empirical anchor).
 
+## Failure modes
+
+The agent's failure-mode contract for SPEC-005 extends SPEC-001/002/003's exit code range with one new terminal code (exit `9`, introduced by AC-002 for ETW privilege failures) and three new non-fatal conditions specific to the ETW capture + ring + envelope path.
+
+### Terminal exits (process terminates with the exit code)
+
+| Failure | Detection | Exit code | Behavior / stderr |
+|---|---|---|---|
+| ETW session open: insufficient privilege | `OpenTrace` / `StartTrace` returns Win32 error `5` (`ERROR_ACCESS_DENIED`) or `1314` (`ERROR_PRIVILEGE_NOT_HELD`) | `9` | `cg-agent: insufficient privilege to open Microsoft-Windows-Kernel-Process ETW session; run as elevated user or LocalSystem` (per ADR-0010 §Decision part 1; introduced by AC-002) |
+| ETW session open: other terminal failure | `StartTrace` / `OpenTrace` returns any other terminal Win32 error not recoverable by retry (e.g., kernel driver missing, manifest corruption) | `1` | `cg-agent: ETW session open failed: <Win32 error code> <Win32 error message>` |
+| Worker thread panic during envelope construction or signing | Unrecoverable panic on the worker thread draining the ring per ADR-0009 §Decision part 3 | `1` | Standard Rust panic message to stderr; the agent does not attempt to recover the worker thread; runtime exit |
+| Cache thread panic | Unrecoverable panic on the cache sweep thread per §Operational §2 + NFR-005-006 | `1` | Standard Rust panic message; same posture as worker thread |
+
+Exit codes `1`–`8` retained from SPEC-001/002/003 with their original semantics. SPEC-005 adds only exit code `9` (ETW privilege).
+
+### Non-fatal conditions (log + continue; the agent does NOT exit)
+
+| Condition | Detection | Behavior |
+|---|---|---|
+| Signed envelope rejected by ingest (bad signature, replayed nonce, stale timestamp, unknown agent) | Non-2xx HTTP response from `/v1/agents/heartbeat` per SPEC-003 §FR-012 | Log `warn` per SPEC-003; the events in the rejected envelope remain in the ring for retry on the next flush. If the next flush includes the same events under a fresh envelope (fresh `nonce`, fresh `sent_at`), server-side dedup keyed on `event_id` per ADR-0009 §Decision part 1 collapses duplicates if the ingest accepted the first envelope before responding. |
+| Ring overflow — `events_dropped_total` incremented | Ring enqueue path per ADR-0009 §Decision part 3 + §NFR-005-002 | Log `warn` on the first drop after a quiet period, throttled to one log line per `60` seconds during sustained overflow (avoid log flood). The counter is exposed per NFR-005-003 regardless of log emission. |
+| ETW `events_lost` observed non-zero by the side-channel helper | Periodic poll of `events_lost(session_name)` per ADR-0008 §Decision part 2; cadence co-located with the cache sweep (every `60` seconds per NFR-005-006) | Log `warn` with the observed `events_lost` value and the delta since the previous poll. Monotonically non-decreasing per AC-009; backwards motion would falsify ADR-0008's spike findings and is treated as a capture-time anomaly logged at `error`. |
+| Cache sweep eviction count > 0 | Sweep iteration completion per §Operational §2 + NFR-005-006 | Log `debug` with the eviction count. Routine operation — Launch-without-corresponding-Terminate is normal at low rates (parent processes that outlive the agent; processes Launched before the agent started but Terminated during the agent's lifetime); no `warn` unless the eviction count exceeds a threshold to be defined empirically post-MVP. |
+| Kernel-device-prefix translation fallthrough for a single event | The captured `ImageFileName` does not match any cached prefix per §Operational §3 | Log `debug` once per distinct unresolved prefix (throttled to avoid log flood for sustained unresolved paths); the event emits with the kernel path verbatim per §Operational §3 fallthrough cases. No `warn` — the fallthrough is a documented v0.1 limitation, not an anomaly. |
+
+## Observability
+
+All logs follow SPEC-001 / SPEC-003 JSON-on-stdout conventions per SPEC-001 §FR-009 + §Observability. New events specific to the SPEC-005 ETW capture + ring + envelope path:
+
+| Event | Level | Required fields |
+|---|---|---|
+| ETW session opened | `info` | `session_name`, `provider_guid`, `buffer_size_kb`, `buffer_count` |
+| ETW session closed (clean shutdown) | `info` | `session_name`, `events_captured_total`, `events_lost_total` |
+| ETW session closed (zombie reclaimed) | `info` | `session_name`, `reclaim_path` (`"helper.stop_zombie"`) — per ADR-0008 §Decision part 2 |
+| Process Launch event captured | `debug` | `pid`, `parent_pid`, `image_file_name` (kernel form), `event_id` |
+| Process Terminate event captured | `debug` | `pid`, `exit_status`, `event_id` |
+| Event dropped — `process.name` empty (log-and-drop) | `error` | `pid`, `activity_id`, `event_id`, `reason` (`"image_file_name_empty"` or `"basename_empty"`) — per AC-006 |
+| Ring overflow (first drop after quiet, then throttled) | `warn` | `events_dropped_total`, `delta_since_last_log`, `ring_size_current` |
+| `events_lost` observed non-zero (60 s poll) | `warn` | `events_lost`, `delta_since_last_poll`, `session_name` |
+| `events_lost` decreased between polls (anomaly) | `error` | `events_lost_current`, `events_lost_previous`, `session_name` — never expected per AC-009; falsifies ADR-0008 spike findings |
+| Cache sweep complete | `debug` | `entries_swept`, `entries_evicted`, `duration_ms` |
+| Envelope built and POSTed | `info` | `sequence_number`, `events_count`, `batch_hash`, `body_size_bytes`, `signed_bytes_size` |
+| Marquee AC-001 elapsed time (test harness only) | `info` | `marquee_elapsed_seconds`, `verdict` (`"pass"` or `"fail"`) — per NFR-005-004 |
+
+Mandatory fields per line (timestamp, level, target, message) carry through from SPEC-001 §Observability; the table above lists only the event-specific structured fields.
+
+## Ratification record
+
+To be populated at the Phase 3.3.J ratification commit. Will record the chat-ratification of each load-bearing decision surfaced during Phase 3.3 drafting:
+
+- The G1 + G5 + ring-sizing-triple + dispatch-callback NFR + D7 marquee budget ratifications established during the audit-first pass.
+- The §Operational mechanism decisions (FILETIME conversion formula constant; PID-keyed cache scope per ADR-0011 §6 interpretation; kernel-device-path translation fallthrough cases).
+- The §NFR concrete parameters (NFR-005-002 ring sizing triple; NFR-005-003 envelope-side transport; NFR-005-006 sweep cadence; NFR-005-005 AC-007 retry tolerance bound).
+- The §Failure modes exit code `9` introduction for ETW privilege.
+- Co-located SPEC-001 amendment 2026-05-23 (sequence_number semantics under multi-POST).
+
+Each entry will record the recommended-default-and-rationale pattern established by SPEC-003 §Ratification record.
+
 ## References
 
-Full reference list forthcoming with the ratification commit. Cross-references already in scope for this commit:
-
-- [ADR-0001](../adr/0001-monorepo-layout.md), [ADR-0002](../adr/0002-language-per-component.md), [ADR-0006](../adr/0006-cges-ocsf-alignment.md), [ADR-0008](../adr/0008-etw-crate-selection.md), [ADR-0009](../adr/0009-event-delivery-and-buffer.md), [ADR-0010](../adr/0010-agent-privilege-model-mvp.md), [ADR-0011](../adr/0011-cges-process-activity-v0-1.md).
-- [SPEC-001](SPEC-001-agent-heartbeat.md), [SPEC-002](SPEC-002-agent-enrollment.md), [SPEC-003](SPEC-003-mtls-signed-envelope.md).
-- [docs/spikes/2026-05-23-etw-process-events.md](../spikes/2026-05-23-etw-process-events.md) — Phase 0 spike empirical baseline.
-- [Foundational Blueprint](../product/blueprint.md) — §7 (Agent-Server Secure Protocol), §17.11 (Advanced anonymisation out of MVP).
+- [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout. Places `agent/cg-agent/`, `services/ingest/`, `schemas/cges/v0.1/`, `docs/specs/`, `docs/adr/`, `docs/spikes/`.
+- [ADR-0002](../adr/0002-language-per-component.md) — Language per component. Rust for the agent.
+- [ADR-0006](../adr/0006-cges-ocsf-alignment.md) — CGES alignment with OCSF v1.3. §Out-of-scope third bullet is the PII deferral chain root.
+- [ADR-0008](../adr/0008-etw-crate-selection.md) — ETW crate selection. ferrisetw 1.2.0 + side-channel helper. §Empirical justification anchors NFR-005-001.
+- [ADR-0009](../adr/0009-event-delivery-and-buffer.md) — Event delivery semantics + buffer model. At-least-once delivery, ReplacingMergeTree dedup, in-memory ring. §Decision part 3 anchors NFR-005-001 (dispatch callback constraint) + NFR-005-002 (ring shape).
+- [ADR-0010](../adr/0010-agent-privilege-model-mvp.md) — Agent privilege model + MVP installation posture. §Decision part 1 anchors AC-002 + §Failure modes exit code `9`.
+- [ADR-0011](../adr/0011-cges-process-activity-v0-1.md) — Per-class CGES jurisprudence — Process Activity v0.1. §3 (activity_id discriminator), §4 (ETW field mapping table + amendment), §5 (PPID race), §6 (process.uid recipe), §Out-of-scope (PII deferral restatement).
+- [SPEC-001](SPEC-001-agent-heartbeat.md) — Agent heartbeat. §Behavior scheduling reused; amendment 2026-05-23 (sequence_number multi-POST) co-located in this SPEC's ratification commit.
+- [SPEC-002](SPEC-002-agent-enrollment.md) — Agent enrollment. Identity loaded before ETW session open.
+- [SPEC-003](SPEC-003-mtls-signed-envelope.md) — mTLS 1.3 + signed envelope. Amendment 2026-05-23 part (a) (E2 wire shape with `events[]` + `batch_hash`) is the wire contract SPEC-005 emits into.
+- [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) — JSON Canonicalization Scheme (JCS). The events array canonicalisation discipline per SPEC-003 §Security considerations.
+- [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562) — UUIDv7 specification. `event_id` format per ADR-0006 + ADR-0009 §Decision part 1.
+- [ETW Microsoft-Windows-Kernel-Process schema](https://learn.microsoft.com/en-us/windows/win32/etw/microsoft-windows-kernel-process) — Microsoft's published schema for the events §Acceptance criteria + §Operational map.
+- [docs/spikes/2026-05-23-etw-process-events.md](../spikes/2026-05-23-etw-process-events.md) — Phase 0 spike findings. Empirical evidence for NFR-005-001 (7649 lost @ 80 ms callback + 1 KB × 2 buffers) and the steady-state baseline (~1.1 k events/sec absorbed with zero loss) that informs NFR-005-002.
+- [docs/engineering-notes.md](../engineering-notes.md) — Session 10 nine conventions + Session 11 Convention #5 extension + Session 11 full-SHA polling operational bullet. All apply to SPEC-005 drafting and the Phase 3.3.J ratification commit's repo-wide sweep.
+- [Foundational Blueprint](../product/blueprint.md) — §7 (Agent-Server Secure Protocol). §17.11 (Advanced anonymisation out of MVP) — the framework deferral for the §Out of scope item 6 PII chain.
