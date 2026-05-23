@@ -65,7 +65,22 @@ AC-001 is the polyglot marquee per the harness-first invariant: real `cg-agent` 
 
   Test mechanism: unit test in the agent crate (`agent/cg-agent/`). The formatter is a pure function on the input triple; no ETW, no ingest, no testcontainers required. The hand-computed expected strings live verbatim in the test source as the regression anchor.
 
-AC-004 through AC-009 forthcoming in subsequent Phase 3.3.X commits.
+- **AC-004 (`process.created_time` integer-nanos UTC + cache hit/miss for Terminate).** For activity_id=1 (Launch) events, the agent MUST emit `process.created_time` as integer nanoseconds since Unix epoch UTC strict per ADR-0011 §4 amendment (a); the value is the ETW event's own timestamp converted to UTC nanoseconds via the conversion mechanism specified in §Operational (forthcoming). The emitted value MUST be `>= 0` and MUST fit a signed 64-bit integer (Windows FILETIME range comfortably bounds this for any plausible event time).
+
+  For activity_id=2 (Terminate) events, the agent MUST consult the agent-local volatile `(PID → creation_time)` cache populated at Launch capture per §Operational (forthcoming). Two cache outcomes, both tested:
+
+  - **Cache hit:** the Terminate row's `process.created_time` MUST equal the corresponding Launch row's `process.created_time` byte-for-byte. The test exercises the nominal lifecycle (probe Launch captured → Terminate captured during the same agent session → both rows persisted to ClickHouse) and asserts equality at the persisted row layer.
+  - **Cache miss:** when no cache entry exists for the Terminated PID (entry was never populated because Launch occurred before agent start, or entry was purged by a prior Terminate consultation, or the cache was lost by agent restart per §Operational forthcoming), the Terminate row's `process.created_time` MUST be `null`. The test exercises this by issuing a Terminate event for a PID whose Launch was not observed by the running agent.
+
+  Test mechanism: two integration tests, both running against real ETW capture and real ingest (testcontainers per the harness-first invariant). The cache-miss test deliberately bypasses the Launch capture path to force the miss condition.
+
+- **AC-005 (`process.exit_code` conditional emission).** For activity_id=1 (Launch) events, the agent MUST NOT emit a `process.exit_code` field. The persisted row MUST satisfy `process.exit_code IS NULL` in ClickHouse, distinguishable from a row where the field was emitted as `0` (the field is absent, not zero). This is the stricter-than-schema agent normative declared in ADR-0011 §4 amendment (b), §Compliance: "the conditional emission contract (`exit_code` MUST be present when activity_id=2 and MUST be absent when activity_id=1) is documented in SPEC-005 §Acceptance Criteria as a stricter-than-schema agent normative."
+
+  For activity_id=2 (Terminate) events, the agent MUST emit `process.exit_code` as a signed 32-bit integer per ADR-0011 §4 amendment (b); the value is the ETW event's `ExitStatus` field interpreted as Windows `LONG` (`int32_t` signed). The test exercises three values pinning the contract: `exit_code = 0` (nominal clean exit from `cmd.exe /c exit 0`); `exit_code = 1` (nominal non-zero exit from `cmd.exe /c exit 1`); `exit_code = -1073741819` (the signed-int32 interpretation of `0xC0000005` `STATUS_ACCESS_VIOLATION`, exercising the NTSTATUS-as-negative-signed-int32 case explicitly named in ADR-0011 §4 amendment (b)).
+
+  Test mechanism: integration test running against real ETW capture and real ingest (testcontainers). The `STATUS_ACCESS_VIOLATION` case requires a probe that deliberately faults; one option is a tiny Rust binary built at test setup that dereferences a null pointer via `unsafe`. The test asserts both the presence/absence of the field per activity_id and the exact integer value for Terminate events.
+
+AC-006 through AC-009 forthcoming in subsequent Phase 3.3.X commits.
 
 ## References
 
