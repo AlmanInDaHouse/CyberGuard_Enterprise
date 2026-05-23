@@ -14,6 +14,24 @@
       "type": "string",
       "minLength": 1
     },
+    "uid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[1-9][0-9]{0,9}:[1-9][0-9]{0,18}$",
+      "minLength": 58,
+      "maxLength": 67,
+      "description": "Per-process-instance unique identifier. Format: <agent_id_canonical>:<pid_decimal>:<created_time_unix_nanos_utc> per ADR-0011 §6. Byte-level reproducibility enforced by SPEC-005 test fixtures."
+    },
+    "created_time": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Process creation time as nanoseconds since Unix epoch, UTC strict. Same format used inside process.uid per ADR-0011 §6. For activity_id=1 (Launch): the ETW event timestamp. For activity_id=2 (Terminate): the original Launch timestamp if available to the agent at Terminate time; otherwise null. See ADR-0011 §4 amendment 2026-05-23 part (a)."
+    },
+    "exit_code": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "description": "Process exit status from Windows ExitStatus (signed int32). NTSTATUS codes appearing as large positives in unsigned-hex Windows convention will appear as negative integers here. Only meaningful for activity_id=2 (Terminate); see SPEC-005 for the v0.1 emission contract on conditional presence. See ADR-0011 §4 amendment 2026-05-23 part (b)."
+    },
     "cmd_line": {
       "type": "string"
     },
@@ -27,7 +45,7 @@
       "$ref": "user.json"
     }
   },
-  "required": ["pid", "name"],
+  "required": ["pid"],
   "examples": [
     {
       "pid": 7144,

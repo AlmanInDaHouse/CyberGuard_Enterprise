@@ -1,0 +1,35 @@
+{
+  "schema_version": "0.1.0",
+  "ocsf_version": "1.3.0",
+  "event_id": "019e3fc5-19ae-7100-89ab-000000000002",
+  "time": "2026-05-19T10:25:42.318Z",
+  "cg_ingested_at": "2026-05-19T10:25:42.901Z",
+  "category_uid": 1,
+  "class_uid": 1007,
+  "activity_id": 2,
+  "severity_id": 3,
+  "cg_agent": {
+    "agent_id": "01934abc-def0-7000-89ab-000000000001",
+    "agent_version": "0.4.2",
+    "agent_platform": "windows",
+    "agent_hostname": "FIN-PC-014"
+  },
+  "cg_org": {
+    "org_id": "acme",
+    "tenant": "default"
+  },
+  "message": "PowerShell process exited after encoded-command execution",
+  "process": {
+    "pid": 7144,
+    "name": "powershell.exe",
+    "uid": "01934abc-def0-7000-89ab-000000000001:7144:1779186190901000000",
+    "created_time": 1779186190901000000,
+    "exit_code": 0,
+    "parent_process": {
+      "pid": 4012,
+      "name": "winword.exe",
+      "uid": "01934abc-def0-7000-89ab-000000000001:4012:1779186090123000000",
+      "created_time": 1779186090123000000
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": "0.1.0",
+  "ocsf_version": "1.3.0",
+  "event_id": "019e3fc9-4474-7100-89ab-000000000003",
+  "time": "2026-05-19T10:30:15.412Z",
+  "cg_ingested_at": "2026-05-19T10:30:15.987Z",
+  "category_uid": 1,
+  "class_uid": 1007,
+  "activity_id": 1,
+  "severity_id": 3,
+  "cg_agent": {
+    "agent_id": "01934abc-def0-7000-89ab-000000000001",
+    "agent_version": "0.4.2",
+    "agent_platform": "windows",
+    "agent_hostname": "FIN-PC-014"
+  },
+  "cg_org": {
+    "org_id": "acme",
+    "tenant": "default"
+  },
+  "message": "Process launched; parent unresolved (PID reused or parent already terminated before child Launch fired)",
+  "process": {
+    "pid": 8821,
+    "name": "cmd.exe",
+    "uid": "01934abc-def0-7000-89ab-000000000001:8821:1779186615412000000",
+    "created_time": 1779186615412000000,
+    "parent_process": {
+      "pid": 3120
+    }
+  }
+}
