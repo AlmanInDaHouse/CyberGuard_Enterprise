@@ -114,7 +114,7 @@ Chosen.
 - [ADR-0002](0002-language-per-component.md) — Language per component. The agent is Rust; this ADR picks a Rust crate.
 - [docs/spikes/2026-05-23-etw-process-events.md](../spikes/2026-05-23-etw-process-events.md) — Phase 0 spike findings. Source of truth for the documented gaps and the empirical justification.
 - [docs/engineering-notes.md](../engineering-notes.md) — Session 10 entry on follow-up co-location.
-- SPEC-005 (forthcoming) — Agent process telemetry (Windows ETW Kernel-Process). First consumer of this decision.
+- [SPEC-005](../specs/SPEC-005-agent-process-telemetry-windows-etw.md) — Agent process telemetry (Windows ETW Kernel-Process). First consumer of this decision.
 - ADR-0010 — Agent privilege model & installation posture for MVP. Carries the CI privilege assumption skipped from this spike's gates.
 - `ferrisetw` 1.2.0 source — `src/trace.rs` (`TraceBuilder`, `Drop` semantics, no `stop_if_exist` in the published release), `src/query.rs` (the only "query" surface, exposing only `ProfileSource::sample_interval` and `max_pmc`).
 - `ferrisetw` 1.2.0 source — **`src/native/evntrace.rs:59`** carries the maintainer comment *"ControlTraceW(EVENT_TRACE_CONTROL_QUERY) might tell us if the buffers are empty or not"*. Strongest documentary evidence that the missing `EventsLost` accessor is an upstream-acknowledged gap, not a misunderstanding on our side; preserved as a primary citation because its evidentiary weight is disproportionate to its size.

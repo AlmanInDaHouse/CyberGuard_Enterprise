@@ -25,3 +25,4 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-002](SPEC-002-agent-enrollment.md) | Agent enrollment | Accepted |
 | [SPEC-003](SPEC-003-mtls-signed-envelope.md) | mTLS 1.3 and signed envelope | Accepted |
 | [SPEC-004](SPEC-004-server-ingest-minimal.md) | Server ingest minimal | Accepted |
+| [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) | Agent process telemetry — Windows ETW Kernel-Process | Accepted |

@@ -6,7 +6,7 @@
 - **Depends on:** ADR-0001, ADR-0002, ADR-0004 (partial; see §Scope), ADR-0006
 - **Authors:** Manuel (product owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-05-20
-- **Last updated:** 2026-05-20
+- **Last updated:** 2026-05-23
 
 ## Motivation
 
@@ -210,6 +210,22 @@ Each AC maps 1:1 to one Rust integration test under `agent/cg-agent/tests/`. Tes
 - **AC-008.** Given a config file missing the `server.url` key, the agent exits with code `2` and writes a stderr line containing the substring `missing key 'server.url'`.
 - **AC-009.** All stdout lines emitted by the agent during a normal run are valid JSON, each containing `timestamp`, `level`, and `message` fields.
 - **AC-010.** When the mock server rejects every retry of heartbeat N (so heartbeat N is never accepted), the next scheduling tick still arrives and the next received heartbeat carries `sequence_number = N + 1`. Sequence gaps observed at the server indicate undelivered heartbeats, not retries.
+
+## Amendment 2026-05-23: sequence_number semantics under SPEC-005 multi-POST
+
+**Status.** This amendment supersedes parts of §FR-005, §FR-007, §Behavior, and §AC-010 in the multi-POST scenarios introduced by SPEC-005. SPEC-001 remains `Accepted`; the amendment convention is in-place per [docs/engineering-notes.md](../engineering-notes.md).
+
+**Context.** SPEC-001 was drafted under the assumption of one logical POST per heartbeat interval (timer-driven only). SPEC-005 introduces event-driven flushes (per ADR-0009 §Decision part 3: max-batch OR max-latency triggers per SPEC-005 §NFR-005-002), under which multiple POSTs may occur within a single interval. The 30 s heartbeat timer becomes a fallback trigger when no event-driven flush has fired in the interval; the 1-POST-per-interval guarantee no longer holds.
+
+**Amendment.** Under SPEC-005 and its successors:
+
+- `sequence_number` increments by exactly 1 per POST, regardless of whether the POST was timer-driven (no events accumulated) or event-driven (flush threshold reached).
+- The N-th POST (1-indexed) carries `sequence_number = N`. Retries of the same POST keep the same `sequence_number` (FR-007's per-retry semantics carry through unchanged).
+- "Sequence gaps observed at the server indicate undelivered POSTs" (re-wording of FR-005's heartbeat-flavoured claim; semantics unchanged at the POST layer).
+
+**Backward compatibility.** SPEC-001-only deployments (no SPEC-005, `server.trust_anchor_path` absent) retain the original 1-POST-per-interval semantics — the SPEC-001 path emits only timer-driven heartbeats. The amendment narrows the SPEC-001 wording's scope rather than overriding it: original prose applies when no SPEC-005 event source is active; this amendment applies when one is.
+
+**Effect on other sections.** None to §Configuration, §Failure modes, §Observability, §NFR (jitter still applies to timer-driven ticks; event-driven flushes have no jitter contract). §AC-001/002/003/004/005/006/007/008/009 unchanged (they assert SPEC-001 standalone behavior; SPEC-005 introduces its own ACs that exercise the multi-POST semantics).
 
 ## References
 

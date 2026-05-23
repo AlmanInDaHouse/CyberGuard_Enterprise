@@ -2,7 +2,7 @@
 
 - **ID:** SPEC-005
 - **Title:** Agent process telemetry — Windows ETW Kernel-Process
-- **Status:** Proposed
+- **Status:** Accepted
 - **Depends on:** ADR-0001, ADR-0002, ADR-0006, ADR-0008, ADR-0009, ADR-0010, ADR-0011, SPEC-001 (§Behavior reused; amendment 2026-05-23 co-located in this SPEC's ratification commit), SPEC-002 (identity), SPEC-003 (envelope E2; amendment 2026-05-23 part (a))
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-05-23
@@ -242,13 +242,29 @@ Mandatory fields per line (timestamp, level, target, message) carry through from
 
 ## Ratification record
 
-To be populated at the Phase 3.3.J ratification commit. Will record the chat-ratification of each load-bearing decision surfaced during Phase 3.3 drafting:
+Load-bearing decisions surfaced and ratified in chat during the Phase 3.3 audit-first pass and incremental drafting. Each entry follows the recommended-default-and-rationale pattern established by SPEC-003 §Ratification record.
 
-- The G1 + G5 + ring-sizing-triple + dispatch-callback NFR + D7 marquee budget ratifications established during the audit-first pass.
-- The §Operational mechanism decisions (FILETIME conversion formula constant; PID-keyed cache scope per ADR-0011 §6 interpretation; kernel-device-path translation fallthrough cases).
-- The §NFR concrete parameters (NFR-005-002 ring sizing triple; NFR-005-003 envelope-side transport; NFR-005-006 sweep cadence; NFR-005-005 AC-007 retry tolerance bound).
-- The §Failure modes exit code `9` introduction for ETW privilege.
-- Co-located SPEC-001 amendment 2026-05-23 (sequence_number semantics under multi-POST).
+1. **G1 — PID-keyed volatile cache for `process.created_time` retention scoped per §Operational §2.** Path (b) ratified: cache mechanism documented in SPEC-005 §Operational as agent implementation detail, no amendment to ADR-0011. Rationale: ADR-0011 §6's "no agent-side mapping table, no state across restarts" wording forbids uid-keyed lookup tables stateful across restarts (rejected candidate A7); a PID-keyed volatile cache for `created_time` enrichment is categorically distinct (scoped to Launch → Terminate window, not load-bearing for `process.uid`, local-only PID key, volatile on agent restart). Reflected in §Operational §2 and AC-004's cache hit/miss paths. (Alternative considered and rejected: amending ADR-0011 §6 wording — rejected to avoid touching the per-class jurisprudence ADR for an interpretation question.)
+
+2. **G5 — `events_dropped_total` envelope-side transport surface.** Ratified: envelope-side field in `body.agent` per SPEC-003 §Data contracts, unsigned 64-bit integer, no separate metrics path in v0.1. Rationale: zero new infrastructure; visible at ingest side via the existing event pipeline; ADR-0009's "operators can alert on it" intent satisfied. Reflected in NFR-005-003. (Alternative considered and rejected: separate metrics path — rejected as deferred work not required by ADR-0009's scope.)
+
+3. **NFR-005-002 ring sizing triple `(65536, 1024, 5000)`.** Ratified during incremental drafting. Rationale: 65536 events provides ~1 minute of headroom at the spike's measured ~1.1 k events/sec steady-state per ADR-0008 §Empirical justification; 1024 batch bounds per-envelope JCS canonicalisation cost at ~1 second steady-state; 5000 ms latency keeps event freshness sub-30 s and leaves AC-001 marquee budget headroom against D7's 45 s threshold. The triple is the v0.1 working set; subsequent changes require SPEC-005 amendment with empirical justification.
+
+4. **NFR-005-001 dispatch-callback constraint (load-bearing, not negotiable).** Ratified per the Phase 3 opening protocol. Rationale: the Phase 0 spike's empirical evidence (7649 events lost in 25 s under a 80 ms in-callback sleep + 1 KB × 2 buffers + three 200-process bursts) is the falsifiable anchor; any non-trivial callback work risks ETW buffer overflow at the kernel side. AC-009 is the standing regression guard. (Not negotiable; locks the architecture's reason-to-exist.)
+
+5. **NFR-005-004 D7 marquee budget restatement (45.0 s wall-clock + `marquee_elapsed_seconds` logged in CI).** Ratified per the Phase 3 opening protocol's D7 ratification. Rationale: the 45 s threshold + CI elapsed-time logging are the load-bearing artifacts of D7; the threshold is not negotiable in v0.1. (Not negotiable in v0.1.)
+
+6. **NFR-005-005 AC-007 retry tolerance (3 attempts × 500 ms backoff).** Ratified during incremental drafting. Rationale: the PPID race window is ETW dispatch latency, typically sub-100 ms; 3 retries with 500 ms backoff balances flake risk against signal preservation. Tightening dilutes signal; loosening increases flake.
+
+7. **NFR-005-006 PID-keyed cache sweep cadence (60 s).** Ratified during incremental drafting. Rationale: at the spike's steady-state rate and Windows' 22-bit PID space, cache memory stays well under 1 MB worst case under sustained Launch-without-Terminate scenarios. Sweep is not load-bearing for correctness (purge-at-Terminate-consult is); 60 s cadence is conservative.
+
+8. **§Operational §1 FILETIME → Unix epoch nanoseconds conversion constant `116444736000000000`.** Ratified during incremental drafting. Rationale: fixed by calendar arithmetic between `1601-01-01 UTC` (Windows FILETIME epoch) and `1970-01-01 UTC` (Unix epoch); identical across all Windows versions and ETW providers; verifiable independently. The agent does not consult local timezone, system clock, or user time settings during the conversion.
+
+9. **§Operational §3 kernel-device-path translation fallthrough cases.** Ratified during incremental drafting. Rationale: UNC paths get a dedicated rule (standard form `\\server\share\file.exe`); junctions / mount points / post-startup-mounted removable media emit verbatim with recognisable `\Device\` prefix; empty `ImageFileName` log-and-drops per AC-006. No canonicalisation in v0.1 (no `..` resolution, no case normalisation) — preserves ETW source form for forensic provenance.
+
+10. **§Failure modes exit code `9` introduction for ETW privilege.** Ratified during incremental drafting. Rationale: exit codes `1`–`8` are inherited from SPEC-001/002/003; ADR-0010 §Decision part 1 delegates the privilege-failure exit code to SPEC-005 without specifying a value; `9` is the next natural code. Reflected in AC-002 + §Failure modes terminal exits table.
+
+11. **Co-located SPEC-001 amendment 2026-05-23 (sequence_number semantics under multi-POST).** Ratified per the Step 2 resolution of finding S1. Rationale: SPEC-001's literal wording assumed 1-POST-per-interval (FR-005, FR-007, §Behavior, AC-010); SPEC-005's multi-POST behavior (event-driven flushes per ADR-0009 + 30 s timer fallback) requires sequence_number semantics that increment per POST regardless of trigger source. The amendment narrows SPEC-001's wording scope rather than overriding it: SPEC-001-only deployments (no SPEC-005) retain the original 1-POST-per-interval semantics; SPEC-005-active deployments use the multi-POST semantics. Co-located in this commit per the Session 10 cascade pattern (ADR-0009 + ADR-0004 co-located).
 
 Each entry will record the recommended-default-and-rationale pattern established by SPEC-003 §Ratification record.
 
