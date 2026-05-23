@@ -249,8 +249,8 @@ ADRs and SPECs.
   redaction). Status `Proposed` until chat ratifies.
 - **Phase 3.4 — Harness RED.** All nine ACs as failing tests
   **before** any implementation lands. Per the invariant: the
-  marquee never downgrades to mocks; the harness uses real `cg-agent`
-  + real `services/ingest/` + real Postgres/ClickHouse/Redis via
+  marquee never downgrades to mocks; the harness uses real `cg-agent`,
+  real `services/ingest/`, and real Postgres/ClickHouse/Redis via
   testcontainers, with the documented escalation order if
   testcontainers can't reach the Docker socket.
 - **Phase 3.5 — Implementation to GREEN.** Real ETW capture via
