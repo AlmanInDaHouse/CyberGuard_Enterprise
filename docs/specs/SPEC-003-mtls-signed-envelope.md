@@ -6,7 +6,7 @@
 - **Depends on:** ADR-0001, ADR-0002, ADR-0004 §Transport / §Message integrity / §Server validation order, ADR-0006, SPEC-001, SPEC-002
 - **Authors:** Manuel (product owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-05-21
-- **Last updated:** 2026-05-22
+- **Last updated:** 2026-05-23
 
 ## Motivation
 
@@ -43,16 +43,16 @@ The two primitives are **coupled** (the cert TLS presents is the cert SPEC-002 i
 - **TLS session resumption (0-RTT / tickets).** Not implemented in SPEC-003; each heartbeat interval may establish a fresh connection. A session-reuse NFR may follow if handshake cost proves material.
 - **Revocation lists / OCSP / CRL.** Out. Per ADR-0004 the server validates a client cert against its own issuance record and a Redis revocation set; the agent does not consult revocation data for the server cert beyond trust-anchor chain validation.
 - **Persisted cross-restart monotonic `sequence_number`.** ADR-0004 §Message integrity calls `sequence_number` "persisted on the agent". SPEC-001 deliberately scoped it as per-process (resets to 1 on restart). SPEC-003 keeps that: its anti-replay guarantee rests on `nonce` + `sent_at`, not on cross-restart sequence monotonicity. Persisted sequence pairs naturally with the deferred buffered-offline-events feature (ADR-0004 §Heartbeat) and lands with it. See §Drift from ADR-0004.
-- **Buffered offline events.** Still deferred per ADR-0004 §Heartbeat, as in SPEC-001/002.
+- **Buffered offline events.** Persistent disk-backed buffering remains deferred per ADR-0004 amendment 2026-05-23 part (a); the in-memory ring buffer that SPEC-005 introduces is specified by ADR-0009, not SPEC-003.
 - **The server.** SPEC-003 tests use a TLS-enabled in-process mock. The production server (ingest) is a separate SPEC.
 
 ## Drift from ADR-0004 (declared, scoped)
 
 SPEC-003 aligns tightly with ADR-0004 §Transport, §Message integrity, and §Server validation order. Three deliberate, justified drifts:
 
-- **D1 — Signed region wraps the body inline instead of carrying a `batch_hash`.** ADR-0004's envelope carries `batch_hash = sha256(canonical(events[]))` and signs `canonical(envelope_minus_sig)`. SPEC-003 embeds the SPEC-001 heartbeat envelope directly as `body` inside the signed region and signs `JCS(outer_envelope_minus_signature)`. Because the body is *inside* the signed bytes, the signature commits to it directly — `batch_hash` is redundant and is dropped. `batch_hash` returns in the future events-batch SPEC, where embedding a large `events[]` array inside the signed region is impractical and a hash indirection is warranted. For the heartbeat (no `events[]`), inline embedding is simpler and strictly no weaker. **The signature still covers the whole envelope-minus-signature, exactly as ADR-0004 mandates** — this drift is about `batch_hash`, not about the signed region.
+- **D1 (narrowed by amendment 2026-05-23 part (b)) — body remains inline in the signed region.** ADR-0004's envelope carries `batch_hash = sha256(canonical(events[]))` and signs `canonical(envelope_minus_sig)`. SPEC-003 embeds the SPEC-001 heartbeat envelope directly as `body` inside the signed region and signs `JCS(outer_envelope_minus_signature)` — this part still stands. The original D1 also claimed that `batch_hash` was redundant and dropped; that half is **reversed** by amendment 2026-05-23 part (a): `batch_hash` returns, now covering the JCS-canonicalized `events[]` array rather than `body`. The "future events-batch SPEC" promised by the original D1 is this amendment. Body remains inline because it is small and self-describing; events[] is hashed because it can be large and the hash indirection avoids embedding a potentially large array in the signed bytes. **The signature still covers the whole envelope-minus-signature, exactly as ADR-0004 mandates.**
 - **D2 — `nonce` is 16 random bytes (base64url-unpadded), not a UUIDv4.** ADR-0004 §Message integrity shows `"nonce": "uuid-v4"`. A UUIDv4 carries 122 bits of entropy; 16 raw `OsRng` bytes carry 128. SPEC-003 uses the raw-bytes form: stronger, simpler (no UUID formatting), and opaque to the server (which treats the nonce as a uniqueness token). The collision bound is in §Security considerations.
-- **D3 — `sequence_number` is per-process, not persisted across restarts.** See §Scope OUT. Anti-replay in SPEC-003 is carried by `nonce` (uniqueness) + `sent_at` (freshness window); cross-restart sequence monotonicity is deferred with the buffered-offline-events feature.
+- **D3 — `sequence_number` is per-process, not persisted across restarts.** See §Scope OUT. Anti-replay in SPEC-003 is carried by `nonce` (uniqueness) + `sent_at` (freshness window); cross-restart sequence monotonicity is deferred along with the persistent disk-backed buffer, reserved for a future SPEC per ADR-0004 amendment 2026-05-23 part (a) + ADR-0009.
 
 No drift in: TLS 1.3-only enforcement, the cipher-suite set, server-certificate trust-anchor (CA) validation, the signature covering the canonical envelope-minus-signature, or the server validation order the agent's output is built to satisfy.
 
@@ -67,7 +67,7 @@ No drift in: TLS 1.3-only enforcement, the cipher-suite set, server-certificate 
 - **FR-007.** Each heartbeat on the secure path is sent as the **outer signed envelope** defined in §Data contracts. `outer_envelope_version` is the constant `"0.1.0"`.
 - **FR-008.** For every outer envelope the agent generates a fresh `nonce`: 16 bytes from `OsRng` (`getrandom`), base64url-encoded without padding. A new nonce is generated per envelope, never reused across retries or intervals.
 - **FR-009.** `sent_at` is RFC 3339 / ISO 8601 UTC with milliseconds, taken from the agent's clock at envelope construction. It is the anti-replay timestamp the server checks against its ±5 min window (ADR-0004 §Server validation order step 3). It uses the same UTC-anchored model as SPEC-001 §FR-011.
-- **FR-010.** The `signature` is a detached Ed25519 signature, made with the SPEC-002 private key, over the **canonical serialization (JCS, RFC 8785) of the outer envelope with the `signature` field removed** — i.e. over `{outer_envelope_version, agent_id, sequence_number, nonce, sent_at, body}`. It is base64url-encoded without padding. The on-the-wire envelope is standard JSON; only the *signed bytes* are canonical. The server recomputes the identical JCS canonicalization to verify (§Data contracts).
+- **FR-010.** The `signature` is a detached Ed25519 signature, made with the SPEC-002 private key, over the **canonical serialization (JCS, RFC 8785) of the outer envelope with the `signature` field removed** — i.e. over `{outer_envelope_version, agent_id, sequence_number, nonce, sent_at, body, batch_hash}`. It is base64url-encoded without padding. The on-the-wire envelope is standard JSON; only the *signed bytes* are canonical. The server recomputes the identical JCS canonicalization to verify (§Data contracts). `batch_hash` was added by amendment 2026-05-23 part (a); see Drift D1 (narrowed).
 - **FR-011.** The inner `body` is the SPEC-001 heartbeat envelope **verbatim and unchanged** (`envelope_version` stays `"0.1.0"`, all SPEC-001 fields intact). SPEC-003 wraps; it does not modify the inner shape.
 - **FR-012.** **Failure handling.** The agent reacts to secure-path failures as follows (codes in §Failure modes):
   - Server certificate untrusted / expired / hostname mismatch → terminal, exit `6` (fail closed; ratified Session 7).
@@ -111,16 +111,22 @@ The outer signed envelope is a **transport-level meta-message**, not a CGES even
     "status": "online",
     "uptime_seconds": 0
   },
+  "events": [],
+  "batch_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   "signature": "<base64url-unpadded Ed25519 signature>"
 }
 ```
 
-- `outer_envelope_version` — string constant `"0.1.0"`. Independent of the inner `envelope_version`.
+The example above shows a **heartbeat with no events** under the post-amendment E2 shape: `events` is the empty array, and `batch_hash` is the fixed sha256 of `JCS([])` = `[]` (see Amendment 2026-05-23 part (a) for the verification record of this constant). When the agent has events to send, `events` is non-empty and `batch_hash` is the sha256 of its JCS canonicalization.
+
+- `outer_envelope_version` — string constant `"0.1.0"`. Independent of the inner `envelope_version`. Stays `"0.1.0"` after amendment 2026-05-23 part (a); see that amendment's backward-compatibility note for the version-bump decision.
 - `agent_id` — UUIDv7; the enrolled identity. MUST equal the `CN` of the presented client certificate (ADR-0004 §Server validation order step 2) and MUST equal `body.agent.agent_id`.
-- `sequence_number` — mirrors `body.sequence_number` (the SPEC-001 per-process counter) at the envelope level, so the server reads it without parsing the body (ADR-0004 step 4). Per-process; see Drift D3.
+- `sequence_number` — mirrors `body.sequence_number` (the SPEC-001 per-process counter) at the envelope level. ADR-0004 §Server validation order step 4, as rewritten in amendment 2026-05-23 part (b), uses this field for ordering-within-a-session logging only, not for anti-replay enforcement. Per-process; see Drift D3.
 - `nonce` — base64url-unpadded encoding of 16 `OsRng` bytes. Fresh per envelope (FR-008). Opaque uniqueness token; the example above shows hex for readability but the wire form is base64url.
 - `sent_at` — RFC 3339 UTC with milliseconds; the anti-replay timestamp (FR-009).
 - `body` — the SPEC-001 inner envelope **verbatim** (FR-011).
+- `events` *(added by amendment 2026-05-23 part (a))* — JSON array of CGES events generated by the agent during the interval. Empty array (`[]`) for pure heartbeats. The per-event schema lives in CGES (ADR-0006); SPEC-005 introduces the first concrete class (Process Activity). The `events` array MUST be JCS-canonicalizable without ambiguity (see §Security considerations > Canonical form) so that `batch_hash` is reproducible across agents emitting logically-identical events.
+- `batch_hash` *(added by amendment 2026-05-23 part (a))* — lowercase hex `sha256(JCS_canonical(events))`. Always present, even for empty `events` (the empty-array constant is `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`, fixed across all agents). Binds `events` to the signed region by hash: the signature commits to the events' contents without canonicalizing the entire events array within the signed bytes.
 - `signature` — base64url-unpadded Ed25519 detached signature over the canonical signed region (below).
 
 ### Canonical signed region (what the signature covers)
@@ -128,14 +134,15 @@ The outer signed envelope is a **transport-level meta-message**, not a CGES even
 The signature input is the **JCS (RFC 8785) canonicalization** of the outer envelope **with the `signature` field removed**:
 
 ```text
+batch_hash   = lowercase_hex( sha256( JCS_canonical(events) ) )
 signed_bytes = JCS({
   "outer_envelope_version", "agent_id", "sequence_number",
-  "nonce", "sent_at", "body"
+  "nonce", "sent_at", "body", "batch_hash"
 })
-signature   = base64url_unpadded( Ed25519_sign(agent_private_key, signed_bytes) )
+signature    = base64url_unpadded( Ed25519_sign(agent_private_key, signed_bytes) )
 ```
 
-JCS canonicalization (RFC 8785) recursively sorts object keys (including inside `body` and `body.agent`), uses minimal whitespace, and a fixed string/number form. The envelope contains only strings, unsigned integers (`sequence_number`, `uptime_seconds`), and nested objects — no floats, no sub-millisecond fractions — so the JCS number-formatting edge cases do not arise. Both agent and server MUST produce byte-identical `signed_bytes`; reproducibility is the whole point (§Security considerations). The wire serialization of the full envelope (including `signature`) is ordinary JSON and need not be canonical.
+JCS canonicalization (RFC 8785) recursively sorts object keys (including inside `body` and `body.agent`), uses minimal whitespace, and a fixed string/number form. The **signed region** contains only strings, unsigned integers (`sequence_number`, `uptime_seconds`), and nested objects — no floats, no sub-millisecond fractions — so the JCS number-formatting edge cases do not arise inside the signed bytes. The `events` array is **not inside the signed region directly**; only its `batch_hash` is. The events array MUST nevertheless obey the same no-floats / no-sub-millisecond-fractions discipline (see §Security considerations > Canonical form) so two agents emitting logically-identical events produce byte-identical JCS canonicalization, therefore byte-identical `batch_hash`, therefore byte-identical `signed_bytes`. Both agent and server MUST produce byte-identical `signed_bytes`; reproducibility is the whole point (§Security considerations). The wire serialization of the full envelope (including `signature`) is ordinary JSON and need not be canonical.
 
 ## Configuration
 
@@ -206,7 +213,7 @@ Startup
 ```
 
 - **SecureHeartbeating** preserves SPEC-001 scheduling semantics (FR-011 absolute timeline, FR-005 sequence assignment, FR-008 graceful-shutdown final heartbeat). Only the transport (TLS) and payload (signed outer envelope) change.
-- **Connection establishment** performs the TLS 1.3 handshake, presenting the client cert and validating the server cert. The validation order the agent's output is built to satisfy is ADR-0004 §Server validation order steps 1–6 (step 7 `batch_hash` is N/A under Drift D1).
+- **Connection establishment** performs the TLS 1.3 handshake, presenting the client cert and validating the server cert. The validation order the agent's output is built to satisfy is ADR-0004 §Server validation order, all steps. Step 4 is informational only per ADR-0004 amendment 2026-05-23 part (b); step 7 (`batch_hash` verification) re-enters under this amendment as Drift D1 narrows — `batch_hash` now covers `events[]` while `body` stays inline in the signed region.
 - **Reconnection** on a transient TLS failure follows the SPEC-001 retry/backoff policy; a fresh handshake is attempted each interval (no session resumption in SPEC-003).
 - The first heartbeat after entering SecureHeartbeating fires within the SPEC-001 §FR-004 5 s budget measured from entry into the state.
 
@@ -271,7 +278,7 @@ Defense in depth (ADR-0004 §A2). TLS terminates at the reverse proxy / load bal
 
 ### Why the signature covers the whole envelope-minus-signature
 
-The signed region is `JCS(outer minus signature)` — it binds `agent_id`, `sequence_number`, `nonce`, `sent_at`, and `body` together. Signing only the `body` would leave the anti-replay fields (`nonce`, `sent_at`) and the identity (`agent_id`) mutable by an on-path attacker or a compromised termination layer while keeping a valid body signature — which is precisely the threat the message signature exists to stop. Binding everything is what ADR-0004 §Message integrity mandates ("signature over the canonicalised envelope minus the signature field").
+The signed region is `JCS(outer minus signature)` — it binds `agent_id`, `sequence_number`, `nonce`, `sent_at`, `body`, and `batch_hash` together. Through `batch_hash` the signature also commits to the contents of `events[]`, even though the events array itself is not canonicalized inside the signed bytes. Signing only the `body` would leave the anti-replay fields (`nonce`, `sent_at`) and the identity (`agent_id`) mutable by an on-path attacker or a compromised termination layer while keeping a valid body signature — which is precisely the threat the message signature exists to stop. Signing the body but not `batch_hash` would leave events mutable while keeping a valid signature on the heartbeat fields — the same threat extended to the event stream. Binding everything is what ADR-0004 §Message integrity mandates ("signature over the canonicalised envelope minus the signature field").
 
 ### Nonce uniqueness
 
@@ -279,7 +286,9 @@ The nonce is 16 bytes (128 bits) from `OsRng` (`getrandom` → `BCryptGenRandom`
 
 ### Canonical form requirement
 
-The signature is over bytes. If the agent and server serialize the signed region differently (key order, whitespace, number form, Unicode normalization), the server computes a different byte string and verification fails on legitimate traffic. JCS (RFC 8785) gives a single deterministic byte form for a given JSON value, reproducible across languages (the Rust agent and the Go ingest service can both implement it). Without a canonical form the signature is unverifiable in practice. SPEC-003 fixes JCS; the envelope avoids floats and sub-millisecond fractions so the JCS number-formatting corners never arise.
+The signature is over bytes. If the agent and server serialize the signed region differently (key order, whitespace, number form, Unicode normalization), the server computes a different byte string and verification fails on legitimate traffic. JCS (RFC 8785) gives a single deterministic byte form for a given JSON value, reproducible across languages (the Rust agent and the TypeScript ingest service can both implement it). Without a canonical form the signature is unverifiable in practice. SPEC-003 fixes JCS; the envelope avoids floats and sub-millisecond fractions so the JCS number-formatting corners never arise.
+
+Under amendment 2026-05-23 part (a), the same canonicalization discipline propagates to `events[]`. The events array MUST be JCS-canonicalizable without ambiguity for `batch_hash` to be reproducible across agents emitting logically-identical events. SPEC-005 enforces the per-event schema constraints (no floats, no sub-millisecond fractions, deterministic key sets); SPEC-003 declares the propagation requirement here. Without this discipline, server-side dedup keyed on `event_id` (per ADR-0009) does not catch logically-identical retransmits whose hashes happen to differ — a silent failure mode that would only surface as inflated event counts under load.
 
 ### Clock-skew threat
 
@@ -329,6 +338,42 @@ Validation in `config.rs` moves accordingly: the guard that rejected a non-https
 **Backward compatibility.** Strictly additive in permissiveness. No prior SPEC-001/002/003 test sets `heartbeat_url`; all either set `server.url` to `https://` (when `trust_anchor` is set) or omit `trust_anchor`. A new `config.rs` unit test locks both halves of the new contract (http `url` + https `heartbeat_url` loads; http `url` + no `heartbeat_url` + `trust_anchor` still rejected).
 
 **Effect on other sections.** None to §Data contracts, §Behavior, §Failure modes, §Security considerations, or §Acceptance criteria — purely the configuration surface. The behavior is exercised end-to-end by SPEC-004 AC-001.
+
+## Amendment 2026-05-23: E2 wire shape (events[] + batch_hash); drift record D1 narrowed; provenance updates from ADR-0004 / ADR-0009 cascade
+
+**Status.** This amendment supersedes parts of §Data contracts and §Security considerations, and rewrites parts of §Drift from ADR-0004, §Functional requirements, §Behavior, and §Scope > Out of scope. SPEC-003 remains `Accepted`; the amendment convention is in-place per [docs/engineering-notes.md](../engineering-notes.md).
+
+**Context.** This amendment carries three corrections to SPEC-003, all triggered by Session 10's work and closed here in one atomic move:
+
+**(a)** The "future events-batch SPEC" promised by the original Drift D1 is no longer a forward-pointer — it is this amendment. The outer signed envelope gains two new top-level fields, `events` and `batch_hash`, both inside the signed region. `events` is the agent's events-batch payload (CGES, schema per ADR-0006; SPEC-005 introduces the first concrete class, Process Activity). `batch_hash` is `sha256_hex(JCS_canonical(events))` and travels alongside `body` in the signed region. The signature commits to `events` indirectly through `batch_hash`, so the signed bytes stay small even when events are large. For heartbeats with no events, `events = []` and `batch_hash = sha256_hex(JCS_canonical([])) = sha256_hex("[]") = 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945` — a fixed constant verified by computation at amendment-drafting time on 2026-05-23 using Python `hashlib.sha256(b"[]")` and OpenSSL `dgst -sha256`; both tools produce the byte-identical 256-bit digest above.
+
+**(b)** Drift D1 is narrowed, not retired. The original D1 made two claims: (1) `body` is inline in the signed region rather than represented by `batch_hash`, and (2) `batch_hash` is redundant and dropped. Part (a) of this amendment reverses claim (2) — `batch_hash` returns, now covering `events[]` rather than `body`. Claim (1) still stands: `body` remains inline because it is small and self-describing; only the potentially-large `events[]` is hashed. The D1 entry in §Drift from ADR-0004 has been rewritten in-place to reflect the narrowed shape; the original wording is no longer present because retaining the "dropped and redundant" claim alongside its reversal would invite confusion.
+
+**(c)** Four provenance citations in SPEC-003 were rendered stale by earlier work: three by this session's ADR-0004 amendment 2026-05-23 (parts (a) and (b)), and one by ADR-0007 (Session 8 reassignment of `services/ingest/` from Go to TypeScript) that the audit pass missed and the amendment drafting surfaced. All four are rewritten in-place under this amendment. Cross-reference convention applied: each rewritten line cites the document where the rule now lives, with the historical drift reference preserved where useful. Provenance points to the cause, not the effect.
+
+**Amendment, part (a) — E2 wire shape: `events[]` and `batch_hash`.** The outer signed envelope gains two new top-level fields. In-place updates:
+
+- §Data contracts > Outer signed envelope — the wire JSON example has been rewritten to show the post-amendment shape, including the heartbeat-without-events case with the verified empty-array `batch_hash` constant inline.
+- §Data contracts — the field descriptions list gains entries for `events` and `batch_hash`, both annotated as added by this amendment.
+- FR-010 — the signed-region enumeration now includes `batch_hash`; the trailing sentence cites this amendment.
+- §Data contracts > Canonical signed region — the JCS-input expression has been rewritten to compute `batch_hash` and include it among the signed keys; the surrounding prose now explains that `events[]` is not in the signed region directly (only its hash is) but must obey the same canonicalization discipline for `batch_hash` reproducibility.
+- §Security considerations > "Why the signature covers the whole envelope-minus-signature" — the binding enumeration has been updated to include `batch_hash`, and the prose now explains how the signature commits to `events` indirectly through it (and what the threat model says about leaving `events` mutable while keeping a valid signature on the other fields).
+- §Security considerations > "Canonical form requirement" — gains a new paragraph declaring that the no-floats / no-sub-millisecond-fractions discipline propagates from the outer envelope to `events[]`, since `batch_hash` reproducibility depends on it, and naming the silent-failure mode (server-side dedup keyed on `event_id` per ADR-0009 fails to catch logically-identical retransmits if events serialize differently).
+
+**Amendment, part (b) — Drift D1 narrowed.** §Drift from ADR-0004 > D1 has been rewritten in-place. The new D1 text preserves the body-inline claim (still true), explicitly records that the `batch_hash`-dropped claim has been reversed by this amendment's part (a), and identifies the original D1's "future events-batch SPEC" forward-pointer as this amendment. Drift D2 (nonce as 16 random bytes) is unchanged in substance and prose. Drift D3 (sequence_number per-process) is unchanged in substance; its lateral pointer to the "buffered-offline-events feature" is narrowed to its concrete current home under part (c). The §Drift opening paragraph and the §"No drift in" closing sentence stand as written — both still accurately characterize the relationship between SPEC-003 and ADR-0004 post-amendment.
+
+**Amendment, part (c) — provenance cascade from ADR-0004 / ADR-0009, plus one carry-over from ADR-0007.** Four in-place rewrites closing provenance staleness from earlier amendment / reassignment work:
+
+- §Scope > Out of scope, "Buffered offline events" bullet — was *"Still deferred per ADR-0004 §Heartbeat, as in SPEC-001/002"*; now points to ADR-0009 (in-memory ring buffer for SPEC-005) and ADR-0004 amendment 2026-05-23 part (a) (persistent disk-backed buffering deferred). The semantic claim (SPEC-003 does not introduce the persistent buffer) is unchanged; only the citation is updated to the post-amendment current home of the rule.
+- §Drift from ADR-0004 > Drift D3 — the closing clause *"cross-restart sequence monotonicity is deferred with the buffered-offline-events feature"* has been narrowed to identify the concrete future-SPEC home (ADR-0004 amendment part (a) + ADR-0009). The semantic claim (D3's per-process sequence with deferred persistence) is unchanged.
+- §Data contracts, `sequence_number` bullet — the parenthetical *"so the server reads it without parsing the body (ADR-0004 step 4)"* has been updated to reflect that step 4 was rewritten as informational only by ADR-0004 amendment part (b). The current sentence cites the post-amendment step 4 wording and explicitly notes the ordering-within-a-session-logging-only character.
+- §Security considerations > "Canonical form requirement", first paragraph — the citation *"the Rust agent and the Go ingest service can both implement it"* has been rewritten to *"the Rust agent and the TypeScript ingest service can both implement it"*, reflecting ADR-0007 (Session 8 reassignment of `services/ingest/` from Go to TypeScript). Detected during this amendment's drafting, not during the formal audit pass; the correction is factually non-controversial and is kept rather than reverted-for-process. The procedural lesson — cross-references found in drafting need explicit retroactive scope-extension rather than silent inclusion — is recorded in [engineering-notes.md](../engineering-notes.md) Session 10 as a procedural footnote to the bidirectional-audit convention.
+
+**Backward compatibility.** Strictly additive on the wire shape; semantically equivalent for heartbeats without events (which acquire one new top-level field, `batch_hash`, computed over the fixed constant `4f53cd…b945`). No SPEC-003 acceptance criterion needs revision — AC-003 (signature verification under tampering) continues to hold with the signed-region enumeration enlarged; AC-009 (inner body equals SPEC-001 envelope verbatim) is untouched because `body` itself is unchanged; AC-010 (config-gating regression) is untouched because the secure-path-off branch is independent of the E2 shape.
+
+**Wire version.** `outer_envelope_version` stays at `"0.1.0"`. The addition of `events` and `batch_hash` is additive — no production servers exist that could receive an unknown field, and the SPEC-004 server is on the same release cadence as this amendment. A version bump is reserved for future changes with semantic incompatibility: signature algorithm change, field deletion, or type change of an existing field. Stated explicitly so a future maintainer reading the amendment does not have to infer it from the absence of a bump.
+
+**Effect on other sections.** §Motivation, FRs other than FR-010, §Non-functional requirements, §Configuration, §Failure modes, §Observability, §Ratification record, Amendment 2026-05-22, Amendment 2026-05-22 (b) — all unchanged. Updated by this amendment in-place: §Scope > Out of scope (one bullet, part (c)); §Drift from ADR-0004 (D1 rewritten under part (b); D3 narrowed under part (c)); FR-010 (signed-region enumeration extended under part (a)); §Data contracts (wire JSON example, field descriptions list, sequence_number bullet under part (c), Canonical signed region formula and prose under part (a)); §Behavior (validation-order step 7 re-enters under part (a)); §Security considerations > "Why the signature covers the whole envelope-minus-signature" (binding enumeration extended under part (a)); §Security considerations > "Canonical form requirement" — gains the propagation paragraph under part (a), and first paragraph carries the *Go ingest service* → *TypeScript ingest service* citation correction under part (c) per ADR-0007.
 
 ## References
 
