@@ -140,8 +140,8 @@ becomes the Session 13 opening prompt's input.
   in CI** at AC-001. Logging is part of the marquee's definition, not an
   optional add-on.
 - Dispatch-callback NFR with explicit citation to the Phase 0 spike's
-  empirical evidence (**7649 events lost under 80 ms synchronous callback
-  + 1 KB × 2 buffers**; see
+  empirical evidence (**7649 events lost under 80 ms callback + 1 KB
+  × 2 buffers**; see
   [docs/spikes/2026-05-23-etw-process-events.md](spikes/2026-05-23-etw-process-events.md)).
   The NFR is not negotiable; it locks the architecture's reason-to-exist.
 - Six out-of-scope items per the Session 10 handoff's preliminary
