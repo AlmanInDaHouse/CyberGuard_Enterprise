@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-23
+- Last updated: 2026-05-23
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -196,6 +197,36 @@ Rejected. The decoupling-versus-CI-enforcement trade-off favours the permissive-
 - Other ETW providers (network, file, registry, image-load). SPEC-005 is Kernel-Process only; future SPECs introduce other providers with their own per-class ADRs as the classes become load-bearing.
 - Other Process Activity activity_ids (`0` Unknown, `3` Open, `4` Inject, `5` Set User ID, `99` Other). The schema permits them per §3; the v0.1 agent narrows to `[1, 2]` per the same section. Adding more requires either a per-class amendment to this ADR or a successor per-class ADR.
 - Persistent disk-backed buffering interaction with `process.uid` reproducibility across agent restart. Persistent buffer is deferred per ADR-0009 §Decision part 4 + ADR-0004 amendment 2026-05-23 part (a); when it lands, the future SPEC must re-evaluate whether the in-memory determinism of §6 still holds, and may require amending §6 if the answer changes.
+
+## Amendment 2026-05-23: §4 field format declarations (process.created_time integer-nanos UTC; process.exit_code signed int32)
+
+**Status.** This amendment supersedes parts of §4 (rows 1 and 2 of the ETW field mapping table — the Notes columns for `process.created_time` and `process.exit_code`). ADR-0011 remains `Accepted`; the amendment convention is in-place per [docs/engineering-notes.md](../engineering-notes.md).
+
+**Context.** Phase 3.2 (the schema work realising §5 + §Compliance line 190) surfaced that §4 rows 1 and 2 declare the ETW source-field mapping but lack the CGES-side type/format declaration that the JSON Schema constraints require as their authoritative contract. Two corrections, closed in one atomic move. **(a)** Row 1 (`process.created_time`) needs the OUTPUT format pinned (integer nanoseconds since Unix epoch, UTC strict) so the schema constraint and SPEC-005 test fixtures share a single source of truth with the §6 `process.uid` recipe. **(b)** Row 2 (`process.exit_code`) needs the integer WIDTH pinned (signed 32-bit per Windows `ExitStatus` / `LONG`) so the schema's `minimum` / `maximum` bounds derive from an explicit width declaration rather than being arbitrary.
+
+**Amendment, part (a) — `process.created_time` format declaration.** The original row 1 Notes wording (`"For activity_id=1 (Launch): the event's own timestamp. For activity_id=2 (Terminate): the original Launch timestamp if available to the agent at Terminate time...; otherwise null."`) remains in place per the amendment convention; this amendment supersedes it where they differ. The binding format declaration for `process.created_time` is now:
+
+> Emitted as integer nanoseconds since Unix epoch, UTC strict — the same format used inside `process.uid` per §6. The value MAY be `null` only for activity_id=2 (Terminate) events when the agent does not have the original Launch timestamp available (retention mechanism is SPEC-005's concern); for activity_id=1 (Launch) events the value is always the ETW event's own timestamp converted to UTC nanoseconds. The ETW-timestamp-to-UTC-nanos conversion mechanism is agent-side and specified in SPEC-005, consistent with §6's existing deferral on conversion mechanism.
+
+This is a deliberate OCSF divergence. OCSF v1.3 Process defines `created_time` as a string (ISO 8601 / RFC 3339); CGES emits an integer for byte-level reproducibility of the §6 `process.uid` recipe — string formatting introduces timezone and sub-second-precision edge cases that the integer-nanos form forecloses by construction. The divergence is justified by the determinism contract in §6. This divergence is recorded here rather than in ADR-0006's framework-level enumeration, consistent with §Decision part 1 of this ADR (per-class jurisprudence lives in per-class ADRs; ADR-0006 §Deliberate divergence from OCSF establishes the pattern that per-class ADRs apply at their respective scopes).
+
+**Amendment, part (b) — `process.exit_code` width declaration.** The original row 2 Notes wording (`"Decimal integer. Only meaningful for activity_id=2 (Terminate); absent for activity_id=1."`) remains in place per the amendment convention; this amendment supersedes the `"Decimal integer"` portion where it lacks width detail. The binding width declaration for `process.exit_code` is now:
+
+> Emitted as a signed 32-bit integer (Windows `ExitStatus` is `LONG`, i.e. `int32_t` signed). Values range over `[-2147483648, 2147483647]`. NTSTATUS codes that appear in the `0x8xxxxxxx` – `0xFxxxxxxx` unsigned-hex Windows convention surface here as negative integers when interpreted as signed; display semantics (signed decimal vs. unsigned hex) are a consumer choice, not part of the CGES contract.
+
+This is a constraint narrowing within OCSF's `integer` type, not a divergence. OCSF Process defines `exit_code` as `Integer` without explicit width; signed int32 is a subset of OCSF-valid values, so any CGES `exit_code` is also an OCSF-valid `exit_code`. The narrowing reflects the literal ETW source (`Microsoft-Windows-Kernel-Process` `ExitStatus` field — see §References) and catches agent regressions that would emit out-of-bounds values at schema-validation time. The conditional emission contract (`exit_code` MUST be present when activity_id=2 and MUST be absent when activity_id=1) is documented in SPEC-005 §Acceptance Criteria as a stricter-than-schema agent normative, consistent with the §3 + §5 permissive-schema + agent-stricter pattern.
+
+**Backward compatibility.** Strictly tightening on the declaration side. The `process.created_time` format moves from implicit (`"ETW event timestamp"`) to explicit (integer nanos UTC); the `process.exit_code` width moves from implicit (`"Decimal integer"`) to explicit (signed int32). No previously-valid agent emission becomes invalid because no agent code emits these fields yet, no schema yet enforces them, and SPEC-005 is forthcoming. The amendment lands before the schema work in Phase 3.2.B so the deliverable chain (ADR jurisprudence → JSON Schema constraints → SPEC-005 test fixtures) starts from a single, consistent contract.
+
+**Effect on other sections.**
+
+- §6 (`process.uid` recipe) — unchanged. Line 86's `created_time_unix_nanos_utc` declaration is the consistency anchor part (a) cites; §6 was already authoritative on the format used inside `process.uid` and remains so. Part (a) makes the standalone `process.created_time` field match the same format that §6 already requires for its embedded component.
+- §Compliance — unchanged. Line 190's reference to `"type/format constraints per §4 and §6"` now resolves to concrete declarations on both sides.
+- §Out of scope — unchanged. CommandLine PII deferral, kernel-device-path translation, other activity_ids, persistent-buffer reproducibility — none touched by the format declarations.
+- §References — unchanged. The existing OCSF Process object reference carries the citation part (a) uses for OCSF's string format; the ETW Microsoft-Windows-Kernel-Process schema reference carries the citation part (b) uses for `ExitStatus` width semantics.
+- §Decision parts 1, 2, 3, 5 — unchanged. The amendment touches only §4 rows 1 and 2; the per-class pattern (§1), no-`cg_raw_ref` policy (§2), activity_id discriminator (§3), and PPID race resolution (§5) are unaffected.
+
+Phase 3.2.B (the next commit in this session) realises the amended §4 in the JSON Schema constraints on `objects/process.json`.
 
 ## References
 
