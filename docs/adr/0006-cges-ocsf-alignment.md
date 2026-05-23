@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-20
+- Last updated: 2026-05-23
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -25,7 +26,7 @@ CGES v0.1 is **structurally aligned with OCSF v1.3**. It inherits OCSF's categor
 
 CGES adopts the following from OCSF v1.3 without modification:
 
-- **Category UIDs and class UIDs.** Examples: 1001 File System Activity, 3002 Authentication, 4001 Network Activity. The full mapping lives in the JSON Schema files under `schemas/cges/v0.1/`.
+- **Category UIDs and class UIDs.** Examples: 1001 File System Activity, 1007 Process Activity, 3002 Authentication, 4001 Network Activity. The full mapping lives in the JSON Schema files under `schemas/cges/v0.1/`.
 - **Core object schemas:** Process, User, Device, Network Endpoint, File, Email, Authentication Factor.
 - **Severity scale:** 0 (Informational) through 6 (Fatal), as defined by OCSF.
 - **`activity_id` semantics** within each class.
@@ -130,7 +131,7 @@ Subsequent ADRs, SPECs and schema files must respect the inheritance and diverge
 - New CGES fields that map onto an OCSF concept must use OCSF naming and structure, not `cg_*`.
 - New CGES fields with no OCSF equivalent must be namespaced under `cg_*` and documented in the schema file that introduces them.
 - Any breaking change to CGES bumps the major version, opens a migration SPEC for ClickHouse, and updates `ocsf_version` if the trigger is OCSF evolution.
-- The contract-generation tooling reserved for ADR-0008 will consume the JSON Schemas under `schemas/cges/` as its source of truth; manual translation between languages is forbidden.
+- Future contract-generation tooling, if introduced by a separate ADR, will consume the JSON Schemas under `schemas/cges/` as its source of truth; manual translation between languages is forbidden.
 
 ## References
 
