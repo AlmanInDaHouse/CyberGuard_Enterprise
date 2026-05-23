@@ -23,13 +23,21 @@ fn ac_003_nominal_fixture() {
 #[test]
 fn ac_003_lower_bound_pid_1() {
     let actual = format_process_uid(AGENT_ID, 1, CREATED_TIME_NANOS);
-    assert_eq!(actual.len(), 58, "pid=1 length anchors ADR-0011 §6 lower bound");
+    assert_eq!(
+        actual.len(),
+        58,
+        "pid=1 length anchors ADR-0011 §6 lower bound"
+    );
     assert!(actual.ends_with(":1:1716123612901000000"));
 }
 
 #[test]
 fn ac_003_upper_bound_pid_u32_max() {
     let actual = format_process_uid(AGENT_ID, 4_294_967_295, CREATED_TIME_NANOS);
-    assert_eq!(actual.len(), 67, "pid=u32::MAX length anchors ADR-0011 §6 upper bound");
+    assert_eq!(
+        actual.len(),
+        67,
+        "pid=u32::MAX length anchors ADR-0011 §6 upper bound"
+    );
     assert!(actual.ends_with(":4294967295:1716123612901000000"));
 }

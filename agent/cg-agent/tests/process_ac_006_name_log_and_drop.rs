@@ -49,7 +49,9 @@ impl<'a> MakeWriter<'a> for BufferWriter {
 #[test]
 fn ac_006_empty_process_name_logs_error_and_drops() {
     let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
-    let writer = BufferWriter { buf: Arc::clone(&buf) };
+    let writer = BufferWriter {
+        buf: Arc::clone(&buf),
+    };
 
     let subscriber = tracing_subscriber::fmt()
         .with_writer(writer)
