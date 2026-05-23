@@ -157,3 +157,16 @@ tokio-rustls = { version = "0.26", default-features = false, features = [
     "logging",
     "tls12",
 ] }
+
+# --- SPEC-005 Phase 3.4 harness (test-only) ---
+#
+# Docker container orchestration for AC-001/004/007/008/009 integration
+# tests against real Postgres + ClickHouse + Redis + services/ingest. Pin
+# `^0.27.0` per Cargo's default caret semver (accepts 0.27.x patch updates;
+# refuses 0.28+), following the pre-1.0 active-development idiom. Latest
+# stable at declaration is 0.27.3. Not consumed in Phase 3.4.A (AC-003 +
+# AC-006 are pure-Rust); declared here so Phase 3.4.B+ test commits can be
+# pure test-file additions. The async runner pattern
+# (testcontainers::runners::AsyncRunner) is the canonical 0.27 API and
+# matches the existing #[tokio::test(...)] convention in tests/.
+testcontainers = "0.27"

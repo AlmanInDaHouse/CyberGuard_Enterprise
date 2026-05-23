@@ -196,6 +196,6 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 |---|---|---|---|---|
-| *none* | — | — | — | — |
+| `rust-ci` | `2dffe95` | SPEC-005 Phase 3.4 harness-first RED phase. AC-003 (`process.uid` recipe) + AC-006 (`process.name` strict + log-and-drop) tests land in `agent/cg-agent/tests/` referencing `cg_agent::etw::{format_process_uid, ActivityId, CapturedEvent, EventRing}` — none of which exist in `agent/cg-agent/src/` yet. Compile-fail RED is by design per CLAUDE.md §Harness-first red phases. Additional ACs (002, 004, 005, 007, 008, 009) land in subsequent Phase 3.4.B–F commits; rust-ci remains RED throughout. Target: Phase 3.5 implementation commit(s) that land the `cg_agent::etw` module and clear all nine ACs to green; this row is removed in the same SHA that flips rust-ci to success. | Architect-Claude (planning), Claude Code (implementation) | Phase 3.5 SHA TBD |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
