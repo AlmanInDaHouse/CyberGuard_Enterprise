@@ -27,6 +27,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0008](0008-etw-crate-selection.md) | ETW crate selection for Windows event capture | Accepted |
 | [0009](0009-event-delivery-and-buffer.md) | Event delivery semantics and agent buffer model | Accepted |
 | [0010](0010-agent-privilege-model-mvp.md) | Agent privilege model and installation posture for the MVP | Accepted |
+| [0011](0011-cges-process-activity-v0-1.md) | Per-class CGES jurisprudence — Process Activity v0.1 | Accepted |
 
 ## Dependencies
 
@@ -54,3 +55,8 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0010 → ADR-0002 (Rust for the agent; this ADR specifies how that Rust process runs)
 - ADR-0010 → ADR-0008 (ETW driver of the elevation requirement; ADR-0008 forward-references here)
 - ADR-0010 — additive new decision; supersedes nothing, amends nothing
+- ADR-0011 → ADR-0006 (per-class jurisprudence pattern under ADR-0006's framework deferral; first per-class ADR)
+- ADR-0011 → ADR-0008 (ETW Kernel-Process provider whose crate ADR-0008 selects)
+- ADR-0011 → ADR-0009 (process.uid recipe's "no agent-side mapping" requirement aligns with ADR-0009 §Decision part 3's "no on-disk event state")
+- ADR-0011 → ADR-0010 (elevated process precondition enables ETW Kernel-Process consumption)
+- ADR-0011 — additive new decision; supersedes nothing, amends nothing
