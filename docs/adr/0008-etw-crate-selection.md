@@ -97,7 +97,7 @@ Chosen.
 
 ### Neutral
 
-- The Phase 0 CI gate (validate `windows-latest` `runneradmin` can open the Kernel-Process provider) was **skipped by chat decision** and is carried forward as accepted risk in ADR-0010 (Agent privilege model & installation posture for MVP, forthcoming). The first execution of the SPEC-005 AC-001 marquee in CI is the free first-use validation; ADR-0010 specifies the fallback paths if that validation fails.
+- The Phase 0 CI gate (validate `windows-latest` `runneradmin` can open the Kernel-Process provider) was **skipped by chat decision** and is carried forward as accepted risk in ADR-0010 (Agent privilege model & installation posture for MVP). The first execution of the SPEC-005 AC-001 marquee in CI is the free first-use validation; ADR-0010 specifies the fallback paths if that validation fails.
 - `ferrisetw::trace::TraceError` not implementing `std::error::Error` is absorbed by an explicit `.map_err()` at the boundary in the agent. Cosmetic.
 
 ## Compliance
@@ -115,7 +115,7 @@ Chosen.
 - [docs/spikes/2026-05-23-etw-process-events.md](../spikes/2026-05-23-etw-process-events.md) — Phase 0 spike findings. Source of truth for the documented gaps and the empirical justification.
 - [docs/engineering-notes.md](../engineering-notes.md) — Session 10 entry on follow-up co-location.
 - SPEC-005 (forthcoming) — Agent process telemetry (Windows ETW Kernel-Process). First consumer of this decision.
-- ADR-0010 (forthcoming) — Agent privilege model & installation posture for MVP. Carries the CI privilege assumption skipped from this spike's gates.
+- ADR-0010 — Agent privilege model & installation posture for MVP. Carries the CI privilege assumption skipped from this spike's gates.
 - `ferrisetw` 1.2.0 source — `src/trace.rs` (`TraceBuilder`, `Drop` semantics, no `stop_if_exist` in the published release), `src/query.rs` (the only "query" surface, exposing only `ProfileSource::sample_interval` and `max_pmc`).
 - `ferrisetw` 1.2.0 source — **`src/native/evntrace.rs:59`** carries the maintainer comment *"ControlTraceW(EVENT_TRACE_CONTROL_QUERY) might tell us if the buffers are empty or not"*. Strongest documentary evidence that the missing `EventsLost` accessor is an upstream-acknowledged gap, not a misunderstanding on our side; preserved as a primary citation because its evidentiary weight is disproportionate to its size.
 - Microsoft Learn — [`EVENT_TRACE_PROPERTIES`](https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_properties), [`ControlTraceW`](https://learn.microsoft.com/en-us/windows/win32/api/evntrace/nf-evntrace-controltracew), [`StartTraceW`](https://learn.microsoft.com/en-us/windows/win32/api/evntrace/nf-evntrace-starttracew).

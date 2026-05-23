@@ -26,6 +26,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0007](0007-ingest-language-typescript-mvp.md) | Ingest service language — TypeScript for the MVP control plane | Accepted |
 | [0008](0008-etw-crate-selection.md) | ETW crate selection for Windows event capture | Accepted |
 | [0009](0009-event-delivery-and-buffer.md) | Event delivery semantics and agent buffer model | Accepted |
+| [0010](0010-agent-privilege-model-mvp.md) | Agent privilege model and installation posture for the MVP | Accepted |
 
 ## Dependencies
 
@@ -49,3 +50,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0009 → ADR-0004 (amends in part via the in-place 2026-05-23 amendment; does not supersede)
 - ADR-0009 → ADR-0006 (`event_id` is UUIDv7 per CGES; the dedup contract relies on this)
 - ADR-0009 → ADR-0008 (the ring's enqueue side is the ferrisetw callback path)
+- ADR-0010 → ADR-0001 (the privilege model attaches to the agent's process at `agent/cg-agent/`)
+- ADR-0010 → ADR-0002 (Rust for the agent; this ADR specifies how that Rust process runs)
+- ADR-0010 → ADR-0008 (ETW driver of the elevation requirement; ADR-0008 forward-references here)
+- ADR-0010 — additive new decision; supersedes nothing, amends nothing
