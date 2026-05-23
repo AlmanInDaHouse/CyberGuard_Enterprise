@@ -156,7 +156,7 @@ Rejected as a pragmatic preference for HTTP/2 with JSON envelopes.
 
 Subsequent ADRs and SPECs that touch the agent-server boundary must reference this ADR. Any change to enrollment, transport, message integrity, rotation, revocation, heartbeat, or version compatibility opens a superseding ADR; configuration tuning (timeouts, buffer caps, cipher-suite ordering) lives in operations documentation rather than ADRs.
 
-The wire format of events themselves is reserved for a dedicated future ADR (`ADR-0006` — CGES alignment with OCSF), which depends on this one for the envelope semantics in which CGES events travel.
+The wire format of events themselves is defined in a dedicated ADR ([ADR-0006](0006-cges-ocsf-alignment.md) — CGES alignment with OCSF), which depends on this one for the envelope semantics in which CGES events travel.
 
 ## Amendment 2026-05-23: persistent disk buffer deferred; sequence_number persistence retired; stale ADR-0008 cross-reference corrected
 
@@ -186,4 +186,4 @@ Cross-reference convention applied: each rewritten bullet cites SPEC-003 §Drift
 - [ADR-0002](0002-language-per-component.md) — Language per component (Rust for agent, Go for ingest)
 - [ADR-0003](0003-polyglot-storage.md) — Polyglot storage (Redis hosts nonces and revocation list)
 - Blueprint §7 — Agent-Server Secure Protocol
-- Blueprint §8 — CGES (event payload schema, separate concern reserved for ADR-0006)
+- Blueprint §8 — CGES (event payload schema, defined in [ADR-0006](0006-cges-ocsf-alignment.md))

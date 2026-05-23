@@ -156,7 +156,7 @@ Subsequent ADRs, SPECs and harness scenarios that introduce new detection assets
 - Any new ML model that emits alerts must declare its `detection_source: "ml"`, a confidence threshold, a 14-day drift threshold, and at least one harness scenario.
 - Any new SOAR playbook must declare its `trust_sources` and must not perform a destructive action without an `approval` step.
 
-Future ADRs that touch the pipeline (notably `ADR-0007` — Normalize before correlate) and the schema (notably `ADR-0006` — CGES alignment with OCSF) must honour the per-alert recording of `detection_source` and, for ML alerts, of the input feature snapshot and confidence score that justified them.
+The schema ([ADR-0006](0006-cges-ocsf-alignment.md) — CGES alignment with OCSF) honours this via `cg_detection_source`, `cg_trust_sources`, and `cg_score`. Subsequent work that touches the pipeline (a future ADR for the normalize-before-correlate pipeline concern, currently unowned) must similarly honour the per-alert recording of `detection_source` and, for ML alerts, of the input feature snapshot and confidence score that justified them.
 
 ## References
 
