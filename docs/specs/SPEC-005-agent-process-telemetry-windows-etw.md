@@ -55,7 +55,17 @@ AC-001 is the polyglot marquee per the harness-first invariant: real `cg-agent` 
 
   CI privilege assumption per ADR-0010 §Decision part 3: this AC is the first-use validation of whether `windows-latest`'s `runneradmin` carries the same effective ETW-open privileges as a locally-elevated user. If AC-001 fails specifically because `runneradmin` cannot open the Kernel-Process provider (Win32 error code `5` `ERROR_ACCESS_DENIED` or `1314` `ERROR_PRIVILEGE_NOT_HELD`), one of ADR-0010's two named fallback paths fires; the choice between fallback path 1 (SYSTEM trampoline) and fallback path 2 (move marquee out of CI) is deferred until the contradiction surfaces.
 
-AC-002 through AC-009 forthcoming in subsequent Phase 3.3.X commits.
+- **AC-002 (clean-fail on insufficient privilege).** When the agent's ETW session open path returns a Win32 error indicating insufficient privilege to open the `Microsoft-Windows-Kernel-Process` provider — specifically Win32 error code `5` (`ERROR_ACCESS_DENIED`) or `1314` (`ERROR_PRIVILEGE_NOT_HELD`) per ADR-0010 §Decision part 1 — the agent MUST exit with code `9` (introduced by this SPEC; reserved for "insufficient privilege to open ETW provider"; full §Failure modes table forthcoming in a subsequent Phase 3.3.X commit), MUST write the exact line `cg-agent: insufficient privilege to open Microsoft-Windows-Kernel-Process ETW session; run as elevated user or LocalSystem` to stderr, and MUST NOT panic, MUST NOT silently degrade, MUST NOT emit any heartbeat or event POST.
+
+  Test mechanism: integration test exercises the agent startup path with the ETW session open boundary returning a synthetic `ERROR_PRIVILEGE_NOT_HELD` `Err`. The test captures the process's stderr and exit code via the standard Rust integration test harness; no real ETW session is opened in this AC. This AC is independent of CI privilege status and runs the same on any runner regardless of elevation.
+
+- **AC-003 (`process.uid` byte-level recipe pinned by fixture).** Given the fixed input triple `agent_id = "01934abc-def0-7000-89ab-000000000001"` (canonical 8-4-4-4-12 lowercase UUIDv7 per ADR-0011 §6), `pid = 7144` (decimal, no padding, no sign), and `created_time_unix_nanos_utc = 1716123612901000000` (decimal nanoseconds since Unix epoch UTC strict per ADR-0011 §4 amendment (a) + §6), the agent's `process.uid` formatter MUST produce the byte-for-byte exact string `01934abc-def0-7000-89ab-000000000001:7144:1716123612901000000` of length 61 characters.
+
+  Additionally, the formatter MUST produce a string of length 58 characters for the boundary input `pid = 1` (smallest legal Windows PID; agent_id and created_time as above), and a string of length 67 characters for `pid = 4294967295` (largest legal Windows PID, 2^32 − 1, ten decimal digits; agent_id and created_time as above). These two boundary assertions pin the 58–67 character bound declared in ADR-0011 §6 directly against the formatter's output.
+
+  Test mechanism: unit test in the agent crate (`agent/cg-agent/`). The formatter is a pure function on the input triple; no ETW, no ingest, no testcontainers required. The hand-computed expected strings live verbatim in the test source as the regression anchor.
+
+AC-004 through AC-009 forthcoming in subsequent Phase 3.3.X commits.
 
 ## References
 
