@@ -46,6 +46,68 @@ Six items are explicitly deferred from SPEC-005's v0.1 scope. Each is named, wit
 
 **6. CommandLine PII redaction (accepted-risk decision for v0.1).** SPEC-005 emits `process.cmd_line` as a raw string per ADR-0011 §4 row 5 with no redaction, no opt-out config, and no downstream sanitisation. Command-line arguments routinely contain personally identifiable information (file paths with user names, mail server addresses with credentials embedded in URLs, application-specific tokens passed as positional arguments, and other sensitive data depending on the user's installed software). The v0.1 accepted-risk decision is to capture command-line strings as-is and rely on operational controls (the security team's access policy to the ClickHouse `cges_events` table; the operator's deployment-time decision of which endpoints run the agent; the closed-test environment posture per SPEC-001 §Scope OUT) rather than agent-side or pipeline-side redaction. Building the redaction subsystem requires defining a redaction-pattern language (regex? structured pattern matchers?), an opt-out configuration surface (per-pattern? per-process? per-user?), a downstream sanitisation layer (apply at ingest? at query? at export?), and a test corpus of PII shapes; each is a non-trivial design decision that conflates with the deferred field-level encryption work per ADR-0006 §Out-of-scope third bullet (Blueprint §17.11 — Advanced anonymisation out of MVP). Triple cross-reference chain for the deferral: ADR-0006 §Out-of-scope third bullet (Blueprint §17.11) is the framework deferral; ADR-0011 §Out-of-scope first bullet is the per-class restatement; this SPEC §Out-of-scope item 6 is the agent-side accepted-risk concretisation. Deferral target: the field-level PII encryption / redaction work referenced in Blueprint §17.11 (Advanced anonymisation out of MVP); a future SPEC under that work will define the redaction surface and amend ADR-0011 §4 row 5 + this SPEC §Out-of-scope item 6 accordingly.
 
+## Operational
+
+Three agent-side mechanisms are scoped here that the inherited contracts (ADR-0008, ADR-0009, ADR-0011) deferred to SPEC-005 as agent implementation concerns. None are exposed in the wire envelope; all are internal to the agent process. Sequenced in dependency order: the conversion mechanism (1) is foundational; the cache (2) consumes the conversion; the path translation (3) is independent.
+
+### 1. ETW timestamp → UTC nanoseconds conversion
+
+ETW event records carry timestamps as Windows `FILETIME` values in the `EVENT_HEADER.TimeStamp` field — 64-bit unsigned integers measuring 100-nanosecond intervals since `1601-01-01 00:00:00 UTC`. CGES emits `process.created_time` as integer nanoseconds since Unix epoch (`1970-01-01 00:00:00 UTC`) per ADR-0011 §4 amendment (a) + §6.
+
+The conversion is deterministic and stateless:
+
+```text
+UNIX_EPOCH_FILETIME_DELTA_100NS_TICKS = 116444736000000000
+unix_nanos = (filetime_100ns_ticks - UNIX_EPOCH_FILETIME_DELTA_100NS_TICKS) * 100
+```
+
+The constant `116444736000000000` is the number of 100-nanosecond intervals between `1601-01-01 UTC` and `1970-01-01 UTC` (`(369 * 365 + 89) * 86400 * 10000000` accounting for leap years 1604–1968 inclusive). It is fixed by calendar arithmetic and identical across all Windows versions and ETW providers.
+
+The agent MUST NOT consult the local timezone, the system clock, or any user-configurable time setting during this conversion. ETW `FILETIME` values are always UTC by definition; converting via the formula above preserves UTC strict per ADR-0011 §4 amendment (a). Pre-1970 timestamps (which would produce a negative result) are not physically realisable for an ETW event captured by a live agent; the agent treats any negative result as a capture-time anomaly and emits an `error`-level log line identifying the event with the suspect timestamp, then drops the event before envelope construction (parallel to the AC-006 log-and-drop pattern for the `process.name` strict normative).
+
+### 2. PID-keyed volatile cache for `process.created_time` retention
+
+ETW Launch events carry the process creation timestamp in `EVENT_HEADER.TimeStamp`; ETW Terminate events do not — they carry the termination timestamp. To emit `process.created_time` consistently on Terminate rows per ADR-0011 §4 amendment (a), the agent maintains an agent-local volatile cache mapping captured-process PIDs to their creation timestamps observed at Launch.
+
+The cache is scoped tightly to honour ADR-0011 §6's "no agent-side mapping table, no state across restarts" wording. The cache:
+
+- Is **keyed on PID**, not on `process.uid`. It does not participate in `process.uid` construction; `process.uid` is computed at Launch from ETW data directly per ADR-0011 §6 and the conversion mechanism above. The cache only enriches Terminate events that arrive after the corresponding Launch was captured in the same agent session.
+- Is **volatile** (in-memory only). On agent restart the cache is empty; Terminate events for processes Launched before the agent restart emit `process.created_time = null` per the cache-miss path in AC-004.
+- Is **populated at Launch event capture**: when a Launch event is dispatched by the ETW callback, the agent inserts `(PID, created_time_unix_nanos)` into the cache. The insert is the dispatch callback's only cache interaction — consistent with ADR-0009 §Decision part 3's "the dispatch callback does nothing but enqueue + generate event_id" constraint, treating the cache insert as a sibling enqueue operation (the cache lives alongside the ring, not downstream of it).
+- Is **consulted and purged at Terminate event capture**: when a Terminate event is dispatched by the ETW callback, the agent looks up the cache entry for the Terminating PID; on hit, the `created_time` value is copied to the worker-bound event payload for emission, and the cache entry is purged immediately to bound the cache's residency; on miss, the worker emits `process.created_time = null` per the cache-miss path.
+
+**PID-reuse race mitigation.** Windows reuses PIDs across process lifecycles. The purge-at-Terminate-consult discipline prevents stale entries from accumulating: any cache entry that survives past its corresponding Terminate is itself a Launch-without-corresponding-Terminate (the process is still alive or its Terminate event was never captured). To bound this, the agent additionally evicts cache entries via a periodic sweep (sweep cadence specified in §NFR forthcoming) using the OS query `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, PID)` — entries whose PID can no longer be opened (the process has terminated and its PID may have been reused) are evicted. The sweep is not load-bearing for correctness — the purge-at-Terminate discipline is — but it bounds cache memory under sustained agent sessions where some Terminate events were missed (ETW callback overflow per AC-009, or agent suspension by the OS scheduler under extreme load).
+
+If a Terminate event arrives for a PID whose cache entry was evicted by the sweep before the Terminate (the rare case of a missed Terminate event followed by PID reuse followed by a captured Terminate for the reused PID), the Terminate row's `process.created_time` is `null` per the cache-miss path — the same emission as a routine cache miss. The agent does not attempt to distinguish missed-then-reused from never-Launched at emission time; both produce `null` honestly.
+
+### 3. Kernel device path → Win32 path translation
+
+ETW `Microsoft-Windows-Kernel-Process` Launch events carry the process image path as `ImageFileName` in kernel device path form (`\Device\HarddiskVolume2\Windows\System32\notepad.exe`) per ADR-0011 §4 row 3. CGES emits `process.file.path` in Win32 form (`C:\Windows\System32\notepad.exe`) per the same row.
+
+The translation uses Windows `QueryDosDeviceW` to build a kernel-device-prefix → drive-letter mapping at agent startup and applies the inverse mapping to each captured `ImageFileName`:
+
+```text
+For each drive letter L in A..Z that QueryDosDeviceW(L:) returns a kernel path P for:
+  prefix_map[P] = L:
+At capture time, for an ETW ImageFileName I:
+  if I starts with some prefix P in prefix_map:
+    win32_path = prefix_map[P] + I[length(P):]
+  else:
+    fallthrough cases below
+```
+
+The mapping is built once at agent startup and cached for the agent process's lifetime. Volume changes during the agent's lifetime (new USB drive mounted, network drive added) are NOT reflected in the cached mapping in v0.1 — the agent emits the unresolved kernel path verbatim for any captured event whose `ImageFileName` does not match a cached prefix. A future SPEC may add volume-change event subscription to refresh the cache; agent restart is the v0.1 workaround.
+
+**Fallthrough cases** (cases where the translation cannot produce a Win32 path; the agent's emission contract for each is explicit):
+
+- **UNC network paths** (`\??\UNC\server\share\file.exe` or `\Device\Mup\server\share\file.exe`): translated to the standard UNC form `\\server\share\file.exe` via a dedicated rule prepended to the prefix-map lookup.
+- **Junction-target paths** (kernel paths produced by reparse-point traversal): emitted as the kernel path verbatim; the agent does not resolve junction targets. The emitted `process.file.path` is the raw kernel form (e.g. `\Device\HarddiskVolume2\Junction\target\file.exe`) — recognisable as unresolved by its leading `\Device\` prefix.
+- **Mount-point paths** (volumes mounted at a non-drive-letter NTFS mount point): emitted as the kernel path verbatim — the agent does not enumerate mount-point mappings in v0.1. Same recognisability as junctions.
+- **Removable media** (USB drives, optical drives): if mounted at agent startup and visible to `QueryDosDeviceW`, the mapping is cached and translation works normally; if mounted after agent startup, the kernel path is emitted verbatim per the fallthrough.
+- **`ImageFileName` empty or absent**: per ADR-0011 §5 agent normative for top-level `process.name`, the Launch event is logged-error and dropped before envelope construction; the `process.file.path` emission never occurs. AC-006 exercises this path.
+
+The agent emits `process.file.path` as-captured-then-translated; no canonicalisation (no resolution of `..`, no case normalisation, no trailing-slash handling) is performed in v0.1. ETW `ImageFileName` values are kernel-canonical by construction (the kernel produces them deterministically per process); preserving the source form aids forensic provenance.
+
 ## Acceptance criteria
 
 Each AC maps 1:1 to a Rust integration test under `agent/cg-agent/tests/`, named `process_ac_NNN_*` to avoid collision with SPEC-001 (`ac_NNN_*`), SPEC-002 (`enroll_ac_NNN_*`), and SPEC-003 (`mtls_ac_NNN_*`) test naming.
