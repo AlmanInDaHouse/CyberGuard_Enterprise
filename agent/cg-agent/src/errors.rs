@@ -133,6 +133,36 @@ impl SigningError {
     }
 }
 
+/// ETW session-open failure (SPEC-005 §Failure modes + ADR-0010
+/// §Decision part 1). Terminal at startup; the agent exits with code
+/// 9 after emitting the documented stderr line via `handle_etw_open_result`
+/// in `startup.rs`. β3 will expand variants when the real Win32 paths
+/// surface additional failure modes.
+#[derive(Debug, Error)]
+pub enum EtwError {
+    #[error("ETW open refused: insufficient privilege")]
+    PrivilegeNotHeld,
+
+    #[error("ETW open refused: access denied")]
+    AccessDenied,
+}
+
+impl EtwError {
+    /// Process exit code per ADR-0010 §Decision part 1.
+    pub fn exit_code(&self) -> u8 {
+        9
+    }
+}
+
+impl From<crate::etw::OpenError> for EtwError {
+    fn from(err: crate::etw::OpenError) -> Self {
+        match err {
+            crate::etw::OpenError::PrivilegeNotHeld => EtwError::PrivilegeNotHeld,
+            crate::etw::OpenError::AccessDenied => EtwError::AccessDenied,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error(transparent)]
@@ -152,4 +182,7 @@ pub enum AgentError {
 
     #[error(transparent)]
     Signing(#[from] SigningError),
+
+    #[error(transparent)]
+    Etw(#[from] EtwError),
 }

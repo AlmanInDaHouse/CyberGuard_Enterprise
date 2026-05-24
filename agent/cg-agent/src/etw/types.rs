@@ -1,10 +1,11 @@
-//! In-memory captured-event shape + activity discriminants.
+//! In-memory captured-event shape + activity discriminants + raw ETW
+//! open-error variants + the EtwSession type marker.
 //!
 //! `CapturedEvent` is the post-capture pre-emission representation of a
 //! Kernel-Process Launch or Terminate event. It is produced by the ETW
 //! dispatch callback (β3 forthcoming), traverses the bounded ring buffer
 //! (β1 ring.rs), and is rendered to CGES JSON via the emit functions
-//! (β2 emit.rs forthcoming).
+//! (β2 cges/emit.rs).
 //!
 //! Fields are minimal and match exactly what the Phase 3.4 RED tests
 //! prescribe (see SPEC-005 §AC AC-005/AC-006/AC-004/AC-008). The struct
@@ -58,3 +59,32 @@ pub struct CapturedEvent {
     pub etw_timestamp_nanos: u64,
     pub exit_status: Option<i32>,
 }
+
+/// Raw ETW session-open error variants per ADR-0010 §Decision part 1.
+///
+/// Internal to the etw module. The agent-level error domain wraps these
+/// via `EtwError` in `errors.rs`, which is what `handle_etw_open_result`
+/// in `startup.rs` consumes. β3 will expand the variant set when the
+/// real Win32 `StartTraceW` / `ControlTraceW` paths surface additional
+/// failure modes (TraceNotFound, AlreadyExists, ControlFailed, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenError {
+    /// Win32 `ERROR_PRIVILEGE_NOT_HELD` (1314). The process is not
+    /// running with the SeSystemProfilePrivilege or equivalent required
+    /// to open the Kernel-Process provider.
+    PrivilegeNotHeld,
+    /// Win32 `ERROR_ACCESS_DENIED` (5). Similar to PrivilegeNotHeld in
+    /// effect; surfaces on certain hardened SKUs or under group policy.
+    AccessDenied,
+}
+
+/// Placeholder for the Windows-only ETW session type. β3 (forthcoming)
+/// replaces this uninhabited enum with the real session struct (HANDLE
+/// wrapper + dispatch callback registration over ferrisetw's UserTrace).
+///
+/// The β2 stub exists so the Phase 3.4 RED test binaries that import
+/// `cg_agent::etw::EtwSession` (process_ac_004_created_time_cache,
+/// process_ac_007_parent_pid_only) compile. The uninhabited enum form
+/// guarantees no β2 code can construct an `EtwSession` instance —
+/// `Option<EtwSession>::None` is the only valid value until β3 lands.
+pub enum EtwSession {}

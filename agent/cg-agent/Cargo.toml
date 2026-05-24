@@ -183,3 +183,16 @@ testcontainers = "0.27"
 # cross-checks must not attempt to fetch or compile it.
 [target.'cfg(windows)'.dev-dependencies]
 ferrisetw = "1.2"
+
+# --- Lint configuration ---
+#
+# clippy::zombie_processes: AC-004 cache-hit test (process_ac_004_created_time_
+# cache.rs) spawns a probe via Command::new("cmd.exe").spawn() without calling
+# .wait() on the returned Child. The test relies on the agent's ETW path to
+# capture both Launch and Terminate events emitted by the OS for that probe,
+# rather than on the test process explicitly waiting. Production cg-agent code
+# does not exhibit this pattern (no Command::spawn in lib/). Crate-scoped allow
+# ratified by Manuel during Phase 3.5.B to unblock AC-004 cache-miss GREEN
+# without modifying Phase 3.4 RED test files.
+[lints.clippy]
+zombie_processes = "allow"
