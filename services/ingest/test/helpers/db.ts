@@ -72,3 +72,58 @@ export async function getHeartbeats(config: Config, agentId: string): Promise<He
     await ch.close();
   }
 }
+
+// SPEC-005 additions — getCgesEvents helper + CgesEventRow interface.
+// Queries the cges_events ClickHouse table for rows belonging to a
+// given agent_id, ordered by capture timestamp ascending. The table
+// itself does not exist yet (D6 PARTIALLY DONE; literal DDL lands in
+// Phase 3.5 alongside the schema acceptance for events[] envelopes);
+// this helper compiles cleanly and runs once Phase 3.5 lands the DDL.
+
+export interface CgesEventRow {
+  agent_id: string;
+  class_uid: number;
+  activity_id: number;
+  process_pid: number;
+  process_uid: string;
+  process_name: string;
+  process_created_time: string | null;
+  process_exit_code: number | null;
+  time: string;
+}
+
+export async function getCgesEvents(
+  config: Config,
+  agentId: string,
+): Promise<CgesEventRow[]> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    const result = await ch.query({
+      query: `
+        SELECT
+          agent_id,
+          class_uid,
+          activity_id,
+          process_pid,
+          process_uid,
+          process_name,
+          process_created_time,
+          process_exit_code,
+          time
+        FROM cges_events
+        WHERE agent_id = {agent_id:String}
+        ORDER BY time ASC
+      `,
+      query_params: { agent_id: agentId },
+      format: "JSONEachRow",
+    });
+    return await result.json<CgesEventRow>();
+  } finally {
+    await ch.close();
+  }
+}
