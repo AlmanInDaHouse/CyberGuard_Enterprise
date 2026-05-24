@@ -92,10 +92,7 @@ export interface CgesEventRow {
   time: string;
 }
 
-export async function getCgesEvents(
-  config: Config,
-  agentId: string,
-): Promise<CgesEventRow[]> {
+export async function getCgesEvents(config: Config, agentId: string): Promise<CgesEventRow[]> {
   const ch = createClient({
     url: config.INGEST_CH_URL,
     username: config.INGEST_CH_USER,
