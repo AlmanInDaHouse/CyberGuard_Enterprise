@@ -758,3 +758,44 @@ pub fn secure_fixture(server_url: &str, pki: &TlsTestPki) -> SecureFixture {
         trust_anchor,
     }
 }
+
+// SPEC-005 additions — TestAgentHandle + start_test_agent for in-process
+// agent control. Existing common::MockServer already covers envelope
+// capture (POST /v1/agents/heartbeat plain HTTP, std::sync::Mutex
+// blocking convention preserved); no MockHeartbeatServer parallel
+// helper introduced.
+
+pub struct TestAgentHandle {
+    _join: JoinHandle<()>,
+    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+}
+
+impl TestAgentHandle {
+    /// Signal the test-mode agent to shut down. Phase 3.5 implementation
+    /// honours the shutdown signal via its tokio entry point.
+    pub async fn shutdown(self) {
+        let _ = self.shutdown_tx.send(());
+        // Test-side timeout is the caller's concern; the join handle is
+        // not awaited here to avoid blocking on a misbehaving agent.
+    }
+}
+
+/// Start a test-mode instance of cg-agent against the given mock server URL
+/// with a fixed agent_id. The agent runs in-process on a tokio task; the
+/// returned handle controls shutdown. Phase 3.5 implementation provides
+/// the in-process entry point that this helper invokes.
+pub async fn start_test_agent(mock_url: &str, agent_id: &str) -> TestAgentHandle {
+    let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let _ = (mock_url, agent_id);
+    let join = tokio::spawn(async move {
+        // Phase 3.5 implementation: invoke cg_agent's in-process entry
+        // (e.g., cg_agent::run_test_mode(config, shutdown_rx)) with config
+        // pointing at mock_url and agent_id. This helper's signature pins
+        // the test-side contract; the implementation honours it.
+        unimplemented!("Phase 3.5 implementation provides cg_agent test-mode entry");
+    });
+    TestAgentHandle {
+        _join: join,
+        shutdown_tx,
+    }
+}
