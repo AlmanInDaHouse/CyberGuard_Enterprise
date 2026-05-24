@@ -170,3 +170,16 @@ tokio-rustls = { version = "0.26", default-features = false, features = [
 # (testcontainers::runners::AsyncRunner) is the canonical 0.27 API and
 # matches the existing #[tokio::test(...)] convention in tests/.
 testcontainers = "0.27"
+
+# --- SPEC-005 Phase 3.4 harness (Windows-only, test-only) ---
+#
+# ETW crate per ADR-0008 §Decision part 1. Consumed by AC-009
+# (events_lost ETW pressure) which sets up a standalone UserTrace
+# session, induces dispatch backpressure, and invokes the agent's
+# side-channel helper to observe the kernel's events_lost counter.
+# Pin `^1.2.0` per ADR-0008's '1.2.0' decision (post-1.0 minor pin
+# idiom; accepts 1.2.x patches, refuses 2.0). Target-conditional —
+# ferrisetw consumes Win32 ETW APIs and is Windows-only; non-Windows
+# cross-checks must not attempt to fetch or compile it.
+[target.'cfg(windows)'.dev-dependencies]
+ferrisetw = "1.2"
