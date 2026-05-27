@@ -425,10 +425,21 @@ where
         tokio::select! {
             _ = tick.tick() => {
                 let events = ring.drain_events();
+                tracing::info!(
+                    target: "cg_agent::run_test_mode",
+                    drained_count = events.len(),
+                    "drain tick",
+                );
                 if events.is_empty() {
                     continue;
                 }
                 sequence += 1;
+                tracing::info!(
+                    target: "cg_agent::run_test_mode",
+                    event_count = events.len(),
+                    sequence_number = sequence,
+                    "events drained; building envelope",
+                );
 
                 let cges_events: Vec<_> = events
                     .iter()

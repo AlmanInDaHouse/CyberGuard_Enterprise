@@ -103,7 +103,17 @@ impl EventRing {
     /// reset by drain.
     pub fn drain_events(&self) -> Vec<CapturedEvent> {
         let mut events = self.events.lock().expect("ring mutex poisoned");
-        events.drain(..).collect()
+        let drained: Vec<CapturedEvent> = events.drain(..).collect();
+        let dropped = self.dropped_total.load(Ordering::Relaxed);
+        if !drained.is_empty() || dropped > 0 {
+            tracing::info!(
+                target: "cg_agent::etw::ring",
+                drained_count = drained.len(),
+                dropped_total = dropped,
+                "ring drained",
+            );
+        }
+        drained
     }
 
     /// Current number of events retained in the ring (not the capacity).

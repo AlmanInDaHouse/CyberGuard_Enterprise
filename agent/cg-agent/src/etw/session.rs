@@ -65,6 +65,8 @@ impl EtwSession {
     /// holds equivalent Arc clones so the caller (drain task) can
     /// snapshot the ring and consult/purge the cache.
     pub fn open(ring_capacity: usize) -> Result<Self, OpenError> {
+        tracing::info!(target: "cg_agent::etw", "EtwSession::open invoked");
+
         let ring = Arc::new(EventRing::new(ring_capacity));
         let cache = Arc::new(CreatedTimeCache::new());
 
@@ -74,6 +76,11 @@ impl EtwSession {
         let provider = Provider::by_guid(KERNEL_PROCESS_GUID)
             .add_callback(
                 move |record: &EventRecord, schema_locator: &SchemaLocator| {
+                    tracing::info!(
+                        target: "cg_agent::etw",
+                        event_id = record.event_id(),
+                        "dispatch callback fired",
+                    );
                     dispatch_callback(
                         record,
                         schema_locator,
@@ -88,13 +95,32 @@ impl EtwSession {
             .named(String::from(SESSION_NAME))
             .enable(provider);
 
-        // Move trace into a spawned thread; trace.start() blocks until
-        // session is stopped. Errors from start() are silently swallowed
-        // for β3 (Phase 4+ may surface via a channel).
+        // Phase 3.5.I-DIAG3: replace silent `let _ = trace.start()` with
+        // logged match. trace.start() blocks until session is stopped.
         std::thread::spawn(move || {
-            let _ = trace.start();
+            tracing::info!(target: "cg_agent::etw", "trace.start invoked on spawned thread");
+            // ferrisetw 1.2's trace.start() returns
+            // Result<(UserTrace, PROCESSTRACE_HANDLE), TraceError> — the
+            // Ok variant returns the UserTrace + handle. β3's
+            // `let _ = trace.start()` dropped both immediately; this
+            // diag preserves that drop-on-Ok semantic (binding with
+            // underscore prefix to suppress unused-warning) while
+            // surfacing the Ok/Err discrimination. If "Ok" surfaces
+            // but no dispatch callbacks fire, the next iteration
+            // needs to keep the returned tuple alive (park the thread)
+            // to maintain the ETW session.
+            match trace.start() {
+                Ok((_kept_trace, _kept_handle)) => tracing::info!(
+                    target: "cg_agent::etw",
+                    "trace.start completed Ok (tuple dropped per current β3 pattern)",
+                ),
+                Err(e) => {
+                    tracing::error!(target: "cg_agent::etw", error = ?e, "trace.start failed")
+                }
+            }
         });
 
+        tracing::info!(target: "cg_agent::etw", "EtwSession::open returning Ok");
         Ok(Self { ring, cache })
     }
 }
