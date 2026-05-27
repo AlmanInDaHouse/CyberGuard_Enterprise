@@ -30,6 +30,7 @@ const SECOND_BATCH_OVERFLOW: usize = 5;
 fn synthetic_event(seq: u32) -> CapturedEvent {
     CapturedEvent {
         pid: 10_000 + seq,
+        event_id: format!("synthetic-ac008-{seq}"),
         activity_id: ActivityId::Launch,
         image_file_name: format!("\\Device\\HarddiskVolume2\\probe_{seq}.exe"),
         parent_pid: 4,

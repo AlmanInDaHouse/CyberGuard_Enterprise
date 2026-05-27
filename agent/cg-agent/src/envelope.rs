@@ -18,6 +18,13 @@ pub struct HeartbeatEnvelope {
     pub sent_at: String,
     pub status: HeartbeatStatus,
     pub uptime_seconds: u64,
+    /// SPEC-005 events extension. Serde-skipped when empty for SPEC-001
+    /// backward compat per SPEC-001 amendment 2026-05-23 narrowing-not-
+    /// overriding semantics. SPEC-001-only deployments still produce
+    /// the original 6-field wire shape; SPEC-005-active deployments
+    /// add the events array.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<crate::cges::CgesProcessActivity>,
 }
 
 /// Agent identity sub-object. Matches the four fields of
@@ -58,5 +65,6 @@ pub fn build_envelope(
         sent_at: now_wall.to_rfc3339_opts(SecondsFormat::Millis, true),
         status,
         uptime_seconds,
+        events: Vec::new(),
     }
 }

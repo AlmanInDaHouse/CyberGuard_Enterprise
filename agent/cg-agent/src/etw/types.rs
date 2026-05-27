@@ -14,14 +14,15 @@
 //! is `Clone` because the ring buffer's snapshot_events accessor (test
 //! API) needs to return owned copies.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Discriminator between Launch (activity_id=1) and Terminate
 /// (activity_id=2) Kernel-Process events. The integer values match the
 /// CGES wire format per ADR-0011 §3 and are exposed via `as u64` cast
-/// where serialization needs an integer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(into = "u64")]
+/// where serialization needs an integer. Deserialize via `TryFrom<u64>`
+/// validates unknown discriminants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "u64", try_from = "u64")]
 pub enum ActivityId {
     Launch = 1,
     Terminate = 2,
@@ -30,6 +31,17 @@ pub enum ActivityId {
 impl From<ActivityId> for u64 {
     fn from(activity_id: ActivityId) -> u64 {
         activity_id as u64
+    }
+}
+
+impl TryFrom<u64> for ActivityId {
+    type Error = String;
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(ActivityId::Launch),
+            2 => Ok(ActivityId::Terminate),
+            n => Err(format!("invalid activity_id: {n}")),
+        }
     }
 }
 
@@ -53,6 +65,12 @@ impl From<ActivityId> for u64 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedEvent {
     pub pid: u32,
+    /// Agent-generated UUID v4 unique per capture event. Retries reuse
+    /// the same event_id for dedup at the ClickHouse ReplacingMergeTree
+    /// merge stage per ADR-0009 §References. Per SPEC-005 §AC AC-001
+    /// the event_id is part of the persisted row and round-trips
+    /// agent → envelope → ingest → cges_events column.
+    pub event_id: String,
     pub activity_id: ActivityId,
     pub image_file_name: String,
     pub parent_pid: u32,

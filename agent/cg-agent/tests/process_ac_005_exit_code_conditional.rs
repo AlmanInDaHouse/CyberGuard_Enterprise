@@ -18,6 +18,7 @@ use serde_json::Value;
 fn synthetic_event(activity_id: ActivityId, exit_status: Option<i32>) -> CapturedEvent {
     CapturedEvent {
         pid: 7144,
+        event_id: "synthetic-ac005-test".to_string(),
         activity_id,
         image_file_name: String::from("\\Device\\HarddiskVolume2\\Windows\\System32\\cmd.exe"),
         parent_pid: 4,
@@ -31,7 +32,7 @@ fn synthetic_event(activity_id: ActivityId, exit_status: Option<i32>) -> Capture
 #[test]
 fn ac_005_launch_omits_exit_code_field() {
     let event = synthetic_event(ActivityId::Launch, None);
-    let json: Value = serde_json::to_value(emit_process_activity(&event))
+    let json: Value = serde_json::to_value(emit_process_activity(&event, "test-agent-id"))
         .expect("emit_process_activity output must be JSON-serialisable");
 
     let process = json
@@ -46,7 +47,7 @@ fn ac_005_launch_omits_exit_code_field() {
 #[test]
 fn ac_005_terminate_emits_exit_code_zero() {
     let event = synthetic_event(ActivityId::Terminate, Some(0));
-    let json: Value = serde_json::to_value(emit_process_activity(&event)).unwrap();
+    let json: Value = serde_json::to_value(emit_process_activity(&event, "test-agent-id")).unwrap();
     let exit_code = json
         .pointer("/process/exit_code")
         .expect("Terminate event MUST emit process.exit_code");
@@ -56,7 +57,7 @@ fn ac_005_terminate_emits_exit_code_zero() {
 #[test]
 fn ac_005_terminate_emits_exit_code_one() {
     let event = synthetic_event(ActivityId::Terminate, Some(1));
-    let json: Value = serde_json::to_value(emit_process_activity(&event)).unwrap();
+    let json: Value = serde_json::to_value(emit_process_activity(&event, "test-agent-id")).unwrap();
     let exit_code = json.pointer("/process/exit_code").unwrap();
     assert_eq!(exit_code.as_i64(), Some(1));
 }
@@ -64,7 +65,7 @@ fn ac_005_terminate_emits_exit_code_one() {
 #[test]
 fn ac_005_terminate_emits_ntstatus_as_negative_int32() {
     let event = synthetic_event(ActivityId::Terminate, Some(-1073741819));
-    let json: Value = serde_json::to_value(emit_process_activity(&event)).unwrap();
+    let json: Value = serde_json::to_value(emit_process_activity(&event, "test-agent-id")).unwrap();
     let exit_code = json.pointer("/process/exit_code").unwrap();
     assert_eq!(
         exit_code.as_i64(),

@@ -60,6 +60,14 @@ tokio-util = "0.7"
 # the legacy `time` 0.1 transitive dep.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+# UUID generation for SPEC-005 cges_events.event_id (Phase 3.5.F). v4
+# random UUIDs are generated per captured event at ETW dispatch time;
+# retries reuse the same event_id for dedup at the ClickHouse
+# ReplacingMergeTree merge stage per ADR-0009 §References. `serde`
+# feature for Serialize derive support on structs that carry UUIDs as
+# String. 1.x semver: caret pin accepts 1.10.x patches; refuses 2.0.
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
 # --- SPEC-002 enrollment dependencies ---
 #
 # Ed25519 keypair generation and signing (rustcrypto org). The

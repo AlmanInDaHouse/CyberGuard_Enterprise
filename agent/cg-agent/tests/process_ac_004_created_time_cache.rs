@@ -97,6 +97,7 @@ fn ac_004_cache_miss_terminate_emits_null_created_time() {
     // Cache is empty. Synthetic Terminate event for an unknown PID.
     let terminate = CapturedEvent {
         pid: 99999,
+        event_id: "synthetic-ac004-test".to_string(),
         activity_id: ActivityId::Terminate,
         image_file_name: String::from("\\Device\\HarddiskVolume2\\Windows\\System32\\cmd.exe"),
         parent_pid: 4,
@@ -112,7 +113,7 @@ fn ac_004_cache_miss_terminate_emits_null_created_time() {
         "AC-004: cache-miss MUST return None for unknown PID"
     );
 
-    let event = emit_process_activity_with_cache(&terminate, cached_created_time);
+    let event = emit_process_activity_with_cache(&terminate, cached_created_time, "test-agent-id");
     let json: Value =
         serde_json::to_value(event).expect("AC-004: emitted event MUST be JSON-serialisable");
     let created_time_field = json.pointer("/process/created_time");

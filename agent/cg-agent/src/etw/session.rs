@@ -37,6 +37,7 @@ use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::trace::UserTrace;
 use ferrisetw::EventRecord;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use super::cache::CreatedTimeCache;
 use super::ring::EventRing;
@@ -128,9 +129,11 @@ fn dispatch_callback(
     };
 
     let etw_timestamp_nanos = etw_filetime_to_unix_nanos(record.raw_timestamp());
+    let event_id = Uuid::new_v4().to_string();
 
     let event = CapturedEvent {
         pid,
+        event_id,
         activity_id,
         image_file_name,
         parent_pid,

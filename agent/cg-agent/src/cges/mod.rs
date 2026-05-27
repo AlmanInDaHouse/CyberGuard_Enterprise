@@ -7,4 +7,6 @@
 
 mod emit;
 
-pub use emit::{emit_process_activity, emit_process_activity_with_cache};
+pub use emit::{
+    emit_process_activity, emit_process_activity_with_cache, CgesProcess, CgesProcessActivity,
+};

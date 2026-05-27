@@ -62,6 +62,7 @@ fn ac_006_empty_process_name_logs_error_and_drops() {
     // Synthetic captured event with empty image_file_name → empty process.name.
     let event = CapturedEvent {
         pid: 12345,
+        event_id: "synthetic-ac006-test".to_string(),
         activity_id: ActivityId::Launch,
         image_file_name: String::new(), // empty — triggers log-and-drop
         parent_pid: 4,

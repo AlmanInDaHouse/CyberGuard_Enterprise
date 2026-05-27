@@ -404,7 +404,7 @@ where
                         ActivityId::Launch => Some(event.etw_timestamp_nanos),
                         ActivityId::Terminate => cache.consult_and_purge(event.pid),
                     };
-                    emit_process_activity_with_cache(event, cached)
+                    emit_process_activity_with_cache(event, cached, &agent_id)
                 })
                 .collect();
 

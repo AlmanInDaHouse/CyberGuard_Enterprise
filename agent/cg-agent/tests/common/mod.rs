@@ -782,18 +782,33 @@ impl TestAgentHandle {
 
 /// Start a test-mode instance of cg-agent against the given mock server URL
 /// with a fixed agent_id. The agent runs in-process on a tokio task; the
-/// returned handle controls shutdown. Phase 3.5 implementation provides
-/// the in-process entry point that this helper invokes.
+/// returned handle controls shutdown.
+///
+/// Phase 3.5.F implementation: invokes `cg_agent::run_test_mode` which
+/// opens an ETW Kernel-Process session (on Windows) and spawns a ring-
+/// drain task that POSTs events[]-populated envelopes to `mock_url`.
+/// Identity is a dummy (run_test_mode's `_identity` arg is unused; the
+/// MockServer accepts unsigned envelopes). Config uses the existing
+/// `config_with_url` helper with the agent_id override.
 pub async fn start_test_agent(mock_url: &str, agent_id: &str) -> TestAgentHandle {
-    let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-    let _ = (mock_url, agent_id);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let mut config = config_with_url(mock_url, 1);
+    config.agent.id = agent_id.to_string();
+
+    let identity = cg_agent::identity::Identity {
+        agent_id: agent_id.to_string(),
+        keypair: cg_agent::crypto::AgentKeypair::from_secret_bytes(&[0u8; 32]),
+        client_certificate_pem: String::new(),
+    };
+
     let join = tokio::spawn(async move {
-        // Phase 3.5 implementation: invoke cg_agent's in-process entry
-        // (e.g., cg_agent::run_test_mode(config, shutdown_rx)) with config
-        // pointing at mock_url and agent_id. This helper's signature pins
-        // the test-side contract; the implementation honours it.
-        unimplemented!("Phase 3.5 implementation provides cg_agent test-mode entry");
+        let shutdown_future = async move {
+            let _ = shutdown_rx.await;
+        };
+        let _ = cg_agent::run_test_mode(config, identity, shutdown_future).await;
     });
+
     TestAgentHandle {
         _join: join,
         shutdown_tx,

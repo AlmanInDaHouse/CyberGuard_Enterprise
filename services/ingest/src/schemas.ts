@@ -21,6 +21,34 @@ const AgentBlockSchema = z.object({
   agent_hostname: z.string().min(1),
 });
 
+/** SPEC-005 CGES Process sub-object (event.process) per ADR-0011 + γ DDL. */
+const CgesProcessSchema = z.object({
+  pid: z.number().int().nonnegative(),
+  uid: z.string().min(1),
+  name: z.string().min(1),
+  /** Always present; null on AC-004 cache-miss; integer nanos otherwise. */
+  created_time: z.number().int().nullable(),
+  /** Absent on AC-005 Launch path; integer on Terminate. */
+  exit_code: z.number().int().optional(),
+  /** Null on AC-007 PPID unresolvable; integer otherwise. */
+  parent_pid: z.number().int().nonnegative().nullable(),
+  command_line: z.string(),
+  subject_user_sid: z.string(),
+  image_file_name: z.string(),
+});
+
+/** SPEC-005 CGES Process Activity event shape (envelope.events[] element). */
+const CgesProcessActivitySchema = z.object({
+  event_id: z.string().min(1),
+  /** Strict literal per OCSF Process Activity + ADR-0006 + ADR-0011. */
+  class_uid: z.literal(1007),
+  /** Launch=1, Terminate=2 per ADR-0011 §3 CGES wire allow-list. */
+  activity_id: z.union([z.literal(1), z.literal(2)]),
+  process: CgesProcessSchema,
+  /** Unix nanoseconds UTC; matches process_created_time precision. */
+  time: z.number().int().nonnegative(),
+});
+
 const InnerEnvelopeSchema = z.object({
   envelope_version: z.string().min(1),
   agent: AgentBlockSchema,
@@ -28,6 +56,12 @@ const InnerEnvelopeSchema = z.object({
   sent_at: z.string().min(1),
   status: z.enum(["online", "going_offline"]),
   uptime_seconds: z.number().int().nonnegative(),
+  /**
+   * SPEC-005 events extension. Optional + default([]) for backward
+   * compat with SPEC-001/002/003 envelopes that do not carry events
+   * per SPEC-001 amendment 2026-05-23 narrowing-not-overriding semantics.
+   */
+  events: z.array(CgesProcessActivitySchema).optional().default([]),
 });
 
 /** SPEC-003 outer signed envelope (SPEC-004 FR-009). */
