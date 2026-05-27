@@ -196,6 +196,29 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 |---|---|---|---|---|
-| `ts-ci` | `0c4d302` | SPEC-005 Phase 3.4 harness-first RED phase (TypeScript side). AC-001 polyglot marquee lands as `services/ingest/test/spec-005-marquee.test.ts` reusing the existing prepareAgent + startIngest + testcontainers scaffolding. Three-layer RED expected: (i) agent has no ETW code yet, (ii) ingest's OuterEnvelopeSchema in `src/schemas.ts` rejects envelopes carrying `events[]`, (iii) `cges_events` ClickHouse table does not exist yet (D6 PARTIALLY DONE). All three layers clear in Phase 3.5 as a coordinated implementation phase. `test/helpers/db.ts` extended with `getCgesEvents` accessor + `CgesEventRow` interface; the accessor compiles cleanly and runs once Phase 3.5 lands the DDL. Target: Phase 3.5 implementation commit(s) that land (i) the SPEC-005 envelope schema acceptance in `src/schemas.ts`, (ii) the cges_events ClickHouse migration, (iii) the events[] persistence path in the heartbeat handler; this row is removed in the same SHA that flips ts-ci to success. | Architect-Claude (planning), Claude Code (implementation) | ts-ci Linux flips to success when γ (cges_events DDL) + ts-schema (events[] acceptance) + ts-handler (persistence path) land in subsequent Phase 3.5 commits. ts-ci-windows.yml (workflow_dispatch trigger; introduced in Phase 3.5.D α) validates the SPEC-005 polyglot marquee on a Windows runner; the marquee passes GREEN once the full agent → ingest → ClickHouse path works end-to-end (the same γ + ts-schema + ts-handler commits enable this). This row is removed in the same SHA that lands the final commit closing both: Linux ts-ci GREEN AND ts-ci-windows.yml's manual marquee GREEN, verified via at least one successful manual invocation of ts-ci-windows.yml. Promotion of ts-ci-windows.yml from workflow_dispatch to push/pull_request triggers (PR-required gating) is a separate follow-up (Phase 3.5.G or Phase 4), not tied to this row's removal. |
+| `ts-ci` | `0c4d302` | SPEC-005 Phase 3.4 harness-first RED phase (TypeScript side). AC-001 polyglot marquee lands as `services/ingest/test/spec-005-marquee.test.ts` reusing the existing prepareAgent + startIngest + testcontainers scaffolding. Three-layer RED expected: (i) agent has no ETW code yet, (ii) ingest's OuterEnvelopeSchema in `src/schemas.ts` rejects envelopes carrying `events[]`, (iii) `cges_events` ClickHouse table does not exist yet (D6 PARTIALLY DONE). All three layers clear in Phase 3.5 as a coordinated implementation phase. `test/helpers/db.ts` extended with `getCgesEvents` accessor + `CgesEventRow` interface; the accessor compiles cleanly and runs once Phase 3.5 lands the DDL. Target: Phase 3.5 implementation commit(s) that land (i) the SPEC-005 envelope schema acceptance in `src/schemas.ts`, (ii) the cges_events ClickHouse migration, (iii) the events[] persistence path in the heartbeat handler; this row is removed in the same SHA that flips ts-ci to success. | Architect-Claude (planning), Claude Code (implementation) | ts-ci Linux is the sole automated gate; it flipped GREEN at Phase 3.5.G ts-handler (`4035c03`) per the existing harness-first implementation chain. SPEC-005 marquee end-to-end validation is developer-local on Windows with Docker Desktop running, via `cd services/ingest && pnpm test` (the existing `pnpm test` script runs all 8 vitest tests including the marquee, which only skips on non-Windows platforms via its existing `.skipIf(process.platform !== "win32")` gate). The original Phase 3.5.D α dual-gate plan (ts-ci-windows.yml workflow on `windows-latest` hosted runner) was falsified empirically at run https://github.com/AlmanInDaHouse/CyberGuard_Enterprise/actions/runs/26537098310 — hosted Windows runners do not expose a container runtime that testcontainers can detect; vitest global setup fails before any test runs. The workflow file is removed in this same SHA per Path D resolution. Row removed in Phase 3.5.I (separate commit) after Manuel runs the marquee locally at least once on his Windows machine with Docker Desktop running and reports GREEN; the Phase 3.5.I commit message references the local run's output as success verification per the "removed in same SHA as success verification" contract. |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
+
+## Developer-local SPEC-005 marquee validation
+
+The SPEC-005 polyglot marquee test (`services/ingest/test/spec-005-marquee.test.ts`) validates the end-to-end agent → ingest → ClickHouse path on Windows. It cannot run in CI per the Path D resolution documented at Phase 3.5.H (`<THIS_COMMIT_SHA>`); hosted GitHub Actions Windows runners do not expose a working container runtime for testcontainers, and Linux runners cannot spawn `cmd.exe` for the probe process.
+
+The marquee is therefore validated developer-local. Procedure:
+
+1. Have Docker Desktop running on the Windows machine.
+2. Open a terminal at the repo root.
+3. Run:
+
+   ```sh
+   cd services/ingest
+   pnpm install
+   pnpm test
+   ```
+
+4. The vitest run executes all 8 tests including the SPEC-005 marquee. Expected outcome: 8 passed (the marquee included). The marquee's `.skipIf(process.platform !== "win32")` gate is inactive on Windows; the test runs end-to-end.
+5. Successful local run is the verification gate for Phase 3.5.I (debt row removal). Attach the local run's vitest output to the Phase 3.5.I commit message as success verification.
+
+If the local run fails, surface the failure to architect-Claude for diagnosis. The marquee's 5 assertions per SPEC-005 §AC AC-001 + the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 implementation defects, not infrastructure issues.
+
+This subsection replaces the original Phase 3.5.D α plan for an automated `ts-ci-windows.yml` workflow. See engineering-notes for the full Path D resolution rationale.
