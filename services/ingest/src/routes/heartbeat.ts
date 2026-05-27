@@ -14,6 +14,27 @@ function toChDateTime(iso: string): string {
   return new Date(iso).toISOString().replace("T", " ").replace("Z", "");
 }
 
+/**
+ * Convert integer Unix nanoseconds to ClickHouse DateTime64(9, 'UTC')
+ * literal format. Matches the existing `toChDateTime` convention (space
+ * separator between date and time) with nine fractional digits for
+ * nanosecond precision.
+ *
+ * JavaScript Number safely handles integers up to 2^53 ~ 9e15 ns =
+ * year 2255 — comfortably within range for current SPEC-005 timestamps.
+ */
+function nanosToChDateTime(nanos: number): string {
+  const millis = Math.floor(nanos / 1_000_000);
+  const fractionalNanos = nanos % 1_000_000_000;
+  const isoMs = new Date(millis).toISOString();
+  // isoMs format: "YYYY-MM-DDTHH:MM:SS.mmmZ"
+  // ClickHouse format: "YYYY-MM-DD HH:MM:SS.nnnnnnnnn"
+  const datePart = isoMs.slice(0, 10);
+  const timePart = isoMs.slice(11, 19);
+  const nineDigitNanos = String(fractionalNanos).padStart(9, "0");
+  return `${datePart} ${timePart}.${nineDigitNanos}`;
+}
+
 function isConnectivityError(e: unknown): boolean {
   const code = (e as { code?: string }).code;
   return (
@@ -134,6 +155,56 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
       // loss). The agent retries next interval with a fresh nonce.
       req.log.error({ backend: "clickhouse", error: String(err) }, "backend unavailable");
       return reply.code(503).send({ error: "unavailable" });
+    }
+
+    // SPEC-005 events[] persistence path. Inserts to cges_events per the
+    // FR-010 step 6 cross-store ordering: nonce SETNX → heartbeats insert
+    // → cges_events insert → agents.last_seen UPDATE.
+    //
+    // Empty events[] (SPEC-001/002/003 backward-compat envelopes) short-
+    // circuits; no ClickHouse round-trip. Otherwise the insert is wrapped
+    // in try-catch; isConnectivityError(e) true → 503 with Retry-After: 5;
+    // false → 500 with the error logged. Failure here returns BEFORE the
+    // agents.last_seen UPDATE runs; the nonce in Redis is already burned
+    // (accepted data loss on retry per the existing cross-store policy).
+    if (env.body.events.length > 0) {
+      try {
+        await ch.insert({
+          table: "cges_events",
+          format: "JSONEachRow",
+          values: env.body.events.map((cgesEvent) => ({
+            agent_id: env.agent_id,
+            org_id: "default",
+            event_id: cgesEvent.event_id,
+            class_uid: cgesEvent.class_uid,
+            activity_id: cgesEvent.activity_id,
+            process_pid: cgesEvent.process.pid,
+            process_uid: cgesEvent.process.uid,
+            process_name: cgesEvent.process.name,
+            process_created_time:
+              cgesEvent.process.created_time === null
+                ? null
+                : nanosToChDateTime(cgesEvent.process.created_time),
+            process_exit_code: cgesEvent.process.exit_code ?? null,
+            process_parent_pid: cgesEvent.process.parent_pid,
+            process_command_line: cgesEvent.process.command_line,
+            subject_user_sid: cgesEvent.process.subject_user_sid,
+            image_file_name: cgesEvent.process.image_file_name,
+            time: nanosToChDateTime(cgesEvent.time),
+          })),
+        });
+      } catch (e) {
+        if (isConnectivityError(e)) {
+          reply.header("Retry-After", "5");
+          return reply.code(503).send({
+            error: "cges_events persistence unavailable; retry",
+          });
+        }
+        req.log.error({ err: e }, "cges_events insert failed");
+        return reply.code(500).send({
+          error: "cges_events insert failed",
+        });
+      }
     }
 
     // last_seen is a denormalized cache; ClickHouse is the source of truth, so
