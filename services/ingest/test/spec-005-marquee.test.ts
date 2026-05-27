@@ -48,6 +48,7 @@ test.skipIf(process.platform !== "win32")(
       heartbeatUrl: server.heartbeatUrl,
       caCertPem: server.caCertPem,
       token,
+      etwEnabled: true, // SPEC-005 marquee: route agent to run_test_mode for ETW capture
     });
 
     // ~40 s observation window. Within the window: agent enrolls,

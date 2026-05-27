@@ -90,11 +90,20 @@ impl EventRing {
 
     /// Test-only accessor: returns a snapshot of currently retained
     /// events (cloned). Used by AC-008 to verify FIFO drop semantics.
-    /// Production code does not call this; the dispatch path consumes
-    /// events via a separate drain operation (β3 forthcoming).
+    /// Production code calls `drain_events` instead.
     pub fn snapshot_events(&self) -> Vec<CapturedEvent> {
         let events = self.events.lock().expect("ring mutex poisoned");
         events.iter().cloned().collect()
+    }
+
+    /// Production drain: remove and return all currently retained events
+    /// in FIFO order. Used by the run_test_mode drain task to consume
+    /// the ring once per tick without re-emitting on the next tick.
+    /// The drop counter (events_dropped_total) is monotonic and is NOT
+    /// reset by drain.
+    pub fn drain_events(&self) -> Vec<CapturedEvent> {
+        let mut events = self.events.lock().expect("ring mutex poisoned");
+        events.drain(..).collect()
     }
 
     /// Current number of events retained in the ring (not the capacity).

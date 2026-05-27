@@ -341,33 +341,43 @@ async fn send_secure_once(
 }
 
 /// SPEC-005 test-mode entry point — invokes the ETW capture + CGES
-/// emission path against a mock heartbeat server.
+/// emission path against the real ingest server.
 ///
-/// Differs from `run_secure` in three ways:
+/// Phase 3.5.I-FIX refactor: uses mTLS + signed envelope path (same
+/// shape as `run_secure`) so it can POST to the SPEC-004 two-port
+/// topology's mTLS heartbeat listener. Differs from `run_secure` in:
 /// 1. Opens an ETW Kernel-Process session on startup; aborts cleanly
 ///    via `startup::handle_etw_open_result` if privilege is insufficient.
-/// 2. Spawns a ring-drain task that polls the EventRing every 1 second,
-///    builds an envelope with `events[]` populated, and POSTs via
-///    plain HTTP (reqwest::Client) — no mTLS, no signed envelope.
-/// 3. Identity arg is currently unused (`_identity`); the mock server
-///    in tests/common/mod.rs (`MockServer`) accepts unsigned envelopes.
+/// 2. The heartbeat loop drains the EventRing each tick and populates
+///    the envelope's `events[]` field with CgesProcessActivity rows
+///    before signing.
+/// 3. Reaches `Ok(())` on shutdown_signal resolution (no graceful
+///    "going_offline" handshake — test mode is fire-and-forget).
 ///
-/// Invoked by `tests/common/start_test_agent`. On non-Windows the ETW
-/// session always opens Err per `session_stub`; the error path is
-/// exercised but the test that calls this is Windows-only (AC-004
-/// cache-hit + AC-007, both `#[cfg_attr(not(target_os = "windows"),
-/// ignore)]`), so the Err branch never runs in Linux CI.
+/// Invoked by `tests/common/start_test_agent` (Rust integration tests
+/// AC-004 cache-hit + AC-007 on Windows) and by `main.rs` when the
+/// `CG_AGENT_TEST_MODE=1` env var is set (the developer-local SPEC-005
+/// marquee path on Windows + Docker Desktop).
+///
+/// Identity is REQUIRED (no longer `_identity`): the mTLS client cert
+/// and Ed25519 signing key both flow from it. Callers that pass a
+/// dummy identity (e.g., zeroed keypair, empty cert) will fail at
+/// TLS client-config build time.
 pub async fn run_test_mode<F>(
     config: AgentConfig,
-    _identity: crate::identity::Identity,
+    identity: crate::identity::Identity,
     shutdown_signal: F,
 ) -> Result<(), AgentError>
 where
     F: Future<Output = ()> + Send + 'static,
 {
     use crate::cges::emit_process_activity_with_cache;
+    use crate::errors::TlsError;
     use crate::etw::{ActivityId, EtwSession};
     use crate::startup::handle_etw_open_result;
+    use crate::tls::SendResult;
+
+    const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
 
     let session = match EtwSession::open(65536) {
         Ok(s) => s,
@@ -379,57 +389,120 @@ where
             return Err(AgentError::Etw(etw_err));
         }
     };
+    let ring = session.ring;
+    let cache = session.cache;
 
-    let ring = Arc::clone(&session.ring);
-    let cache = Arc::clone(&session.cache);
-    let server_url = config.server.url.clone();
-    let agent_id = config.agent.id.clone();
-    let hostname = config.agent.hostname.clone();
+    // SPEC-003 TLS setup, mirroring run_secure's pattern. The marquee
+    // uses the SPEC-004 two-port topology: server.url is the plain HTTP
+    // enroll port; server.heartbeat_url is the mTLS heartbeat port.
+    // heartbeat_target() returns heartbeat_url when set, else url.
+    let trust_anchor_path = config.server.trust_anchor_path.as_ref().ok_or_else(|| {
+        TlsError::ClientConfig("test mode requires server.trust_anchor_path".to_string())
+    })?;
+    let trust_anchor_pem = std::fs::read(trust_anchor_path).map_err(|e| {
+        TlsError::ClientConfig(format!("read trust anchor {trust_anchor_path}: {e}"))
+    })?;
+    let client_config = crate::tls::build_client_config(&trust_anchor_pem, &identity)?;
+    let timeout = Duration::from_secs(config.heartbeat.request_timeout_seconds);
+    let sender =
+        crate::tls::SecureSender::new(client_config, config.server.heartbeat_target(), timeout)?;
 
-    let drain_task = tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(1));
-        let client = reqwest::Client::new();
-        let url = format!("{}/v1/agents/heartbeat", server_url.trim_end_matches('/'));
+    let agent_block = AgentBlock {
+        agent_id: identity.agent_id.clone(),
+        agent_version: env!("CARGO_PKG_VERSION").to_string(),
+        agent_platform: detect_platform().to_string(),
+        agent_hostname: config.agent.hostname.clone(),
+    };
 
-        loop {
-            tick.tick().await;
-            let events = ring.snapshot_events();
-            if events.is_empty() {
-                continue;
+    let start_time = Instant::now();
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    let mut sequence: u64 = 0;
+    let mut shutdown_signal = pin!(shutdown_signal);
+
+    tracing::info!("test mode heartbeat loop entered");
+
+    loop {
+        tokio::select! {
+            _ = tick.tick() => {
+                let events = ring.drain_events();
+                if events.is_empty() {
+                    continue;
+                }
+                sequence += 1;
+
+                let cges_events: Vec<_> = events
+                    .iter()
+                    .map(|event| {
+                        let cached = match event.activity_id {
+                            ActivityId::Launch => Some(event.etw_timestamp_nanos),
+                            ActivityId::Terminate => cache.consult_and_purge(event.pid),
+                        };
+                        emit_process_activity_with_cache(event, cached, &identity.agent_id)
+                    })
+                    .collect();
+
+                let mut inner = build_envelope(
+                    &agent_block,
+                    sequence,
+                    start_time,
+                    Utc::now(),
+                    HeartbeatStatus::Online,
+                );
+                inner.events = cges_events;
+
+                let sent_at = inner.sent_at.clone();
+                let outer = match crate::signing::seal_envelope(
+                    inner,
+                    &identity.agent_id,
+                    &identity.keypair,
+                    &sent_at,
+                ) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        tracing::error!(error = %e, "test mode seal failed");
+                        continue;
+                    }
+                };
+                let bytes = match serde_json::to_vec(&outer) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::error!(error = %e, "test mode serialize failed");
+                        continue;
+                    }
+                };
+                match sender.send(HEARTBEAT_PATH, &bytes).await {
+                    SendResult::Status(s) if (200..300).contains(&s) => {
+                        tracing::info!(
+                            sequence_number = sequence,
+                            events_count = events.len(),
+                            response_status = s,
+                            "test mode batch sent",
+                        );
+                    }
+                    SendResult::Status(s) => {
+                        tracing::warn!(
+                            sequence_number = sequence,
+                            response_status = s,
+                            "test mode batch rejected",
+                        );
+                    }
+                    SendResult::ServerCertFatal(m) => {
+                        return Err(TlsError::ServerCertUntrusted(m).into());
+                    }
+                    SendResult::ClientCertFatal(m) => {
+                        return Err(TlsError::ClientCertRejected(m).into());
+                    }
+                    SendResult::Transient(m) => {
+                        tracing::warn!(error = %m, "test mode batch transient");
+                    }
+                }
             }
-            let cges_events: Vec<_> = events
-                .iter()
-                .map(|event| {
-                    let cached = match event.activity_id {
-                        ActivityId::Launch => Some(event.etw_timestamp_nanos),
-                        ActivityId::Terminate => cache.consult_and_purge(event.pid),
-                    };
-                    emit_process_activity_with_cache(event, cached, &agent_id)
-                })
-                .collect();
-
-            let envelope = serde_json::json!({
-                "envelope_version": "0.1.0",
-                "agent": {
-                    "agent_id": agent_id,
-                    "agent_version": env!("CARGO_PKG_VERSION"),
-                    "agent_platform": detect_platform(),
-                    "agent_hostname": hostname,
-                },
-                "sequence_number": 1,
-                "sent_at": Utc::now().to_rfc3339(),
-                "status": "online",
-                "uptime_seconds": 0,
-                "events": cges_events,
-            });
-
-            let _ = client.post(&url).json(&envelope).send().await;
+            _ = &mut shutdown_signal => {
+                tracing::info!("test mode shutdown signal received");
+                return Ok(());
+            }
         }
-    });
-
-    shutdown_signal.await;
-    drain_task.abort();
-    Ok(())
+    }
 }
 
 /// The compile-time target platform string carried in the heartbeat

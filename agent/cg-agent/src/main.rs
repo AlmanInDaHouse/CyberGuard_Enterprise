@@ -7,7 +7,9 @@
 //! set), and graceful shutdown on `Ctrl+C`.
 
 use cg_agent::errors::{AgentError, EnrollmentError, TlsError};
-use cg_agent::{config, identity, init_logger_with_writer, log_lifecycle_event, run, run_secure};
+use cg_agent::{
+    config, identity, init_logger_with_writer, log_lifecycle_event, run, run_secure, run_test_mode,
+};
 use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -42,6 +44,36 @@ async fn main() -> ExitCode {
     log_lifecycle_event("agent starting", "main");
 
     let shutdown = cg_agent::shutdown::wait_for_shutdown();
+
+    // SPEC-005 test-mode path: when CG_AGENT_TEST_MODE=1 is set, open
+    // an ETW session and drive the heartbeat loop with events[]
+    // populated, signed-envelope + mTLS. Requires enrollment to have
+    // produced an identity (same precondition as the SPEC-003 secure
+    // path below). Developer-local SPEC-005 marquee invokes this path
+    // via the marquee-agent.ts spawn env; AC-004 cache-hit + AC-007
+    // Rust integration tests use tests/common::start_test_agent which
+    // bypasses this binary entirely.
+    let test_mode = std::env::var("CG_AGENT_TEST_MODE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    if test_mode {
+        log_lifecycle_event("test mode (CG_AGENT_TEST_MODE=1)", "main");
+        let id = match identity::ensure_identity(&cfg, &cli.config).await {
+            Ok(id) => id,
+            Err(e) => {
+                report_enrollment_error(&e);
+                return ExitCode::from(e.exit_code());
+            }
+        };
+        cfg.agent.id = id.agent_id.clone();
+        return match run_test_mode(cfg, id, shutdown).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                report_agent_error(&e);
+                ExitCode::from(agent_exit_code(&e))
+            }
+        };
+    }
 
     // SPEC-003 secure path: TLS 1.3 mTLS + signed envelope, using the
     // SPEC-002 identity. Requires enrollment to have produced an identity.

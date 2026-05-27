@@ -45,6 +45,14 @@ export function prepareAgent(args: {
   heartbeatUrl: string;
   caCertPem: string;
   token: string;
+  /**
+   * SPEC-005 marquee opt-in. When true, the spawned cg-agent subprocess
+   * receives `CG_AGENT_TEST_MODE=1` in its env so main.rs dispatches to
+   * `run_test_mode` (ETW capture + events[] in signed envelope) instead
+   * of `run_secure` (heartbeat-only). Omit/false for SPEC-001/002/003
+   * marquees that don't exercise the ETW path.
+   */
+  etwEnabled?: boolean;
 }): MarqueeAgent {
   const dir = mkdtempSync(join(tmpdir(), "cg-agent-marquee-"));
   const caPath = join(dir, "server-ca.pem");
@@ -92,8 +100,12 @@ export function prepareAgent(args: {
     agentTomlPath: tomlPath,
     run(runMs = 4000): Promise<AgentRunResult> {
       return new Promise<AgentRunResult>((resolveRun, rejectRun) => {
+        const childEnv = args.etwEnabled
+          ? { ...process.env, CG_AGENT_TEST_MODE: "1" }
+          : process.env;
         const child = spawn(agentBinaryPath(), ["--config", tomlPath], {
           stdio: ["ignore", "pipe", "pipe"],
+          env: childEnv,
         });
         let stdout = "";
         let stderr = "";
