@@ -79,6 +79,35 @@ test.skipIf(process.platform !== "win32")(
     // Let the agent finish its observation window + envelope POST.
     const result = await runPromise;
 
+    // Phase 3.5.I-DIAG2 diagnostic dumps. Surface the agent's complete
+    // stderr + stdout to distinguish three remaining failure-mode
+    // hypotheses after Phase 3.5.I-DIAG ruled out ETW privilege:
+    // (1) prepareAgent invokes run_secure not run_test_mode — stderr
+    //     would lack ETW lifecycle log lines.
+    // (2) run_test_mode invoked but trace.start() Err swallowed —
+    //     stderr might have ferrisetw / windows error tracing.
+    // (3) ETW dispatch fires but event_id != 1/2 — stderr might
+    //     show dispatch tracing without matching activity discrim.
+    console.info(
+      JSON.stringify({
+        diag_event: "marquee_agent_stderr_full",
+        stderr: result.stderr,
+      }),
+    );
+    console.info(
+      JSON.stringify({
+        diag_event: "marquee_agent_stdout_full",
+        stdout: result.stdout,
+      }),
+    );
+    console.info(
+      JSON.stringify({
+        diag_event: "marquee_prepare_agent_context",
+        agent_identity_dir: agent.identityDir,
+        spawn_context_keys: Object.keys(agent),
+      }),
+    );
+
     expect(result.stderr).not.toContain("panic");
     expect(result.stderr).not.toContain("exit_code: 9");
 
