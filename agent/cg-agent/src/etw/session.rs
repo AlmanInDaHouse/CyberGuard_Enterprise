@@ -95,25 +95,42 @@ impl EtwSession {
             .named(String::from(SESSION_NAME))
             .enable(provider);
 
-        // Phase 3.5.I-DIAG3: replace silent `let _ = trace.start()` with
-        // logged match. trace.start() blocks until session is stopped.
+        // Phase 3.5.I-FIX2: ferrisetw 1.2's trace.start() returns
+        // Result<(UserTrace, PROCESSTRACE_HANDLE), TraceError>. The Ok
+        // variant carries the live session handles. β3's pattern bound
+        // them to underscore-prefixed names; underscore prefix only
+        // suppresses unused-variable warnings, it does NOT extend
+        // lifetime, so both binds dropped at the end of the match arm
+        // (~500µs after trace.start returned). UserTrace's Drop impl
+        // closed the underlying ETW session and Kernel-Process events
+        // stopped flowing — empirically confirmed at Phase 3.5.I-DIAG3
+        // (3cbe845): "trace.start completed Ok" followed by 40× empty
+        // ring drains with zero dispatch callback firings.
+        //
+        // Fix: park the spawned thread inside the Ok arm. park() blocks
+        // indefinitely (until unpark, which is never called); the
+        // kept_trace + kept_handle bindings stay live in the parked
+        // thread's stack for the lifetime of the process. At process
+        // exit the OS detaches this thread; bindings drop; UserTrace's
+        // Drop impl closes the session cleanly.
         std::thread::spawn(move || {
             tracing::info!(target: "cg_agent::etw", "trace.start invoked on spawned thread");
-            // ferrisetw 1.2's trace.start() returns
-            // Result<(UserTrace, PROCESSTRACE_HANDLE), TraceError> — the
-            // Ok variant returns the UserTrace + handle. β3's
-            // `let _ = trace.start()` dropped both immediately; this
-            // diag preserves that drop-on-Ok semantic (binding with
-            // underscore prefix to suppress unused-warning) while
-            // surfacing the Ok/Err discrimination. If "Ok" surfaces
-            // but no dispatch callbacks fire, the next iteration
-            // needs to keep the returned tuple alive (park the thread)
-            // to maintain the ETW session.
             match trace.start() {
-                Ok((_kept_trace, _kept_handle)) => tracing::info!(
-                    target: "cg_agent::etw",
-                    "trace.start completed Ok (tuple dropped per current β3 pattern)",
-                ),
+                Ok((kept_trace, kept_handle)) => {
+                    tracing::info!(
+                        target: "cg_agent::etw",
+                        "trace.start completed Ok; parking thread to keep ETW session alive",
+                    );
+                    std::thread::park();
+                    // Unreachable in current usage (no unpark call site).
+                    // Reserved for a future explicit-shutdown refactor;
+                    // documents the intended cleanup path. PROCESSTRACE_HANDLE
+                    // is Copy so drop() would be a no-op; kept_handle simply
+                    // falls out of scope. UserTrace has a non-trivial Drop
+                    // impl that closes the session.
+                    let _ = kept_handle;
+                    drop(kept_trace);
+                }
                 Err(e) => {
                     tracing::error!(target: "cg_agent::etw", error = ?e, "trace.start failed")
                 }
