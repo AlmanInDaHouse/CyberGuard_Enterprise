@@ -107,6 +107,44 @@ async function bootstrapClickHouse(config: Config): Promise<void> {
         ORDER BY (agent_id, arrived_at)
       `,
     });
+
+    // SPEC-005 cges_events table. Engine + partition + order key per
+    // ADR-0009 + ADR-0003: ReplacingMergeTree(event_id) for retry
+    // dedup; partition by (org_id, daily) for per-org daily locality;
+    // order by (org_id, time, event_id) with event_id last to enable
+    // dedup at merge time without affecting query locality.
+    //
+    // Nullable columns express SPEC-005 conditional emission contracts:
+    // - process_created_time: NULL on AC-004 cache-miss path (Terminate
+    //   without prior Launch in cache).
+    // - process_exit_code: NULL on AC-005 Launch path (absent in JSON,
+    //   NULL in column).
+    // - process_parent_pid: NULL when ParentProcessID unresolvable per
+    //   AC-007 (rare; typically populated).
+    await ch.command({
+      query: `
+        CREATE TABLE IF NOT EXISTS cges_events (
+          agent_id              UUID,
+          org_id                String DEFAULT 'default',
+          event_id              UUID,
+          class_uid             UInt32,
+          activity_id           UInt8,
+          process_pid           UInt32,
+          process_uid           String,
+          process_name          String,
+          process_created_time  Nullable(DateTime64(9, 'UTC')),
+          process_exit_code     Nullable(Int32),
+          process_parent_pid    Nullable(UInt32),
+          process_command_line  String DEFAULT '',
+          subject_user_sid      String DEFAULT '',
+          image_file_name       String DEFAULT '',
+          time                  DateTime64(9, 'UTC'),
+          arrived_at            DateTime64(3, 'UTC') DEFAULT now64(3)
+        ) ENGINE = ReplacingMergeTree(event_id)
+        PARTITION BY (org_id, toYYYYMMDD(time))
+        ORDER BY (org_id, time, event_id)
+      `,
+    });
   } finally {
     await ch.close();
   }
