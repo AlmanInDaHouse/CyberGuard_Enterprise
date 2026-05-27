@@ -1,0 +1,58 @@
+name: ts-ci-windows
+
+# Manual-trigger-only initially. The workflow validates the SPEC-005
+# polyglot marquee on a Windows runner where cmd.exe exists (the marquee
+# test spawns cmd.exe /c exit 0 as a probe; on Linux runners the spawn
+# fails with ENOENT, so the marquee skipIf's on non-win32).
+#
+# Promotion to push/pull_request triggers (PR-required gating) happens
+# in a follow-up commit once the marquee is validated reliable on
+# windows-latest. Until then, ts-ci-windows is invoked manually via
+# GitHub Actions UI to surface marquee-side regressions.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: services/ingest
+
+jobs:
+  marquee:
+    name: SPEC-005 polyglot marquee on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm run typecheck
+
+      - name: Lint (biome)
+        run: pnpm run lint
+
+      - name: Install Rust toolchain (reads rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+
+      - name: Build cg-agent (for the polyglot marquee test)
+        working-directory: ${{ github.workspace }}
+        run: cargo build -p cg-agent
+
+      - name: Test (vitest — marquee runs on Windows runner)
+        run: pnpm test

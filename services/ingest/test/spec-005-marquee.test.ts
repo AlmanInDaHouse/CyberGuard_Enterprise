@@ -35,7 +35,7 @@ afterAll(async () => {
   await server?.close();
 });
 
-test("SPEC-005 AC-001 marquee: real cg-agent captures probe Launch + Terminate, persists 2 rows to ClickHouse cges_events with full SPEC-005 shape", async () => {
+test.skipIf(process.platform !== "win32")("SPEC-005 AC-001 marquee: real cg-agent captures probe Launch + Terminate, persists 2 rows to ClickHouse cges_events with full SPEC-005 shape", async () => {
   const marqueeStartMs = Date.now();
 
   // Issue an enrollment token + start the agent against the stack.
