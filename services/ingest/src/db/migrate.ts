@@ -109,10 +109,18 @@ async function bootstrapClickHouse(config: Config): Promise<void> {
     });
 
     // SPEC-005 cges_events table. Engine + partition + order key per
-    // ADR-0009 + ADR-0003: ReplacingMergeTree(event_id) for retry
+    // ADR-0009 + ADR-0003: ReplacingMergeTree(arrived_at) for retry
     // dedup; partition by (org_id, daily) for per-org daily locality;
     // order by (org_id, time, event_id) with event_id last to enable
     // dedup at merge time without affecting query locality.
+    //
+    // Version column note: ClickHouse rejects UUID as a ReplacingMerge
+    // Tree version column (must be integer / Date / DateTime / DateTime
+    // 64). event_id (UUID) stays in the ORDER BY tuple as the dedup
+    // key; arrived_at (DateTime64) is the version-column tiebreaker so
+    // the latest-arrived row of a duplicate (org_id, time, event_id)
+    // group wins at merge time — matches retry-side duplicate
+    // collapse semantics per ADR-0009 Section References.
     //
     // Nullable columns express SPEC-005 conditional emission contracts:
     // - process_created_time: NULL on AC-004 cache-miss path (Terminate
@@ -140,7 +148,7 @@ async function bootstrapClickHouse(config: Config): Promise<void> {
           image_file_name       String DEFAULT '',
           time                  DateTime64(9, 'UTC'),
           arrived_at            DateTime64(3, 'UTC') DEFAULT now64(3)
-        ) ENGINE = ReplacingMergeTree(event_id)
+        ) ENGINE = ReplacingMergeTree(arrived_at)
         PARTITION BY (org_id, toYYYYMMDD(time))
         ORDER BY (org_id, time, event_id)
       `,
