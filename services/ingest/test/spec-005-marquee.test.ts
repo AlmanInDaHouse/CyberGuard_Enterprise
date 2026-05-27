@@ -91,7 +91,41 @@ test.skipIf(process.platform !== "win32")(
 
     // Query cges_events for the probe's two events.
     const events = await getCgesEvents(config, identityJson.agent_id);
+
+    // Phase 3.5.I-DIAG diagnostic logs (Path D follow-up). Distinguishes
+    // three failure modes when probeEvents.length is unexpectedly 0:
+    // (1) no events captured at all; (2) events captured but PID type
+    // mismatch or cmd.exe builtin not spawning child; (3) events match
+    // but activity_id discrimination broken.
+    console.info(
+      JSON.stringify({
+        diag_event: "marquee_pre_filter_events_count",
+        events_length: events.length,
+        probe_pid: probePid,
+        probe_pid_type: typeof probePid,
+      }),
+    );
+    if (events.length > 0) {
+      console.info(
+        JSON.stringify({
+          diag_event: "marquee_pre_filter_first_three_events",
+          sample: events.slice(0, 3).map((e) => ({
+            process_pid: e.process_pid,
+            process_pid_type: typeof e.process_pid,
+            process_name: e.process_name,
+            activity_id: e.activity_id,
+          })),
+        }),
+      );
+    }
     const probeEvents = events.filter((e) => e.process_pid === probePid);
+    console.info(
+      JSON.stringify({
+        diag_event: "marquee_post_filter_probe_events_count",
+        probe_events_length: probeEvents.length,
+      }),
+    );
+
     expect(probeEvents.length).toBe(2);
 
     const launch = probeEvents.find((e) => e.activity_id === 1);
