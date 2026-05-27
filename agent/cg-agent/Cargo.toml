@@ -127,7 +127,14 @@ serde_jcs = "0.1"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Security_Cryptography",
+    "Win32_System_Diagnostics_Etw",
 ] }
+# ETW runtime dep (Windows-only). Promoted from dev-dependency to runtime
+# dependency in Phase 3.5.C β3: cg_agent::etw::session consumes
+# Provider/UserTrace/EventRecord/SchemaLocator/Parser for the Kernel-Process
+# capture path. ferrisetw 1.2 also remains a dev-dependency below (Cargo
+# deduplicates; identical resolved version).
+ferrisetw = "1.2"
 
 # --- Dev dependencies ---
 #

@@ -25,25 +25,48 @@
 //! the agent's `events_lost` helper directly. No mock server, no
 //! test-agent, no testcontainers.
 
+// The entire test body and its dependencies (ferrisetw + the agent's
+// events_lost helper) are Windows-only. ferrisetw is declared under
+// [target.'cfg(windows)'.dev-dependencies] so its imports do not
+// resolve on non-Windows runners; cfg-gating each item below keeps
+// Linux compile clean while preserving the test's Windows semantics
+// verbatim. Phase 3.5.C β3 fix to the Phase 3.4 cfg gap.
+
+#[cfg(target_os = "windows")]
 use cg_agent::etw::events_lost;
+#[cfg(target_os = "windows")]
 use ferrisetw::provider::Provider;
+#[cfg(target_os = "windows")]
 use ferrisetw::schema_locator::SchemaLocator;
-use ferrisetw::trace::{TraceTrait, UserTrace};
+#[cfg(target_os = "windows")]
+use ferrisetw::trace::UserTrace;
+#[cfg(target_os = "windows")]
 use ferrisetw::EventRecord;
+#[cfg(target_os = "windows")]
 use std::process::Command;
+#[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(target_os = "windows")]
 use std::sync::Arc;
+#[cfg(target_os = "windows")]
 use std::thread;
+#[cfg(target_os = "windows")]
 use std::time::Duration;
 
+#[cfg(target_os = "windows")]
 const SESSION_NAME: &str = "CGAgent-AC009-LostTest";
+#[cfg(target_os = "windows")]
 const KERNEL_PROCESS_GUID: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
+#[cfg(target_os = "windows")]
 const CALLBACK_SLEEP_MS: u64 = 80;
+#[cfg(target_os = "windows")]
 const PROCESSES_PER_BURST: usize = 200;
+#[cfg(target_os = "windows")]
 const BURSTS_BEFORE_FIRST_POLL: usize = 2;
+#[cfg(target_os = "windows")]
 const BURSTS_BEFORE_SECOND_POLL: usize = 1;
 
-#[cfg_attr(not(target_os = "windows"), ignore)]
+#[cfg(target_os = "windows")]
 #[test]
 fn ac_009_events_lost_under_deliberate_etw_buffer_pressure() {
     let callback_invocations = Arc::new(AtomicU32::new(0));
@@ -128,6 +151,7 @@ fn ac_009_events_lost_under_deliberate_etw_buffer_pressure() {
 /// Kernel-Process ETW provider. Each `cmd.exe /c rem` spawns + exits in
 /// <50 ms typically; the burst produces a Launch and Terminate event per
 /// spawn, doubling the event rate observed by the session.
+#[cfg(target_os = "windows")]
 fn spawn_process_burst(count: usize) {
     let mut handles = Vec::with_capacity(count);
     for _ in 0..count {

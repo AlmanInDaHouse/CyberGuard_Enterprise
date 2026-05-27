@@ -340,6 +340,98 @@ async fn send_secure_once(
     }
 }
 
+/// SPEC-005 test-mode entry point — invokes the ETW capture + CGES
+/// emission path against a mock heartbeat server.
+///
+/// Differs from `run_secure` in three ways:
+/// 1. Opens an ETW Kernel-Process session on startup; aborts cleanly
+///    via `startup::handle_etw_open_result` if privilege is insufficient.
+/// 2. Spawns a ring-drain task that polls the EventRing every 1 second,
+///    builds an envelope with `events[]` populated, and POSTs via
+///    plain HTTP (reqwest::Client) — no mTLS, no signed envelope.
+/// 3. Identity arg is currently unused (`_identity`); the mock server
+///    in tests/common/mod.rs (`MockServer`) accepts unsigned envelopes.
+///
+/// Invoked by `tests/common/start_test_agent`. On non-Windows the ETW
+/// session always opens Err per `session_stub`; the error path is
+/// exercised but the test that calls this is Windows-only (AC-004
+/// cache-hit + AC-007, both `#[cfg_attr(not(target_os = "windows"),
+/// ignore)]`), so the Err branch never runs in Linux CI.
+pub async fn run_test_mode<F>(
+    config: AgentConfig,
+    _identity: crate::identity::Identity,
+    shutdown_signal: F,
+) -> Result<(), AgentError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    use crate::cges::emit_process_activity_with_cache;
+    use crate::etw::{ActivityId, EtwSession};
+    use crate::startup::handle_etw_open_result;
+
+    let session = match EtwSession::open(65536) {
+        Ok(s) => s,
+        Err(e) => {
+            if let Err(abort) = handle_etw_open_result(Err(e)) {
+                eprintln!("{}", abort.stderr_message);
+            }
+            let etw_err: crate::errors::EtwError = e.into();
+            return Err(AgentError::Etw(etw_err));
+        }
+    };
+
+    let ring = Arc::clone(&session.ring);
+    let cache = Arc::clone(&session.cache);
+    let server_url = config.server.url.clone();
+    let agent_id = config.agent.id.clone();
+    let hostname = config.agent.hostname.clone();
+
+    let drain_task = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        let client = reqwest::Client::new();
+        let url = format!("{}/v1/agents/heartbeat", server_url.trim_end_matches('/'));
+
+        loop {
+            tick.tick().await;
+            let events = ring.snapshot_events();
+            if events.is_empty() {
+                continue;
+            }
+            let cges_events: Vec<_> = events
+                .iter()
+                .map(|event| {
+                    let cached = match event.activity_id {
+                        ActivityId::Launch => Some(event.etw_timestamp_nanos),
+                        ActivityId::Terminate => cache.consult_and_purge(event.pid),
+                    };
+                    emit_process_activity_with_cache(event, cached)
+                })
+                .collect();
+
+            let envelope = serde_json::json!({
+                "envelope_version": "0.1.0",
+                "agent": {
+                    "agent_id": agent_id,
+                    "agent_version": env!("CARGO_PKG_VERSION"),
+                    "agent_platform": detect_platform(),
+                    "agent_hostname": hostname,
+                },
+                "sequence_number": 1,
+                "sent_at": Utc::now().to_rfc3339(),
+                "status": "online",
+                "uptime_seconds": 0,
+                "events": cges_events,
+            });
+
+            let _ = client.post(&url).json(&envelope).send().await;
+        }
+    });
+
+    shutdown_signal.await;
+    drain_task.abort();
+    Ok(())
+}
+
 /// The compile-time target platform string carried in the heartbeat
 /// envelope (SPEC-001) and the enrollment request (SPEC-002 §FR-004,
 /// AC-003). Public so the integration harness can assert the value the

@@ -1,11 +1,13 @@
 //! In-memory captured-event shape + activity discriminants + raw ETW
-//! open-error variants + the EtwSession type marker.
+//! open-error variants.
 //!
 //! `CapturedEvent` is the post-capture pre-emission representation of a
 //! Kernel-Process Launch or Terminate event. It is produced by the ETW
-//! dispatch callback (β3 forthcoming), traverses the bounded ring buffer
-//! (β1 ring.rs), and is rendered to CGES JSON via the emit functions
-//! (β2 cges/emit.rs).
+//! dispatch callback (β3 session.rs on Windows; session_stub.rs returns
+//! Err on non-Windows), traverses the bounded ring buffer (β1 ring.rs),
+//! and is rendered to CGES JSON via the emit functions (β2 cges/emit.rs).
+//! `EtwSession` is provided by session.rs/session_stub.rs (β3); the β2
+//! uninhabited-enum stub previously here is removed.
 //!
 //! Fields are minimal and match exactly what the Phase 3.4 RED tests
 //! prescribe (see SPEC-005 §AC AC-005/AC-006/AC-004/AC-008). The struct
@@ -77,14 +79,3 @@ pub enum OpenError {
     /// effect; surfaces on certain hardened SKUs or under group policy.
     AccessDenied,
 }
-
-/// Placeholder for the Windows-only ETW session type. β3 (forthcoming)
-/// replaces this uninhabited enum with the real session struct (HANDLE
-/// wrapper + dispatch callback registration over ferrisetw's UserTrace).
-///
-/// The β2 stub exists so the Phase 3.4 RED test binaries that import
-/// `cg_agent::etw::EtwSession` (process_ac_004_created_time_cache,
-/// process_ac_007_parent_pid_only) compile. The uninhabited enum form
-/// guarantees no β2 code can construct an `EtwSession` instance —
-/// `Option<EtwSession>::None` is the only valid value until β3 lands.
-pub enum EtwSession {}
