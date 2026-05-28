@@ -2,7 +2,7 @@
 
 Canonical state-of-the-world at the close of Session 16. This document is the contract Session 17 resumes from. Session 16's scope was Phase 4 (ETW capture investigation + end-to-end marquee validation). Phase 4 is **delivered in full**: the SPEC-005 AC-001 marquee is 8/8 GREEN developer-local, Known CI debt is at zero rows, and all diagnostic logging has been reduced to permanent observability level. References to Sessions 10–15 supply the context this handoff does not replicate.
 
-- **Anchor commit:** `<HANDOFF_SHA>` (`docs(handoff): Session 16 close`)
+- **Anchor commit:** `77a340e` (`docs(handoff): Session 16 close`)
 - **Branch:** `main`
 - **Date:** 2026-05-29
 - **CI verdict at anchor:** ALL GREEN on `main` workflows. Developer-local SPEC-005 marquee 8/8 GREEN (two consecutive runs, zombie reclaim validated, elevated PowerShell per ADR-0010 §Decision part 1).
@@ -103,7 +103,7 @@ The nine Session 10 conventions + Session 11 Convention #5 extension + Session 1
 
 1. Read this document and prior handoffs ([docs/handoff-session-15.md](handoff-session-15.md) through [docs/handoff-session-10.md](handoff-session-10.md)) for the canonical references this handoff does not replicate, and [CLAUDE.md](../CLAUDE.md). They are the binding contract.
 
-2. Confirm `main` is at `<HANDOFF_SHA>` and all workflows are green. `git status` should show working tree clean (modulo `.claude/`). Known CI debt: zero rows.
+2. Confirm `main` is at `77a340e` and all workflows are green. `git status` should show working tree clean (modulo `.claude/`). Known CI debt: zero rows.
 
 3. Phase 5 scope is **not specified at this handoff**. Architect-Claude at Session 17 opening determines scope by reading the contracts + consulting Manuel. Candidate scope items the repo suggests (no pre-commitment, no ordering):
    - **Packaging SPEC** (per ADR-0010 §Decision part 2 deferral): Windows Service registration, MSI installer, service lifecycle, auto-restart, log rotation / Event Log integration. The closest bottleneck to "deployable outside a developer machine."
