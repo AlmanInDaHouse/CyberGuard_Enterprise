@@ -64,12 +64,12 @@ Phase 3.5.I opened when Manuel ran the developer-local marquee on Windows + Dock
 |---|---|---|---|
 | 3.5.I-DIAG | `331fd63` | Three `console.info(JSON.stringify(...))` blocks in `spec-005-marquee.test.ts` surfacing `events_length`, `probe_pid`, `probe_pid_type`, `probe_events_length`, and a sample of first 3 events. | `events_length: 0` in BOTH non-elevated and elevated PowerShell. ETW privilege as root cause **ruled out**. |
 | 3.5.I-DIAG2 | `4dd461c` | Three more diagnostic blocks: `marquee_agent_stderr_full`, `marquee_agent_stdout_full`, `marquee_prepare_agent_context`. | Agent stdout showed 40× `signed heartbeat sent` with sequence_number 1→40; zero ETW lifecycle logs. **Smoking gun: the cg-agent binary spawned by marquee-agent.ts was invoking `run_secure` (heartbeat-only path), not `run_test_mode` (β3's ETW capture path).** Phase 3.5.F implemented `run_test_mode` in `lib.rs` but `main.rs` (binary entry point) was never edited to route to it. |
-| 3.5.I-FIX | `0c63d54` | Five files (+191/-64). New `EventRing::drain_events()` method (clears VecDeque vs snapshot which doesn't — β3 had latent N×duplication bug that would have surfaced at first events drained). Full `run_test_mode` rewrite to use `SecureSender` (mTLS), `build_envelope + seal_envelope` (signed outer envelope), `ring.drain_events()`, `config.server.heartbeat_target()` (two-port topology), identity actually used. `main.rs::CG_AGENT_TEST_MODE` env var dispatch as first-branch precedence. `marquee-agent.ts` `etwEnabled?: boolean` flag → `CG_AGENT_TEST_MODE=1` in child env. `spec-005-marquee.test.ts` passes `etwEnabled: true`. **Both rust-ci + ts-ci GREEN.** Chat-ratified Option 2 (refactor `run_test_mode` to mTLS) vs Option 1 (refactor `run_secure`) vs Option 3 (apply brief as-is and iterate). |
-| 3.5.I-FIX rerun | (same) | Manuel reran developer-local marquee. STILL RED with `events_length: 0`. Agent stdout NEW signature: `agent starting → test mode (CG_AGENT_TEST_MODE=1) → enrollment → identity persisted → test mode heartbeat loop entered → [SILENCE for 40s]`. main.rs dispatch confirmed working; run_test_mode entry confirmed; ETW capture not happening. |
-| 3.5.I-DIAG3 | `3cbe845` | Exhaustive INFO-level tracing in `etw/session.rs` (open entry/exit + trace.start invoked/result + per-dispatch callback fired with event_id), `etw/ring.rs::drain_events` (conditional log on `drained_count > 0 \|\| dropped_total > 0`), `lib.rs::run_test_mode` (per-tick "drain tick" with count; per-batch "events drained; building envelope"). **Material API discovery by Claude Code during clippy compile:** `ferrisetw::UserTrace::start()` returns `Result<(UserTrace, PROCESSTRACE_HANDLE), TraceError>` — NOT `Result<(), TraceError>` as β3 + AC-009 test code assumed via `let _ = trace.start()`. **β3 was dropping the trace + handle tuple immediately on Ok.** UserTrace's Drop impl terminates the ETW session, so Kernel-Process events stop flowing ~500µs after open, ring stays empty. DIAG3 preserved drop-on-Ok semantic per "no production logic change" constraint; surfaced the finding in the log message itself: `"trace.start completed Ok (tuple dropped per current β3 pattern)"`. |
-| 3.5.I-DIAG3 rerun | (same) | Manuel rerun confirmed Hypothesis B empirically: agent stdout showed `trace.start completed Ok (tuple dropped per current β3 pattern)` followed by exactly 40× `drain tick drained_count=0` and ZERO `dispatch callback fired` lines. |
-| 3.5.I-FIX2 | `390337a` | Single-file edit to `etw/session.rs`. Replaced underscore-prefixed `(_kept_trace, _kept_handle)` binds with named `(kept_trace, kept_handle)` + `std::thread::park()` immediately after the success log; trailing `let _ = kept_handle` (Copy type per clippy `dropping_copy_types` lint) + `drop(kept_trace)` as documented unreachable cleanup. **rust-ci GREEN; clippy clean; 14 unit tests pass.** |
-| 3.5.I-FIX2 rerun | (same) | **Hypothesis B falsified empirically.** Developer-local marquee STILL RED with identical signature: `trace.start completed Ok; parking thread to keep ETW session alive` (new log line confirms binary rebuilt; Manuel verified SHA `390337a` + `findstr "thread::park"` confirms source + `cargo build --release --bin cg-agent` completed 1m 14s) followed by 40× `drain tick drained_count=0` and ZERO `dispatch callback fired` lines. Park() prevents tuple drop confirmed; but ETW dispatch callback STILL does not fire even with session held alive. **Second-layer architectural issue underneath β3's tuple-drop bug.** |
+| 3.5.I-FIX | `0c63d54` | Five files (+191/-64). New `EventRing::drain_events()` method (clears VecDeque vs snapshot which doesn't — β3 had latent N×duplication bug that would have surfaced at first events drained). Full `run_test_mode` rewrite to use `SecureSender` (mTLS), `build_envelope + seal_envelope` (signed outer envelope), `ring.drain_events()`, `config.server.heartbeat_target()` (two-port topology), identity actually used. `main.rs::CG_AGENT_TEST_MODE` env var dispatch as first-branch precedence. `marquee-agent.ts` `etwEnabled?: boolean` flag → `CG_AGENT_TEST_MODE=1` in child env. `spec-005-marquee.test.ts` passes `etwEnabled: true`. **Both rust-ci + ts-ci GREEN.** Chat-ratified Option 2 (refactor `run_test_mode` to mTLS) vs Option 1 (refactor `run_secure`) vs Option 3 (apply brief as-is and iterate). | |
+| 3.5.I-FIX rerun | (same) | Manuel reran developer-local marquee. STILL RED with `events_length: 0`. Agent stdout NEW signature: `agent starting → test mode (CG_AGENT_TEST_MODE=1) → enrollment → identity persisted → test mode heartbeat loop entered → [SILENCE for 40s]`. main.rs dispatch confirmed working; run_test_mode entry confirmed; ETW capture not happening. | |
+| 3.5.I-DIAG3 | `3cbe845` | Exhaustive INFO-level tracing in `etw/session.rs` (open entry/exit + trace.start invoked/result + per-dispatch callback fired with event_id), `etw/ring.rs::drain_events` (conditional log on `drained_count > 0 \|\| dropped_total > 0`), `lib.rs::run_test_mode` (per-tick "drain tick" with count; per-batch "events drained; building envelope"). **Material API discovery by Claude Code during clippy compile:** `ferrisetw::UserTrace::start()` returns `Result<(UserTrace, PROCESSTRACE_HANDLE), TraceError>` — NOT `Result<(), TraceError>` as β3 + AC-009 test code assumed via `let _ = trace.start()`. **β3 was dropping the trace + handle tuple immediately on Ok.** UserTrace's Drop impl terminates the ETW session, so Kernel-Process events stop flowing ~500µs after open, ring stays empty. DIAG3 preserved drop-on-Ok semantic per "no production logic change" constraint; surfaced the finding in the log message itself: `"trace.start completed Ok (tuple dropped per current β3 pattern)"`. | |
+| 3.5.I-DIAG3 rerun | (same) | Manuel rerun confirmed Hypothesis B empirically: agent stdout showed `trace.start completed Ok (tuple dropped per current β3 pattern)` followed by exactly 40× `drain tick drained_count=0` and ZERO `dispatch callback fired` lines. | |
+| 3.5.I-FIX2 | `390337a` | Single-file edit to `etw/session.rs`. Replaced underscore-prefixed `(_kept_trace, _kept_handle)` binds with named `(kept_trace, kept_handle)` + `std::thread::park()` immediately after the success log; trailing `let _ = kept_handle` (Copy type per clippy `dropping_copy_types` lint) + `drop(kept_trace)` as documented unreachable cleanup. **rust-ci GREEN; clippy clean; 14 unit tests pass.** | |
+| 3.5.I-FIX2 rerun | (same) | **Hypothesis B falsified empirically.** Developer-local marquee STILL RED with identical signature: `trace.start completed Ok; parking thread to keep ETW session alive` (new log line confirms binary rebuilt; Manuel verified SHA `390337a` + `findstr "thread::park"` confirms source + `cargo build --release --bin cg-agent` completed 1m 14s) followed by 40× `drain tick drained_count=0` and ZERO `dispatch callback fired` lines. Park() prevents tuple drop confirmed; but ETW dispatch callback STILL does not fire even with session held alive. **Second-layer architectural issue underneath β3's tuple-drop bug.** | |
 
 After 3.5.I-FIX2 falsification, chat-gate decision: continue iterating (α) vs defer ETW capture validation to Phase 4 (β) vs reduce marquee scope (γ). **Manuel ratified Option β.** Phase 3.5 closes partially delivered. Phase 4 opens with a dedicated ETW capture investigation sub-phase.
 
@@ -86,6 +86,7 @@ The second-layer issue **remains diagnosed but not resolved**. After park() keep
 3. **Kernel-Process provider GUID may require additional enable flags (`EVENT_TRACE_FLAG_PROCESS`) that ferrisetw's `Provider::by_guid()` does not set by default.** Microsoft-Windows-Kernel-Process is technically a kernel logger; subscribing via the generic provider GUID may not enable per-process Launch/Terminate events. Phase 4 step 3: verify the provider GUID + flags combination against Microsoft docs and the Phase 0 spike code.
 
 **Confidence ranking at handoff close** (architect-Claude's best guess; Phase 4 audit-first sub-audit may reorder):
+
 - 50% Hypothesis 1 (KernelTrace API distinction)
 - 35% Hypothesis 3 (provider enable flags missing)
 - 15% Hypothesis 2 (privilege issue surfacing differently than DIAG ruling-out suggested)
@@ -95,17 +96,21 @@ The second-layer issue **remains diagnosed but not resolved**. After park() keep
 The following diagnostic logging remains in source and is **load-bearing for Phase 4 investigation**. It should not be removed until Phase 4 closure validates end-to-end ETW capture:
 
 **`services/ingest/test/spec-005-marquee.test.ts` (added at Phase 3.5.I-DIAG `331fd63` + DIAG2 `4dd461c`):**
+
 - 6 `console.info(JSON.stringify(...))` blocks: `marquee_pre_filter_events_count`, `marquee_pre_filter_first_three_events` (conditional), `marquee_post_filter_probe_events_count`, `marquee_agent_stderr_full`, `marquee_agent_stdout_full`, `marquee_prepare_agent_context`.
 
 **`agent/cg-agent/src/etw/session.rs` (added at Phase 3.5.I-DIAG3 `3cbe845`):**
+
 - INFO logs at `EtwSession::open` entry/exit.
 - INFO logs at `trace.start invoked on spawned thread` + per-arm `trace.start completed Ok / failed`.
 - INFO log per-dispatch `dispatch callback fired` with `event_id` field.
 
 **`agent/cg-agent/src/etw/ring.rs::drain_events` (added at Phase 3.5.I-DIAG3 `3cbe845`):**
+
 - Conditional INFO log when `drained_count > 0 || dropped_total > 0`.
 
 **`agent/cg-agent/src/lib.rs::run_test_mode` (added at Phase 3.5.I-DIAG3 `3cbe845`):**
+
 - Per-tick INFO log `drain tick` with `drained_count`.
 - Per-batch INFO log `events drained; building envelope` with `sequence_number` + `event_count`.
 
@@ -139,6 +144,7 @@ D1, D2, D3a, D3b, D4, D5, D7 — unchanged from prior sessions. D2 + D7 closed i
 Phase 3.5 closes with **substantive scope delivered but end-to-end marquee validation deferred**. The boundary is honest:
 
 **Delivered:**
+
 - 9 SPEC-005 ACs landed as test code (8 Rust + 1 TypeScript).
 - `cg_agent::etw` module complete (data types, ring, cache, session, events_lost helper, format_process_uid).
 - `cg_agent::cges` emission with conditional fields per AC-004/005.
@@ -153,6 +159,7 @@ Phase 3.5 closes with **substantive scope delivered but end-to-end marquee valid
 - ferrisetw 1.2 UserTrace::start() API discovery + tuple-keep-alive fix (Phase 3.5.I-FIX2 via std::thread::park()).
 
 **Not delivered (deferred to Phase 4):**
+
 - End-to-end ETW Kernel-Process dispatch callback firing on Windows. The second-layer issue surfaced post-FIX2 (park() prevents tuple drop but dispatch still doesn't fire) is documented under §Phase 3.5.I — root cause analysis with three candidate hypotheses for Phase 4 investigation.
 - Marquee 8/8 GREEN on developer-local Windows + Docker Desktop.
 - Phase 4 closure of the ts-ci Known CI debt row.
