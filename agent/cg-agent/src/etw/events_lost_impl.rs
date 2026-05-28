@@ -16,8 +16,8 @@ mod windows_impl {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::System::Diagnostics::Etw::{
-        ControlTraceW, CONTROLTRACE_HANDLE, EVENT_TRACE_CONTROL_QUERY,
-        EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_PROPERTIES, WNODE_HEADER,
+        ControlTraceW, CONTROLTRACE_HANDLE, EVENT_TRACE_CONTROL_QUERY, EVENT_TRACE_CONTROL_STOP,
+        EVENT_TRACE_PROPERTIES, WNODE_HEADER,
     };
 
     const EVENT_TRACE_PROPERTIES_SIZE: usize = std::mem::size_of::<EVENT_TRACE_PROPERTIES>();
@@ -114,7 +114,7 @@ mod windows_impl {
         };
 
         match status {
-            0 => Ok(true),    // session existed and was stopped
+            0 => Ok(true),     // session existed and was stopped
             4201 => Ok(false), // ERROR_WMI_INSTANCE_NOT_FOUND — clean state
             other => Err(other),
         }
