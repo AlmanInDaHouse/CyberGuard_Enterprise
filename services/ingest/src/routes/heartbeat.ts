@@ -15,17 +15,18 @@ function toChDateTime(iso: string): string {
 }
 
 /**
- * Convert integer Unix nanoseconds to ClickHouse DateTime64(9, 'UTC')
- * literal format. Matches the existing `toChDateTime` convention (space
- * separator between date and time) with nine fractional digits for
- * nanosecond precision.
+ * Convert string-encoded Unix nanoseconds to ClickHouse DateTime64(9, 'UTC')
+ * literal format. Uses BigInt to preserve full u64 precision (nanosecond
+ * timestamps for 2024+ exceed Number.MAX_SAFE_INTEGER = 2^53).
  *
- * JavaScript Number safely handles integers up to 2^53 ~ 9e15 ns =
- * year 2255 — comfortably within range for current SPEC-005 timestamps.
+ * Input: decimal string of nanoseconds (e.g. "1779997630000000100").
+ * Output: "YYYY-MM-DD HH:MM:SS.nnnnnnnnn" per the existing `toChDateTime`
+ * convention.
  */
-function nanosToChDateTime(nanos: number): string {
-  const millis = Math.floor(nanos / 1_000_000);
-  const fractionalNanos = nanos % 1_000_000_000;
+function stringNanosToChDateTime(nanos: string): string {
+  const bn = BigInt(nanos);
+  const millis = Number(bn / 1_000_000n);
+  const fractionalNanos = Number(bn % 1_000_000_000n);
   const isoMs = new Date(millis).toISOString();
   // isoMs format: "YYYY-MM-DDTHH:MM:SS.mmmZ"
   // ClickHouse format: "YYYY-MM-DD HH:MM:SS.nnnnnnnnn"
@@ -184,13 +185,13 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
             process_created_time:
               cgesEvent.process.created_time === null
                 ? null
-                : nanosToChDateTime(cgesEvent.process.created_time),
+                : stringNanosToChDateTime(cgesEvent.process.created_time),
             process_exit_code: cgesEvent.process.exit_code ?? null,
             process_parent_pid: cgesEvent.process.parent_pid,
             process_command_line: cgesEvent.process.command_line,
             subject_user_sid: cgesEvent.process.subject_user_sid,
             image_file_name: cgesEvent.process.image_file_name,
-            time: nanosToChDateTime(cgesEvent.time),
+            time: stringNanosToChDateTime(cgesEvent.time),
           })),
         });
       } catch (e) {

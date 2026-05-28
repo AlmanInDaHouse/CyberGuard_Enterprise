@@ -22,9 +22,9 @@
       "description": "Per-process-instance unique identifier. Format: <agent_id_canonical>:<pid_decimal>:<created_time_unix_nanos_utc> per ADR-0011 §6. Byte-level reproducibility enforced by SPEC-005 test fixtures."
     },
     "created_time": {
-      "type": ["integer", "null"],
-      "minimum": 0,
-      "description": "Process creation time as nanoseconds since Unix epoch, UTC strict. Same format used inside process.uid per ADR-0011 §6. For activity_id=1 (Launch): the ETW event timestamp. For activity_id=2 (Terminate): the original Launch timestamp if available to the agent at Terminate time; otherwise null. See ADR-0011 §4 amendment 2026-05-23 part (a)."
+      "type": ["string", "null"],
+      "pattern": "^[1-9][0-9]*$",
+      "description": "Process creation time as string-encoded nanoseconds since Unix epoch, UTC strict. String encoding avoids IEEE 754 double-precision loss in JSON parsers (u64 nanos > 2^53). Same value used inside process.uid per ADR-0011 §6. For activity_id=1 (Launch): the ETW event timestamp. For activity_id=2 (Terminate): the original Launch timestamp if available to the agent at Terminate time; otherwise null. See ADR-0011 §4 amendment 2026-05-28."
     },
     "exit_code": {
       "type": "integer",

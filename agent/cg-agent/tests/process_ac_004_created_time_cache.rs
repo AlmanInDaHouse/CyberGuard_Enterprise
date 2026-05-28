@@ -74,11 +74,11 @@ async fn ac_004_cache_hit_terminate_matches_launch_byte_for_byte() {
 
     let launch_time = launch
         .pointer("/process/created_time")
-        .and_then(Value::as_u64)
-        .expect("AC-004: Launch MUST emit process.created_time as integer nanos");
+        .and_then(Value::as_str)
+        .expect("AC-004: Launch MUST emit process.created_time as string-encoded nanos");
     let terminate_time = terminate
         .pointer("/process/created_time")
-        .and_then(Value::as_u64)
+        .and_then(Value::as_str)
         .expect("AC-004: Terminate MUST emit process.created_time (cache hit) per §Operational §2");
 
     assert_eq!(

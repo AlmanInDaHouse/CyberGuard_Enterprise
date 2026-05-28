@@ -228,6 +228,22 @@ This is a constraint narrowing within OCSF's `integer` type, not a divergence. O
 
 Phase 3.2.B (the next commit in this session) realises the amended §4 in the JSON Schema constraints on `objects/process.json`.
 
+## Amendment 2026-05-28: `process.created_time` and event `time` wire encoding changed from integer to string-encoded nanos
+
+**Status.** This amendment supersedes part (a) of the 2026-05-23 amendment where the two differ. ADR-0011 remains `Accepted`.
+
+**Context.** Phase 4 ETW capture investigation (Session 16) identified that `process.created_time` and event `time` — both u64 nanosecond timestamps (~1.78×10¹⁸ for 2026 events) — exceed JavaScript's `Number.MAX_SAFE_INTEGER` (2⁵³ ≈ 9.0×10¹⁵). When the ingest server's `JSON.parse` deserializes the outer signed envelope, these values lose precision due to IEEE 754 double-precision rounding. The server's JCS canonical form then differs from the agent's (which signed over the exact u64), causing Ed25519 signature verification to fail (`bad_signature` 401 on every event-carrying heartbeat).
+
+**Amendment.** The binding wire encoding for `process.created_time` and event `time` is now:
+
+> Emitted as a **string-encoded** integer nanoseconds since Unix epoch, UTC strict — e.g., `"1779997630000000100"` (JSON string) instead of `1779997630000000100` (JSON integer). The string encoding avoids IEEE 754 double-precision loss in standard JSON parsers where u64 nanosecond values exceed 2⁵³. The value content is identical (decimal representation of the same nanosecond count); only the JSON type changes from `number` to `string`. The `null` case for `process.created_time` (cache-miss Terminate) remains JSON `null`.
+
+The byte-level reproducibility argument from the 2026-05-23 amendment part (a) is preserved: the string decimal form `"1716123612901000000"` is as deterministic as the integer form, and the `process.uid` recipe in §6 already embeds the nanos component as a decimal string within the UID.
+
+**Backward compatibility.** Not backward-compatible with pre-amendment wire format. No external consumers exist; the change lands atomically across agent, ingest, and schema in Phase 4.
+
+**Effect on other sections.** §6 (`process.uid` recipe) unchanged — the uid embeds nanos as a decimal string internally, independent of the wire encoding of `process.created_time`. Schema `objects/process.json` updated in the same commit (`"type": ["string", "null"]` with pattern `^[1-9][0-9]*$`). Root schema `event.json` `time` field: `format: "date-time"` removed (per-class format is authoritative; Process Activity uses string-encoded nanos, other classes may use ISO 8601).
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout. Places `schemas/cges/` and `agent/`.

@@ -23,13 +23,13 @@
     "pid": 7144,
     "name": "powershell.exe",
     "uid": "01934abc-def0-7000-89ab-000000000001:7144:1779186190901000000",
-    "created_time": 1779186190901000000,
+    "created_time": "1779186190901000000",
     "exit_code": 0,
     "parent_process": {
       "pid": 4012,
       "name": "winword.exe",
       "uid": "01934abc-def0-7000-89ab-000000000001:4012:1779186090123000000",
-      "created_time": 1779186090123000000
+      "created_time": "1779186090123000000"
     }
   }
 }

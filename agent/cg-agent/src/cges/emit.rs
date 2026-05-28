@@ -36,7 +36,10 @@ pub struct CgesProcessActivity {
     pub class_uid: u32,
     pub activity_id: ActivityId,
     pub process: CgesProcess,
-    pub time: u64,
+    /// String-encoded integer nanoseconds since Unix epoch, UTC strict.
+    /// Serialized as a JSON string (not integer) to avoid IEEE 754
+    /// double-precision loss on the server side (u64 nanos > 2^53).
+    pub time: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,8 +47,9 @@ pub struct CgesProcess {
     pub pid: u32,
     pub uid: String,
     pub name: String,
-    /// JSON null when None (cache-miss path); integer nanos when Some.
-    pub created_time: Option<u64>,
+    /// JSON null when None (cache-miss path); string-encoded integer
+    /// nanos when Some. String to avoid IEEE 754 precision loss (> 2^53).
+    pub created_time: Option<String>,
     /// Absent in JSON output when None (Launch path); integer when Some.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
@@ -97,12 +101,12 @@ pub fn emit_process_activity_with_cache(
         event_id: event.event_id.clone(),
         class_uid: CGES_PROCESS_ACTIVITY_CLASS_UID,
         activity_id: event.activity_id,
-        time: event.etw_timestamp_nanos,
+        time: event.etw_timestamp_nanos.to_string(),
         process: CgesProcess {
             pid: event.pid,
             uid: process_uid,
             name: process_name,
-            created_time: cached_created_time,
+            created_time: cached_created_time.map(|n| n.to_string()),
             exit_code: event.exit_status,
             parent_pid,
             command_line: event.command_line.clone(),

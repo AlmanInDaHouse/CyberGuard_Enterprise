@@ -26,8 +26,8 @@ const CgesProcessSchema = z.object({
   pid: z.number().int().nonnegative(),
   uid: z.string().min(1),
   name: z.string().min(1),
-  /** Always present; null on AC-004 cache-miss; integer nanos otherwise. */
-  created_time: z.number().int().nullable(),
+  /** Always present; null on AC-004 cache-miss; string-encoded nanos otherwise. */
+  created_time: z.string().nullable(),
   /** Absent on AC-005 Launch path; integer on Terminate. */
   exit_code: z.number().int().optional(),
   /** Null on AC-007 PPID unresolvable; integer otherwise. */
@@ -45,8 +45,8 @@ const CgesProcessActivitySchema = z.object({
   /** Launch=1, Terminate=2 per ADR-0011 §3 CGES wire allow-list. */
   activity_id: z.union([z.literal(1), z.literal(2)]),
   process: CgesProcessSchema,
-  /** Unix nanoseconds UTC; matches process_created_time precision. */
-  time: z.number().int().nonnegative(),
+  /** String-encoded Unix nanoseconds UTC; avoids IEEE 754 precision loss. */
+  time: z.string(),
 });
 
 const InnerEnvelopeSchema = z.object({

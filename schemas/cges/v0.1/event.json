@@ -19,8 +19,7 @@
     },
     "time": {
       "type": "string",
-      "format": "date-time",
-      "description": "occurred_at. ISO 8601 UTC with milliseconds. OCSF-compatible alias."
+      "description": "occurred_at. String-encoded nanoseconds since Unix epoch, UTC strict, for CGES Process Activity events (class_uid 1007); ISO 8601 for other event classes. Per-class format is authoritative; this root schema accepts any non-empty string."
     },
     "cg_ingested_at": {
       "type": "string",
