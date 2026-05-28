@@ -30,6 +30,7 @@ pub use session_stub::EtwSession;
 
 pub use cache::CreatedTimeCache;
 pub use events_lost_impl::events_lost;
+pub use events_lost_impl::reclaim_zombie;
 pub use ring::EventRing;
 pub use types::{ActivityId, CapturedEvent, OpenError};
 pub use uid::format_process_uid;

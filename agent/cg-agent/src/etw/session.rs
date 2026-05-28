@@ -34,7 +34,7 @@
 use ferrisetw::parser::Parser;
 use ferrisetw::provider::Provider;
 use ferrisetw::schema_locator::SchemaLocator;
-use ferrisetw::trace::UserTrace;
+use ferrisetw::trace::{TraceTrait, UserTrace};
 use ferrisetw::EventRecord;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -45,6 +45,16 @@ use super::types::{ActivityId, CapturedEvent, OpenError};
 
 const KERNEL_PROCESS_GUID: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
 const SESSION_NAME: &str = "CGAgent-KernelProcess";
+
+/// `WINEVENT_KEYWORD_PROCESS` — Microsoft-Windows-Kernel-Process keyword for
+/// ProcessStart (event_id 1) + ProcessStop (event_id 2). Per provider
+/// manifest (`wevtutil get-publisher Microsoft-Windows-Kernel-Process`).
+///
+/// Passed as `MatchAnyKeyword` to `EnableTraceEx2` via ferrisetw's
+/// `Provider::by_guid().any()`. Explicit subscription avoids the ambiguous
+/// `MatchAnyKeyword=0` semantics which do not reliably deliver
+/// ProcessStart/ProcessStop events across Windows builds.
+const WINEVENT_KEYWORD_PROCESS: u64 = 0x10;
 
 /// ETW Kernel-Process capture session.
 ///
@@ -67,6 +77,34 @@ impl EtwSession {
     pub fn open(ring_capacity: usize) -> Result<Self, OpenError> {
         tracing::info!(target: "cg_agent::etw", "EtwSession::open invoked");
 
+        // Reclaim any zombie ETW session with our name left by a prior
+        // crash or force-kill. ferrisetw 1.2 lacks stop_if_exist; same
+        // side-channel pattern as events_lost (Phase 0 spike validated).
+        match super::reclaim_zombie(SESSION_NAME) {
+            Ok(true) => {
+                tracing::warn!(
+                    target: "cg_agent::etw",
+                    session_name = SESSION_NAME,
+                    "reclaimed zombie ETW session (pre-existing session stopped)",
+                );
+            }
+            Ok(false) => {
+                tracing::info!(
+                    target: "cg_agent::etw",
+                    session_name = SESSION_NAME,
+                    "no pre-existing ETW session (clean state)",
+                );
+            }
+            Err(rc) => {
+                tracing::warn!(
+                    target: "cg_agent::etw",
+                    session_name = SESSION_NAME,
+                    win32_status = rc,
+                    "zombie reclaim ControlTraceW(STOP) failed; continuing (session open may fail with AlreadyExist)",
+                );
+            }
+        }
+
         let ring = Arc::new(EventRing::new(ring_capacity));
         let cache = Arc::new(CreatedTimeCache::new());
 
@@ -74,6 +112,7 @@ impl EtwSession {
         let cache_for_callback = Arc::clone(&cache);
 
         let provider = Provider::by_guid(KERNEL_PROCESS_GUID)
+            .any(WINEVENT_KEYWORD_PROCESS)
             .add_callback(
                 move |record: &EventRecord, schema_locator: &SchemaLocator| {
                     tracing::info!(
@@ -95,41 +134,51 @@ impl EtwSession {
             .named(String::from(SESSION_NAME))
             .enable(provider);
 
-        // Phase 3.5.I-FIX2: ferrisetw 1.2's trace.start() returns
-        // Result<(UserTrace, PROCESSTRACE_HANDLE), TraceError>. The Ok
-        // variant carries the live session handles. β3's pattern bound
-        // them to underscore-prefixed names; underscore prefix only
-        // suppresses unused-variable warnings, it does NOT extend
-        // lifetime, so both binds dropped at the end of the match arm
-        // (~500µs after trace.start returned). UserTrace's Drop impl
-        // closed the underlying ETW session and Kernel-Process events
-        // stopped flowing — empirically confirmed at Phase 3.5.I-DIAG3
-        // (3cbe845): "trace.start completed Ok" followed by 40× empty
-        // ring drains with zero dispatch callback firings.
+        // Phase 4 fix: call start() then process_from_handle() on the
+        // SAME dedicated thread. ferrisetw's documented "most powerful
+        // option" (trace.rs §TraceBuilder::start docstring): start()
+        // registers the session (StartTraceW + EnableTraceEx2 +
+        // OpenTraceW), process_from_handle() blocks on Win32 ProcessTrace
+        // which delivers events to the callback on this thread.
         //
-        // Fix: park the spawned thread inside the Ok arm. park() blocks
-        // indefinitely (until unpark, which is never called); the
-        // kept_trace + kept_handle bindings stay live in the parked
-        // thread's stack for the lifetime of the process. At process
-        // exit the OS detaches this thread; bindings drop; UserTrace's
-        // Drop impl closes the session cleanly.
+        // Prior pattern (start_and_process + park) separated the session
+        // owner thread from the ProcessTrace pump thread — ferrisetw's
+        // start_and_process() spawns an internal fire-and-forget thread
+        // for ProcessTrace. That topology prevented event delivery: the
+        // callback never fired despite the session being open. Collapsing
+        // start + pump onto one dedicated thread (the spike's working
+        // pattern) resolves the dispatch gap.
+        //
+        // The OUTER thread::spawn isolates the non-Send UserTrace from
+        // the tokio async runtime in run_test_mode. UserTrace lives as a
+        // local on this thread's stack; its Drop impl calls
+        // ControlTrace(STOP) when process_from_handle returns.
         std::thread::spawn(move || {
-            tracing::info!(target: "cg_agent::etw", "trace.start invoked on spawned thread");
+            tracing::info!(target: "cg_agent::etw", "trace.start invoked on dedicated ETW thread");
             match trace.start() {
-                Ok((kept_trace, kept_handle)) => {
+                Ok((trace_session, handle)) => {
                     tracing::info!(
                         target: "cg_agent::etw",
-                        "trace.start completed Ok; parking thread to keep ETW session alive",
+                        "trace.start completed Ok; entering process_from_handle pump on this thread (blocking until session stops)",
                     );
-                    std::thread::park();
-                    // Unreachable in current usage (no unpark call site).
-                    // Reserved for a future explicit-shutdown refactor;
-                    // documents the intended cleanup path. PROCESSTRACE_HANDLE
-                    // is Copy so drop() would be a no-op; kept_handle simply
-                    // falls out of scope. UserTrace has a non-trivial Drop
-                    // impl that closes the session.
-                    let _ = kept_handle;
-                    drop(kept_trace);
+                    match UserTrace::process_from_handle(handle) {
+                        Ok(()) => {
+                            tracing::info!(
+                                target: "cg_agent::etw",
+                                "process_from_handle returned Ok (session stopped normally)",
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                target: "cg_agent::etw",
+                                error = ?e,
+                                "process_from_handle returned Err",
+                            );
+                        }
+                    }
+                    // trace_session (UserTrace) drops here — its Drop impl
+                    // calls ControlTrace(STOP), releasing the OS session.
+                    drop(trace_session);
                 }
                 Err(e) => {
                     tracing::error!(target: "cg_agent::etw", error = ?e, "trace.start failed")
@@ -163,11 +212,13 @@ fn dispatch_callback(
 
     let pid: u32 = parser.try_parse("ProcessID").unwrap_or(0);
     let parent_pid: u32 = parser.try_parse("ParentProcessID").unwrap_or(0);
-    let image_file_name: String = parser.try_parse("ImageFileName").unwrap_or_default();
+    // Property name is "ImageName" per the Kernel-Process provider manifest (v0–v4).
+    let image_file_name: String = parser.try_parse("ImageName").unwrap_or_default();
     let command_line: String = parser.try_parse("CommandLine").unwrap_or_default();
     let subject_user_sid: String = parser.try_parse("UserSID").unwrap_or_default();
     let exit_status: Option<i32> = match activity_id {
-        ActivityId::Terminate => parser.try_parse("ExitStatus").ok(),
+        // Property name is "ExitCode" per the Kernel-Process provider manifest (v0–v2).
+        ActivityId::Terminate => parser.try_parse("ExitCode").ok(),
         ActivityId::Launch => None,
     };
 

@@ -1,19 +1,23 @@
-//! `events_lost` side-channel helper per ADR-0008 §Decision part 2.
+//! Side-channel ETW session helpers via raw `ControlTraceW` (windows-sys).
 //!
-//! Calls Win32 `ControlTraceW(EVENT_TRACE_CONTROL_QUERY)` and reads the
-//! `EVENT_TRACE_PROPERTIES.EventsLost` field. ferrisetw 1.2 exposes no
-//! native stats-query API (registry inspection confirms `query.rs` only
-//! handles TRACE_PROFILE_INTERVAL sampling, not session-lost-events);
-//! raw windows-sys is the canonical path. Non-Windows builds get a stub
-//! returning Err(0).
+//! ferrisetw 1.2 exposes no native stats-query or zombie-reclaim API
+//! (registry inspection confirms `query.rs` only handles
+//! TRACE_PROFILE_INTERVAL sampling, not session-lost-events; and
+//! `stop_if_exist` exists on master but not in the 1.2.0 release).
+//! Two helpers live here:
+//!
+//! - `events_lost`: `EVENT_TRACE_CONTROL_QUERY` → `EventsLost` field
+//!   (ADR-0008 §Decision part 2).
+//! - `reclaim_zombie`: `EVENT_TRACE_CONTROL_STOP` by session name,
+//!   treating "no such session" as success (Phase 0 spike pattern).
 
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::System::Diagnostics::Etw::{
-        ControlTraceW, CONTROLTRACE_HANDLE, EVENT_TRACE_CONTROL_QUERY, EVENT_TRACE_PROPERTIES,
-        WNODE_HEADER,
+        ControlTraceW, CONTROLTRACE_HANDLE, EVENT_TRACE_CONTROL_QUERY,
+        EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_PROPERTIES, WNODE_HEADER,
     };
 
     const EVENT_TRACE_PROPERTIES_SIZE: usize = std::mem::size_of::<EVENT_TRACE_PROPERTIES>();
@@ -74,6 +78,47 @@ mod windows_impl {
         let events_lost = unsafe { (*properties_ptr).EventsLost };
         Ok(events_lost)
     }
+
+    /// Stop a pre-existing ETW session by name. Returns `Ok(true)` if a
+    /// session was stopped, `Ok(false)` if no session existed (clean state),
+    /// `Err(win32_status)` on unexpected failure.
+    ///
+    /// Called before `start_and_process` to reclaim zombie sessions left
+    /// by a prior crash or force-kill (ferrisetw 1.2 lacks `stop_if_exist`;
+    /// same side-channel as `events_lost` per the Phase 0 spike pattern).
+    pub fn reclaim_zombie(session_name: &str) -> Result<bool, u32> {
+        let mut session_name_wide: Vec<u16> = OsStr::new(session_name).encode_wide().collect();
+        session_name_wide.push(0);
+
+        let mut buffer = vec![0u8; BUFFER_SIZE];
+        let properties_ptr = buffer.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
+
+        unsafe {
+            let properties = &mut *properties_ptr;
+            properties.Wnode = WNODE_HEADER {
+                BufferSize: BUFFER_SIZE as u32,
+                ..std::mem::zeroed()
+            };
+            properties.LoggerNameOffset = EVENT_TRACE_PROPERTIES_SIZE as u32;
+            properties.LogFileNameOffset =
+                (EVENT_TRACE_PROPERTIES_SIZE + MAX_SESSION_NAME_WCHARS * 2) as u32;
+        }
+
+        let status = unsafe {
+            ControlTraceW(
+                CONTROLTRACE_HANDLE { Value: 0 },
+                session_name_wide.as_ptr(),
+                properties_ptr,
+                EVENT_TRACE_CONTROL_STOP,
+            )
+        };
+
+        match status {
+            0 => Ok(true),    // session existed and was stopped
+            4201 => Ok(false), // ERROR_WMI_INSTANCE_NOT_FOUND — clean state
+            other => Err(other),
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -83,9 +128,18 @@ mod stub_impl {
     pub fn events_lost(_session_name: &str) -> Result<u32, u32> {
         Err(0)
     }
+
+    /// Non-Windows stub. Always returns Ok(false) (no zombie to reclaim).
+    pub fn reclaim_zombie(_session_name: &str) -> Result<bool, u32> {
+        Ok(false)
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
 pub use stub_impl::events_lost;
+#[cfg(not(target_os = "windows"))]
+pub use stub_impl::reclaim_zombie;
 #[cfg(target_os = "windows")]
 pub use windows_impl::events_lost;
+#[cfg(target_os = "windows")]
+pub use windows_impl::reclaim_zombie;
