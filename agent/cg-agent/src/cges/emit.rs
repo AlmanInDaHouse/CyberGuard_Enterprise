@@ -94,8 +94,14 @@ pub fn emit_process_activity_with_cache(
     };
 
     let process_name = derive_process_name(&event.image_file_name);
-    let process_uid =
-        crate::etw::format_process_uid(agent_id, event.pid, event.etw_timestamp_nanos);
+    // Cache-hit: use the Launch creation_time (stable across Launch +
+    // Terminate per ADR-0011 §6 amendment 2026-05-28). Cache-miss:
+    // fallback to this event's own ETW timestamp (best-effort; the
+    // Terminate EventRecord carries the termination timestamp, not the
+    // creation timestamp, so the uid is not correlatable with a Launch
+    // that was never observed — consistent with created_time = null).
+    let uid_nanos = cached_created_time.unwrap_or(event.etw_timestamp_nanos);
+    let process_uid = crate::etw::format_process_uid(agent_id, event.pid, uid_nanos);
 
     CgesProcessActivity {
         event_id: event.event_id.clone(),
