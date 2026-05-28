@@ -47,6 +47,14 @@ CI runs the SPEC-005 acceptance criteria on GitHub Actions `windows-latest` runn
 
 The choice between fallback 1 and fallback 2 is deferred until / unless the assumption is contradicted by AC-001 in CI. We do not pre-pick a fallback; we name them so the decision is fast when (if) the time comes.
 
+**Amendment 2026-05-29.** The CI assumption was resolved via **Fallback path 2** (marquee moved out of CI). Two independent constraints forced this resolution, neither of which is the privilege assumption itself:
+
+1. **Docker runtime unavailability on `windows-latest` hosted runners.** Testcontainers (the marquee's infrastructure dependency) cannot detect a working container runtime on GitHub Actions `windows-latest` runners. The `ts-ci-windows.yml` workflow was empirically falsified at Phase 3.5.H (Session 15) and removed via Path D resolution. This constraint is infrastructure-level, not privilege-level.
+
+2. **Elevated user process model (ADR-0010 §Decision part 1).** The MVP agent requires elevation to open the Kernel-Process ETW session. The GitHub Actions `runneradmin` user — even if it had Docker — may not carry the same effective ETW-open privileges as a locally-elevated user. This constraint remains untested in CI.
+
+The SPEC-005 marquee (AC-001) is validated developer-local on Windows with Docker Desktop running and an elevated shell, per the procedure documented in CLAUDE.md §Developer-local SPEC-005 marquee validation. This is the standing validation gate for any merge that touches the ETW path. Marquee validated 8/8 GREEN in Phase 4 Session 16.
+
 ## Alternatives considered
 
 ### A1 — Ship as a Windows Service (LocalSystem) from MVP

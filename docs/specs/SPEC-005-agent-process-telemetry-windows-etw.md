@@ -26,7 +26,7 @@ The polyglot marquee (AC-001 below) is the architecture's reason-to-exist: real 
 - Worker-on-ring-drain path: ring events → JCS-canonicalize → compute `batch_hash` → build outer signed envelope per SPEC-003 → POST to `/v1/agents/heartbeat`.
 - Multi-POST-per-interval behavior (event-driven flushes + 30 s timer fallback); the SPEC-001 amendment 2026-05-23 reconciling `sequence_number` semantics is co-located in this SPEC's ratification commit.
 - Server-side persistence of received events as rows in the ClickHouse `cges_events` table per ADR-0009 + D6.
-- Agent-local volatile `(PID → creation_time)` cache for `process.created_time` enrichment at Terminate events; the cache is non-load-bearing for `process.uid` (which is computed at Launch from ETW data directly per ADR-0011 §6). Full mechanism in §Operational (forthcoming).
+- Agent-local volatile `(PID → creation_time)` cache for `process.created_time` enrichment at Terminate events. ~~The cache is non-load-bearing for `process.uid`.~~ **Amendment 2026-05-28:** the cache IS load-bearing for `process.uid` on Terminate events — see §Operational §2 amendment 2026-05-28. Full mechanism in §Operational.
 - Clean-fail on insufficient privilege at agent startup per ADR-0010, with a clear stderr message identifying the cause.
 - Test harness with one Rust integration test per AC; the marquee (AC-001) uses real services per the Spec-Driven Development with harness-first invariant.
 
