@@ -89,7 +89,7 @@ impl EtwSession {
                 );
             }
             Ok(false) => {
-                tracing::info!(
+                tracing::debug!(
                     target: "cg_agent::etw",
                     session_name = SESSION_NAME,
                     "no pre-existing ETW session (clean state)",
@@ -115,7 +115,7 @@ impl EtwSession {
             .any(WINEVENT_KEYWORD_PROCESS)
             .add_callback(
                 move |record: &EventRecord, schema_locator: &SchemaLocator| {
-                    tracing::info!(
+                    tracing::trace!(
                         target: "cg_agent::etw",
                         event_id = record.event_id(),
                         "dispatch callback fired",
@@ -186,7 +186,7 @@ impl EtwSession {
             }
         });
 
-        tracing::info!(target: "cg_agent::etw", "EtwSession::open returning Ok");
+        tracing::debug!(target: "cg_agent::etw", "EtwSession::open returning Ok");
         Ok(Self { ring, cache })
     }
 }
