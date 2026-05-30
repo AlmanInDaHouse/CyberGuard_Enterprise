@@ -124,3 +124,129 @@ export async function getCgesEvents(config: Config, agentId: string): Promise<Cg
     await ch.close();
   }
 }
+
+// SPEC-006 additions — synthetic cges_events insert + alerts/watermark helpers
+// for the Detection MVP harness. cges_events exists (migrations run in
+// startBackends), so insertCgesEvent succeeds — it is "setup-that-exists". The
+// alerts and detect_watermark tables do NOT exist yet (migration 0002_alerts
+// lands in the Phase-5 impl); getAlerts/setAlertStatus/getWatermark compile
+// cleanly and run once that migration lands — same pattern as getCgesEvents.
+// In the harness-first RED, every detect_ac_* test calls runDetectionCycle()
+// (or scoreAlert) — which throws NotImplemented — BEFORE reaching these alert
+// helpers, so the RED is NotImplemented, never "alerts table missing".
+
+export interface InsertCgesEventRow {
+  agentId: string;
+  eventId: string;
+  activityId: number;
+  processPid: number;
+  processName: string;
+  imageFileName: string;
+  /** ClickHouse DateTime64(9) literal, e.g. "2026-05-31 10:00:00.000000000". */
+  time: string;
+  classUid?: number;
+  processUid?: string;
+  processParentPid?: number | null;
+  orgId?: string;
+}
+
+export async function insertCgesEvent(config: Config, ev: InsertCgesEventRow): Promise<void> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    await ch.insert({
+      table: "cges_events",
+      values: [
+        {
+          agent_id: ev.agentId,
+          org_id: ev.orgId ?? "default",
+          event_id: ev.eventId,
+          class_uid: ev.classUid ?? 1007,
+          activity_id: ev.activityId,
+          process_pid: ev.processPid,
+          process_uid: ev.processUid ?? "",
+          process_name: ev.processName,
+          process_parent_pid: ev.processParentPid ?? null,
+          image_file_name: ev.imageFileName,
+          time: ev.time,
+        },
+      ],
+      format: "JSONEachRow",
+    });
+  } finally {
+    await ch.close();
+  }
+}
+
+export interface AlertRow {
+  alert_id: string;
+  rule_id: string | null;
+  cg_detection_source: string;
+  final_score: number;
+  status: string;
+  dedup_key: string;
+  source_events: string[];
+}
+
+export async function getAlerts(
+  config: Config,
+  opts: { agentId?: string; dedupKey?: string } = {},
+): Promise<AlertRow[]> {
+  const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  try {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (opts.agentId !== undefined) {
+      params.push(opts.agentId);
+      clauses.push(`agent_id = $${params.length}`);
+    }
+    if (opts.dedupKey !== undefined) {
+      params.push(opts.dedupKey);
+      clauses.push(`dedup_key = $${params.length}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const r = await pool.query<AlertRow>(
+      `SELECT alert_id, rule_id, cg_detection_source, final_score::float8 AS final_score,
+              status, dedup_key, source_events
+       FROM alerts ${where}
+       ORDER BY created_at`,
+      params,
+    );
+    return r.rows;
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function setAlertStatus(
+  config: Config,
+  alertId: string,
+  status: string,
+): Promise<void> {
+  const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  try {
+    await pool.query("UPDATE alerts SET status = $2, updated_at = now() WHERE alert_id = $1", [
+      alertId,
+      status,
+    ]);
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function getWatermark(config: Config, orgId: string): Promise<string | null> {
+  const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  try {
+    const r = await pool.query<{ last_time: string }>(
+      "SELECT last_time::text AS last_time FROM detect_watermark WHERE org_id = $1",
+      [orgId],
+    );
+    return r.rows[0]?.last_time ?? null;
+  } finally {
+    await pool.end();
+  }
+}

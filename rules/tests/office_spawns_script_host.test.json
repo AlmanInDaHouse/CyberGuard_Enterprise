@@ -1,0 +1,46 @@
+{
+  "rule": "office_spawns_script_host",
+  "description": "Per-rule unit fixture (rules/README convention): normalized process_creation events + expected match. Input events are in the normalized Sigma shape (Image / ParentImage) the evaluator sees AFTER the parent-pid self-join (SPEC-006 §Data contracts). Consumed by the Phase-5 rule evaluator.",
+  "cases": [
+    {
+      "name": "winword.exe spawns powershell.exe -> match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "excel.exe spawns mshta.exe -> match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\mshta.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\excel.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "explorer.exe spawns powershell.exe -> no match (FP)",
+      "event": {
+        "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "winword.exe spawns a non-script child (notepad) -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\notepad.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "parent unresolved (ParentImage null) -> no match (documented v0.1 FN)",
+      "event": {
+        "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    }
+  ]
+}

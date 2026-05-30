@@ -1,0 +1,30 @@
+{
+  "id": "SC010",
+  "title": "Benign script host (false positive)",
+  "track": "rule",
+  "expected_detection_source": null,
+  "rule_id": "rule.office_spawns_script_host",
+  "description": "False-positive: a powershell.exe child whose parent is explorer.exe (a routine admin action), NOT an Office app. The rule must not fire; zero alerts. Realized by detect_ac_002 (CI), which also asserts the cycle ran (watermark advanced) so the zero-alert result is not a vacuous pass.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "explorer.exe",
+        "image_file_name": "C:\\Windows\\explorer.exe",
+        "process_pid": 5000,
+        "process_parent_pid": 700
+      },
+      {
+        "activity_id": 1,
+        "process_name": "powershell.exe",
+        "image_file_name": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "process_pid": 5001,
+        "process_parent_pid": 5000
+      }
+    ]
+  },
+  "expected": {
+    "alert": false,
+    "alert_count": 0
+  }
+}

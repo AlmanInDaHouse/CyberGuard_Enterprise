@@ -1,0 +1,33 @@
+{
+  "id": "SC001",
+  "title": "Office spawns a script host",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.office_spawns_script_host",
+  "description": "Positive: a winword.exe parent spawns a powershell.exe child. The detection slice resolves ParentImage via the parent-pid self-join, the rule matches, and exactly one alert is emitted with final_score 0.9. Realized end-to-end by detect_ac_001 (developer-local, real ETW) and synthetically by detect_ac_003 (CI).",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "winword.exe",
+        "image_file_name": "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe",
+        "process_pid": 4012,
+        "process_parent_pid": 800
+      },
+      {
+        "activity_id": 1,
+        "process_name": "powershell.exe",
+        "image_file_name": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "process_pid": 4099,
+        "process_parent_pid": 4012
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.office_spawns_script_host",
+    "detection_source": "rule",
+    "final_score": 0.9
+  }
+}

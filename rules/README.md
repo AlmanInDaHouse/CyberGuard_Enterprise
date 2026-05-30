@@ -17,4 +17,4 @@ Every rule file has a sibling `.test.json` in [`tests/`](tests/) containing inpu
 
 Every rule sets `detection_source: "rule"`. Rules that exist only to confirm an ML signal set `detection_source: "hybrid"` and document the ML alert id they pair with.
 
-Populated by SPEC-XXX-detection-rules.
+Populated by the detection SPECs. SPEC-006 (Detection MVP) lands the first rule, [`windows/office_spawns_script_host.yml`](windows/office_spawns_script_host.yml), with its sibling fixture [`tests/office_spawns_script_host.test.json`](tests/office_spawns_script_host.test.json).
