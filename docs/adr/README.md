@@ -28,6 +28,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0009](0009-event-delivery-and-buffer.md) | Event delivery semantics and agent buffer model | Accepted |
 | [0010](0010-agent-privilege-model-mvp.md) | Agent privilege model and installation posture for the MVP | Accepted |
 | [0011](0011-cges-process-activity-v0-1.md) | Per-class CGES jurisprudence — Process Activity v0.1 | Accepted |
+| [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) | Accepted |
 
 ## Dependencies
 
@@ -60,3 +61,10 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0011 → ADR-0009 (process.uid recipe's "no agent-side mapping" requirement aligns with ADR-0009 §Decision part 3's "no on-disk event state")
 - ADR-0011 → ADR-0010 (elevated process precondition enables ETW Kernel-Process consumption)
 - ADR-0011 — additive new decision; supersedes nothing, amends nothing
+- ADR-0012 → ADR-0002 (amends in part: `services/pipeline/` Go assignment superseded for the MVP detection slice only; restored on the firehose ADR)
+- ADR-0012 → ADR-0003 (amends in part: §Retention Alerts row → Postgres-only for the MVP)
+- ADR-0012 → ADR-0005 (the anticipated normalize-before-correlate ADR; clarifies scoring composition for the absent-source case)
+- ADR-0012 → ADR-0006 (emits the CGES Alert / score / mitre classes under its framework)
+- ADR-0012 → ADR-0007 (extends the transitory-TypeScript-for-MVP logic to the detection slice; same firehose-deferred exit)
+- ADR-0012 → ADR-0009 (FINAL / GROUP BY reads because of ReplacingMergeTree at-least-once delivery)
+- ADR-0012 → ADR-0011 (reads Process Activity 1007; flags the §4 ETW-mapping contradiction)

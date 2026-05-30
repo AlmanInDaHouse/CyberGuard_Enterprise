@@ -149,6 +149,10 @@ Subsequent ADRs and SPECs that introduce a sixth storage backend — or that mov
 
 Breach of any migration threshold above must open a new ADR that supersedes the corresponding row of the decision table. The new ADR documents the breach evidence (timestamps, metrics, sustained-duration measurement) and the migration plan.
 
+## Amendment 2026-05-30 (ADR-0012): Alerts retention narrowed to Postgres-only for the MVP
+
+§Retention's Alerts row (`Postgres + ClickHouse | Postgres + ClickHouse`) is superseded for the MVP by [ADR-0012](0012-normalize-before-correlate-pipeline.md) §6: **alerts persist to Postgres only**. Rationale: alerts are mutable triage state (status, assignment, timestamps); an append-only ClickHouse sink would be debt. ADR-0003 remains `Accepted`; this amendment supersedes the Alerts retention row where they differ. **Destination for the ClickHouse sink:** reconsidered if/when historical analytics over alerts (as opposed to over events) becomes a requirement; at that point a warm ClickHouse copy of alerts is added without changing the Postgres system-of-record. Incidents/Cases retention (Postgres) is unchanged.
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout (defines the components whose data this ADR routes)

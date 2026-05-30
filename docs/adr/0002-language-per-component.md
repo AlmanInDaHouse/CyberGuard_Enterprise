@@ -136,6 +136,10 @@ Subsequent ADRs and SPECs that introduce code in a language outside the set {Rus
 
 The contract-generation tooling promised under Rule 5 is reserved for a dedicated future ADR (`ADR-0008 — Contract generation tooling`), to be triggered when the design of `cg-ingest` or `cg-api` forces the choice between candidate tools (quicktype, typeshare, protoc-gen-*, or a custom script).
 
+## Amendment 2026-05-30 (ADR-0012): MVP detection slice hosted in TypeScript ingest (transitory)
+
+The component-language table assigns `services/pipeline/` (the correlation/normalize/score engine) to Go, and Rule 3 requires a superseding/amending ADR for any non-Go server-side artifact. [ADR-0012](0012-normalize-before-correlate-pipeline.md) §1 amends this **for the MVP detection slice only**: the normalize→rule→score→alert slice is implemented in TypeScript inside `services/ingest/src/detect/` (co-located with the ClickHouse + Postgres clients), not in Go `services/pipeline/`. This is transitory and narrow — `services/pipeline/`'s Go assignment is otherwise unchanged. **Named exit:** when the event-firehose ADR (deferred per ADR-0007 §Consequences) lands with the Go toolchain, the slice is ported into `services/pipeline/` and removed from ingest, restoring the Go assignment in full. ADR-0002 remains `Accepted`; this amendment supersedes the assignment only for the named MVP slice. Mirrors ADR-0007's amendment of the `services/ingest/` row for the MVP control plane.
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout (defines the top-level components this ADR assigns languages to)
