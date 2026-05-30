@@ -39,7 +39,7 @@ use ferrisetw::provider::Provider;
 #[cfg(target_os = "windows")]
 use ferrisetw::schema_locator::SchemaLocator;
 #[cfg(target_os = "windows")]
-use ferrisetw::trace::UserTrace;
+use ferrisetw::trace::{TraceTrait, UserTrace};
 #[cfg(target_os = "windows")]
 use ferrisetw::EventRecord;
 #[cfg(target_os = "windows")]
@@ -86,9 +86,22 @@ fn ac_009_events_lost_under_deliberate_etw_buffer_pressure() {
         .named(String::from(SESSION_NAME))
         .enable(provider);
 
-    // Start the trace on a background thread (UserTrace::start blocks).
+    // Start the trace and pump events on this dedicated background thread,
+    // mirroring the production fix at src/etw/session.rs (Phase 4, 70d8e3e):
+    // ferrisetw's start() registers the session (StartTraceW + OpenTraceW)
+    // and returns the handle; process_from_handle() then blocks on Win32
+    // ProcessTrace, delivering events to the callback on THIS thread. The
+    // prior `let _ = trace.start()` dropped the returned (UserTrace, handle)
+    // tuple immediately, so the session stopped before any event was pumped:
+    // the callback never fired and the 80 ms in-callback sleep never induced
+    // the buffer pressure AC-009 needs to drive events_lost > 0.
     let trace_handle = thread::spawn(move || {
-        let _ = trace.start();
+        if let Ok((_trace_session, handle)) = trace.start() {
+            // _trace_session keeps the UserTrace (and its OS session) alive
+            // for the duration of the pump; its Drop calls ControlTrace(STOP)
+            // when process_from_handle returns.
+            let _ = UserTrace::process_from_handle(handle);
+        }
     });
 
     // Allow the session to initialize.
