@@ -21,7 +21,7 @@
   },
   "cg_score": {
     "ml_score": 0.88,
-    "final_score": 0.71
+    "final_score": 0.88
   },
   "cg_detection_source": "ml",
   "cg_raw_ref": {

@@ -33,5 +33,5 @@
   "description": "WinWord (pid 4012) spawned powershell.exe with -EncodedCommand argument. Classic phishing-to-execution chain.",
   "source_events": ["01934abc-def0-7100-89ab-000000000001"],
   "rule_id": "rule.psh_encoded_from_office",
-  "dedup_key": "FIN-PC-014::psh_encoded_from_office::winword.exe"
+  "dedup_key": "01934abc-def0-7000-89ab-000000000001::rule.psh_encoded_from_office::winword.exe::5930620"
 }
