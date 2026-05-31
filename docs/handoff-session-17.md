@@ -2,7 +2,7 @@
 
 Canonical state-of-the-world at the close of Session 17. This document is the contract Session 18 resumes from. Session 17's scope was **Phase 5: Detection MVP** (Route A) — the first detection slice: read events from ClickHouse `cges_events` → normalize → evaluate a Sigma rule → score → persist alerts to Postgres. Phase 5 is **delivered in full**: all six `detect_ac` acceptance criteria are green (002–006 in CI, 001 validated developer-local), the harness-first RED-by-design phase has ended, Known CI debt is back to zero rows, and the end-to-end marquee was validated with a real `cg-agent` capturing live ETW. References to Sessions 10–16 supply the context this handoff does not replicate.
 
-- **Anchor commit:** `<ANCHOR-SHA>` (`docs(handoff): Session 17 close`) — substituted in the follow-up commit per the two-commit anchor pattern (cf. Session 16 `77a340e`/`2264826`).
+- **Anchor commit:** `91ad7de` (`docs(handoff): Session 17 close`) — this SHA substituted into the placeholder by the follow-up commit per the two-commit anchor pattern (cf. Session 16 `77a340e`/`2264826`).
 - **Branch:** `main`
 - **Date:** 2026-05-31
 - **CI verdict at anchor:** ALL GREEN on `main` workflows (`ts-ci`, `schema-validation`, `markdown-lint`). Developer-local SPEC-006 marquee `detect_ac_001` validated GREEN (real agent, elevated + Docker Desktop). Developer-local SPEC-005 marquee remains 8/8 GREEN (carried from Session 16).
