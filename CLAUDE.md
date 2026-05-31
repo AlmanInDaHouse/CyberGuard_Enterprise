@@ -196,7 +196,7 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 | -------- | -------------- | ------ | ----- | ----------------- |
-| `ts-ci` | `24e0e4a` | Harness-first RED for SPEC-006 Detection MVP (Phase 4): `detect_ac_002`–`006` land before implementation per the Spec-Driven harness-first invariant, so `ts-ci` is RED **by design** until the Phase-5 impl. `detect_ac_001` is developer-local (`skipIf` non-win32), so it is skipped in CI and is NOT part of this debt. Rationale + plan: [[project-phase5-plan]] + SPEC-006 §Acceptance criteria. | Manuel / Claude Code | the Phase-5 impl SHA that turns `ts-ci` green — removes this row in that same SHA |
+| `ts-ci` | `24e0e4a` | Harness-first RED for SPEC-006 Detection MVP (Phase 4): `detect_ac_002`–`005` remain NotImplemented (via `runDetectionCycle`), so `ts-ci` is RED **by design** until the Phase-5 5e impl. `detect_ac_006` was **closed at 5d** (scorer implemented); `detect_ac_002`–`005` close at 5e. `detect_ac_001` is developer-local (`skipIf` non-win32), skipped in CI and NOT part of this debt. Rationale + plan: [[project-phase5-plan]] + SPEC-006 §Acceptance criteria. | Manuel / Claude Code | the Phase-5 5e SHA that turns `ts-ci` green — removes this row in that same SHA |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
 
