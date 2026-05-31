@@ -207,7 +207,7 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 | -------- | -------------- | ------ | ----- | ----------------- |
-| ts-ci | `<RED-SHA>` | `incident_ac_002`–`005` RED-by-design — SPEC-007 incident-grouping harness-first; `upsertIncident` throws `IncidentGroupingNotImplementedError`. Structure is GREEN (migrations 0004 `event_time` + 0005 `incidents` apply, schema validates); `incident_ac_001` is a green-guard, NOT debt. Manuel-authorized RED gate (Session 18); see [SPEC-007](docs/specs/SPEC-007-incident-grouping-mvp.md) §Acceptance criteria. | Claude Code | SHA of the SPEC-007 grouping-impl GREEN commit (removes this row in the same SHA, per §"Harness-first red phases" / Convention #13) |
+| ts-ci | `d76ea5c` | `incident_ac_002`–`005` RED-by-design — SPEC-007 incident-grouping harness-first; `upsertIncident` throws `IncidentGroupingNotImplementedError`. Structure is GREEN (migrations 0004 `event_time` + 0005 `incidents` apply, schema validates); `incident_ac_001` is a green-guard, NOT debt. Manuel-authorized RED gate (Session 18); see [SPEC-007](docs/specs/SPEC-007-incident-grouping-mvp.md) §Acceptance criteria. | Claude Code | SHA of the SPEC-007 grouping-impl GREEN commit (removes this row in the same SHA, per §"Harness-first red phases" / Convention #13) |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
 
