@@ -2,7 +2,7 @@
 
 Canonical state-of-the-world at the close of Session 18. This document is the contract Session 19 resumes from. Session 18 had two arcs: **(1)** ratifying the four pending convention candidates (#10–#13) into the numbered catalog, and **(2)** **Phase 6 = A (Incident grouping MVP)** — the next link in the detection pipeline (`alert → incident`, Blueprint §9): grouping distinct correlated alerts into incidents. Phase 6 A is **delivered in full**: ADR-0013 + SPEC-007 ratified, the harness-first RED→GREEN arc complete, all five `incident_ac` acceptance criteria green (four CI-able, one green-guard), the elevated suite 49/49 green with both real-chain marquees, and Known CI debt back to zero.
 
-- **Anchor commit:** `<ANCHOR-SHA>` (`docs(handoff): Session 18 close`) — substituted into the placeholder by the follow-up commit per the two-commit anchor pattern (cf. Session 17 `91ad7de`/`ae273e2`).
+- **Anchor commit:** `5df7f72` (`docs(handoff): Session 18 close`) — substituted into the placeholder by the follow-up commit per the two-commit anchor pattern (cf. Session 17 `91ad7de`/`ae273e2`).
 - **Phase 6 A GREEN delivery SHA:** `bc3e604` (`feat(spec-007): incident grouping logic — incident_ac_002-005 GREEN, debt removed`).
 - **Branch:** `main`
 - **Date:** 2026-05-31
