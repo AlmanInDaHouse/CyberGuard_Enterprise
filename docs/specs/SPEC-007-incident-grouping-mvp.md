@@ -2,7 +2,7 @@
 
 - **ID:** SPEC-007
 - **Title:** Incident grouping MVP
-- **Status:** Proposed
+- **Status:** Accepted
 - **Depends on:** ADR-0013 (the windowing-basis contract this SPEC realises — event-time, own window distinct from the dedup bucket; not re-decided here), ADR-0012 (the alert pipeline + dedup mechanism this SPEC extends; the `alerts` table it reads + augments), ADR-0003 (incidents → Postgres-only, §Retention), ADR-0005 (detection philosophy; per-org configuration surface for the window), ADR-0006 (CGES/OCSF; the Incident class 10002), ADR-0011 (Process Activity / the MITRE tactics grouping keys on), SPEC-006 (the producer of the `alerts` rows this SPEC groups), SPEC-004 (the ingest service hosting the slice)
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-05-31
@@ -55,6 +55,7 @@ ADR-0013 §1 binds incident grouping to **event-time**, not insert-time. The `al
   - **Why the bucket, not a ClickHouse join:** self-contained in Postgres (no cross-store dependency, no ClickHouse availability requirement, no `FINAL` semantics during a schema migration), and **consistent with the event-time basis the dedup already uses** (`alerts.ts:16-18`). The 5-minute coarseness is well within the correlation window's tolerance (NFR-007-001 ≥ 1800 s ⇒ ≥ 6× the bucket).
   - **Validity:** `dedup_key` is `NOT NULL` and always bucket-formatted because only the detection slice writes `alerts` rows in v0.1 (`buildDedupKey` is the sole producer). The backfill assumes that v0.1 invariant and states it.
   - **Alternatives (rejected, named):** (a) join `source_events` → ClickHouse `cges_events.time` for the exact time — precise but couples a Postgres migration to a cross-store `FINAL` query; rejected for migration simplicity, retained as the path if 5-minute coarseness ever proves insufficient for historical rows. (b) nullable column + forward-only population (pre-existing rows stay `NULL`, excluded from grouping) — rejected because `NOT NULL` is a cleaner windowing invariant and the bucket backfill is cheap and deterministic.
+  - **Accepted imprecision (grain, stated for the reader six months out):** historical rows inherit the `dedup_key` bucket's **5-minute grain**; new rows are **exact** (`match.sourceEvent.time`). The resulting ±5-minute uncertainty bites only at the **edges** of the 1800 s grouping window, and only for incidents built over **pre-migration** alerts — such an alert within 5 minutes of a window boundary could be bucketed into the adjacent window. Accepted debt with a named destination: exact historical precision would need the rejected ClickHouse join above. The imprecision is bounded to the pre-migration backlog and never grows — every post-migration alert carries exact event-time.
 
 ### 2. `incident.json` — add the `cg_mitre` grouping field (additive)
 

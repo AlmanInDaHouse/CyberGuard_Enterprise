@@ -27,3 +27,4 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-004](SPEC-004-server-ingest-minimal.md) | Server ingest minimal | Accepted |
 | [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) | Agent process telemetry — Windows ETW Kernel-Process | Accepted |
 | [SPEC-006](SPEC-006-detection-mvp.md) | Detection MVP — process-rule pipeline | Accepted |
+| [SPEC-007](SPEC-007-incident-grouping-mvp.md) | Incident grouping MVP | Accepted |
