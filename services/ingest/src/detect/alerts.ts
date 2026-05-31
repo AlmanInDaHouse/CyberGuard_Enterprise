@@ -23,7 +23,7 @@ const DEDUP_BUCKET_SECONDS = 300;
  * dedup bucket (below) and the alert's `event_time` column (SPEC-007 §Data contracts
  * §1; ADR-0013 §1 event-time windowing), so the two never diverge.
  */
-function eventUnixSeconds(time: string): number {
+export function eventUnixSeconds(time: string): number {
   return Math.floor(Date.parse(`${time.slice(0, 10)}T${time.slice(11, 19)}Z`) / 1000);
 }
 
@@ -33,19 +33,23 @@ export function buildDedupKey(match: RuleMatch): string {
 }
 
 /**
- * Persist an alert for a rule match. Returns true if a new row was inserted,
- * false if the dedup_key already existed (ON CONFLICT DO NOTHING). The CGES base
- * fields (category_uid 10, class_uid 10001, activity_id 1, cg_kind 'alert') and
- * status ('new') / timestamps come from the column defaults (migration 0002).
+ * Persist an alert for a rule match. Returns the new `alert_id` if a row was
+ * inserted, or null if the dedup_key already existed (ON CONFLICT DO NOTHING) — the
+ * caller (runDetectionCycle) groups the new alert into an incident only when a row
+ * was actually inserted (SPEC-007 §Operational §6). The CGES base fields
+ * (category_uid 10, class_uid 10001, activity_id 1, cg_kind 'alert'), status ('new'),
+ * created_at and updated_at come from the column defaults (migration 0002);
+ * event_time (migration 0004) is set explicitly from the source event time.
  */
 export async function upsertAlert(
   config: DetectConfig,
   match: RuleMatch,
   rule: SigmaRule,
   finalScore: number,
-): Promise<boolean> {
+): Promise<string | null> {
   const pool = new pg.Pool({ connectionString: config.ingest.INGEST_PG_URL });
   try {
+    const alertId = uuidv7();
     const result = await pool.query(
       `INSERT INTO alerts
          (alert_id, org_id, agent_id, title, severity_id, cg_detection_source, rule_id,
@@ -53,7 +57,7 @@ export async function upsertAlert(
        VALUES ($1, $2, $3, $4, $5, 'rule', $6, $7::uuid[], $8, $9, $10::jsonb, $11, to_timestamp($12))
        ON CONFLICT (dedup_key) DO NOTHING`,
       [
-        uuidv7(),
+        alertId,
         config.orgId,
         match.sourceEvent.agentId,
         rule.title,
@@ -67,7 +71,7 @@ export async function upsertAlert(
         eventUnixSeconds(match.sourceEvent.time),
       ],
     );
-    return result.rowCount === 1;
+    return result.rowCount === 1 ? alertId : null;
   } finally {
     await pool.end();
   }

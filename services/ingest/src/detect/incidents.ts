@@ -1,37 +1,94 @@
+import pg from "pg";
+import { v7 as uuidv7 } from "uuid";
+import { eventUnixSeconds } from "./alerts.js";
+import { INCIDENT_CORRELATION_WINDOW_SECONDS } from "./types.js";
 import type { DetectConfig, IncidentGroupingInput } from "./types.js";
 
+// SPEC-007 — incident grouping. Groups distinct correlated alerts (ADR-0013
+// event-time windowing) into incidents via a declarative grouping_key +
+// INSERT … ON CONFLICT (grouping_key) DO UPDATE. The grouping is the incident
+// analogue of SPEC-006's alert dedup, one level coarser: dedup collapses identical
+// re-fires (DO NOTHING), grouping accretes distinct alerts (DO UPDATE) without
+// clobbering human triage.
+
 /**
- * Thrown by the SPEC-007 incident-grouping stub during the harness-first RED
- * phase. The typed seam exists (so `tsc` + `biome` stay green and the
- * `incident_ac_*` tests RUN and fail visibly at the `upsertIncident` step, NOT at
- * setup); the grouping LOGIC lands at the SPEC-007 impl gate, at which point this
- * throw is replaced and incident_ac_002–005 go GREEN. Mirrors the SPEC-006
- * `NotImplementedError` pattern (`./errors.ts`).
+ * Canonical tactic token for the grouping key (SPEC-007 §Data contracts §4): the
+ * alert's MITRE tactics, de-duplicated, sorted, and joined — order-independent, so
+ * two alerts with the same tactic-set route to the same incident.
  */
-export class IncidentGroupingNotImplementedError extends Error {
-  constructor(symbol: string) {
-    super(
-      `SPEC-007 NotImplemented: ${symbol} — incident grouping logic lands in the SPEC-007 impl gate.`,
-    );
-    this.name = "IncidentGroupingNotImplementedError";
-  }
+function canonicalTactics(tactics: string[]): string {
+  return [...new Set(tactics)].sort().join(",");
 }
 
 /**
- * SPEC-007 §Operational §1/§4/§6 — group a newly-persisted alert into an incident.
- * Computes the `grouping_key` (`<org>::<agent>::<canonical_tactics>::<window_bucket>`,
- * §Data contracts §4, event-time windowed per ADR-0013 §1) and create-or-updates the
- * incident: `INSERT … ON CONFLICT (grouping_key) DO UPDATE` appends `alert_id` to
- * `alert_ids` and bumps `updated_at`, WITHOUT clobbering `status`/`assigned_to`
- * (the triage-preservation invariant). Called as a sibling step after a newly
- * inserted alert in `runDetectionCycle` (§Operational §6) — wiring lands with the
- * logic at the impl gate.
- *
- * Harness-first RED: NotImplemented until the SPEC-007 impl gate.
+ * The declarative correlation key (SPEC-007 §Data contracts §4):
+ * `<org>::<agent>::<canonical_tactics>::<window_bucket>`, event-time windowed
+ * (ADR-0013 §1) over INCIDENT_CORRELATION_WINDOW_SECONDS. The bucket embeds the
+ * window so create-or-update is a single declarative upsert (no read-then-write
+ * race), exactly as `dedup_key` does for alerts.
  */
-export function upsertIncident(
-  _config: DetectConfig,
-  _alert: IncidentGroupingInput,
+export function buildGroupingKey(alert: IncidentGroupingInput): {
+  groupingKey: string;
+  windowBucket: number;
+} {
+  const windowBucket = Math.floor(
+    eventUnixSeconds(alert.eventTime) / INCIDENT_CORRELATION_WINDOW_SECONDS,
+  );
+  const groupingKey = `${alert.orgId}::${alert.agentId}::${canonicalTactics(
+    alert.cgMitre.tactics,
+  )}::${windowBucket}`;
+  return { groupingKey, windowBucket };
+}
+
+/**
+ * SPEC-007 §Operational §1/§4/§6 — create-or-update an incident for a newly
+ * persisted alert:
+ *
+ * - No incident for the grouping_key yet ⇒ CREATE (incident_id UUIDv7, status
+ *   'open', activity_id 1 = Created, alert_ids = [this alert], window_start = the
+ *   bucket start, deterministic title).
+ * - An incident already exists for the grouping_key ⇒ APPEND this alert_id to
+ *   alert_ids (idempotent — `@>` skips an already-present id, preserving order and
+ *   uniqueItems) and bump updated_at. The `SET` list touches ONLY alert_ids and
+ *   updated_at, so `status` / `assigned_to` / `activity_id` / `cg_mitre` / `title`
+ *   are preserved — the triage-preservation invariant (§Operational §4): a new
+ *   correlated alert never resets a human's triage.
+ *
+ * The `incidents.agent_id → agents` FK is production-faithful (Convention #12):
+ * the alert (hence the incident) belongs to an enrolled agent. window_start is the
+ * bucket-start UTC timestamp, derived from event-time, never insert-time.
+ */
+export async function upsertIncident(
+  config: DetectConfig,
+  alert: IncidentGroupingInput,
 ): Promise<void> {
-  throw new IncidentGroupingNotImplementedError("upsertIncident");
+  const { groupingKey, windowBucket } = buildGroupingKey(alert);
+  const windowStartSeconds = windowBucket * INCIDENT_CORRELATION_WINDOW_SECONDS;
+  const title = `${canonicalTactics(alert.cgMitre.tactics)} activity on ${alert.agentId}`;
+  const pool = new pg.Pool({ connectionString: config.ingest.INGEST_PG_URL });
+  try {
+    await pool.query(
+      `INSERT INTO incidents
+         (incident_id, org_id, agent_id, title, status, cg_mitre, alert_ids, grouping_key, window_start)
+       VALUES ($1, $2, $3, $4, 'open', $5::jsonb, ARRAY[$6]::uuid[], $7, to_timestamp($8))
+       ON CONFLICT (grouping_key) DO UPDATE
+         SET alert_ids = CASE
+                           WHEN incidents.alert_ids @> excluded.alert_ids THEN incidents.alert_ids
+                           ELSE incidents.alert_ids || excluded.alert_ids
+                         END,
+             updated_at = now()`,
+      [
+        uuidv7(),
+        alert.orgId,
+        alert.agentId,
+        title,
+        JSON.stringify(alert.cgMitre),
+        alert.alertId,
+        groupingKey,
+        windowStartSeconds,
+      ],
+    );
+  } finally {
+    await pool.end();
+  }
 }
