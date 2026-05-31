@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "../../src/config.js";
-import type { DetectConfig } from "../../src/detect/types.js";
+import { CORRELATION_WINDOW_SECONDS_DEFAULT, type DetectConfig } from "../../src/detect/types.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -10,5 +10,10 @@ export const RULES_WINDOWS_DIR = join(here, "..", "..", "..", "..", "rules", "wi
 
 /** Build the DetectConfig the detection slice consumes for one cycle. */
 export function detectConfig(ingest: Config, orgId = "default"): DetectConfig {
-  return { ingest, orgId, rulesDir: RULES_WINDOWS_DIR };
+  return {
+    ingest,
+    orgId,
+    rulesDir: RULES_WINDOWS_DIR,
+    correlationWindowSeconds: CORRELATION_WINDOW_SECONDS_DEFAULT,
+  };
 }

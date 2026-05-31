@@ -1,10 +1,23 @@
 import type { Config } from "../config.js";
 
+/**
+ * ADR-0012 §8 default correlation window (seconds). One tunable shared by the
+ * dedup bucket AND the parent-pid self-join look-back (SPEC-006 §Operational §2).
+ */
+export const CORRELATION_WINDOW_SECONDS_DEFAULT = 300;
+
 /** Inputs for one detection cycle (SPEC-006 §Operational §1). */
 export interface DetectConfig {
   ingest: Config;
   orgId: string;
   rulesDir: string;
+  /**
+   * ADR-0012 §8 correlation window (seconds), per-org configurable. Bounds the
+   * parent-pid self-join look-back (SPEC-006 §Operational §2): a parent launched
+   * more than this many seconds before the child — or never captured — resolves
+   * to parent_image = null (the documented production false-negative).
+   */
+  correlationWindowSeconds: number;
 }
 
 /**
