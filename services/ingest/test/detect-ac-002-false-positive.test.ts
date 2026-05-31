@@ -30,6 +30,7 @@ test("detect_ac_002: explorer.exe -> powershell.exe yields 0 alerts (FP), cycle 
   // Parent: explorer.exe (NOT an Office application).
   await insertCgesEvent(config, {
     agentId,
+    orgId: "detect-ac-002",
     eventId: "01934abc-def0-4000-89ab-000000000221",
     activityId: 1,
     processPid: parentPid,
@@ -40,6 +41,7 @@ test("detect_ac_002: explorer.exe -> powershell.exe yields 0 alerts (FP), cycle 
   // Child: powershell.exe spawned by explorer (benign).
   await insertCgesEvent(config, {
     agentId,
+    orgId: "detect-ac-002",
     eventId: "01934abc-def0-4000-89ab-000000000222",
     activityId: 1,
     processPid: 5001,
@@ -49,11 +51,11 @@ test("detect_ac_002: explorer.exe -> powershell.exe yields 0 alerts (FP), cycle 
     time: "2026-05-31 10:00:01.000000000",
   });
 
-  const result = await runDetectionCycle(detectConfig(config));
+  const result = await runDetectionCycle(detectConfig(config, "detect-ac-002"));
 
   // (a) the cycle processed the batch ...
   expect(result.eventsEvaluated).toBeGreaterThan(0);
-  expect(await getWatermark(config, "default")).not.toBeNull();
+  expect(await getWatermark(config, "detect-ac-002")).not.toBeNull();
   // (b) ... and produced no alert (parent is not an Office app).
   expect(await getAlerts(config, { agentId })).toHaveLength(0);
 });

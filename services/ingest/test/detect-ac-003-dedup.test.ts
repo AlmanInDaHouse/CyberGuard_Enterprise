@@ -1,7 +1,7 @@
 import { beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 import { runDetectionCycle } from "../src/detect/index.js";
-import { getAlerts, insertCgesEvent } from "./helpers/db.js";
+import { enrollTestAgent, getAlerts, insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
 // SPEC-006 detect_ac_003 — dedup: five matching Office->script-host spawns in
@@ -31,6 +31,7 @@ test("detect_ac_003: 5 winword->powershell spawns in one 5-min bucket dedupe to 
     const seq = 3400 + i * 2;
     await insertCgesEvent(config, {
       agentId,
+      orgId: "detect-ac-003",
       eventId: `01934abc-def0-4000-89ab-${String(seq).padStart(12, "0")}`,
       activityId: 1,
       processPid: parentPid,
@@ -40,6 +41,7 @@ test("detect_ac_003: 5 winword->powershell spawns in one 5-min bucket dedupe to 
     });
     await insertCgesEvent(config, {
       agentId,
+      orgId: "detect-ac-003",
       eventId: `01934abc-def0-4000-89ab-${String(seq + 1).padStart(12, "0")}`,
       activityId: 1,
       processPid: childPid,
@@ -50,7 +52,8 @@ test("detect_ac_003: 5 winword->powershell spawns in one 5-min bucket dedupe to 
     });
   }
 
-  await runDetectionCycle(detectConfig(config));
+  await enrollTestAgent(config, agentId);
+  await runDetectionCycle(detectConfig(config, "detect-ac-003"));
 
   const alerts = await getAlerts(config, { agentId });
   expect(alerts).toHaveLength(1);

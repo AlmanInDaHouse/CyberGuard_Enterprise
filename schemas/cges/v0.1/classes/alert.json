@@ -42,7 +42,8 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        "description": "A source cges_events event_id (UUID). Version-agnostic — unlike alert_id (UUIDv7, slice-generated), source_events reference the agent's event_ids, which are UUIDv4 today (Uuid::new_v4). Relaxed as a temporary MVP unblock per SPEC-006 §Operational §5; the v4-vs-v7 reconciliation is ADR-0009/ADR-0011 domain and re-narrows to v7 when they settle it."
       },
       "minItems": 1,
       "uniqueItems": true

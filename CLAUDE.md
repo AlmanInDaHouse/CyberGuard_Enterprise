@@ -196,7 +196,6 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 | -------- | -------------- | ------ | ----- | ----------------- |
-| `ts-ci` | `24e0e4a` | Harness-first RED for SPEC-006 Detection MVP (Phase 4): `detect_ac_002`–`005` remain NotImplemented (via `runDetectionCycle`), so `ts-ci` is RED **by design** until the Phase-5 5e impl. `detect_ac_006` was **closed at 5d** (scorer implemented); `detect_ac_002`–`005` close at 5e. `detect_ac_001` is developer-local (`skipIf` non-win32), skipped in CI and NOT part of this debt. Rationale + plan: [[project-phase5-plan]] + SPEC-006 §Acceptance criteria. | Manuel / Claude Code | the Phase-5 5e SHA that turns `ts-ci` green — removes this row in that same SHA |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
 
@@ -222,3 +221,25 @@ The marquee is therefore validated developer-local. Procedure:
 **Validation status:** marquee 8/8 GREEN, validated developer-local in Phase 4 Session 16 (two consecutive runs, zombie reclaim validated). ts-ci Known CI debt row removed in this commit.
 
 If the local run fails, surface the failure to architect-Claude for diagnosis. The marquee's 5 assertions per SPEC-005 §AC AC-001 + the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 implementation defects, not infrastructure issues.
+
+## Developer-local SPEC-006 marquee validation
+
+The SPEC-006 detection marquee (`services/ingest/test/detect-ac-001-marquee.test.ts`, `detect_ac_001`) validates the end-to-end detection path on Windows: a real `cg-agent` captures a `winword.exe` stand-in spawning `powershell.exe`, the events reach ClickHouse `cges_events`, `runDetectionCycle` reads + normalizes + evaluates the `office_spawns_script_host` rule + scores + persists, and exactly one alert lands in the Postgres `alerts` table. Like the SPEC-005 marquee it cannot run in CI (no ETW on Linux runners; no container runtime on hosted Windows runners per ADR-0010 §Decision part 3); it is gated `skipIf(process.platform !== "win32")`.
+
+Procedure:
+
+1. Have Docker Desktop running on the Windows machine.
+2. Open an **elevated** terminal (Run as Administrator) at the repo root.
+3. Run:
+
+   ```sh
+   cd services/ingest
+   pnpm install
+   pnpm test
+   ```
+
+4. The vitest run executes the full suite including the SPEC-005 marquee AND `detect_ac_001` (both `.skipIf` gates are inactive on Windows).
+5. `detect_ac_001` asserts exactly one Postgres alert with `rule_id = rule.office_spawns_script_host`, `cg_detection_source = rule`, `final_score = 0.9`, `status = new`, and a well-formed `dedup_key`. The probe spawns the `winword.exe` stand-in **after** the agent's ETW session opens, so the parent is captured — a green run does NOT imply production coverage of the already-running-Office case (SPEC-006 §Operational §2 production false-negative).
+6. Standing gate before merging changes to the detection path: `services/ingest/src/detect/`, `rules/windows/`, or the `alerts` / `cges_events` schema.
+
+**Validation status:** pending — `detect_ac_001` is validated developer-local + elevated after the 5e commit lands. The CI-able detection suite (`detect_ac_002`–`006` + migration / read-model / engine / scorer) is GREEN in `ts-ci`; the marquee is the end-to-end gate.

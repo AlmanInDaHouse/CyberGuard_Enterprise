@@ -250,3 +250,22 @@ export async function getWatermark(config: Config, orgId: string): Promise<strin
     await pool.end();
   }
 }
+
+// Enroll a dummy agent so an alert referencing it satisfies the
+// alerts.agent_id -> agents foreign key (ADR-0012 §6 — every alert belongs to an
+// enrolled agent). The synthetic detection tests fabricate cges_events directly
+// (cges_events has no FK to agents), so they must enroll the agent the events
+// belong to BEFORE runDetectionCycle inserts an alert. Idempotent.
+export async function enrollTestAgent(config: Config, agentId: string): Promise<void> {
+  const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  try {
+    await pool.query(
+      `INSERT INTO agents (agent_id, pubkey, cert_pem, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 day')
+       ON CONFLICT (agent_id) DO NOTHING`,
+      [agentId, Buffer.from([0]), "test-cert"],
+    );
+  } finally {
+    await pool.end();
+  }
+}
