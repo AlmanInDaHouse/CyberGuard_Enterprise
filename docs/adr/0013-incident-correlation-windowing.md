@@ -1,6 +1,6 @@
 # ADR-0013: Incident correlation windowing — event-time basis, distinct from the dedup bucket
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-05-31
 - Last updated: 2026-05-31
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)

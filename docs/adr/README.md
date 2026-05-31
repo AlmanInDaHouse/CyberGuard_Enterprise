@@ -29,6 +29,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0010](0010-agent-privilege-model-mvp.md) | Agent privilege model and installation posture for the MVP | Accepted |
 | [0011](0011-cges-process-activity-v0-1.md) | Per-class CGES jurisprudence — Process Activity v0.1 | Accepted |
 | [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) | Accepted |
+| [0013](0013-incident-correlation-windowing.md) | Incident correlation windowing — event-time basis | Accepted |
 
 ## Dependencies
 
@@ -68,3 +69,4 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0012 → ADR-0007 (extends the transitory-TypeScript-for-MVP logic to the detection slice; same firehose-deferred exit)
 - ADR-0012 → ADR-0009 (FINAL / GROUP BY reads because of ReplacingMergeTree at-least-once delivery)
 - ADR-0012 → ADR-0011 (reads Process Activity 1007; flags the §4 ETW-mapping contradiction)
+- ADR-0013 → ADR-0012 (amends in part: ADR-0013 §2 amends ADR-0012 §8's single-tunable framing in place — incident/stateful correlation uses its own window, distinct from and wider than the 300 s dedup bucket; does not supersede)

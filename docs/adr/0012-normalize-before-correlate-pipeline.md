@@ -264,6 +264,10 @@ The following block is added to `docs/adr/0002-language-per-component.md` (befor
 
 > **Amendment 2026-05-30 (ADR-0012): MVP detection slice hosted in TypeScript ingest (transitory).** ADR-0002's table assigns `services/pipeline/` to Go, and Rule 3 requires a superseding/amending ADR for any non-Go server-side artifact. ADR-0012 §1 amends this for the MVP detection slice only: the normalize→rule→score→alert slice is implemented in TypeScript inside `services/ingest/src/detect/`, not in Go `services/pipeline/`. Transitory and narrow — `services/pipeline/`'s Go assignment is otherwise unchanged. Named exit: when the event-firehose ADR lands with the Go toolchain, the slice is ported into `services/pipeline/` and removed from ingest. Mirrors ADR-0007's amendment of the `services/ingest/` row.
 
+## Amendment 2026-05-31 (ADR-0013): the correlation window is two distinct tunables, not one
+
+§8 defined a single 300 s correlation window and stated the dedup bucket and "the future hybrid join share one tunable"; §Out of scope stated stateful multi-event correlation "Uses the §8 window." [ADR-0013](0013-incident-correlation-windowing.md) §2 supersedes that single-tunable framing where they differ: the **dedup bucket** keeps its 300 s value and role (collapsing identical re-fires — unchanged), while **incident/stateful correlation** uses its **own, wider window** (value set in SPEC-007, per-org configurable). ADR-0012 remains `Accepted`; this amendment is additive and backward-compatible — the 300 s dedup tunable and every dedup test are untouched. Rationale: a 5-minute bucket is calibrated to collapse identical re-fires, not to span a multi-step attack chain of distinct alerts; conflating the two widths would fragment one incident into many.
+
 ## References
 
 - [ADR-0002](0002-language-per-component.md) — Language per component. Assigns the pipeline engine to Go; §1 amends it for the MVP detection slice (transitory).
