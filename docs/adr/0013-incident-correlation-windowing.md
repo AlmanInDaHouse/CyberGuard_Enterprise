@@ -91,7 +91,7 @@ Each deferred item names its destination:
 - **The `alerts` event-time column** (DDL, type, nullability, backfill of pre-existing rows). SPEC-007 — the additive migration that realises §1's basis.
 - **`cg_mitre` / grouping-tactic field on `incident.json`.** SPEC-007 schema work (the audit found `incident.json` declares no MITRE field though §9 groups by tactic).
 - **Incident lifecycle (create-or-update, status/assignment preservation on append).** SPEC-007; the `ON CONFLICT DO UPDATE` that appends `alert_ids` without clobbering human triage state (Convention #12).
-- **`incidents.agent_id` FK to `agents`** (production-faithful per Convention #3 / #12). SPEC-007.
+- **`incidents.agent_id` FK to `agents`** (production-faithful per Convention #12). SPEC-007.
 - **Stateful multi-event correlation beyond single-tactic grouping** (sequences, multi-step joins) and **the rule+ML hybrid join.** Still deferred per ADR-0012 §Out of scope; they inherit §1's basis when they land.
 - **Alert surfacing (API/dashboard, drill-down) and packaging.** Later phases (C; the packaging SPEC per ADR-0010 §Decision part 2).
 
