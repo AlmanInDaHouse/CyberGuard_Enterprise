@@ -190,6 +190,7 @@ export interface AlertRow {
   status: string;
   dedup_key: string;
   source_events: string[];
+  cg_mitre: { tactics: string[]; techniques: string[] } | null;
 }
 
 export async function getAlerts(
@@ -211,7 +212,7 @@ export async function getAlerts(
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const r = await pool.query<AlertRow>(
       `SELECT alert_id, rule_id, cg_detection_source, final_score::float8 AS final_score,
-              status, dedup_key, source_events
+              status, dedup_key, source_events, cg_mitre
        FROM alerts ${where}
        ORDER BY created_at`,
       params,
@@ -264,6 +265,71 @@ export async function enrollTestAgent(config: Config, agentId: string): Promise<
        VALUES ($1, $2, $3, now() + interval '1 day')
        ON CONFLICT (agent_id) DO NOTHING`,
       [agentId, Buffer.from([0]), "test-cert"],
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+// SPEC-007 additions — incidents read/triage helpers for the incident-grouping
+// harness. The incidents table lands in migration 0005 (runs in startBackends), so
+// these query a real table. In the harness-first RED, incident_ac_002–005 throw at
+// upsertIncident (NotImplemented) BEFORE reaching getIncidents — the RED is
+// NotImplemented, never "incidents table missing".
+
+export interface IncidentRow {
+  incident_id: string;
+  org_id: string;
+  agent_id: string;
+  status: string;
+  assigned_to: string | null;
+  cg_mitre: { tactics: string[]; techniques: string[] } | null;
+  alert_ids: string[];
+  grouping_key: string;
+}
+
+export async function getIncidents(
+  config: Config,
+  opts: { agentId?: string; orgId?: string } = {},
+): Promise<IncidentRow[]> {
+  const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  try {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (opts.agentId !== undefined) {
+      params.push(opts.agentId);
+      clauses.push(`agent_id = $${params.length}`);
+    }
+    if (opts.orgId !== undefined) {
+      params.push(opts.orgId);
+      clauses.push(`org_id = $${params.length}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const r = await pool.query<IncidentRow>(
+      `SELECT incident_id, org_id, agent_id, status, assigned_to, cg_mitre, alert_ids, grouping_key
+       FROM incidents ${where}
+       ORDER BY created_at`,
+      params,
+    );
+    return r.rows;
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Simulate an analyst moving an incident's triage state (status / assignment). */
+export async function setIncidentTriage(
+  config: Config,
+  incidentId: string,
+  triage: { status?: string; assignedTo?: string },
+): Promise<void> {
+  const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  try {
+    await pool.query(
+      `UPDATE incidents
+       SET status = COALESCE($2, status), assigned_to = COALESCE($3, assigned_to), updated_at = now()
+       WHERE incident_id = $1`,
+      [incidentId, triage.status ?? null, triage.assignedTo ?? null],
     );
   } finally {
     await pool.end();

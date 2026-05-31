@@ -52,7 +52,8 @@
     "updated_at": {
       "type": "string",
       "format": "date-time"
-    }
+    },
+    "cg_mitre": { "$ref": "../common/cg_mitre.json" }
   },
   "required": [
     "category_uid",

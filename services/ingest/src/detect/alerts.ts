@@ -17,10 +17,18 @@ const DEDUP_BUCKET_SECONDS = 300;
  * are bucketed by when they occurred. Sub-second precision is irrelevant to a
  * 5-minute bucket, so the seconds-granularity parse is sufficient.
  */
+/**
+ * Event-occurrence time as integer Unix seconds (UTC), parsed from the ClickHouse
+ * `time` string ("YYYY-MM-DD HH:MM:SS.fffffffff"). The shared basis for BOTH the
+ * dedup bucket (below) and the alert's `event_time` column (SPEC-007 §Data contracts
+ * §1; ADR-0013 §1 event-time windowing), so the two never diverge.
+ */
+function eventUnixSeconds(time: string): number {
+  return Math.floor(Date.parse(`${time.slice(0, 10)}T${time.slice(11, 19)}Z`) / 1000);
+}
+
 export function buildDedupKey(match: RuleMatch): string {
-  const t = match.sourceEvent.time; // "YYYY-MM-DD HH:MM:SS.fffffffff" (UTC)
-  const unixMs = Date.parse(`${t.slice(0, 10)}T${t.slice(11, 19)}Z`);
-  const bucket = Math.floor(unixMs / 1000 / DEDUP_BUCKET_SECONDS);
+  const bucket = Math.floor(eventUnixSeconds(match.sourceEvent.time) / DEDUP_BUCKET_SECONDS);
   return `${match.sourceEvent.agentId}::${match.ruleId}::${match.sourceEvent.processName}::${bucket}`;
 }
 
@@ -41,8 +49,8 @@ export async function upsertAlert(
     const result = await pool.query(
       `INSERT INTO alerts
          (alert_id, org_id, agent_id, title, severity_id, cg_detection_source, rule_id,
-          source_events, heuristic_score, final_score, cg_mitre, dedup_key)
-       VALUES ($1, $2, $3, $4, $5, 'rule', $6, $7::uuid[], $8, $9, $10::jsonb, $11)
+          source_events, heuristic_score, final_score, cg_mitre, dedup_key, event_time)
+       VALUES ($1, $2, $3, $4, $5, 'rule', $6, $7::uuid[], $8, $9, $10::jsonb, $11, to_timestamp($12))
        ON CONFLICT (dedup_key) DO NOTHING`,
       [
         uuidv7(),
@@ -56,6 +64,7 @@ export async function upsertAlert(
         finalScore,
         JSON.stringify(match.cgMitre),
         buildDedupKey(match),
+        eventUnixSeconds(match.sourceEvent.time),
       ],
     );
     return result.rowCount === 1;

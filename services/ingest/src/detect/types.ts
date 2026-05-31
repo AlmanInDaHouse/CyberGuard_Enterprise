@@ -6,6 +6,15 @@ import type { Config } from "../config.js";
  */
 export const CORRELATION_WINDOW_SECONDS_DEFAULT = 300;
 
+/**
+ * SPEC-007 / ADR-0013 §2 incident correlation window (seconds). Incident grouping's
+ * OWN tunable — distinct from and wider than the 300 s dedup bucket (ADR-0013 §2),
+ * event-time windowed (ADR-0013 §1), per-org configurable (NFR-007-001). 1800 s
+ * (30 min) groups a multi-step intrusion of distinct alerts while staying under an
+ * hour.
+ */
+export const INCIDENT_CORRELATION_WINDOW_SECONDS = 1800;
+
 /** Inputs for one detection cycle (SPEC-006 §Operational §1). */
 export interface DetectConfig {
   ingest: Config;
@@ -78,4 +87,18 @@ export interface RuleMatch {
   severityId: number;
   cgMitre: { tactics: string[]; techniques: string[] };
   sourceEvent: NormalizedProcessEvent;
+}
+
+/**
+ * The persisted-alert fields the SPEC-007 incident-grouping step (§Operational §6)
+ * consumes — enough to compute the grouping_key (org + agent + canonical tactic-set
+ * + event-time window, §Data contracts §4) and append the alert to its incident.
+ */
+export interface IncidentGroupingInput {
+  alertId: string;
+  orgId: string;
+  agentId: string;
+  cgMitre: { tactics: string[]; techniques: string[] };
+  /** The alert's `event_time` (event-occurrence; ADR-0013 §1) — the windowing basis. */
+  eventTime: string;
 }
