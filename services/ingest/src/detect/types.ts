@@ -65,3 +65,17 @@ export interface DetectCycleResult {
   eventsEvaluated: number;
   alertsWritten: number;
 }
+
+/**
+ * The 5c evaluator's output: the matching rule's contribution to an alert,
+ * BEFORE scoring (5d) and alert assembly/persist (5e). Carries no dedup_key,
+ * no final_score, no alert_id — the scorer (5d) consumes heuristicScore and the
+ * persist step (5e) builds the alert from this + the final score.
+ */
+export interface RuleMatch {
+  ruleId: string;
+  heuristicScore: number;
+  severityId: number;
+  cgMitre: { tactics: string[]; techniques: string[] };
+  sourceEvent: NormalizedProcessEvent;
+}
