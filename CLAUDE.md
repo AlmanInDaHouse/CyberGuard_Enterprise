@@ -62,6 +62,17 @@ Splitting them across commits to exploit path filters (e.g. landing the debt row
 
 This was the implicit lesson of Sessions 6–7; it is codified here so future sessions inherit it.
 
+## Local pre-commit gate
+
+Before any `git push`, the agent runs the per-workspace gate locally and confirms it passes. This is the local mirror of the post-push *CI monitoring* gate above: running it first prevents avoidable red CI and the follow-up formatting commit that `cargo fmt` / Biome would otherwise force after the push. The commands below mirror the CI workflows exactly, so a green local gate predicts a green CI run.
+
+- **Rust (`agent/cg-agent/`, gates `rust-ci`):** `cargo fmt --all -- --check`, then `cargo clippy --all-targets --all-features -- -D warnings`, then `cargo test --all`. The `fmt --check` step is mandatory and non-obvious — `clippy` validates source but NOT formatting, and `rust-ci` runs `cargo fmt --all -- --check` and fails on any diff (Convention #11). `cargo check` is an optional faster inner-loop step that `clippy` subsumes. rustfmt is deterministic across machines because the toolchain is pinned (`rust-toolchain.toml`, `channel = "1.93.0"`).
+- **TypeScript (`services/ingest/`, and the future `services/api/` + `dashboard/`, gates `ts-ci`):** `pnpm run typecheck` (`tsc -p tsconfig.json --noEmit`), then `pnpm run lint` (`biome check .`), then `pnpm test` (`vitest run`).
+- **CGES schemas / examples (gates `schema-validation`):** `task validate-schemas` when any schema or example under `schemas/cges/` changes.
+- **Pre-compiled-binary tests:** when agent source changed and a test launches the pre-built binary (the SPEC-005 / SPEC-006 marquees via `agentBinaryPath()`), `cargo build --release --bin cg-agent` and verify the `.exe` timestamp is posterior to the edit before running the test (Convention #10).
+
+The gate is expressed as per-workspace commands because the Taskfile `lint` / `test` targets are still `SPEC-XXX-ci` stubs; when an `SPEC-XXX-ci` lands unified `task` targets, this section points at those instead.
+
 ## Local environment operations
 
 The agent operates Manuel's local environment directly (not just the repository) for tools the project depends on. The scope, the package manager preference, the allowed operations, and the confirmation rules are below.
