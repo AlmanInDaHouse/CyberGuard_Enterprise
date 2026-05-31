@@ -63,11 +63,15 @@ async function insertAgent(): Promise<void> {
 }
 
 async function insertAlert(a: AlertInput): Promise<void> {
+  // `event_time` is NOT NULL as of migration 0004 (SPEC-007); a valid alert must
+  // carry it. The value is irrelevant to the 0002 constraints under test here, so
+  // a literal now() suffices (the column's event-occurrence semantics are exercised
+  // by the incident_ac_* / 0004 tests, not this 0002 constraint gate).
   await client.query(
     `INSERT INTO alerts
        (alert_id, agent_id, title, severity_id, cg_detection_source, rule_id, model_id,
-        source_events, heuristic_score, ueba_score, ml_score, final_score, status, dedup_key)
-     VALUES ($1, $2, 'detection-test', $3, $4, $5, $6, $7::uuid[], $8, $9, $10, $11, $12, $13)`,
+        source_events, heuristic_score, ueba_score, ml_score, final_score, status, dedup_key, event_time)
+     VALUES ($1, $2, 'detection-test', $3, $4, $5, $6, $7::uuid[], $8, $9, $10, $11, $12, $13, now())`,
     [
       a.alertId,
       a.agentId,
