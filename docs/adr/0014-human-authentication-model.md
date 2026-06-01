@@ -1,6 +1,6 @@
 # ADR-0014: Human authentication model — local self-hosted, password + TOTP
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-06-01
 - Last updated: 2026-06-01
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)

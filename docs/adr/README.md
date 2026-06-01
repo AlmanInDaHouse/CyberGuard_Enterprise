@@ -30,6 +30,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0011](0011-cges-process-activity-v0-1.md) | Per-class CGES jurisprudence — Process Activity v0.1 | Accepted |
 | [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) | Accepted |
 | [0013](0013-incident-correlation-windowing.md) | Incident correlation windowing — event-time basis | Accepted |
+| [0014](0014-human-authentication-model.md) | Human authentication model — local self-hosted, password + TOTP | Accepted |
 
 ## Dependencies
 
@@ -70,3 +71,6 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0012 → ADR-0009 (FINAL / GROUP BY reads because of ReplacingMergeTree at-least-once delivery)
 - ADR-0012 → ADR-0011 (reads Process Activity 1007; flags the §4 ETW-mapping contradiction)
 - ADR-0013 → ADR-0012 (amends in part: ADR-0013 §2 amends ADR-0012 §8's single-tunable framing in place — incident/stateful correlation uses its own window, distinct from and wider than the 300 s dedup bucket; does not supersede)
+- ADR-0014 → ADR-0001 (locates the human-facing `services/api` component in the monorepo)
+- ADR-0014 → ADR-0002 (`services/api` = TypeScript + Fastify + Zod, per the language table row)
+- ADR-0014 → ADR-0003 (consumes the storage homes: users / RBAC / audit_log → Postgres, sessions → Redis; does not amend)
