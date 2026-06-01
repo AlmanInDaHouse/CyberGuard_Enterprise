@@ -29,3 +29,4 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-006](SPEC-006-detection-mvp.md) | Detection MVP — process-rule pipeline | Accepted |
 | [SPEC-007](SPEC-007-incident-grouping-mvp.md) | Incident grouping MVP | Accepted |
 | [SPEC-008](SPEC-008-auth-core.md) | Auth-core | Accepted |
+| [SPEC-009](SPEC-009-read-slice.md) | Read-slice | Accepted |

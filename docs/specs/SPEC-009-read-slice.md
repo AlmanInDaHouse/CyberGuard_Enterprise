@@ -2,7 +2,7 @@
 
 - **ID:** SPEC-009
 - **Title:** Read-slice
-- **Status:** Proposed
+- **Status:** Accepted
 - **Depends on:** SPEC-008 (the auth-core this slice sits behind — the `makeRequireSession`/`makeRequireRole` preHandler factories (`services/api/src/auth/prehandlers.ts`, realised at SPEC-008's GREEN gate), the `cgsess` HttpOnly cookie, the `POST /v1/auth/login` the dashboard logs in through, the Fastify+Zod scaffold + pg pool the read endpoints extend; it explicitly deferred the read endpoints + their RBAC matrix to this SPEC), SPEC-007 (the `incidents` model A produced — the rows this slice reads), SPEC-006 (the `alerts` producer; its §Out of scope filed the WebSocket dashboard as a later phase), ADR-0014 (the human-auth model), ADR-0003 (incidents/alerts → Postgres; the reads run there), ADR-0001/ADR-0002 (`services/api` = TS/Fastify; `dashboard/` = Next.js 15), the [threat model](../security/threat-model.md) § cg-api + § Dashboard (the read-authz + cookie mandates)
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-06-02
