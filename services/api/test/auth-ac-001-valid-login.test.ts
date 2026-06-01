@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { buildTestApp, insertUserDirect } from "./helpers/db.js";
+import { buildTestApp, currentTotp, insertUserDirect } from "./helpers/db.js";
 
 // auth_ac_001 — a valid login issues an opaque session cookie.
 //
@@ -35,7 +35,7 @@ test("valid password + TOTP issues an opaque session cookie", async () => {
     payload: {
       email: "ac001@example.test",
       password: "correct horse battery",
-      totp_code: "000000",
+      totp_code: currentTotp(),
     },
   });
   // RED: 501 (login control absent). GREEN: 200 with a cgsess cookie.

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { buildTestApp, insertUserDirect } from "./helpers/db.js";
+import { buildTestApp, currentTotp, insertUserDirect } from "./helpers/db.js";
 
 // auth_ac_002 — invalid login is rejected, generically, with no session.
 //
@@ -43,10 +43,12 @@ test("wrong TOTP is rejected with a generic 401", async () => {
   expect(res.statusCode).toBe(401); // RED: 501
 });
 
-test("a replayed TOTP code is rejected", async () => {
-  const first = await login("correct horse battery", "123456");
-  const replay = await login("correct horse battery", "123456");
-  // GREEN: even a once-valid code reused within its step → 401. RED: 501.
-  expect(replay.statusCode).toBe(401);
-  expect(first.statusCode).toBe(replay.statusCode); // indistinguishable
+test("a once-accepted TOTP code cannot be replayed", async () => {
+  // SECURITY: a valid code is single-use. The first use is accepted; the SAME
+  // code reused within its window is rejected — replay detection, not wrong-code.
+  const code = currentTotp();
+  const first = await login("correct horse battery", code);
+  const replay = await login("correct horse battery", code);
+  expect(first.statusCode).toBe(200); // valid code accepted once
+  expect(replay.statusCode).toBe(401); // same code reused → replay rejected
 });

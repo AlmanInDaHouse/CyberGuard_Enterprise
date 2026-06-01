@@ -1,24 +1,36 @@
 import type { FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
+import otplib from "otplib";
 import pg from "pg";
 import { buildApp } from "../../src/app.js";
+import { hashPassword } from "../../src/auth/password.js";
 import type { Config } from "../../src/config.js";
 import { buildServices } from "../../src/services.js";
 
 /**
  * Direct-SQL / direct-Redis setup helpers for the auth-core harness. They write
  * the REAL tables (users / audit_log, created by the api migrations in
- * startBackends) and the REAL Redis session keyspace — so a test's PRECONDITIONS
- * exist, and the RED is always the absent CONTROL (login / RBAC / revocation /
- * rate-limit / CSRF / user-creation), never broken setup. Mirrors the pattern of
+ * startBackends) and the REAL Redis session keyspace, so a test's PRECONDITIONS
+ * exist and the assertion under test is the only variable. Mirrors the pattern of
  * services/ingest/test/helpers/db.ts (enrollTestAgent, insertCgesEvent).
  */
 
-/** Insert a user row directly (bypassing the absent createUser logic) so login /
- *  RBAC / TOTP-enrollment tests have a precondition principal. password_hash and
- *  totp_secret carry placeholders — login never verifies them in RED (it throws
- *  first); auth_ac_008 deliberately does NOT use this helper (it exercises the
- *  real createUser). Returns the generated user_id. */
+/** A valid base32 TOTP secret shared by the harness; the login / enrollment tests
+ *  compute the current code from it via `currentTotp`. */
+export const KNOWN_TOTP_SECRET = "JBSWY3DPEHPK3PXP";
+/** The default password `insertUserDirect` hashes; the login tests send this. */
+export const DEFAULT_PASSWORD = "correct horse battery";
+
+/** The current RFC 6238 code for a secret (default: the shared harness secret). */
+export function currentTotp(secret: string = KNOWN_TOTP_SECRET): string {
+  return otplib.authenticator.generate(secret);
+}
+
+/** Insert a user row directly (the bootstrap-CLI equivalent) so login / RBAC /
+ *  enrollment tests have a precondition principal with REAL credentials: a true
+ *  Argon2id hash of `password` and the shared base32 TOTP secret, encrypted at
+ *  rest exactly as createUser stores it. auth_ac_008 deliberately does NOT use
+ *  this helper (it exercises the real createUser). Returns the user_id. */
 export async function insertUserDirect(
   config: Config,
   opts: {
@@ -28,9 +40,12 @@ export async function insertUserDirect(
     totpEnrolled?: boolean;
     status?: "active" | "disabled";
     userId?: string;
+    password?: string;
+    totpSecret?: string;
   },
 ): Promise<string> {
   const userId = opts.userId ?? globalThis.crypto.randomUUID();
+  const passwordHash = await hashPassword(opts.password ?? DEFAULT_PASSWORD);
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
@@ -41,8 +56,8 @@ export async function insertUserDirect(
         userId,
         opts.orgId ?? "default",
         opts.email,
-        "PLACEHOLDER-not-a-real-hash",
-        "PLACEHOLDER-base32-secret",
+        passwordHash,
+        opts.totpSecret ?? KNOWN_TOTP_SECRET,
         config.API_DB_ENC_PASSPHRASE,
         opts.totpEnrolled ?? true,
         opts.role,

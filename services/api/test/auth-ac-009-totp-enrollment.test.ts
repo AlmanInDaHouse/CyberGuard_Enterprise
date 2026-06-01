@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { buildTestApp, getUserByEmail, insertUserDirect } from "./helpers/db.js";
+import { buildTestApp, currentTotp, getUserByEmail, insertUserDirect } from "./helpers/db.js";
 
 // auth_ac_009 — confirming a TOTP code flips totp_enrolled false→true (the
 // no-delivery, on-screen first-enrollment ADR-0014 keeps in scope).
@@ -31,7 +31,7 @@ test("confirming a code flips totp_enrolled false→true", async () => {
   const res = await apph.app.inject({
     method: "POST",
     url: "/v1/auth/totp/confirm",
-    payload: { userId, totp_code: "000000" },
+    payload: { userId, totp_code: currentTotp() },
   });
   // RED: 501 (enrollment-confirmation absent). GREEN: 2xx.
   expect(res.statusCode).toBeLessThan(300);

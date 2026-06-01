@@ -29,6 +29,7 @@ test("repeated failures for one account are throttled (429)", async () => {
     const r = await apph.app.inject({
       method: "POST",
       url: "/v1/auth/login",
+      remoteAddress: "198.51.100.41",
       payload: { email: "rl@ac004.test", password: "wrong", totp_code: "000000" },
     });
     last = r.statusCode;

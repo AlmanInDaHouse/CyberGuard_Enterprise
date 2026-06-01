@@ -1,40 +1,73 @@
 import type { FastifyInstance } from "fastify";
 import type { Services } from "../services.js";
+import { makeRequireCsrf, makeRequireRole, makeRequireSession } from "./prehandlers.js";
 import type { CreateUserInput, LoginInput } from "./service.js";
 
 /**
- * SPEC-008 §Operational — the auth-core HTTP surface. During the RED gate every
- * handler delegates to the AuthService stub, which throws NotImplementedError →
- * the app error handler maps it to 501. The GREEN gate fills the service; the
- * route shapes (and, at GREEN, the RBAC preHandler + Zod body schemas + CSRF
- * check) land then. The routes exist so each AC's RED is "control absent on a
- * present endpoint", not a 404.
+ * SPEC-008 §Operational — the auth-core HTTP surface. Session lifecycle is open
+ * (login) or session-guarded (logout); admin user-management is guarded by
+ * requireSession + requireRole('admin') + requireCsrf; mutations carry CSRF.
+ * TOTP first-enrollment confirmation is proof-of-possession (a valid code), so it
+ * needs no prior session (§Operational §8).
  */
 export function registerAuthRoutes(app: FastifyInstance, services: Services): void {
-  // --- session lifecycle ---
-  app.post("/v1/auth/login", async (req) => services.auth.login(req.body as LoginInput));
-  app.post("/v1/auth/logout", async () => services.auth.logout(""));
-  app.post("/v1/auth/totp/confirm", async (req) =>
-    services.auth.confirmTotpEnrollment(req.body as { userId: string; totp_code: string }),
-  );
-  app.post("/v1/auth/password", async (req) =>
-    services.auth.changePassword(
-      req.body as {
-        userId: string;
-        currentPassword: string;
-        newPassword: string;
-        totp_code: string;
-      },
-    ),
+  const requireSession = makeRequireSession(services);
+  const requireAdmin = makeRequireRole("admin");
+  const requireCsrf = makeRequireCsrf();
+
+  app.post("/v1/auth/login", async (req, reply) => {
+    const result = await services.auth.login(req.body as LoginInput, req.ip);
+    reply.setCookie("cgsess", result.token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+    });
+    return reply.code(200).send({ csrf_token: result.csrfToken });
+  });
+
+  app.post("/v1/auth/logout", { preHandler: requireSession }, async (req, reply) => {
+    await services.auth.logout(req.cookies?.cgsess ?? "");
+    reply.clearCookie("cgsess", { path: "/" });
+    return { ok: true };
+  });
+
+  app.post("/v1/auth/totp/confirm", async (req) => {
+    await services.auth.confirmTotpEnrollment(req.body as { userId: string; totp_code: string });
+    return { ok: true };
+  });
+
+  app.post("/v1/auth/password", { preHandler: [requireSession, requireCsrf] }, async (req) => {
+    const session = req.authSession;
+    if (!session) throw new Error("unreachable: requireSession populates authSession");
+    const body = req.body as { currentPassword: string; newPassword: string; totp_code: string };
+    await services.auth.changePassword({ userId: session.user_id, ...body });
+    return { ok: true };
+  });
+
+  // --- admin-only user management ---
+  app.post(
+    "/v1/users",
+    { preHandler: [requireSession, requireAdmin, requireCsrf] },
+    async (req, reply) => {
+      const created = await services.auth.createUser(req.body as CreateUserInput);
+      return reply.code(201).send(created);
+    },
   );
 
-  // --- admin-only user management (RBAC enforced at the GREEN gate) ---
-  app.post("/v1/users", async (req) => services.auth.createUser(req.body as CreateUserInput));
-  app.get("/v1/users", async () => services.auth.listUsers());
-  app.post("/v1/users/:id/role", async (req) =>
-    services.auth.assignRole(
-      (req.params as { id: string }).id,
-      (req.body as { role: string }).role,
-    ),
+  app.get("/v1/users", { preHandler: [requireSession, requireAdmin] }, async () =>
+    services.auth.listUsers(),
+  );
+
+  app.post(
+    "/v1/users/:id/role",
+    { preHandler: [requireSession, requireAdmin, requireCsrf] },
+    async (req) => {
+      await services.auth.assignRole(
+        (req.params as { id: string }).id,
+        (req.body as { role: string }).role,
+      );
+      return { ok: true };
+    },
   );
 }

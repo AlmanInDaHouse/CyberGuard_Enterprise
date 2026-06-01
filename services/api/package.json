@@ -23,9 +23,12 @@
     "format": "biome format --write ."
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@node-rs/argon2": "^2.0.2",
     "fastify": "^5.2.0",
     "ioredis": "^5.4.2",
     "kysely": "^0.27.5",
+    "otplib": "^12.0.1",
     "pg": "^8.13.1",
     "pino": "^9.5.0",
     "uuid": "^11.0.5",
