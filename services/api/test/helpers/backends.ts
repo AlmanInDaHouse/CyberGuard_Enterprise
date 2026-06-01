@@ -1,6 +1,7 @@
 import { GenericContainer, type StartedTestContainer, Wait } from "testcontainers";
 import type { Config } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
+import { applyReadSchema } from "./read-schema.js";
 
 export interface Backends {
   config: Config;
@@ -44,6 +45,9 @@ export async function startBackends(): Promise<Backends> {
     };
 
     await runMigrations(config);
+    // SPEC-009 read-slice — materialise the ingest-owned read-target tables
+    // (agents/alerts/incidents) the read-API reads (option (c); see read-schema.ts).
+    await applyReadSchema(config);
 
     return {
       config,

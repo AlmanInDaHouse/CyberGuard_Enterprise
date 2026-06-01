@@ -2,6 +2,7 @@ import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { AuthError, ForbiddenError, NotImplementedError, RateLimitError } from "./errors.js";
+import { registerReadRoutes } from "./read/routes.js";
 import type { Services } from "./services.js";
 
 type LoggerOpt = FastifyServerOptions["logger"];
@@ -30,5 +31,6 @@ export function buildApp(services: Services, logger: LoggerOpt = false): Fastify
   });
 
   registerAuthRoutes(app, services);
+  registerReadRoutes(app, services);
   return app;
 }
