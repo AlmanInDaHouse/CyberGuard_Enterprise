@@ -207,6 +207,7 @@ Workflows that are currently red on `main` and that Manuel has explicitly downgr
 
 | Workflow | Declared on SHA | Reason | Owner | Target SHA / date |
 | -------- | -------------- | ------ | ----- | ----------------- |
+| `ts-ci` (`check-api` job) | `<RED-SHA>` | SPEC-008 auth-core harness-first RED — the nine `auth_ac_*` tests fail by design (auth logic stubbed `NotImplemented` → 501; the security ACs RBAC/rate-limit/revocation/CSRF are red by control-absent, certified per-AC, not by broken setup). The structure is GREEN: the api-owned migrations `0001_users` / `0002_audit_log` apply and 12 migration/structure tests pass. Manuel authorized this RED at the Session 19 gate. | Claude Code / Manuel | closed in the SPEC-008 GREEN impl SHA (row removed there, Convention #13) |
 
 When adding an entry, also link to the relevant memory (e.g. `[[project-pending-...]]`) or the chat decision so the rationale is retrievable later.
 

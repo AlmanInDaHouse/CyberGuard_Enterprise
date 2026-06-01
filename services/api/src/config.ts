@@ -1,0 +1,31 @@
+import { z } from "zod";
+
+/**
+ * SPEC-008 §Configuration (auth-core). Validated at startup; the service refuses
+ * to start on a missing/invalid variable (mirrors services/ingest/src/config.ts).
+ * services/api is its OWN component (ADR-0014 §3) with its own config surface.
+ */
+const EnvSchema = z.object({
+  API_PG_URL: z.string().url(),
+  API_REDIS_URL: z.string().url(),
+  // pgcrypto passphrase for users.totp_secret at-rest encryption (SPEC-008
+  // §Data contracts §1; the INGEST_CA_PASSPHRASE pattern).
+  API_DB_ENC_PASSPHRASE: z.string().min(1),
+  API_PORT: z.coerce.number().int().positive().default(8081),
+  API_RUN_MIGRATIONS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  API_LOG_LEVEL: z.string().default("info"),
+});
+
+export type Config = z.infer<typeof EnvSchema>;
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const parsed = EnvSchema.safeParse(env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    throw new Error(`invalid api configuration: ${issues}`);
+  }
+  return parsed.data;
+}

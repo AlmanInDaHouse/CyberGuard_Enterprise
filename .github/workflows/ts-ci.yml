@@ -5,23 +5,24 @@ on:
     branches: [main]
     paths:
       - "services/ingest/**"
+      - "services/api/**"
       - ".github/workflows/ts-ci.yml"
   pull_request:
     paths:
       - "services/ingest/**"
+      - "services/api/**"
       - ".github/workflows/ts-ci.yml"
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: services/ingest
-
 jobs:
   check:
-    name: tsc + biome + vitest
+    name: ingest — tsc + biome + vitest
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ingest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,5 +59,37 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: cargo build -p cg-agent
 
+      - name: Test (vitest)
+        run: pnpm test
+
+  check-api:
+    name: api — tsc + biome + vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm run typecheck
+
+      - name: Lint (biome)
+        run: pnpm run lint
+
+      # auth-core needs no ETW and no agent — Postgres + Redis via testcontainers
+      # only (ADR-0003). No Rust build step here, unlike the ingest job.
       - name: Test (vitest)
         run: pnpm test
