@@ -155,6 +155,44 @@ services:
       retries: 12
       start_period: 15s
 
+  # SPEC-008 human-facing API / auth-core (TypeScript + Fastify, ADR-0014 §3).
+  # Built from services/api/. The user-facing trust boundary, distinct from
+  # ingest's agent-mTLS boundary. Reuses the SAME Postgres (users / audit_log) +
+  # Redis (sessions / rate-limit) as the rest of the stack (ADR-0003 one-instance);
+  # its OWN migration runner (API_RUN_MIGRATIONS) applies migrations 0001/0002
+  # under a DISTINCT Kysely ledger table + advisory-lock key, so it never races
+  # ingest's migrations on the shared database.
+  api:
+    build:
+      context: ../../services/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [cyberguard-dev]
+    ports:
+      - "${CG_API_PORT:-8081}:8081"
+    environment:
+      API_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}
+      API_REDIS_URL: redis://:${CG_REDIS_PASSWORD:-cyberguard_dev}@redis:6379
+      API_DB_ENC_PASSPHRASE: ${CG_API_DB_ENC_PASSPHRASE:-cyberguard_dev_api_pass}
+      API_PORT: "8081"
+      API_RUN_MIGRATIONS: "true"
+      API_LOG_LEVEL: ${CG_API_LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # No /health endpoint yet (lands with the API surface, SPEC-009); a TCP
+      # liveness probe on the bound port suffices for dev. Runs in-container.
+      test:
+        - "CMD-SHELL"
+        - "node -e \"require('net').connect(8081,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))\""
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
 volumes:
   cg_pg_data:
   cg_ch_data:
