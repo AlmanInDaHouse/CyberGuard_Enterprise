@@ -2,7 +2,7 @@
 
 - **ID:** SPEC-008
 - **Title:** Auth-core
-- **Status:** Proposed
+- **Status:** Accepted
 - **Depends on:** ADR-0014 (the human-auth MODEL this SPEC realises — local self-hosted identity, opaque-Redis sessions, new `services/api`, 3-role RBAC; not re-decided here), ADR-0003 (storage homes: users / RBAC / audit_log → Postgres, sessions + rate-limit → Redis), ADR-0001 (locates `services/api`), ADR-0002 (`services/api` = TypeScript + Fastify + Zod; Rule 4 strict schemas), SPEC-004 (the ingest scaffold reused as a pattern — `app.ts`, `config.ts`, `migrate.ts`; the enrollment-token issuance capability this SPEC's RBAC authorizes), the [threat model](../security/threat-model.md) § `cg-api` (the binding auth-requirement surface)
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-06-01
@@ -22,8 +22,8 @@ The MVP narrative this enables (Blueprint §18, [blueprint.md:738](../product/bl
 
 In dependency order (each builds on the prior):
 
-1. **`users` table + the role-on-record model** (migration `0006_users`). Local identity: `password_hash` (Argon2), `totp_secret` encrypted at rest (pgcrypto, the `ca` precedent), `role` as a `CHECK`-constrained column (ADR-0014 §4: "each user carrying one role on the user record" — no separate role table for three fixed global roles). §Data contracts §1.
-2. **`audit_log` table** (migration `0007_audit_log`), append-only, with the threat-model's fields ([threat-model.md:83](../security/threat-model.md#L83)). Every auth event + every role change writes a row (the role-assignment trail, [threat-model.md:86](../security/threat-model.md#L86)). §Data contracts §2.
+1. **`users` table + the role-on-record model** (migration `0001_users`, owned by `services/api` — §Operational §7). Local identity: `password_hash` (Argon2), `totp_secret` encrypted at rest (pgcrypto, the `ca` precedent), `role` as a `CHECK`-constrained column (ADR-0014 §4: "each user carrying one role on the user record" — no separate role table for three fixed global roles). §Data contracts §1.
+2. **`audit_log` table** (migration `0002_audit_log`, owned by `services/api`), append-only, with the threat-model's fields ([threat-model.md:83](../security/threat-model.md#L83)). Every auth event + every role change writes a row (the role-assignment trail, [threat-model.md:86](../security/threat-model.md#L86)). §Data contracts §2.
 3. **The Redis session contract** (opaque token, TTL, payload, rotation, immediate revocation). Sessions are **Redis-only**, never a Postgres table (ADR-0003 §Decision; ADR-0014 §2). §Data contracts §3.
 4. **The login flow**: password (Argon2 verify) → TOTP (RFC 6238 verify, replay-rejected) → opaque session issued + `HttpOnly`/`Secure`/`SameSite=Strict` cookie + CSRF token. §Operational §1.
 5. **Session rotation + immediate revocation** (the product invariant): rotate on login and on role change; revoke = Redis `DEL`, effective on the next request with no grace. §Operational §2.
@@ -49,9 +49,9 @@ Each with a named destination:
 
 ## Data contracts
 
-### 1. `users` table (migration `0006_users`, Postgres)
+### 1. `users` table (migration `0001_users`, owned by `services/api`)
 
-Per ADR-0003 §Decision (users/RBAC → Postgres) and ADR-0014 §1/§4. Extends the existing migration chain `0001`→…→`0005`, applied by the existing runner (`services/ingest/src/db/migrate.ts:49-84`) under the same `pg_try_advisory_lock` (`migrate.ts:18`). Numbering verified free (`0001`–`0005` exist; `0006` free). **Migration-ownership decision + its alternative are in §Operational §7 and flagged for the gate (Ratification §1).**
+Per ADR-0003 §Decision (users/RBAC → Postgres) and ADR-0014 §1/§4. The auth migrations are **owned by `services/api`** under its **own** runner and numbering, starting at `0001_users` (`services/api` is README-only today, so `0001` is free in its tree) — **not** appended to the `services/ingest` chain. The api runner mirrors the ingest applier pattern (`services/ingest/src/db/migrate.ts:49-84`) but with its **own** Kysely migration-ledger table and its **own** advisory-lock key, against the same Postgres instance (ADR-0003, one instance). The ownership decision and the runner contract are in §Operational §7 (Ratification §1).
 
 ```sql
 CREATE TABLE IF NOT EXISTS users (
@@ -73,11 +73,11 @@ CREATE TABLE IF NOT EXISTS users (
 ```
 
 - **`password_hash`** — an Argon2id encoded string (the threat model says "Argon2 or bcrypt", [threat-model.md:81](../security/threat-model.md#L81); ADR-0014 §1 picks Argon2). The KDF parameters (memory/iterations/parallelism) are NFR-008-001, not the column.
-- **`totp_secret`** — the base32 TOTP secret, **encrypted at rest** with pgcrypto `pgp_sym_encrypt` under a service passphrase, mirroring the CA private key precedent **in code** (`services/ingest/src/ca.ts:85-88` encrypt, `:99-103` decrypt) and the `pgcrypto` extension already enabled (`services/ingest/src/db/migrations/0001_initial.ts:7`). The passphrase is a new config var following the `INGEST_CA_PASSPHRASE` pattern (`services/ingest/src/config.ts:18`). It is a `TOTP secret` asset the threat model lists at risk ([threat-model.md:77](../security/threat-model.md#L77)).
+- **`totp_secret`** — the base32 TOTP secret, **encrypted at rest** with pgcrypto `pgp_sym_encrypt` under a service passphrase, mirroring the CA private key precedent **in code** (`services/ingest/src/ca.ts:85-88` encrypt, `:99-103` decrypt). Because `services/api` owns its migrations independently (§Operational §7), its `0001_users` ensures the extension itself with `CREATE EXTENSION IF NOT EXISTS pgcrypto` (the same idempotent statement ingest's `0001_initial.ts:7` uses), so api does not depend on ingest having run first. The passphrase is a new `services/api` config var following the `INGEST_CA_PASSPHRASE` pattern (`services/ingest/src/config.ts:18`). It is a `TOTP secret` asset the threat model lists at risk ([threat-model.md:77](../security/threat-model.md#L77)).
 - **`role`** — a `CHECK`-constrained column, not a join table: ADR-0014 §4 binds one role per user on the record, and three fixed global roles do not warrant a roles/role_assignments pair (mirrors the `alerts.status` CHECK pattern, `0002_alerts.ts:41-42`). The role-*change* history lives in `audit_log` (§2), satisfying the role-assignment trail.
 - **`email`** normalization (lower-cased / `citext`) is an implementation choice for the RED→GREEN gate; the contract is case-insensitive uniqueness per org.
 
-### 2. `audit_log` table (migration `0007_audit_log`, Postgres, append-only)
+### 2. `audit_log` table (migration `0002_audit_log`, owned by `services/api`, append-only)
 
 Per ADR-0003 §Retention (audit log → Postgres append-only) and the threat model's required fields verbatim ([threat-model.md:83](../security/threat-model.md#L83): "an audit log with `user_id`, `org_id`, `action`, `target_id`, `timestamp`, and the request correlation id, written append-only to Postgres").
 
@@ -164,9 +164,9 @@ Enforcement is server-side on every auth-core operation — and, by the same mec
 
 The MVP starts with no users, but user creation is admin-only — a chicken-and-egg. Resolved the same way agent enrollment-token issuance is: a **CLI** (`services/api/src/cli/create-user.ts`, mirroring `services/ingest/src/cli/issue-token.ts`) seeds the first `admin` directly in Postgres (Argon2 hash + encrypted TOTP secret + printed TOTP provisioning URI once to stdout, never logged). After the first admin exists, all further user creation is via the authed admin API. No unauthenticated HTTP bootstrap path ever exists.
 
-### 7. Migration ownership (decided for the MVP; flagged for the gate)
+### 7. Migration ownership — `services/api` owns its auth migrations (own runner)
 
-The `users`/`audit_log` migrations extend the **existing single chain** under `services/ingest/src/db/migrations/` (`0006`, `0007`), applied by the existing runner (`migrate.ts:49-84`) under the existing advisory lock. **Rationale:** one Postgres instance (ADR-0003), one existing migration system (MVP "iteration, not reinvention"), and — decisively — **ADR-0014 §3's trust boundary is a *runtime* boundary** (who serves human requests vs agent mTLS), which is preserved regardless of which process applies DDL. This is a **build-time / DDL-locality** choice only — it relocates no human-request handling into `services/ingest`: `services/api` remains the sole runtime handler of human request/response, session lifecycle, and RBAC enforcement, and `services/ingest` never reads or writes `users`, `audit_log`, or sessions (it only runs `CREATE TABLE`). **Alternative (named, rejected for the MVP):** a dedicated `services/api` migrator with its own Kysely ledger table + advisory-lock key against the same DB — cleaner schema *ownership*, but a second migration runner and ledger for no runtime-boundary gain at MVP scale. **This is the decision most needing architect review (Ratification §1)** — if ownership-separation is preferred, the api-owned runner is the flip, and the auth tables renumber under `services/api` from `0001`.
+The `users`/`audit_log` migrations are **owned by `services/api`**: they live under `services/api/src/db/migrations/` numbered from `0001` (`0001_users`, `0002_audit_log`), applied by **`services/api`'s own** migration runner — a mirror of the ingest applier pattern (`migrate.ts:49-84`) but with its **own** Kysely migration-ledger table and its **own** advisory-lock key, so the two services' migration histories never collide on the shared Postgres instance (ADR-0003, one instance). The api runner is invoked at api startup behind an `API_RUN_MIGRATIONS` flag (mirroring `INGEST_RUN_MIGRATIONS`, `config.ts:19`) and is **self-contained** — its `0001` ensures `pgcrypto` itself (`CREATE EXTENSION IF NOT EXISTS`, idempotent), so api does not depend on ingest having run first. **Rationale (Manuel, Session 19 gate — Option A):** `services/api` is a component in its own right (ADR-0014 §3, ADR-0001); its schema — and especially the human-secret DDL (`password_hash`, `totp_secret`) — must not live in the agent-facing `services/ingest` tree. This **extends ADR-0014 §3's component separation from a runtime-only boundary to deploy-time (DDL) as well** — it realises §3 more fully and contradicts no Accepted ADR: ADR-0003's single-instance rule is preserved (two runners, one database), and ADR-0007 makes ingest run *its* migrations, not *all* migrations. **Rejected alternative:** appending to the shared `services/ingest` chain (`0006`/`0007`) under the existing runner — fewer moving parts by one runner, but it puts human-secret DDL in the agent-facing service's tree and couples api's schema readiness to an ingest-owned step.
 
 ### 8. Credential self-management (TOTP first-enrollment + password change)
 
@@ -223,7 +223,7 @@ Each AC maps 1:1 to a test under `services/api/test/`: file `auth-ac-NNN-<slug>.
 - **auth_ac_008 (secrets at rest).** Given a created user, when its row is read directly, then `password_hash` is an Argon2id encoding (not the plaintext password) and `totp_secret` is pgcrypto ciphertext (not the plaintext base32 secret). **CI-able.**
 - **auth_ac_009 (TOTP first-enrollment confirmation).** Given a user with `totp_secret` set and `totp_enrolled = false`, when the user submits a valid current TOTP code to the enrollment-confirmation operation, then `totp_enrolled` flips to `true` and a `user.totp.enroll` audit row is written; a login attempt before confirmation yields no session. **CI-able.** (Drives the `totp_enrolled` state §Data contracts §1 introduces — no unreachable state field.)
 
-**Migration coverage note.** A `0006_users` migration test verifies the table, the `role` CHECK, the `(org_id,email)` UNIQUE, and `NOT NULL`s; a `0007_audit_log` test verifies the append-only shape and the `outcome` CHECK. Both CI-able.
+**Migration coverage note.** A `0001_users` migration test verifies the table, the `role` CHECK, the `(org_id,email)` UNIQUE, and `NOT NULL`s; a `0002_audit_log` test verifies the append-only shape and the `outcome` CHECK. Both CI-able, against the `services/api` runner.
 
 ## Test scenarios
 
@@ -238,7 +238,7 @@ Per ADR-0005 §Harness obligation.
 
 | Risk | Mitigation |
 | --- | --- |
-| Migration-ownership choice (shared ingest chain) couples human-auth DDL into the agent-facing service's folder | Runtime trust boundary is preserved (§Operational §7); alternative api-owned runner named; flagged for architect review (Ratification §1) |
+| Two migration runners (`services/ingest` + `services/api`) against one Postgres instance | Each uses its **own** Kysely ledger table + **own** advisory-lock key, so the two histories never collide (§Operational §7); ratified Option A — ownership separation |
 | Redis unavailable ⇒ no auth (sessions + rate-limit are Redis-only) | Redis is already a hard stack dependency (ADR-0003); acceptable — the same posture as the rest of the platform; surfaced as an operational dependency |
 | TOTP replay within a time-step window | Per-user last-accepted-step tracked in Redis (§Operational §1.3); auth_ac_002(c) |
 | Enrollment-token-issuance endpoint writes an ingest-domain table (`enrollment_tokens`) across the boundary | Capability + RBAC defined here; endpoint deferred to the agents view; cross-boundary write flagged (§Operational §5) |
@@ -247,7 +247,7 @@ Per ADR-0005 §Harness obligation.
 
 ## Open questions
 
-1. **Migration ownership.** Shared ingest chain (decided, §Operational §7) vs an api-owned runner. **Recommendation: shared chain for the MVP; revisit if `services/api` grows its own schema surface.** *(Most needs architect review.)*
+1. **Migration ownership — RESOLVED (Manuel, Session 19 gate): Option A.** `services/api` owns its auth migrations (`0001_users`/`0002_audit_log`) under its own runner — not the shared ingest chain. Rationale: `services/api` is a component in its own right (ADR-0014 §3 / ADR-0001), so its DDL — especially the human-secret tables (`password_hash`, `totp_secret`) — must not live in the agent-facing service's tree. See §Operational §7.
 2. **Session lifetime defaults.** Idle 8 h / absolute 24 h (NFR-008-002). **Recommendation: those defaults, per-org configurable.**
 3. **Rate-limit thresholds.** Account lockout after 5 failures + IP throttle (NFR-008-004). **Recommendation: those defaults, per-org configurable.**
 4. **CSRF token delivery mechanism.** Double-submit cookie vs synchronizer header (§Operational §4). **Recommendation: defer the mechanism to the RED→GREEN gate; the contract (session-bound token on every mutation) is fixed.**
@@ -256,7 +256,7 @@ Per ADR-0005 §Harness obligation.
 
 Load-bearing decisions for Manuel's gate (recommended-default-and-rationale pattern per SPEC-005/006/007).
 
-1. **Migration ownership = shared ingest chain (`0006`/`0007`).** Runtime boundary preserved; MVP simplicity; alternative api-owned runner named. **The decision most needing architect review.**
+1. **Migration ownership = `services/api` owns its auth migrations (`0001_users`/`0002_audit_log`) under its own runner** (own ledger table + advisory-lock key, same Postgres instance). Ratified Option A (Manuel, Session 19 gate): ownership separation — human-secret DDL lives in the api component's tree, not the agent-facing ingest tree (ADR-0014 §3 / ADR-0001). The shared-ingest-chain alternative is rejected.
 2. **Sessions = opaque token in Redis, revocation = immediate `DEL` (invariant).** Realises ADR-0014 §2; the next request after `DEL` fails (auth_ac_005).
 3. **Password = Argon2id; TOTP secret pgcrypto-encrypted at rest.** Realises ADR-0014 §1; reuses the `ca.ts` pgcrypto precedent.
 4. **Role = CHECK-constrained column on `users`, not a role table.** Realises ADR-0014 §4 ("role on the user record"); three fixed global roles; role-change trail in `audit_log`.
@@ -276,5 +276,5 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 - [Threat model](../security/threat-model.md) — § `cg-api` (`:81` Argon2/TOTP/sessions/rate-limit, `:82` CSRF, `:83` audit fields, `:84-86` RBAC CI tests + audit/role trail) and § Dashboard (`:184` CSRF, `:186` cookies, `:88` WebAuthn deferred) — the binding requirement surface.
 - `services/ingest/src/ca.ts` — the pgcrypto `pgp_sym_encrypt`/`decrypt` at-rest precedent (`:85-103`) the TOTP-secret encryption mirrors.
 - `services/ingest/src/config.ts` — the Zod env-validation pattern (`:7-24`); `INGEST_REDIS_URL` already required (`:13`); `INGEST_CA_PASSPHRASE` the secret-passphrase precedent (`:18`).
-- `services/ingest/src/db/migrate.ts` — the advisory-lock migration applier (`:18`, `:49-84`) the `0006`/`0007` migrations extend.
+- `services/ingest/src/db/migrate.ts` — the advisory-lock migration applier (`:18`, `:49-84`) **whose pattern `services/api`'s own migration runner mirrors** (its own ledger table + advisory-lock key; §Operational §7). The auth migrations do not extend the ingest chain.
 - [Blueprint](../product/blueprint.md) §18 (the MVP "creates a user with OTP" + admin "generates an enrollment token", `:738`/`:746`), §10 (SOAR; the richer role set deferred), §17 (single-org MVP).
