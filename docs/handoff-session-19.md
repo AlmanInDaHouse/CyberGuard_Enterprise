@@ -4,7 +4,7 @@ Canonical state-of-the-world at the close of Session 19. This document is the co
 
 Session 19 delivered **Phase 6 = C — the user-facing slice of the MVP**, in full: the human authentication model (ADR-0014), the auth-core (SPEC-008), the read-API + minimal SOC dashboard (SPEC-009), and the pnpm-workspace that made in-process cross-package testing possible. C is the project's **first UI** and its **first human-facing security surface**. All three `ts-ci` jobs are green and Known CI debt is back to zero.
 
-- **Anchor commit:** `<ANCHOR-SHA>` (`docs(handoff): Session 19 close`) — substituted into the placeholder by the follow-up commit per the two-commit anchor pattern (cf. Session 18 `5df7f72`/`2d2d6fc`).
+- **Anchor commit:** `03a6eb1` (`docs(handoff): Session 19 close`) — substituted into the placeholder by this follow-up commit per the two-commit anchor pattern (cf. Session 18 `5df7f72`/`2d2d6fc`).
 - **Phase 6 C GREEN delivery SHA (closes C):** `d017630` (`feat(spec-009): dashboard GREEN — data-access + render impl turns check-dashboard green, closes slice C`).
 - **Branch:** `main`
 - **Date:** 2026-06-04
