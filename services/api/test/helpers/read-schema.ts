@@ -1,74 +1,81 @@
+import { promises as fs } from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
 import type { Config } from "../../src/config.js";
 
 /**
- * SPEC-009 read-slice — TEST-ONLY materialisation of the read-target tables
- * (materialisation option (c), Session 19 gate).
+ * SPEC-009 read-slice — materialise the read-target tables (agents / alerts /
+ * incidents) the read-API reads, by applying the INGEST service's REAL Postgres
+ * migrations in-workspace.
  *
- * These tables (agents / alerts / incidents) are OWNED by the INGEST service's
- * migrations; the api migration runner (Option A, SPEC-008 §Operational §7)
- * applies only api's own (users / audit_log), so the api test Postgres lacks
- * them — without this a read_ac would fail with "relation does not exist"
- * (setup-broken), not the absent read CONTROL.
+ * The (b) architecture debt is RETIRED here: this WAS a test-only DDL mirror
+ * (option (c)), which risked drifting from ingest's canonical schema. The pnpm
+ * workspace now lets the api test apply ingest's REAL migrations, so the read
+ * tables come from the source of truth and the mirror-drift risk is gone by
+ * construction.
  *
- * This is a TEST-ONLY MIRROR, deliberately scoped to the columns the read-API
- * CONSUMES (SPEC-009 §Data contracts). The CANONICAL schema lives in:
- *   - services/ingest/src/db/migrations/0001_initial.ts            (agents)
- *   - services/ingest/src/db/migrations/0002_alerts.ts             (alerts)
- *   - services/ingest/src/db/migrations/0004_alerts_event_time.ts  (alerts.event_time)
- *   - services/ingest/src/db/migrations/0005_incidents.ts          (incidents)
- * A drift in a column the read-API READS is caught by a read_ac at the GREEN gate.
+ * The ClickHouse blocker that sank option (a') is avoided faithfully: we run
+ * ingest's Postgres migration FILES via our OWN Kysely Migrator — NOT ingest's
+ * `runMigrations`, which couples a ClickHouse bootstrap
+ * (`services/ingest/src/db/migrate.ts:83`/`:86`, `bootstrapClickHouse`, private).
+ * The migration files are pure Postgres (they import only `kysely`); ClickHouse is
+ * never touched. Resolution of their `kysely` import relies on the pnpm workspace
+ * (hoisted/symlinked into `services/ingest/node_modules`) — the (B) enabler.
  *
- * NAMED ARCHITECTURE DEBT → option (b): replace this mirror with a shared schema
- * package (or a pnpm-workspace cross-import) when the shared api↔ingest surface
- * grows. TRIGGER: a 2nd ingest table this mirror does not cover, OR the first
- * un-caught drift. (Also recorded in SPEC-009 §Operational + engineering-notes.)
- * This is ARCHITECTURE debt, distinct from the harness-first RED Known CI debt.
+ * Distinct ledger table (`ingest_kysely_migration`) in the throwaway api test PG,
+ * so it never collides with api's own runner (`api_kysely_migration`).
  */
+const INGEST_MIGRATIONS = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../ingest/src/db/migrations",
+);
+const LEDGER = "ingest_kysely_migration";
+
+function ingestMigrationProvider(): MigrationProvider {
+  return {
+    async getMigrations(): Promise<Record<string, Migration>> {
+      const entries = (await fs.readdir(INGEST_MIGRATIONS))
+        .filter((f) => /\.(?:js|mjs|ts)$/.test(f) && !f.endsWith(".d.ts"))
+        .sort();
+      const migrations: Record<string, Migration> = {};
+      for (const file of entries) {
+        const name = file.replace(/\.(?:js|mjs|ts)$/, "");
+        migrations[name] = (await import(
+          pathToFileURL(path.join(INGEST_MIGRATIONS, file)).href
+        )) as Migration;
+      }
+      return migrations;
+    },
+  };
+}
+
+/** Apply ingest's REAL Postgres migrations to the api test PG (no ClickHouse). */
 export async function applyReadSchema(config: Config): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
+  const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS agents (
-        agent_id uuid PRIMARY KEY,
-        org_id   text NOT NULL DEFAULT 'default'
-      )
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS alerts (
-        alert_id     uuid         PRIMARY KEY,
-        org_id       text         NOT NULL DEFAULT 'default',
-        agent_id     uuid         NOT NULL REFERENCES agents (agent_id),
-        title        text         NOT NULL,
-        severity_id  smallint     NOT NULL,
-        status       text         NOT NULL,
-        rule_id      text,
-        cg_mitre     jsonb,
-        final_score  numeric(4,3) NOT NULL,
-        event_time   timestamptz  NOT NULL,
-        created_at   timestamptz  NOT NULL DEFAULT now()
-      )
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS incidents (
-        incident_id  uuid        PRIMARY KEY,
-        org_id       text        NOT NULL DEFAULT 'default',
-        agent_id     uuid        NOT NULL REFERENCES agents (agent_id),
-        status       text        NOT NULL,
-        title        text        NOT NULL,
-        cg_mitre     jsonb,
-        alert_ids    uuid[]      NOT NULL,
-        assigned_to  text,
-        window_start timestamptz NOT NULL,
-        created_at   timestamptz NOT NULL DEFAULT now(),
-        updated_at   timestamptz NOT NULL DEFAULT now()
-      )
-    `);
+    const migrator = new Migrator({
+      db,
+      provider: ingestMigrationProvider(),
+      migrationTableName: LEDGER,
+      migrationLockTableName: `${LEDGER}_lock`,
+    });
+    const { error, results } = await migrator.migrateToLatest();
+    for (const r of results ?? []) {
+      if (r.status === "Error") {
+        throw new Error(`ingest migration failed in api test setup: ${r.migrationName}`);
+      }
+    }
+    if (error) throw error instanceof Error ? error : new Error(String(error));
   } finally {
-    await pool.end();
+    await db.destroy();
   }
 }
 
+/** Enrol an agent (production-faithful: alerts/incidents FK → agents). The real
+ *  `agents` table (ingest 0001) requires pubkey/cert_pem/expires_at. */
 export async function ensureAgent(
   config: Config,
   agentId: string,
@@ -77,8 +84,10 @@ export async function ensureAgent(
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
-      "INSERT INTO agents (agent_id, org_id) VALUES ($1, $2) ON CONFLICT (agent_id) DO NOTHING",
-      [agentId, orgId],
+      `INSERT INTO agents (agent_id, org_id, pubkey, cert_pem, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '1 day')
+       ON CONFLICT (agent_id) DO NOTHING`,
+      [agentId, orgId, Buffer.from([0]), "test-cert"],
     );
   } finally {
     await pool.end();
@@ -97,23 +106,30 @@ export interface SeedAlert {
   finalScore?: number;
 }
 
+/** Insert an alert valid against ingest's REAL `alerts` schema (0002 + 0004):
+ *  all NOT NULLs + the rule_id/score-present/range CHECKs satisfied. The columns
+ *  the read-API does not read (cg_detection_source, source_events, dedup_key,
+ *  heuristic_score) are filled with valid values; dedup_key is unique per alert. */
 export async function insertAlertRow(config: Config, a: SeedAlert): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
       `INSERT INTO alerts
-         (alert_id, org_id, agent_id, title, severity_id, status, rule_id, cg_mitre, final_score, event_time)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())`,
+         (alert_id, org_id, agent_id, title, severity_id, cg_detection_source, rule_id,
+          source_events, heuristic_score, final_score, cg_mitre, dedup_key, event_time, status)
+       VALUES ($1, $2, $3, $4, $5, 'rule', $6, ARRAY[$7]::uuid[], 0.9, $8, $9, $10, now(), $11)`,
       [
         a.alertId,
         a.orgId ?? "default",
         a.agentId,
         a.title ?? "Office spawned a script host",
         a.severityId ?? 4,
-        a.status ?? "new",
         a.ruleId ?? "rule.office_spawns_script_host",
-        JSON.stringify(a.cgMitre ?? { tactics: ["execution"], techniques: ["T1059.001"] }),
+        a.agentId, // a valid source_events uuid (any uuid; not read by the read-API)
         a.finalScore ?? 0.9,
+        JSON.stringify(a.cgMitre ?? { tactics: ["execution"], techniques: ["T1059.001"] }),
+        `${a.agentId}::rule::${a.alertId}`, // unique dedup_key
+        a.status ?? "new",
       ],
     );
   } finally {
@@ -132,13 +148,16 @@ export interface SeedIncident {
   assignedTo?: string | null;
 }
 
+/** Insert an incident valid against ingest's REAL `incidents` schema (0005):
+ *  grouping_key (NOT NULL UNIQUE) + window_start + alert_ids (>= 1) supplied. */
 export async function insertIncidentRow(config: Config, i: SeedIncident): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
       `INSERT INTO incidents
-         (incident_id, org_id, agent_id, status, title, cg_mitre, alert_ids, assigned_to, window_start)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8, now())`,
+         (incident_id, org_id, agent_id, status, title, cg_mitre, alert_ids, assigned_to,
+          grouping_key, window_start)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8, $9, now())`,
       [
         i.incidentId,
         i.orgId ?? "default",
@@ -148,6 +167,7 @@ export async function insertIncidentRow(config: Config, i: SeedIncident): Promis
         JSON.stringify(i.cgMitre ?? { tactics: ["execution"], techniques: ["T1059.001"] }),
         i.alertIds,
         i.assignedTo ?? null,
+        `${i.orgId ?? "default"}::${i.agentId}::${i.incidentId}`, // unique grouping_key
       ],
     );
   } finally {

@@ -46,7 +46,9 @@ export async function startBackends(): Promise<Backends> {
 
     await runMigrations(config);
     // SPEC-009 read-slice — materialise the ingest-owned read-target tables
-    // (agents/alerts/incidents) the read-API reads (option (c); see read-schema.ts).
+    // (agents/alerts/incidents) the read-API reads, by applying ingest's REAL
+    // Postgres migrations in-workspace (no ClickHouse; see read-schema.ts). The (b)
+    // architecture debt — a test-only DDL mirror (option (c)) — is RETIRED here.
     await applyReadSchema(config);
 
     return {

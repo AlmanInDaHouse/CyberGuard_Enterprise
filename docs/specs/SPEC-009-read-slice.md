@@ -6,7 +6,7 @@
 - **Depends on:** SPEC-008 (the auth-core this slice sits behind — the `makeRequireSession`/`makeRequireRole` preHandler factories (`services/api/src/auth/prehandlers.ts`, realised at SPEC-008's GREEN gate), the `cgsess` HttpOnly cookie, the `POST /v1/auth/login` the dashboard logs in through, the Fastify+Zod scaffold + pg pool the read endpoints extend; it explicitly deferred the read endpoints + their RBAC matrix to this SPEC), SPEC-007 (the `incidents` model A produced — the rows this slice reads), SPEC-006 (the `alerts` producer; its §Out of scope filed the WebSocket dashboard as a later phase), ADR-0014 (the human-auth model), ADR-0003 (incidents/alerts → Postgres; the reads run there), ADR-0001/ADR-0002 (`services/api` = TS/Fastify; `dashboard/` = Next.js 15), the [threat model](../security/threat-model.md) § cg-api + § Dashboard (the read-authz + cookie mandates)
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-06-02
-- **Last updated:** 2026-06-02
+- **Last updated:** 2026-06-03
 
 ## Motivation
 
@@ -105,6 +105,8 @@ No other view (no agents, no drill, no cases/playbooks/forensic, no WebSocket). 
 
 The read endpoints read `incidents`/`alerts`/`agents`, tables **owned by the ingest service's migrations** (`0001_initial`/`0002_alerts`/`0004_alerts_event_time`/`0005_incidents`). `services/api`'s own migration runner (Option A, SPEC-008 §Operational §7) applies only `users`/`audit_log`, so the api test harness must materialise the read-target tables — otherwise a data-dependent read AC fails with "relation does not exist" (setup-broken) rather than the absent read control. Running ingest's runner or cross-importing its migrations is not cleanly realisable: ingest's `runMigrations` couples a ClickHouse bootstrap (not separable), and `services/api`/`services/ingest` are independent pnpm packages with no workspace (a static cross-import breaks `rootDir` typecheck; a dynamic one breaks in the `check-api` job, which installs only api's deps). The MVP therefore uses **option (c): a test-only DDL mirror** (`services/api/test/helpers/read-schema.ts`), scoped to the columns the read-API consumes; a drift in a read column is caught by a read AC at the GREEN gate. **Named architecture debt → option (b):** replace the mirror with a shared schema package (or a pnpm-workspace cross-import) when the shared api↔ingest surface grows — **trigger:** a second ingest table the mirror does not cover, or the first un-caught drift.
 
+> **RETIRADA (2026-06-03).** The (b) debt is closed: with the pnpm-workspace in place, `applyReadSchema` now applies **ingest's REAL Postgres migrations in-workspace** (its own Kysely `Migrator` over ingest's migrations folder, skipping the ClickHouse-coupled `runMigrations`), so the read-target tables come from the source of truth — option (c)'s mirror is gone and the drift risk is eliminated by construction. All 31 api tests stayed GREEN with zero read-AC result changes (the mirror was faithful for the read columns). See the §Amendment 2026-06-03 below and `engineering-notes.md` §"(b) schema-sharing debt RETIRED".
+
 ## Non-functional requirements
 
 NFR identifiers scoped to this SPEC (`NFR-009-NNN`).
@@ -169,6 +171,14 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 3. **Dashboard included, strongly scoped; the RSC↔cookie↔API integration is the contract this SPEC fixes** (§Data contracts §4) — the teachability + de-risking rationale from the audit.
 4. **Dashboard harness approach proposed (data-layer integration + light render, no E2E), flagged for architect confirmation** — first UI tests.
 5. **No amendment to any Accepted ADR/SPEC.** This SPEC realises SPEC-008's deferral; the SPEC-004 token-endpoint amendment stays OUT (agents-view deferred), so 009 drags no amendment.
+
+## Amendment 2026-06-03: (b) schema-sharing debt retired
+
+**What surfaced it.** The read-API RED-gate materialised the read-target tables with a test-only DDL mirror (option (c), §Operational §5), naming option (b) — a faithful in-workspace import of ingest's migrations — as architecture debt with a trigger. The subsequent pnpm-workspace introduction (realising ADR-0001 at the tooling level) removed the cross-package wall that had forced (c), and Manuel gated retiring (b) immediately, before the dashboard RED.
+
+**The amendment.** §Operational §5's materialisation moves from option (c) to **option (b)**: the api test harness (`services/api/test/helpers/read-schema.ts`, `applyReadSchema`) now applies **ingest's REAL Postgres migrations in-workspace** via its own Kysely `Migrator` over ingest's migrations folder (distinct ledger `ingest_kysely_migration` in the throwaway api test PG). It deliberately does NOT call ingest's `runMigrations` (which couples a private ClickHouse bootstrap, `services/ingest/src/db/migrate.ts:83`/`:86`); the migration files are pure Postgres, so ClickHouse is never touched and `migrate.ts` needed no refactor. The cross-package `kysely` resolution that broke option (a)-dynamic pre-workspace now works because `services/ingest/node_modules` is workspace-symlinked.
+
+**Effect.** §Operational §5 is superseded where it states the materialisation is option (c) and that a workspace cross-import "breaks in `check-api`"; the closure marker is inline there. **Backward-compatible and AC-neutral:** the seed-helper signatures are unchanged, so the 5 read-AC tests were not touched (HOW the read-target tables are materialised changed, not WHAT the read-ACs assert). All 31 api tests stayed GREEN with zero read-AC result changes — confirming the (c) mirror had not drifted on the read columns. No other section is affected; §Data contracts, §Acceptance criteria, and §Security considerations stand unchanged. Status stays **Accepted**.
 
 ## References
 
