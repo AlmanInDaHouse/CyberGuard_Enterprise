@@ -6,6 +6,7 @@ on:
     paths:
       - "services/ingest/**"
       - "services/api/**"
+      - "dashboard/**"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "package.json"
@@ -14,6 +15,7 @@ on:
     paths:
       - "services/ingest/**"
       - "services/api/**"
+      - "dashboard/**"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "package.json"
@@ -97,5 +99,43 @@ jobs:
 
       # auth-core needs no ETW and no agent — Postgres + Redis via testcontainers
       # only (ADR-0003). No Rust build step here, unlike the ingest job.
+      - name: Test (vitest)
+        run: pnpm test
+
+  check-dashboard:
+    name: dashboard — next build + tsc + biome + vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # next build is the heavy structural gate. It runs FIRST so it regenerates
+      # next-env.d.ts + .next/types (gitignored) before the tsc typecheck reads them.
+      - name: Build (next build)
+        run: pnpm run build
+
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm run typecheck
+
+      - name: Lint (biome)
+        run: pnpm run lint
+
+      # dash_ac_001 (server-side data-access) drives the REAL read-API in-process via
+      # services/api's buildApp/app.inject, backed by Postgres + Redis testcontainers
+      # (like check-api); dash_ac_002 renders presentational components under jsdom.
       - name: Test (vitest)
         run: pnpm test

@@ -6,4 +6,4 @@
 # read-API materialisation hit (the named (b) debt this enables retiring).
 packages:
   - "services/*"
-  # - "dashboard"   # added when the dashboard package lands (SPEC-009 PART 2/2)
+  - "dashboard"

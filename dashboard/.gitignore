@@ -1,0 +1,13 @@
+# Next.js
+/.next/
+/out/
+
+# Next generates this on build/dev; it references ./.next/types (gitignored), so it
+# is NOT committed — `next build` regenerates it before typecheck in CI (and locally).
+/next-env.d.ts
+
+# dependencies (workspace root lockfile is the single source)
+/node_modules/
+
+# misc
+*.tsbuildinfo
