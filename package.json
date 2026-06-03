@@ -1,0 +1,10 @@
+{
+  "name": "cyberguard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CyberGuard monorepo workspace root (ADR-0001). TypeScript packages under services/* (and the future dashboard/).",
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+  }
+}

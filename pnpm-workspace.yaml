@@ -1,0 +1,9 @@
+# CyberGuard monorepo — pnpm workspace (realises ADR-0001 at the tooling level).
+# One root lockfile + hoisted node_modules across the TypeScript packages, so a
+# package can import another in-process — e.g. the dashboard testing the read-API
+# via services/api's buildApp/app.inject, and (future) services/api importing the
+# ingest migrations faithfully — without the separate-package boundary that the
+# read-API materialisation hit (the named (b) debt this enables retiring).
+packages:
+  - "services/*"
+  # - "dashboard"   # added when the dashboard package lands (SPEC-009 PART 2/2)

@@ -6,11 +6,17 @@ on:
     paths:
       - "services/ingest/**"
       - "services/api/**"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "package.json"
       - ".github/workflows/ts-ci.yml"
   pull_request:
     paths:
       - "services/ingest/**"
       - "services/api/**"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "package.json"
       - ".github/workflows/ts-ci.yml"
 
 permissions:
