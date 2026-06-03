@@ -28,11 +28,12 @@ test("a session sees only its own org's incidents", async () => {
   const orgB = "read-ac-005-b";
   const agentA = globalThis.crypto.randomUUID();
   const agentB = globalThis.crypto.randomUUID();
+  const incidentA = globalThis.crypto.randomUUID();
   const incidentB = globalThis.crypto.randomUUID();
   await ensureAgent(config, agentA, orgA);
   await ensureAgent(config, agentB, orgB);
   await insertIncidentRow(config, {
-    incidentId: globalThis.crypto.randomUUID(),
+    incidentId: incidentA,
     agentId: agentA,
     orgId: orgA,
     alertIds: [globalThis.crypto.randomUUID()],
@@ -59,5 +60,7 @@ test("a session sees only its own org's incidents", async () => {
   // never present in org A's results.
   expect(res.statusCode).toBe(200);
   const body = res.json();
+  // Both sides: a session sees its OWN org's incident, and NEVER the other org's.
+  expect(body.items.some((i: { incident_id: string }) => i.incident_id === incidentA)).toBe(true);
   expect(body.items.some((i: { incident_id: string }) => i.incident_id === incidentB)).toBe(false);
 });
