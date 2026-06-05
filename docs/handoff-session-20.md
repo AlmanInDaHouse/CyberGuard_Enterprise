@@ -4,7 +4,7 @@ Canonical state-of-the-world at the close of Session 20. This document is the co
 
 Session 20 delivered **the forensic event drill, step 1** — the first concrete step of the title promise *"an exportable forensic report on the first incident"* ([blueprint.md:33](product/blueprint.md)). `GET /v1/incidents/:id/events` serves a timeline of the raw `cges_events` underlying an incident's alerts: the project's **first read that crosses the Postgres → ClickHouse boundary**, served behind the human session. It is a small, bounded read-depth increment — not a phase — delivered through the **READ-ONLY audit → approved-diff-gate → atomic-land** flow rather than a harness-first RED/GREEN arc. All `ts-ci` jobs are green (including `check-api` now starting a ClickHouse container on Linux) and Known CI debt stays at zero.
 
-- **Anchor commit:** `<HANDOFF_SHA>` (`docs(handoff): Session 20 close`) — substituted into the placeholder by an immediate follow-up commit per the two-commit anchor pattern (cf. Session 19 `03a6eb1`/`d16ebca`).
+- **Anchor commit:** `7b723f6` (`docs(handoff): Session 20 close`) — substituted into the placeholder by an immediate follow-up commit per the two-commit anchor pattern (cf. Session 19 `03a6eb1`/`d16ebca`).
 - **S20 GREEN delivery SHA (lands the drill + ADR-0015 + SPEC-010):** `0480459` (`feat(spec-010): forensic event drill -- incident -> raw cges_events timeline`).
 - **Branch:** `main`
 - **Date:** 2026-06-05
@@ -20,7 +20,7 @@ Unlike Sessions 18–19 (multi-commit harness-first RED → GREEN arcs), Session
 | Commit | SHA | Scope / why |
 |---|---|---|
 | **S20 landing (forensic drill step 1)** | **`0480459`** | ADR-0015 + SPEC-010 (both Accepted) + the SPEC-009 `:34` co-located amendment + the code + the three `drill_ac` tests + the compose wiring + the `pnpm-lock` update. One SHA: docs + diff + tests + infra, reviewed at the diff gate and landed atomically. |
-| Session 20 close (this handoff) | `<HANDOFF_SHA>` | `docs(handoff): Session 20 close` — anchor SHA filled by the two-commit follow-up. |
+| Session 20 close (this handoff) | `7b723f6` | `docs(handoff): Session 20 close` — anchor SHA filled by the two-commit follow-up. |
 
 ## Forensic drill (step 1) — delivery declaration
 
