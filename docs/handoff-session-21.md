@@ -4,7 +4,7 @@ Canonical state-of-the-world at the close of Session 21. This document is the co
 
 Session 21 delivered **SPEC-011 — incident severity aggregation**, the **second** concrete step of the title promise *"an exportable forensic report on the first incident"* (`blueprint.md:33`): an incident now carries its own `severity_id` (OCSF ordinal 0–6), the **MAX** over its member alerts, recomputed in the grouping upsert via `GREATEST`. It is a small, bounded increment inside the **existing detection write-path + read-slice** — **no new ADR, no new service, no new trust boundary** — delivered through the **READ-ONLY audit → approved-diff-gate → atomic-land** flow (the same flow as S20), not a harness-first RED/GREEN arc. All `ts-ci` jobs are green and Known CI debt stays at zero. A separate, instructive sub-thread: the `detect_ac_001` marquee briefly went red and *looked* like a SPEC-011 regression — root-caused to a **stale `cg-agent` binary**, entirely upstream of the diff; that lesson is now institutionalized in CLAUDE.md (below).
 
-- **Anchor commit:** `<S21-ANCHOR-SHA>` (`docs(handoff): Session 21 close`) — substituted into the placeholder by an immediate follow-up commit per the two-commit anchor pattern (cf. Session 20 `7b723f6`/`54df77d`).
+- **Anchor commit:** `4b69094` (`docs(handoff): Session 21 close`) — substituted into the placeholder by an immediate follow-up commit per the two-commit anchor pattern (cf. Session 20 `7b723f6`/`54df77d`).
 - **S21 GREEN delivery SHA (lands SPEC-011 + migration 0006 + read-model):** `c0b4350` (`feat(spec-011): incident severity aggregation -- MAX of member alerts`).
 - **Branch:** `main`
 - **Date:** 2026-06-06
@@ -20,7 +20,7 @@ Like Session 20, Session 21's deliverable is a **single atomic landing**, not a 
 | Commit | SHA | Scope / why |
 |---|---|---|
 | **S21 landing (incident severity aggregation)** | **`c0b4350`** | SPEC-011 (Accepted) + migration `0006` + `detect/{types,index,incidents}.ts` (the re-worded triage invariant) + read-model (`api` + `dashboard` wire-type) + test helpers + the 4 ACs + the typecheck-ripple fixtures + the catalog row & `SPEC-011 → SPEC-010` edge. One SHA: doc + diff + tests, reviewed at the diff gate and landed atomically (19 files, +600/−19). |
-| Session 21 close (this handoff) | `<S21-ANCHOR-SHA>` | `docs(handoff): Session 21 close` — also institutionalizes the marquee stale-binary precondition into CLAUDE.md (§Procedural notes). Anchor SHA filled by the two-commit follow-up. |
+| Session 21 close (this handoff) | `4b69094` | `docs(handoff): Session 21 close` — also institutionalizes the marquee stale-binary precondition into CLAUDE.md (§Procedural notes). Anchor SHA filled by the two-commit follow-up. |
 
 ## SPEC-011 (incident severity aggregation) — delivery declaration
 
