@@ -104,6 +104,10 @@ export interface SeedAlert {
   ruleId?: string | null;
   cgMitre?: { tactics: string[]; techniques: string[] } | null;
   finalScore?: number;
+  /** SPEC-010 — the alert's source_events (cges_events.event_id list). Defaults to
+   *  [agentId] (a valid uuid) so the SPEC-009 read-AC seeds, which do not read it,
+   *  stay valid; the drill ACs pass real event ids that exist in cges_events. */
+  sourceEvents?: string[];
 }
 
 /** Insert an alert valid against ingest's REAL `alerts` schema (0002 + 0004):
@@ -117,7 +121,7 @@ export async function insertAlertRow(config: Config, a: SeedAlert): Promise<void
       `INSERT INTO alerts
          (alert_id, org_id, agent_id, title, severity_id, cg_detection_source, rule_id,
           source_events, heuristic_score, final_score, cg_mitre, dedup_key, event_time, status)
-       VALUES ($1, $2, $3, $4, $5, 'rule', $6, ARRAY[$7]::uuid[], 0.9, $8, $9, $10, now(), $11)`,
+       VALUES ($1, $2, $3, $4, $5, 'rule', $6, $7::uuid[], 0.9, $8, $9, $10, now(), $11)`,
       [
         a.alertId,
         a.orgId ?? "default",
@@ -125,7 +129,7 @@ export async function insertAlertRow(config: Config, a: SeedAlert): Promise<void
         a.title ?? "Office spawned a script host",
         a.severityId ?? 4,
         a.ruleId ?? "rule.office_spawns_script_host",
-        a.agentId, // a valid source_events uuid (any uuid; not read by the read-API)
+        a.sourceEvents ?? [a.agentId], // SPEC-010: source_events; default [agentId] (a valid uuid)
         a.finalScore ?? 0.9,
         JSON.stringify(a.cgMitre ?? { tactics: ["execution"], techniques: ["T1059.001"] }),
         `${a.agentId}::rule::${a.alertId}`, // unique dedup_key

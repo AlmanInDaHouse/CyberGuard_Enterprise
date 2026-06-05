@@ -31,6 +31,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) | Accepted |
 | [0013](0013-incident-correlation-windowing.md) | Incident correlation windowing — event-time basis | Accepted |
 | [0014](0014-human-authentication-model.md) | Human authentication model — local self-hosted, password + TOTP | Accepted |
+| [0015](0015-readonly-clickhouse-reader-in-api.md) | Read-only ClickHouse reader in `services/api` (forensic event-drill boundary) | Accepted |
 
 ## Dependencies
 
@@ -74,3 +75,6 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0014 → ADR-0001 (locates the human-facing `services/api` component in the monorepo)
 - ADR-0014 → ADR-0002 (`services/api` = TypeScript + Fastify + Zod, per the language table row)
 - ADR-0014 → ADR-0003 (consumes the storage homes: users / RBAC / audit_log → Postgres, sessions → Redis; does not amend)
+- ADR-0015 → ADR-0003 (consumes the ClickHouse storage home as a read-only reader in `services/api`; does not amend or re-route storage)
+- ADR-0015 → ADR-0014 (preserves the human/agent trust-boundary split — keeps the forensic event read in the user-facing api, not the agent boundary)
+- ADR-0015 → SPEC-009 (amends-by-scope `:34`: the alert→source-event drill SPEC-009 deferred-with-destination is delivered by this ADR + SPEC-010)

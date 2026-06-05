@@ -83,6 +83,9 @@ importers:
 
   services/api:
     dependencies:
+      '@clickhouse/client':
+        specifier: ^1.7.0
+        version: 1.19.0
       '@fastify/cookie':
         specifier: ^11.0.2
         version: 11.0.2

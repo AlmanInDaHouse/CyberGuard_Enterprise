@@ -1,10 +1,13 @@
+import type { ClickHouseClient } from "@clickhouse/client";
 import type { Pool } from "pg";
 import type {
   AlertListItem,
+  EventTimeline,
   IncidentDetail,
   IncidentListItem,
   Page,
   ResolvedAlert,
+  TimelineEvent,
 } from "./types.js";
 
 /**
@@ -130,6 +133,10 @@ interface AlertRow {
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
   event_time: Date;
   final_score: number;
+  // SPEC-010 — the alert's raw cges_events.event_id list (uuid[] → string[], the
+  // node-postgres convention, like IncidentDetailRow.alert_ids). The forensic drill
+  // consumes it; mapAlert does NOT expose it (ResolvedAlert/IncidentDetail unchanged).
+  source_events: string[];
 }
 
 function mapAlert(a: AlertRow): ResolvedAlert {
@@ -146,7 +153,7 @@ function mapAlert(a: AlertRow): ResolvedAlert {
 }
 
 const ALERT_COLS =
-  "alert_id, title, severity_id, status, rule_id, cg_mitre, event_time, final_score::float8 AS final_score";
+  "alert_id, title, severity_id, status, rule_id, cg_mitre, event_time, final_score::float8 AS final_score, source_events";
 
 export async function getIncidentDetail(
   pool: Pool,
@@ -179,6 +186,82 @@ export async function getIncidentDetail(
     updated_at: inc.updated_at.toISOString(),
     alerts: ar.rows.map(mapAlert),
   };
+}
+
+interface TimelineRow {
+  event_id: string;
+  agent_id: string;
+  activity_id: number;
+  process_pid: number;
+  process_uid: string;
+  process_name: string;
+  image_file_name: string;
+  process_parent_pid: number | null;
+  event_time: string;
+}
+
+function mapTimelineEvent(r: TimelineRow): TimelineEvent {
+  return {
+    event_id: r.event_id,
+    agent_id: r.agent_id,
+    activity_id: r.activity_id,
+    process_pid: r.process_pid,
+    process_uid: r.process_uid,
+    process_name: r.process_name,
+    image_file_name: r.image_file_name,
+    process_parent_pid: r.process_parent_pid,
+    event_time: r.event_time,
+  };
+}
+
+/**
+ * SPEC-010 — the forensic event drill (step 1). Resolves an incident's grouped
+ * alerts in Postgres (reusing the getIncidentDetail set-membership resolution),
+ * gathers their `source_events`, flattens + dedups the event ids in TS (the repo's
+ * canonical array handling — there is no array_agg/unnest precedent), and reads the
+ * raw events from ClickHouse by event_id: the cross-store join `cges_events.event_id
+ * = ANY(alerts.source_events)` (ADR-0015). Org-scoped on BOTH stores. Returns null
+ * when the incident does not exist or is cross-org (the route → 404, no existence
+ * oracle); an existing incident that resolves to no source_events returns
+ * `{ events: [] }` (200), never 404. A malformed (non-UUID) `:id` throws on the pg
+ * cast and is caught by the route → 404, mirroring getIncidentDetail.
+ */
+export async function getIncidentEventTimeline(
+  pool: Pool,
+  ch: ClickHouseClient,
+  orgId: string,
+  id: string,
+): Promise<EventTimeline | null> {
+  const ir = await pool.query<{ alert_ids: string[] }>(
+    "SELECT alert_ids FROM incidents WHERE incident_id = $1 AND org_id = $2",
+    [id, orgId],
+  );
+  const inc = ir.rows[0];
+  if (!inc) return null;
+
+  const ar = await pool.query<AlertRow>(
+    `SELECT ${ALERT_COLS} FROM alerts
+     WHERE alert_id = ANY($1::uuid[]) AND org_id = $2`,
+    [inc.alert_ids, orgId],
+  );
+  const eventIds = [...new Set(ar.rows.flatMap((a) => a.source_events))];
+  if (eventIds.length === 0) return { incident_id: id, events: [] };
+
+  const rs = await ch.query({
+    query: `
+      SELECT toString(event_id) AS event_id, toString(agent_id) AS agent_id, activity_id,
+             process_pid, process_uid, process_name, image_file_name,
+             process_parent_pid, toString(time) AS event_time
+      FROM cges_events FINAL
+      WHERE org_id = {org:String}
+        AND toString(event_id) IN ({ids:Array(String)})
+      ORDER BY time ASC
+    `,
+    query_params: { org: orgId, ids: eventIds },
+    format: "JSONEachRow",
+  });
+  const rows = await rs.json<TimelineRow>();
+  return { incident_id: id, events: rows.map(mapTimelineEvent) };
 }
 
 export async function listAlerts(

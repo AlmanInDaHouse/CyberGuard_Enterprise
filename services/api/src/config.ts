@@ -8,6 +8,16 @@ import { z } from "zod";
 const EnvSchema = z.object({
   API_PG_URL: z.string().url(),
   API_REDIS_URL: z.string().url(),
+  // Read-only ClickHouse reader for the forensic event drill (ADR-0015 / SPEC-010;
+  // the only ClickHouse the human API touches — reads cges_events for
+  // GET /v1/incidents/:id/events). 1:1 mirror of services/ingest/src/config.ts:
+  // URL required; user/password/db defaulted. The client is lazy (createClient
+  // connects on first query), so the three Postgres read routes do NOT depend on
+  // ClickHouse availability (ADR-0015 §Compliance).
+  API_CH_URL: z.string().url(),
+  API_CH_USER: z.string().default("default"),
+  API_CH_PASSWORD: z.string().default(""),
+  API_CH_DB: z.string().default("default"),
   // pgcrypto passphrase for users.totp_secret at-rest encryption (SPEC-008
   // §Data contracts §1; the INGEST_CA_PASSPHRASE pattern).
   API_DB_ENC_PASSPHRASE: z.string().min(1),

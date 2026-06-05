@@ -180,6 +180,14 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 **Effect.** §Operational §5 is superseded where it states the materialisation is option (c) and that a workspace cross-import "breaks in `check-api`"; the closure marker is inline there. **Backward-compatible and AC-neutral:** the seed-helper signatures are unchanged, so the 5 read-AC tests were not touched (HOW the read-target tables are materialised changed, not WHAT the read-ACs assert). All 31 api tests stayed GREEN with zero read-AC result changes — confirming the (c) mirror had not drifted on the read columns. No other section is affected; §Data contracts, §Acceptance criteria, and §Security considerations stand unchanged. Status stays **Accepted**.
 
+## Amendment 2026-06-05: the alert→source-event drill destination is realised (SPEC-010)
+
+**What surfaced it.** §Out of scope `:34` filed *"The alert→source-event drill (incident detail → the raw `cges_events`) … cut by UI cost + it would add the first ClickHouse client to `services/api` … Destination: a read-depth increment."* — a deferred-with-destination item. The increment is now specified: **ADR-0015** (a read-only ClickHouse reader in `services/api`, a singleton on `Services`) + **SPEC-010** (`GET /v1/incidents/:id/events`, the raw-event timeline).
+
+**The amendment (by scope, not by contradiction).** The drill moves from *deferred-with-destination* to *delivered* by SPEC-010; `:34`'s "Destination: a read-depth increment" is realised. This SPEC's other Out-of-scope items (WebSocket, triage writes, agents/token, per-agent ACL, cases/playbooks/forensic) are unaffected and stay deferred. The read-slice's three Postgres routes (`GET /v1/incidents`, `/v1/incidents/:id`, `/v1/alerts`) are **unchanged**; SPEC-010 adds a fourth, nested route (`/v1/incidents/:id/events`) and the api's first ClickHouse client (read-only).
+
+**Effect.** **Additive and AC-neutral for this SPEC:** SPEC-009's read-models (`IncidentDetail`, `ResolvedAlert`) are **untouched** — SPEC-010 adds `source_events` only to the internal `AlertRow`/`ALERT_COLS`, never to the SPEC-009 response contracts the dashboard depends on. The five read-AC tests are not revised. Status stays **Accepted**.
+
 ## References
 
 - [SPEC-008](SPEC-008-auth-core.md) — the auth-core this slice sits behind; `:40`/`:275` defer the reads + their RBAC matrix to here; the `makeRequireSession`/`makeRequireRole` preHandler factories (`services/api/src/auth/prehandlers.ts`, realised at SPEC-008's GREEN gate), `cgsess` cookie, `POST /v1/auth/login`, and Fastify+Zod scaffold this SPEC reuses.

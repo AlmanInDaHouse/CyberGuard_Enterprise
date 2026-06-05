@@ -1,7 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { makeRequireSession } from "../auth/prehandlers.js";
 import type { Services } from "../services.js";
-import { getIncidentDetail, listAlerts, listIncidents } from "./queries.js";
+import {
+  getIncidentDetail,
+  getIncidentEventTimeline,
+  listAlerts,
+  listIncidents,
+} from "./queries.js";
 
 /**
  * SPEC-009 §Operational §1/§2 — the read-API surface. Every read sits behind
@@ -46,6 +51,26 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
     }
     if (!detail) return reply.code(404).send({ error: "not_found" });
     return detail;
+  });
+
+  // SPEC-010 — the forensic event drill (step 1): incident → raw cges_events
+  // timeline. Nested resource (precedent: auth/routes.ts:63 /v1/users/:id/role); the
+  // first read that crosses the Postgres→ClickHouse boundary (ADR-0015 — services.ch).
+  // Same session preHandler + org-scope; read-only (no role gate, no CSRF, NFR-009-004).
+  // 404 mirrors the detail handler above (malformed :id / not-found / cross-org).
+  app.get("/v1/incidents/:id/events", { preHandler: requireSession }, async (req, reply) => {
+    const session = req.authSession;
+    if (!session) throw new Error("unreachable: requireSession populates authSession");
+    const { id } = req.params as { id: string };
+    let timeline: Awaited<ReturnType<typeof getIncidentEventTimeline>>;
+    try {
+      timeline = await getIncidentEventTimeline(services.pg, services.ch, session.org_id, id);
+    } catch {
+      // Malformed id (e.g. not a UUID) → generic 404, no internal detail.
+      return reply.code(404).send({ error: "not_found" });
+    }
+    if (!timeline) return reply.code(404).send({ error: "not_found" });
+    return timeline;
   });
 
   app.get("/v1/alerts", { preHandler: requireSession }, async (req) => {

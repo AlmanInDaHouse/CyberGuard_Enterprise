@@ -173,12 +173,22 @@ services:
     environment:
       API_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}
       API_REDIS_URL: redis://:${CG_REDIS_PASSWORD:-cyberguard_dev}@redis:6379
+      # Read-only ClickHouse reader for the forensic event drill (ADR-0015 / SPEC-010);
+      # the api reads cges_events for GET /v1/incidents/:id/events. Same CH instance +
+      # creds the ingest writer uses (ADR-0003 one-instance). Lazy client → a down
+      # ClickHouse fails only the drill route, never the Postgres reads.
+      API_CH_URL: http://clickhouse:8123
+      API_CH_USER: ${CG_CH_USER:-cyberguard}
+      API_CH_PASSWORD: ${CG_CH_PASSWORD:-cyberguard_dev}
+      API_CH_DB: ${CG_CH_DB:-cyberguard}
       API_DB_ENC_PASSPHRASE: ${CG_API_DB_ENC_PASSPHRASE:-cyberguard_dev_api_pass}
       API_PORT: "8081"
       API_RUN_MIGRATIONS: "true"
       API_LOG_LEVEL: ${CG_API_LOG_LEVEL:-info}
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       redis:
         condition: service_healthy

@@ -30,3 +30,11 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-007](SPEC-007-incident-grouping-mvp.md) | Incident grouping MVP | Accepted |
 | [SPEC-008](SPEC-008-auth-core.md) | Auth-core | Accepted |
 | [SPEC-009](SPEC-009-read-slice.md) | Read-slice | Accepted |
+| [SPEC-010](SPEC-010-forensic-event-drill.md) | Forensic event drill — incident → raw `cges_events` timeline | Accepted |
+
+## Dependencies
+
+Cross-document edges surfaced at landing (each SPEC's own "Depends on" header is authoritative; this records the load-bearing catalog edges).
+
+- SPEC-010 → ADR-0015 (the read-only ClickHouse reader in `services/api` that SPEC-010 implements)
+- SPEC-010 → SPEC-009 (amends §Out of scope `:34` **by scope**: the deferred alert→source-event drill is delivered here; SPEC-009's `IncidentDetail` / `ResolvedAlert` read-models are unchanged)

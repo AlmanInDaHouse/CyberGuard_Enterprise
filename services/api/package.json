@@ -23,6 +23,7 @@
     "format": "biome format --write ."
   },
   "dependencies": {
+    "@clickhouse/client": "^1.7.0",
     "@fastify/cookie": "^11.0.2",
     "@node-rs/argon2": "^2.0.2",
     "fastify": "^5.2.0",
