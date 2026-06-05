@@ -147,27 +147,32 @@ export interface SeedIncident {
   orgId?: string;
   status?: string;
   title?: string;
+  /** SPEC-011 — the incident's aggregated OCSF severity (MAX over member alerts, 0–6).
+   *  `incidents.severity_id` is NOT NULL as of migration 0006; defaults to 4. */
+  severityId?: number;
   cgMitre?: { tactics: string[]; techniques: string[] } | null;
   alertIds: string[];
   assignedTo?: string | null;
 }
 
-/** Insert an incident valid against ingest's REAL `incidents` schema (0005):
- *  grouping_key (NOT NULL UNIQUE) + window_start + alert_ids (>= 1) supplied. */
+/** Insert an incident valid against ingest's REAL `incidents` schema (0005 + 0006):
+ *  grouping_key (NOT NULL UNIQUE) + window_start + alert_ids (>= 1) + severity_id
+ *  (NOT NULL, 0–6) supplied. */
 export async function insertIncidentRow(config: Config, i: SeedIncident): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
       `INSERT INTO incidents
-         (incident_id, org_id, agent_id, status, title, cg_mitre, alert_ids, assigned_to,
+         (incident_id, org_id, agent_id, status, title, severity_id, cg_mitre, alert_ids, assigned_to,
           grouping_key, window_start)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8, $9, now())`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::uuid[], $9, $10, now())`,
       [
         i.incidentId,
         i.orgId ?? "default",
         i.agentId,
         i.status ?? "open",
         i.title ?? "Execution activity",
+        i.severityId ?? 4,
         JSON.stringify(i.cgMitre ?? { tactics: ["execution"], techniques: ["T1059.001"] }),
         i.alertIds,
         i.assignedTo ?? null,

@@ -30,6 +30,7 @@ test("incident_ac_003: distinct tactic-set OR out-of-window -> separate incident
       agentId,
       cgMitre: TACTICS_EXEC,
       eventTime: "2026-05-31 14:00:00.000000000",
+      severityId: 4, // SPEC-011 — grouping carries severity; this test asserts grouping only
     },
     // B: DIFFERENT tactic-set, same agent + same window @ 14:00 -> separate incident.
     {
@@ -38,6 +39,7 @@ test("incident_ac_003: distinct tactic-set OR out-of-window -> separate incident
       agentId,
       cgMitre: TACTICS_PERSIST,
       eventTime: "2026-05-31 14:00:00.000000000",
+      severityId: 4,
     },
     // C: same tactic-set as A, but 2 h later (> 1800 s) -> different window -> separate incident.
     {
@@ -46,6 +48,7 @@ test("incident_ac_003: distinct tactic-set OR out-of-window -> separate incident
       agentId,
       cgMitre: TACTICS_EXEC,
       eventTime: "2026-05-31 16:00:00.000000000",
+      severityId: 4,
     },
   ];
   for (const input of inputs) {

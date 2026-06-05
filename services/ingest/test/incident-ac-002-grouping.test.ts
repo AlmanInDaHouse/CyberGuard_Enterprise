@@ -32,6 +32,7 @@ test("incident_ac_002: 3 distinct alerts, same agent+tactic+window -> 1 incident
     agentId,
     cgMitre: MITRE,
     eventTime: "2026-05-31 13:00:00.000000000",
+    severityId: 4, // SPEC-011 — grouping carries severity; this test does not assert it
   }));
   for (const input of inputs) {
     await upsertIncident(detectConfig(config, orgId), input);

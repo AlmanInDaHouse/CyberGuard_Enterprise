@@ -55,6 +55,7 @@ interface IncidentRow {
   agent_id: string;
   status: string;
   title: string;
+  severity_id: number;
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
   alert_count: number;
   window_start: Date;
@@ -86,7 +87,7 @@ export async function listIncidents(
   }
   args.push(limit + 1);
   const r = await pool.query<IncidentRow>(
-    `SELECT incident_id, agent_id, status, title, cg_mitre,
+    `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre,
             cardinality(alert_ids) AS alert_count, window_start, updated_at
      FROM incidents WHERE ${where.join(" AND ")}
      ORDER BY updated_at DESC, incident_id DESC LIMIT $${args.length}`,
@@ -99,6 +100,7 @@ export async function listIncidents(
     agent_id: row.agent_id,
     status: row.status,
     title: row.title,
+    severity_id: row.severity_id,
     cg_mitre: row.cg_mitre,
     alert_count: Number(row.alert_count),
     window_start: row.window_start.toISOString(),
@@ -117,6 +119,7 @@ interface IncidentDetailRow {
   agent_id: string;
   status: string;
   title: string;
+  severity_id: number;
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
   window_start: Date;
   assigned_to: string | null;
@@ -161,7 +164,7 @@ export async function getIncidentDetail(
   id: string,
 ): Promise<IncidentDetail | null> {
   const ir = await pool.query<IncidentDetailRow>(
-    `SELECT incident_id, agent_id, status, title, cg_mitre, window_start,
+    `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre, window_start,
             assigned_to, created_at, updated_at, alert_ids
      FROM incidents WHERE incident_id = $1 AND org_id = $2`,
     [id, orgId],
@@ -179,6 +182,7 @@ export async function getIncidentDetail(
     agent_id: inc.agent_id,
     status: inc.status,
     title: inc.title,
+    severity_id: inc.severity_id,
     cg_mitre: inc.cg_mitre,
     window_start: inc.window_start.toISOString(),
     assigned_to: inc.assigned_to,

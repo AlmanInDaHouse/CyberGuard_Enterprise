@@ -23,6 +23,8 @@ export interface IncidentListItem {
   agent_id: string;
   status: string;
   title: string;
+  // SPEC-011 — the incident's aggregated OCSF severity (MAX over member alerts, 0–6).
+  severity_id: number;
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
   alert_count: number;
   window_start: string;
@@ -34,6 +36,8 @@ export interface IncidentDetail {
   agent_id: string;
   status: string;
   title: string;
+  // SPEC-011 — the incident's aggregated OCSF severity (MAX over member alerts, 0–6).
+  severity_id: number;
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
   window_start: string;
   assigned_to: string | null;

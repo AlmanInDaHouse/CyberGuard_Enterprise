@@ -21,6 +21,7 @@ const incident: IncidentDetail = {
   agent_id: "22222222-2222-2222-2222-222222222222",
   status: "open",
   title: "Execution activity on host",
+  severity_id: 4, // SPEC-011 — incident severity (the column UI is a deferred increment)
   cg_mitre: { tactics: ["execution"], techniques: ["T1059.001"] },
   window_start: "2026-06-01T00:00:00.000Z",
   assigned_to: null,
@@ -46,6 +47,7 @@ const listItems: IncidentListItem[] = [
     agent_id: "22222222-2222-2222-2222-222222222222",
     status: "open",
     title: "Execution activity on host",
+    severity_id: 4, // SPEC-011 — incident severity (the column UI is a deferred increment)
     cg_mitre: { tactics: ["execution"], techniques: ["T1059.001"] },
     alert_count: 1,
     window_start: "2026-06-01T00:00:00.000Z",

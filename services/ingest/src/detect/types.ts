@@ -101,4 +101,10 @@ export interface IncidentGroupingInput {
   cgMitre: { tactics: string[]; techniques: string[] };
   /** The alert's `event_time` (event-occurrence; ADR-0013 §1) — the windowing basis. */
   eventTime: string;
+  /**
+   * The alert's OCSF severity ordinal 0–6 (SPEC-011 §Data contracts §2). Required and
+   * non-nullable: it sources from `RuleMatch.severityId` (`:87`), always present on the
+   * path that reaches grouping, so the incident's `GREATEST` aggregation never sees NULL.
+   */
+  severityId: number;
 }

@@ -29,6 +29,7 @@ test("incident_ac_005: FK rejects unenrolled agent; enrolling satisfies it (FK n
     agentId,
     cgMitre: MITRE,
     eventTime: "2026-05-31 17:00:00.000000000",
+    severityId: 4, // SPEC-011 — grouping carries severity; this test asserts the FK behaviour
   };
 
   // Agent NOT enrolled: the incidents.agent_id -> agents FK must reject the insert.

@@ -31,6 +31,7 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-008](SPEC-008-auth-core.md) | Auth-core | Accepted |
 | [SPEC-009](SPEC-009-read-slice.md) | Read-slice | Accepted |
 | [SPEC-010](SPEC-010-forensic-event-drill.md) | Forensic event drill — incident → raw `cges_events` timeline | Accepted |
+| [SPEC-011](SPEC-011-incident-severity.md) | Incident severity aggregation — MAX of member alerts | Accepted |
 
 ## Dependencies
 
@@ -38,3 +39,5 @@ Cross-document edges surfaced at landing (each SPEC's own "Depends on" header is
 
 - SPEC-010 → ADR-0015 (the read-only ClickHouse reader in `services/api` that SPEC-010 implements)
 - SPEC-010 → SPEC-009 (amends §Out of scope `:34` **by scope**: the deferred alert→source-event drill is delivered here; SPEC-009's `IncidentDetail` / `ResolvedAlert` read-models are unchanged)
+- SPEC-011 → SPEC-010 (realises §Out of scope `:32` **by scope**: the deferred *"Severity / score aggregation per incident"* is delivered here — an `incidents.severity_id` MAX over member alerts; no new ADR)
+- SPEC-011 → SPEC-007 (extends the `incidents` upsert + re-words the triage-preservation invariant) / SPEC-009 (adds `severity_id` to the incident read-models)

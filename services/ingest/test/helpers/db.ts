@@ -282,6 +282,8 @@ export interface IncidentRow {
   org_id: string;
   agent_id: string;
   status: string;
+  // SPEC-011 — the incident's aggregated OCSF severity (MAX over member alerts).
+  severity_id: number;
   assigned_to: string | null;
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
   alert_ids: string[];
@@ -306,7 +308,7 @@ export async function getIncidents(
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const r = await pool.query<IncidentRow>(
-      `SELECT incident_id, org_id, agent_id, status, assigned_to, cg_mitre, alert_ids, grouping_key
+      `SELECT incident_id, org_id, agent_id, status, severity_id, assigned_to, cg_mitre, alert_ids, grouping_key
        FROM incidents ${where}
        ORDER BY created_at`,
       params,

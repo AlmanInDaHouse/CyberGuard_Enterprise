@@ -45,14 +45,19 @@ export function buildGroupingKey(alert: IncidentGroupingInput): {
  * persisted alert:
  *
  * - No incident for the grouping_key yet ⇒ CREATE (incident_id UUIDv7, status
- *   'open', activity_id 1 = Created, alert_ids = [this alert], window_start = the
- *   bucket start, deterministic title).
- * - An incident already exists for the grouping_key ⇒ APPEND this alert_id to
- *   alert_ids (idempotent — `@>` skips an already-present id, preserving order and
- *   uniqueItems) and bump updated_at. The `SET` list touches ONLY alert_ids and
- *   updated_at, so `status` / `assigned_to` / `activity_id` / `cg_mitre` / `title`
- *   are preserved — the triage-preservation invariant (§Operational §4): a new
- *   correlated alert never resets a human's triage.
+ *   'open', activity_id 1 = Created, alert_ids = [this alert], severity_id = this
+ *   alert's severity, window_start = the bucket start, deterministic title).
+ * - An incident already exists for the grouping_key ⇒ the `DO UPDATE` SET splits
+ *   the row into two field classes (SPEC-011 §Operational §4):
+ *     · MACHINE-RECOMPUTED on every correlated alert — `alert_ids` APPENDS this id
+ *       (idempotent: `@>` skips an already-present id, preserving order and
+ *       uniqueItems) and `severity_id` is raised to GREATEST(current, incoming) so
+ *       severity tracks the running MAX over the members; `updated_at` is bumped.
+ *     · PRESERVED triage-state — `status` / `assigned_to` / `activity_id` /
+ *       `cg_mitre` / `title` are NOT in the SET, so a new correlated alert never
+ *       resets a human's triage (the triage-preservation invariant, §Operational §4).
+ *   Severity is machine-derived evidence, not triage-state, so raising it extends the
+ *   recomputed class without weakening the preservation promise.
  *
  * The `incidents.agent_id → agents` FK is production-faithful (Convention #12):
  * the alert (hence the incident) belongs to an enrolled agent. window_start is the
@@ -69,13 +74,14 @@ export async function upsertIncident(
   try {
     await pool.query(
       `INSERT INTO incidents
-         (incident_id, org_id, agent_id, title, status, cg_mitre, alert_ids, grouping_key, window_start)
-       VALUES ($1, $2, $3, $4, 'open', $5::jsonb, ARRAY[$6]::uuid[], $7, to_timestamp($8))
+         (incident_id, org_id, agent_id, title, status, cg_mitre, alert_ids, severity_id, grouping_key, window_start)
+       VALUES ($1, $2, $3, $4, 'open', $5::jsonb, ARRAY[$6]::uuid[], $7, $8, to_timestamp($9))
        ON CONFLICT (grouping_key) DO UPDATE
          SET alert_ids = CASE
                            WHEN incidents.alert_ids @> excluded.alert_ids THEN incidents.alert_ids
                            ELSE incidents.alert_ids || excluded.alert_ids
                          END,
+             severity_id = GREATEST(incidents.severity_id, excluded.severity_id),
              updated_at = now()`,
       [
         uuidv7(),
@@ -84,6 +90,7 @@ export async function upsertIncident(
         title,
         JSON.stringify(alert.cgMitre),
         alert.alertId,
+        alert.severityId,
         groupingKey,
         windowStartSeconds,
       ],

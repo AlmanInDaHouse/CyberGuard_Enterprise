@@ -48,6 +48,10 @@ export async function runDetectionCycle(config: DetectConfig): Promise<DetectCyc
           agentId: match.sourceEvent.agentId,
           cgMitre: match.cgMitre,
           eventTime: match.sourceEvent.time,
+          // SPEC-011 §Operational §2 — the alert's OCSF severity feeds the incident's
+          // MAX aggregation. `match.severityId` is the same always-present value
+          // upsertAlert persisted two lines up (NOT NULL, range-checked).
+          severityId: match.severityId,
         });
       }
     }
