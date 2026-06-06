@@ -4,7 +4,7 @@ Canonical state-of-the-world at the close of Session 22. This document is the co
 
 Session 22 delivered **forensic escalón 3 — the evidence hash-chain** (ADR-0016 + SPEC-012), the **third and integrity-defining** step of the title promise *"an exportable forensic report on the first incident"* (`blueprint.md:33`). It is the rung that makes *"auditable"* honest in code: a per-event SHA-256 hash-chain over the canonicalized SPEC-010 drill output, sealed by an **Ed25519 `root_signature`** under a **dedicated `services/api` key** (never the ingest CA). Unlike S20/S21 (ADR-less additive increments), S22 introduced a **new ADR (ADR-0016)** because it adds **new key material and a new trust-boundary decision**. It was delivered through the **READ-ONLY audit → approved-diff-gate → atomic-land** flow (not a harness-first RED/GREEN arc): the spec layer first (ADR-0016 + SPEC-012, atomic Proposed→Accepted), then **gate A+B** (the pure chain, no signing), then **gate C** (the dedicated key + signature + export). All `ts-ci` jobs are green at every landing and Known CI debt stays at **zero**.
 
-- **Anchor commit:** `<S22-ANCHOR-SHA>` (`docs(handoff): Session 22 close`) — substituted into the placeholder by an immediate follow-up commit per the two-commit anchor pattern (cf. Session 21 `2dada15`/`4b69094`, Session 20 `7b723f6`/`54df77d`).
+- **Anchor commit:** `4702b8f` (`docs(handoff): Session 22 close`) — substituted into the placeholder by an immediate follow-up commit per the two-commit anchor pattern (cf. Session 21 `2dada15`/`4b69094`, Session 20 `7b723f6`/`54df77d`).
 - **S22 spec-layer SHA (ADR-0016 + SPEC-012 Accepted; SPEC-010 total-order amendment):** `dbadf4d` (ADR-0016 Proposed + SPEC-010 amendment) → `3581645` (SPEC-012 Accepted + ADR-0016 flip→Accepted + landing).
 - **S22 A+B SHA (pure chain, no signing):** `5478670` (`feat(spec-012): forensic evidence hash-chain A+B -- total-order tiebreaker + pure chain (no signing)`).
 - **S22 C SHA (dedicated key + root signature + export):** `2d77dc6` (`feat(spec-012): forensic evidence hash-chain C -- dedicated Ed25519 key + root signature + export`).
@@ -25,7 +25,7 @@ S22's deliverable is **four landings + a two-commit handoff close**, all green, 
 | SPEC-012 Accepted + ADR-0016 flip→Accepted | `3581645` | The implementing SPEC (mechanics: genesis seed, concat, JCS wiring, key-at-rest shape, export/verify contract) Accepted; ADR-0016 flipped Proposed→Accepted; catalog rows + dependency edges. |
 | **A+B (pure chain, no signing)** | **`5478670`** | Pieza A: the `event_id` tiebreaker in `queries.ts:262`. Pieza B: `src/forensic/{canonical,hashchain}.ts` — JCS wrapper + per-event SHA-256 chain (`chain_0 = SHA-256("")`, raw 32-byte concat, no separator, no timestamp term); `computeChain`/`verifyChain`, native WebCrypto, no crypto dep. `canonicalize ^2.0.0` added to api deps. ACs `hashchain_ac_002/003/004`. NO Ed25519 signing. |
 | **C (dedicated key + signature + export)** | **`2d77dc6`** | `src/forensic/{key,export}.ts` + migration `0003_forensic_key` + `GET /v1/incidents/:id/forensic-export` + env var `API_FORENSIC_PASSPHRASE` (deployment-contract, ratified). ACs `hashchain_ac_001/005/006`. 13 files, +636/−3. |
-| Session 22 close (this handoff) | `<S22-ANCHOR-SHA>` | `docs(handoff): Session 22 close`. Anchor SHA filled by the two-commit follow-up. |
+| Session 22 close (this handoff) | `4702b8f` | `docs(handoff): Session 22 close`. Anchor SHA filled by the two-commit follow-up. |
 
 ## Forensic escalón 3 (evidence hash-chain) — delivery declaration
 
