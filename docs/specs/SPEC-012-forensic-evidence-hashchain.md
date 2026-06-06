@@ -34,7 +34,6 @@ Each names its destination:
 - **Incident-closure lifecycle** (`closed_at`, status transitions) — the on-demand snapshot replaces the on-close trigger (ADR-0016 §4).
 - **Extracting a shared canonicalization package** (so api and ingest share one JCS module instead of each depending on `canonicalize`) — a later refactor; this SPEC duplicates the thin wrapper deliberately.
 - **Out-of-band trust anchoring of the forensic public key** (resistance to a *compromised server*) — a deployment-contract decision, **deferred to §Open questions** below. Until it is settled, *"auditable"* in this SPEC means **integrity verifiable under a trusted key**, not authenticity against a compromised server.
-- **The forensic-key migration code + the api dependency edit.** The `0003_forensic_key` api migration, the `package.json` `canonicalize` dependency, and the route/service code are a **later implementation gate**; this SPEC is the doc layer only.
 
 ## Data contracts
 
@@ -131,12 +130,21 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 5. **All 6 ACs are CI-able** (throwaway-DB / real-backend pattern), not marquees.
 6. **Doc-only this gate** — the api migration, `package.json` dependency, and route/service code are a later implementation gate.
 
+## Amendment 2026-06-06: implementation gates A+B and C landed
+
+Two forward-looking statements in the original text are superseded by the implementation (authorized in chat; CLAUDE.md §SPEC amendment workflow — the STOP that surfaced the staleness is the ratification). Where the original text is a point-in-time record it stays: §Ratification record item 6 (*"doc-only this gate"*) accurately describes the gate at which SPEC-012 was **accepted**; this amendment supersedes it only where current state differs.
+
+- **`canonicalize` is now a current api dependency.** `services/api/package.json:29` carries `canonicalize ^2.0.0`, added with the **gate A+B** chain landing (`services/api/src/forensic/canonical.ts` imports it) — no longer "a later implementation gate". The §Out of scope bullet that listed the dependency edit + the implementation code as deferred is removed; §References is corrected in place.
+- **The forensic-key implementation landed in gate C** (this session): `services/api/src/db/migrations/0003_forensic_key.ts` (the single-row, pgcrypto at-rest table), `src/forensic/key.ts` (`ensureForensicKey` — the dedicated Ed25519 key), `src/forensic/export.ts` (`buildForensicExport` — chain head + `root_signature` + embedded pubkey), and the `GET /v1/incidents/:id/forensic-export` route.
+
+**Still out of scope** (unchanged by this amendment): out-of-band trust anchoring of the forensic public key (§Open questions 1), the shared-canonicalization-package extraction, PDF/HTML render, and MinIO physical at-rest.
+
 ## References
 
 - [ADR-0016](../adr/0016-forensic-evidence-hash-chain.md) — the model this SPEC implements (evidence unit, per-event chain, on-demand snapshot, dedicated api key, JCS discipline, RMT threat boundary).
 - [SPEC-010](SPEC-010-forensic-event-drill.md) — the drill `EventTimeline` that is the evidence; the `(time, event_id)` total-order amendment (`## Amendment 2026-06-06`). Code: `services/api/src/read/queries.ts:268` / `:252` (construction), `:262` (order), `:259` (`FINAL`), `:251` (`Set` dedup); `types.ts:57-67` (`TimelineEvent`).
 - [SPEC-011](SPEC-011-incident-severity.md) / [SPEC-007](SPEC-007-incident-grouping-mvp.md) — the incident scope of the evidence.
 - [SPEC-003](SPEC-003-mtls-signed-envelope.md) — the JCS + Ed25519 discipline reused; `services/ingest/src/jcs.ts` (the `canonicalize` usage api mirrors but does not import).
-- `services/ingest/package.json:28` (`canonicalize ^2.0.0`, the package api adopts as its own dep); `services/api/package.json` (no `canonicalize` today — added at the implementation gate).
+- `services/ingest/package.json:28` (`canonicalize ^2.0.0`, the package api adopts as its own dep); `services/api/package.json:29` (`canonicalize ^2.0.0`, added with the gate A+B chain landing — see Amendment 2026-06-06).
 - `services/ingest/src/ca.ts:85-88` / `:101` + `services/ingest/src/db/migrations/0001_initial.ts:10-16` — the single-row, pgcrypto-encrypted key-at-rest pattern the forensic-key table mirrors; `services/api/src/db/migrations/0001_users.ts:15` (pgcrypto already enabled in the api Postgres).
 - [Blueprint](../product/blueprint.md) — `:33` (the *"auditable"* promise), `:527-535` (the hash-chain scheme; `:531` the `timestamp_n` term this SPEC folds into the evidence).

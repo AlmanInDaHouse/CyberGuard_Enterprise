@@ -182,6 +182,9 @@ services:
       API_CH_PASSWORD: ${CG_CH_PASSWORD:-cyberguard_dev}
       API_CH_DB: ${CG_CH_DB:-cyberguard}
       API_DB_ENC_PASSPHRASE: ${CG_API_DB_ENC_PASSPHRASE:-cyberguard_dev_api_pass}
+      # SPEC-012 / ADR-0016 §5 — passphrase for the dedicated forensic Ed25519 signing
+      # key at rest (pgcrypto), distinct from API_DB_ENC_PASSPHRASE and NOT the ingest CA.
+      API_FORENSIC_PASSPHRASE: ${CG_API_FORENSIC_PASSPHRASE:-cyberguard_dev_forensic_pass}
       API_PORT: "8081"
       API_RUN_MIGRATIONS: "true"
       API_LOG_LEVEL: ${CG_API_LOG_LEVEL:-info}

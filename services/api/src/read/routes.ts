@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { makeRequireSession } from "../auth/prehandlers.js";
+import { buildForensicExport } from "../forensic/export.js";
 import type { Services } from "../services.js";
 import {
   getIncidentDetail,
@@ -72,6 +73,33 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
     if (!timeline) return reply.code(404).send({ error: "not_found" });
     return timeline;
   });
+
+  // SPEC-012 — the on-demand forensic snapshot export (escalón 3): the incident's
+  // canonicalized evidence + the SHA-256 hash-chain head chain_N + the Ed25519
+  // root_signature over chain_N + the embedded forensic public key. Same session
+  // preHandler + org-scope as the drill; GET → read-only (no role gate, no CSRF).
+  // 404 mirrors the detail/events handlers (malformed :id / not-found / cross-org).
+  // The export shape carries NO private-key field, so this route can never serialize
+  // the forensic private key. The embedded pubkey is a convenience, NOT a trust root
+  // (SPEC-012 §Compliance line 108) — out-of-band anchoring is the deferred Open-Q.
+  app.get(
+    "/v1/incidents/:id/forensic-export",
+    { preHandler: requireSession },
+    async (req, reply) => {
+      const session = req.authSession;
+      if (!session) throw new Error("unreachable: requireSession populates authSession");
+      const { id } = req.params as { id: string };
+      let exportDoc: Awaited<ReturnType<typeof buildForensicExport>>;
+      try {
+        exportDoc = await buildForensicExport(services, session.org_id, id);
+      } catch {
+        // Malformed id (e.g. not a UUID) → generic 404, no internal detail.
+        return reply.code(404).send({ error: "not_found" });
+      }
+      if (!exportDoc) return reply.code(404).send({ error: "not_found" });
+      return exportDoc;
+    },
+  );
 
   app.get("/v1/alerts", { preHandler: requireSession }, async (req) => {
     const session = req.authSession;

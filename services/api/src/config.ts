@@ -21,6 +21,12 @@ const EnvSchema = z.object({
   // pgcrypto passphrase for users.totp_secret at-rest encryption (SPEC-008
   // §Data contracts §1; the INGEST_CA_PASSPHRASE pattern).
   API_DB_ENC_PASSPHRASE: z.string().min(1),
+  // pgcrypto passphrase for the DEDICATED forensic Ed25519 signing key at rest
+  // (SPEC-012 §Data contracts §4; ADR-0016 §5). A DISTINCT secret from
+  // API_DB_ENC_PASSPHRASE: the forensic key attests evidence integrity, a different
+  // purpose than TOTP-secret encryption, and it MUST NOT be the ingest CA. Same
+  // z.string().min(1) shape — a deployment-contract value the operator sets.
+  API_FORENSIC_PASSPHRASE: z.string().min(1),
   API_PORT: z.coerce.number().int().positive().default(8081),
   API_RUN_MIGRATIONS: z
     .enum(["true", "false"])

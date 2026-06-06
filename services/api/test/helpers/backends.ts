@@ -60,6 +60,7 @@ export async function startBackends(): Promise<Backends> {
       API_CH_PASSWORD: "cyberguard_dev",
       API_CH_DB: "cyberguard",
       API_DB_ENC_PASSPHRASE: "test-api-passphrase",
+      API_FORENSIC_PASSPHRASE: "test-forensic-passphrase",
       API_PORT: 0,
       API_RUN_MIGRATIONS: true,
       API_LOG_LEVEL: "warn",
