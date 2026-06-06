@@ -259,7 +259,7 @@ export async function getIncidentEventTimeline(
       FROM cges_events FINAL
       WHERE org_id = {org:String}
         AND toString(event_id) IN ({ids:Array(String)})
-      ORDER BY time ASC
+      ORDER BY time ASC, event_id ASC
     `,
     query_params: { org: orgId, ids: eventIds },
     format: "JSONEachRow",
