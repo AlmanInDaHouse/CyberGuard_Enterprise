@@ -131,6 +131,22 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 5. **`Services.close()` → `Promise.allSettled`** (ratified style change, aligns with ingest).
 6. **`cges_events` test materialisation = scoped DDL helper in the api harness** (§Open questions 1), with named debt + trigger.
 
+## Amendment 2026-06-06: drill order becomes a total order `(time, event_id)`
+
+**What surfaced this.** ADR-0016 (forensic evidence hash-chain — escalón 3) hashes the **canonicalized drill output** as its unit of evidence and accumulates a per-event SHA-256 chain. A reproducible chain requires a **total order** over the timeline's events. The drill as shipped orders `ORDER BY time ASC` with **no secondary tiebreaker** (`services/api/src/read/queries.ts:262`): two `cges_events` rows sharing the same `time` have a **non-deterministic relative order**. The row *set* is already deterministic (`FINAL` collapses `ReplacingMergeTree` duplicates + the TS `Set` dedup of event ids — `queries.ts:251,259`); only the *order* was under-specified.
+
+**The amendment.** The drill's response-order contract gains `event_id` as the secondary tiebreaker: the events are ordered by **`(time ASC, event_id ASC)`** — a total order. This supersedes §Data contracts §1 (`:44`, *"ordered by event time ascending (`time ASC`)"*) and §Operational §2 step 4 (`:80`, the `ORDER BY time ASC` in the ClickHouse query) where they state `time ASC` alone; the original text stays and this amendment governs where they differ.
+
+**Scope of this diff (DOC ONLY).** This amendment **records the contract change in the document only**; it does **not** edit `services/api/src/read/queries.ts`. The `ORDER BY time ASC` → `ORDER BY time ASC, event_id ASC` code change (and a `drill_ac` assertion pinning the tie order) land with ADR-0016's implementing SPEC, not here.
+
+**Effect.**
+
+- **Observable change to row ORDER** for events with identical `time`: their relative order becomes defined and stable (`event_id` ascending). For all other inputs the order is unchanged (still `time ASC` primary).
+- **Response SHAPE unchanged.** Same `EventTimeline = { incident_id, events: TimelineEvent[] }`, same `TimelineEvent` fields/types (`services/api/src/read/types.ts:57-67`). No field added or removed.
+- **`drill_ac` compatibility.** The existing acceptance criteria assert `time ASC` ordering + set membership (`drill_ac_001`); a total order is a *refinement* of `time ASC` (same primary sort key), so it does not contradict them. The implementing SPEC adds the assertion that pins the same-`time` tie order.
+
+**Status.** SPEC-010 stays **Accepted** (per CLAUDE.md §SPEC amendment workflow). The change is additive at the response-shape level — only the same-`time` row order is newly pinned; no consumer that already relied on `time ASC` breaks.
+
 ## References
 
 - [ADR-0015](../adr/0015-readonly-clickhouse-reader-in-api.md) — the boundary decision this SPEC implements.

@@ -179,7 +179,7 @@ Both are valid. (1) speaks to briefing or SPEC quality; (2) speaks to what reali
 When implementation reality contradicts an already-`Accepted` SPEC (or ADR) in a way that needs a contract change, amend it in place rather than rewriting history:
 
 - Append an explicit `## Amendment <YYYY-MM-DD>: <short title>` section near the bottom of the SPEC (before `## References`), stating what surfaced the conflict, the amendment, and its effect (or lack of effect) on each affected section. The original requirement text stays; the amendment supersedes it where they differ.
-- **Status stays `Accepted`**; bump `Last updated`. Summarise the amendment in the catalog (`docs/specs/README.md` / `docs/adr/README.md`) if one exists.
+- **Status stays `Accepted`.** For an **ADR** (whose header carries a `Last updated` field), bump `Last updated`. For a **SPEC** (whose header — `ID` / `Title` / `Status` / `Depends on` / `Authors` — has no `Last updated` field, and is not standardised to add one here), the dated `## Amendment <YYYY-MM-DD>` section *is* the timestamped record; nothing else in the header is bumped. Either way, summarise the amendment in the catalog (`docs/specs/README.md` / `docs/adr/README.md`) if one exists.
 - **No re-ratification pause is required if the amendment was authorized in chat at the moment the conflict was surfaced** (the STOP that raised it *is* the ratification). If it was not, surface it and wait, like any ask-first decision.
 - Prefer additive, backward-compatible amendments (a new optional field) so prior tests need no revision; call out explicitly when an amendment is *not* backward-compatible.
 
