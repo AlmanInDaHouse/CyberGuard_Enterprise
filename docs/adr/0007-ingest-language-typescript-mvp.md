@@ -85,6 +85,10 @@ This ADR supersedes the `services/ingest/` row of ADR-0002 for the MVP. Subseque
 
 Introducing the high-throughput event firehose (10–100k eps telemetry ingestion) requires a new ADR that presents throughput evidence and decides that workload's language and component boundary; this ADR does not pre-decide it.
 
+## Amendment 2026-06-07 (SPEC-013): the collateral "forensic = Go" mention is superseded
+
+The §Decision "Unchanged by this ADR" list states *"Every other row of ADR-0002 (agent = Rust, pipeline / soar / forensic = Go, api = TypeScript, ml = Python, dashboard = TypeScript)"* — asserting, collaterally, that ADR-0002's `services/forensic/ = Go` row was untouched by the ingest pivot. That collateral assertion is now superseded: [SPEC-013](../specs/SPEC-013-forensic-report-render.md) (Accepted) realized the per-incident forensic report render as a **TypeScript module in `services/api/`** (`@react-pdf/renderer`), not a standalone Go `services/forensic/` service. The **core decision of this ADR is unchanged** — `services/ingest/` is TypeScript for the MVP control plane; only the incidental restatement of "forensic = Go" no longer holds. The authoritative record of the forensic pivot lives in [ADR-0002](0002-language-per-component.md) §Amendment 2026-06-07 (SPEC-013). This ADR remains `Accepted`.
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout (`services/ingest/` location).

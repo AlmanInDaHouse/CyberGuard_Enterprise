@@ -44,6 +44,8 @@ The total language surface is bounded to **four**: Rust, Go, TypeScript, Python.
 
 > **Amended (2026-05-22):** the `services/ingest/` row is superseded for the MVP by [ADR-0007](0007-ingest-language-typescript-mvp.md) — the agent control-plane ingest (enroll + heartbeat) is **TypeScript + Fastify**. The high-throughput event firehose that motivated `ingest = Go` is deferred and will get its own ADR. The four-language bound is unaffected (TypeScript is already in the set).
 
+> **Amended (2026-06-07):** the `services/forensic/` row is superseded for the MVP forensic render by [SPEC-013](../specs/SPEC-013-forensic-report-render.md) — the per-incident report render is a **TypeScript module in `services/api/`** (`@react-pdf/renderer`), not the standalone Go service (which was never built). The four-language bound is unaffected (TypeScript is already in the set). See the dated `## Amendment 2026-06-07` below.
+
 ### Cross-cutting rules
 
 **Rule 1.** Python lives in `services/ml/` only. No Python anywhere else in the repository, including scripts, tooling, or harness internals. If a build or dev script is needed, write it as a Task target invoking Go, Node, or PowerShell / Bash — not Python.
@@ -139,6 +141,10 @@ The contract-generation tooling promised under Rule 5 is reserved for a dedicate
 ## Amendment 2026-05-30 (ADR-0012): MVP detection slice hosted in TypeScript ingest (transitory)
 
 The component-language table assigns `services/pipeline/` (the correlation/normalize/score engine) to Go, and Rule 3 requires a superseding/amending ADR for any non-Go server-side artifact. [ADR-0012](0012-normalize-before-correlate-pipeline.md) §1 amends this **for the MVP detection slice only**: the normalize→rule→score→alert slice is implemented in TypeScript inside `services/ingest/src/detect/` (co-located with the ClickHouse + Postgres clients), not in Go `services/pipeline/`. This is transitory and narrow — `services/pipeline/`'s Go assignment is otherwise unchanged. **Named exit:** when the event-firehose ADR (deferred per ADR-0007 §Consequences) lands with the Go toolchain, the slice is ported into `services/pipeline/` and removed from ingest, restoring the Go assignment in full. ADR-0002 remains `Accepted`; this amendment supersedes the assignment only for the named MVP slice. Mirrors ADR-0007's amendment of the `services/ingest/` row for the MVP control plane.
+
+## Amendment 2026-06-07 (SPEC-013): `services/forensic/` render realized in TypeScript (module in `services/api/`)
+
+The component-language table assigns `services/forensic/` to Go, and Rule 3 requires a superseding/amending ADR for any non-Go server-side artifact. [SPEC-013](../specs/SPEC-013-forensic-report-render.md) (Accepted) realizes the per-incident forensic report render as a **TypeScript module inside `services/api/`** (`@react-pdf/renderer`, composing the SPEC-010 / 011 / 012 read-layer outputs), **not** the standalone Go `services/forensic/` service — that Go service was never built. Because the render landed as code inside the already-TypeScript `services/api/` rather than as a new non-Go component, it adds **no new language** and the four-language bound `{Rust, Go, TypeScript, Python}` is unaffected. ADR-0002 remains `Accepted`; this amendment supersedes the `Go` assignment of the `services/forensic/` row for the MVP forensic render. Unlike the 2026-05-30 detection-slice amendment (transitory, with a named Go exit), this pivot is **not** flagged transitory: the report render's MVP home is the `services/api/` module, and any future standalone Go forensic service would open its own ADR. Mirrors ADR-0007's amendment of the `services/ingest/` row and this ADR's 2026-05-30 amendment of the `services/pipeline/` slice.
 
 ## References
 
