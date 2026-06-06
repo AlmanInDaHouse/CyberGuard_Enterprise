@@ -32,6 +32,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0013](0013-incident-correlation-windowing.md) | Incident correlation windowing — event-time basis | Accepted |
 | [0014](0014-human-authentication-model.md) | Human authentication model — local self-hosted, password + TOTP | Accepted |
 | [0015](0015-readonly-clickhouse-reader-in-api.md) | Read-only ClickHouse reader in `services/api` (forensic event-drill boundary) | Accepted |
+| [0016](0016-forensic-evidence-hash-chain.md) | Forensic evidence hash-chain — per-event SHA-256 chain + dedicated Ed25519 root signature | Accepted |
 
 ## Dependencies
 
@@ -78,3 +79,8 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0015 → ADR-0003 (consumes the ClickHouse storage home as a read-only reader in `services/api`; does not amend or re-route storage)
 - ADR-0015 → ADR-0014 (preserves the human/agent trust-boundary split — keeps the forensic event read in the user-facing api, not the agent boundary)
 - ADR-0015 → SPEC-009 (amends-by-scope `:34`: the alert→source-event drill SPEC-009 deferred-with-destination is delivered by this ADR + SPEC-010)
+- ADR-0016 → ADR-0014 (introduces a dedicated forensic signing key in the human-facing `services/api`; does NOT reuse the ingest CA, preserving the human/agent trust-boundary split)
+- ADR-0016 → ADR-0003 (consumes the evidence definition; explicitly does NOT use the MinIO at-rest home — recorte part (b))
+- ADR-0016 → SPEC-010 (the canonicalized drill output `EventTimeline` is the evidence unit; requires its `(time, event_id)` total-order amendment)
+- ADR-0016 → SPEC-011 / SPEC-007 (the incident the evidence is scoped to: its grouped alerts and aggregated severity)
+- ADR-0016 → SPEC-003 (reuses the JCS canonicalization discipline; does not amend it)

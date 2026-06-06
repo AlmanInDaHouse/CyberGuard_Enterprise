@@ -32,6 +32,7 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-009](SPEC-009-read-slice.md) | Read-slice | Accepted |
 | [SPEC-010](SPEC-010-forensic-event-drill.md) | Forensic event drill — incident → raw `cges_events` timeline | Accepted |
 | [SPEC-011](SPEC-011-incident-severity.md) | Incident severity aggregation — MAX of member alerts | Accepted |
+| [SPEC-012](SPEC-012-forensic-evidence-hashchain.md) | Forensic evidence hash-chain (escalón 3 — implements ADR-0016) | Accepted |
 
 ## Dependencies
 
@@ -42,3 +43,4 @@ Cross-document edges surfaced at landing (each SPEC's own "Depends on" header is
 - SPEC-010 self-amendment 2026-06-06: drill order → total `(time, event_id)` (requirement of ADR-0016; response shape unchanged, only the same-`time` row order is newly pinned)
 - SPEC-011 → SPEC-010 (realises §Out of scope `:32` **by scope**: the deferred *"Severity / score aggregation per incident"* is delivered here — an `incidents.severity_id` MAX over member alerts; no new ADR)
 - SPEC-011 → SPEC-007 (extends the `incidents` upsert + re-words the triage-preservation invariant) / SPEC-009 (adds `severity_id` to the incident read-models)
+- SPEC-012 → ADR-0016 (implements escalón 3 — the forensic evidence hash-chain) / SPEC-010 (the canonicalized drill output is the evidence unit). **Carries a deployment-contract Open question:** out-of-band trust anchoring of the forensic public key (cross-ref SPEC-012 §Open questions)

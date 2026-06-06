@@ -534,6 +534,8 @@ root_signature = Ed25519_sign(server_key, chain_N)
 
 This makes it possible to prove a posteriori that a set of evidence has not been tampered with since the incident was closed.
 
+**Roadmap note — forensic trust anchoring.** Tamper-evidence that is robust *against a compromised server* requires an **out-of-band anchoring of the forensic key**: a way for an auditor to obtain the authentic public key independently of the server. That distribution-of-trust step is **pending**, tracked as an Open question in SPEC-012; the hash-chain shipped first proves **integrity under a trusted key**, with server-resistant authenticity following once the deployment-trust model is set.
+
 ### Reproducibility
 
 - The exported JSON contains **all** information needed to reconstruct the incident without server access.

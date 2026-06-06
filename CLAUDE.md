@@ -158,6 +158,7 @@ Technical, reversible, in-scope decisions are the agent's. The agent decides, ap
 - Anything outside the *Approved local toolchain*.
 - New ADRs or amendments to accepted ADRs — the agent drafts and proposes; Manuel ratifies before status changes to `Accepted`.
 - Schema-breaking changes to CGES once it stabilises.
+- **Deployment-contract decisions** — new environment variables, config surfaces the *client operator* sets, trust-anchoring / key-distribution choices. These are an **owner STOP even when the advisor has the technical direction clear**, because they depend on client-operation knowledge that does not live in the repo. Defer them with a **named Open question + an explicit reopen condition**; do not resolve them by design inertia. (Surfaced when SPEC-012's forensic-pubkey trust anchoring was deferred as a deployment contract rather than picked as an engineering default.)
 
 ### Communication contract
 

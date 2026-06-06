@@ -1,6 +1,6 @@
 # ADR-0016: Forensic evidence hash-chain — per-event SHA-256 chain over the canonicalized drill output, dedicated Ed25519 root signature
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-06-06
 - Last updated: 2026-06-06
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
@@ -109,6 +109,7 @@ Each deferred item names its destination:
 - **(b) Physical at-rest / MinIO persistence** of evidence blobs and rendered reports — ADR-0003 homes these in MinIO (zero consumer today). A later forensic-persistence increment.
 - **PDF / HTML render** of the report (timeline + MITRE + severity + the chain/signature) — a later forensic-render SPEC.
 - **Incident-closure lifecycle** (`closed_at`, embarked status transitions, triage-writes) — orthogonal; the on-demand snapshot does not require it.
+- **Trust distribution / out-of-band anchoring of the forensic public key.** The root signature (§Decision 5) proves **integrity under a given key**; resistance to a **compromised server** (an out-of-band channel by which an auditor obtains the *authentic* forensic public key independent of the server, closing the re-sign attack) is a **deployment-contract decision, deferred** — tracked as an Open question in [SPEC-012](../specs/SPEC-012-forensic-evidence-hashchain.md) §Open questions.
 - **The exact mechanics** — endpoint(s), `chain_0` genesis seed, `timestamp_n` encoding, the forensic-key table schema, and the pubkey-exposure surface — belong to this ADR's **implementing SPEC** (forthcoming).
 
 ## Landing checklist (atomic on flip to Accepted)
