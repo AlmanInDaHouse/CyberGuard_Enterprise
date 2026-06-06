@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { makeRequireSession } from "../auth/prehandlers.js";
 import { buildForensicExport } from "../forensic/export.js";
+import { buildReport } from "../forensic/report.js";
 import type { Services } from "../services.js";
 import {
   getIncidentDetail,
@@ -100,6 +101,28 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
       return exportDoc;
     },
   );
+
+  // SPEC-013 — the forensic report render (escalón 4): the per-incident PDF composing the
+  // SPEC-010 timeline + SPEC-011 severity + the SPEC-012 seal (chain_root + root_signature +
+  // forensic_pubkey, transcribed), built programmatically via @react-pdf/renderer. Same session
+  // preHandler + org-scope as the sibling reads; GET → read-only (no role gate, no CSRF). 404
+  // mirrors them (malformed :id / not-found / cross-org). This is the FIRST non-JSON response in
+  // the api: `reply.type("application/pdf")`. `buildReport` carries only the public seal — the
+  // forensic private key is never serialized (inherited from SPEC-012).
+  app.get("/v1/incidents/:id/report", { preHandler: requireSession }, async (req, reply) => {
+    const session = req.authSession;
+    if (!session) throw new Error("unreachable: requireSession populates authSession");
+    const { id } = req.params as { id: string };
+    let pdf: Awaited<ReturnType<typeof buildReport>>;
+    try {
+      pdf = await buildReport(services, session.org_id, id);
+    } catch {
+      // Malformed id (e.g. not a UUID) → generic 404, no internal detail.
+      return reply.code(404).send({ error: "not_found" });
+    }
+    if (!pdf) return reply.code(404).send({ error: "not_found" });
+    return reply.type("application/pdf").send(pdf);
+  });
 
   app.get("/v1/alerts", { preHandler: requireSession }, async (req) => {
     const session = req.authSession;
