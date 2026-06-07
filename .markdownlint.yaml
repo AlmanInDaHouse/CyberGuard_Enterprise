@@ -6,12 +6,24 @@ default: true
 # MD013: line length — disabled (we wrap by sentence, not column).
 MD013: false
 
-# MD024: duplicate headings — allow with different nesting.
+# MD024: duplicate headings — allow content reuse under different parents
+# (e.g. an ADR amendment's `### Context` / `### Decision` alongside the
+# document's top-level `## Context` / `## Decision`). markdownlint core 0.40.0
+# (markdownlint-cli2-action@v23 engine) renamed the legacy `allow_different_nesting`
+# option to `siblings_only`; the legacy key is now silently ignored, so this MUST
+# read `siblings_only` for the intent to hold under the v23 engine.
 MD024:
-  allow_different_nesting: true
+  siblings_only: true
 
 # MD033: inline HTML — allowed (occasional tags in READMEs).
 MD033: false
 
 # MD041: first line in file must be a top-level heading — disabled.
 MD041: false
+
+# MD060: table column style — disabled (we do not enforce table pipe alignment;
+# tables use a compact/un-aligned style across ADRs, SPECs and READMEs). Newly
+# enabled by default in markdownlint core 0.40.0 (the markdownlint-cli2-action@v23
+# engine, markdownlint-cli2 0.22.1); mirrors the long-standing override already in
+# docs/product/.markdownlint-cli2.yaml so behaviour stays uniform repo-wide.
+MD060: false

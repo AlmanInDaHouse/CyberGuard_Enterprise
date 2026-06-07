@@ -16,8 +16,8 @@ config:
 
   # --- Inherited from root .markdownlint.yaml ---
   MD013: false                       # line length off
-  MD024:                             # duplicate headings — allow different nesting
-    allow_different_nesting: true
+  MD024:                             # duplicate headings — allow reuse under different parents
+    siblings_only: true              # core 0.40.0 renamed `allow_different_nesting` → `siblings_only`
   MD033: false                       # inline HTML allowed
   MD041: false                       # first-line h1 not required
 
