@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-30
-- Last updated: 2026-05-30
+- Last updated: 2026-06-07
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -267,6 +267,29 @@ The following block is added to `docs/adr/0002-language-per-component.md` (befor
 ## Amendment 2026-05-31 (ADR-0013): the correlation window is two distinct tunables, not one
 
 §8 defined a single 300 s correlation window and stated the dedup bucket and "the future hybrid join share one tunable"; §Out of scope stated stateful multi-event correlation "Uses the §8 window." [ADR-0013](0013-incident-correlation-windowing.md) §2 supersedes that single-tunable framing where they differ: the **dedup bucket** keeps its 300 s value and role (collapsing identical re-fires — unchanged), while **incident/stateful correlation** uses its **own, wider window** (value set in SPEC-007, per-org configurable). ADR-0012 remains `Accepted`; this amendment is additive and backward-compatible — the 300 s dedup tunable and every dedup test are untouched. Rationale: a 5-minute bucket is calibrated to collapse identical re-fires, not to span a multi-step attack chain of distinct alerts; conflating the two widths would fragment one incident into many.
+
+## Amendment 2026-06-07: production detection driver (in-process scheduler)
+
+### Context
+
+Decision §2 (line 40) establishes that "a polling read against ClickHouse is sufficient" for the MVP detection event source, but does not specify which component performs the polling. runDetectionCycle (services/ingest/src/detect/index.ts) has had no production caller — it is exercised only by the detect/notify/incident acceptance tests. As a result MVP criteria 1, 2 and 4 (detection, incident, notification) are built and test-validated but do not execute in a running stack. This amendment closes that gap.
+
+### Decision
+
+A production detection driver is added to the ingest service: an in-process scheduler that invokes the existing transitional TypeScript detection slice on a recurring basis.
+
+- Placement: started inside startIngest after the HTTP listeners bind (services/ingest/src/server.ts), stopped in the returned close() handler. It shares the already-constructed services clients (ClickHouse, Postgres, Redis) and the existing notify config; no new service and no new long-lived process.
+- Loop: for each org present in agents.org_id, the driver calls runDetectionCycle(detectConfig, notify) and drains forward — re-invoking while a cycle returns a full batch (eventsEvaluated === BATCH_LIMIT), bounded by a per-tick iteration cap — then yields. The body of runDetectionCycle is unchanged; the durable per-org watermark (detect_watermark) remains the sole cursor.
+- Scheduling: a self-rescheduling timer (next tick scheduled only after the current pass resolves) makes the driver single-flight in-process by construction; a cycle that runs longer than the interval cannot overlap.
+- Interval and rules directory are environment variables with safe defaults (ports pattern), not operator-mandatory settings.
+
+### Relationship to the §1 named exit
+
+This amendment does NOT trigger the §1 seam extraction (line 33) or the §Out-of-scope event-firehose deferral (line 236). The driver runs the existing transitional TS slice in production; it ports nothing to Go. The named exit remains gated, unchanged, on the future event-firehose / NATS JetStream ADR that brings the Go toolchain. When that ADR lands, both the slice and this driver move to Go services/pipeline/ together, per §1.
+
+### Scope
+
+MVP is single-instance. Multi-instance / HA execution (serializing cycles across replicas) is deferred; when needed it is satisfied by the existing pg_try_advisory_lock pattern (migrate.ts) wrapped per-org per-tick, with no redesign. Multi-tenancy remains out of MVP scope; the per-org loop iterates whatever orgs exist (one, 'default', in v0.1).
 
 ## References
 
