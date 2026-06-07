@@ -5,6 +5,8 @@ import pg from "pg";
 import { type ServerCa, ensureCa } from "./ca.js";
 import type { Config } from "./config.js";
 import type { Database } from "./db/schema.js";
+import type { NotifyConfig } from "./notify/index.js";
+import { buildNotifyConfig } from "./notify/transport.js";
 
 /**
  * The shared persistence + crypto layer behind both listeners (FR-002):
@@ -18,6 +20,13 @@ export interface Services {
   redis: Redis;
   ch: ClickHouseClient;
   ca: ServerCa;
+  /**
+   * SPEC-014 — the incident email notify dependency, or `null` when SMTP is
+   * unconfigured (notify disabled cleanly). Built once at boot (ADR-0017
+   * §Decision §2); dormant until a production detection driver consumes it
+   * (the inherited test-validated-altitude gap, ADR-0017 §Consequences).
+   */
+  notify: NotifyConfig | null;
   close(): Promise<void>;
 }
 
@@ -33,6 +42,7 @@ export async function buildServices(config: Config): Promise<Services> {
   });
 
   const ca = await ensureCa(pool, config.INGEST_CA_PASSPHRASE);
+  const notify = buildNotifyConfig(config);
 
   return {
     config,
@@ -41,6 +51,7 @@ export async function buildServices(config: Config): Promise<Services> {
     redis,
     ch,
     ca,
+    notify,
     async close() {
       await Promise.allSettled([db.destroy(), redis.quit(), ch.close()]);
     },

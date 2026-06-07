@@ -139,6 +139,16 @@ services:
       INGEST_CA_PASSPHRASE: ${CG_INGEST_CA_PASSPHRASE:-cyberguard_dev_ca_pass}
       INGEST_RUN_MIGRATIONS: "true"
       INGEST_LOG_LEVEL: ${CG_INGEST_LOG_LEVEL:-info}
+      # SPEC-014 / ADR-0017 — incident email notify (notify-only, on CREATE). OPTIONAL
+      # and all-or-nothing: empty defaults ⇒ notify DISABLED cleanly in dev (no relay,
+      # no prod detection driver). Set all six CG_INGEST_SMTP_* / CG_INGEST_NOTIFY_RECIPIENT
+      # to enable. Generic SMTP (Gmail = smtp.gmail.com host, not the Gmail API).
+      INGEST_SMTP_HOST: ${CG_INGEST_SMTP_HOST:-}
+      INGEST_SMTP_PORT: ${CG_INGEST_SMTP_PORT:-}
+      INGEST_SMTP_USER: ${CG_INGEST_SMTP_USER:-}
+      INGEST_SMTP_PASS: ${CG_INGEST_SMTP_PASS:-}
+      INGEST_SMTP_FROM: ${CG_INGEST_SMTP_FROM:-}
+      INGEST_NOTIFY_RECIPIENT: ${CG_INGEST_NOTIFY_RECIPIENT:-}
     volumes:
       - cg_ingest_certs:/certs
     depends_on:

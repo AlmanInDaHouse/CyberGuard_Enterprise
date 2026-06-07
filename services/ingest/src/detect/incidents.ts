@@ -62,17 +62,44 @@ export function buildGroupingKey(alert: IncidentGroupingInput): {
  * The `incidents.agent_id → agents` FK is production-faithful (Convention #12):
  * the alert (hence the incident) belongs to an enrolled agent. window_start is the
  * bucket-start UTC timestamp, derived from event-time, never insert-time.
+ *
+ * SPEC-014 — the upsert now reports whether it CREATED a new incident (vs a
+ * correlated DO UPDATE) so the caller can fire a notify on creation only. Because
+ * the statement is `ON CONFLICT DO UPDATE`, `rowCount` does NOT discriminate
+ * insert from update (a conflicting update also reports an affected row — unlike
+ * `upsertAlert`'s `DO NOTHING` where `rowCount === 1` means insert). The reliable
+ * discriminator on a `DO UPDATE` is the system column `xmax`: `xmax = 0` on a
+ * fresh INSERT, non-zero on a conflict update. `RETURNING … (xmax = 0) AS inserted`
+ * plus `incident_id` / `title` / `severity_id` gives the notify payload with no
+ * extra read. The function stays a pure DB write — the email side-effect lives in
+ * the caller (ADR-0017 §Decision §2).
  */
+export interface UpsertIncidentResult {
+  /** True iff this call INSERTed a new incident row (`xmax = 0`); false on a correlated DO UPDATE. */
+  created: boolean;
+  incidentId: string;
+  title: string;
+  severityId: number;
+  orgId: string;
+}
+
+interface UpsertIncidentRow {
+  incident_id: string;
+  title: string;
+  severity_id: number;
+  inserted: boolean;
+}
+
 export async function upsertIncident(
   config: DetectConfig,
   alert: IncidentGroupingInput,
-): Promise<void> {
+): Promise<UpsertIncidentResult> {
   const { groupingKey, windowBucket } = buildGroupingKey(alert);
   const windowStartSeconds = windowBucket * INCIDENT_CORRELATION_WINDOW_SECONDS;
   const title = `${canonicalTactics(alert.cgMitre.tactics)} activity on ${alert.agentId}`;
   const pool = new pg.Pool({ connectionString: config.ingest.INGEST_PG_URL });
   try {
-    await pool.query(
+    const result = await pool.query<UpsertIncidentRow>(
       `INSERT INTO incidents
          (incident_id, org_id, agent_id, title, status, cg_mitre, alert_ids, severity_id, grouping_key, window_start)
        VALUES ($1, $2, $3, $4, 'open', $5::jsonb, ARRAY[$6]::uuid[], $7, $8, to_timestamp($9))
@@ -82,7 +109,8 @@ export async function upsertIncident(
                            ELSE incidents.alert_ids || excluded.alert_ids
                          END,
              severity_id = GREATEST(incidents.severity_id, excluded.severity_id),
-             updated_at = now()`,
+             updated_at = now()
+       RETURNING incident_id, title, severity_id, (xmax = 0) AS inserted`,
       [
         uuidv7(),
         alert.orgId,
@@ -95,6 +123,19 @@ export async function upsertIncident(
         windowStartSeconds,
       ],
     );
+    const row = result.rows[0];
+    if (row === undefined) {
+      // An INSERT … ON CONFLICT DO UPDATE always returns exactly one row; this
+      // guard is defensive and keeps the return type non-nullable.
+      throw new Error("upsertIncident: no row returned from upsert");
+    }
+    return {
+      created: row.inserted,
+      incidentId: row.incident_id,
+      title: row.title,
+      severityId: row.severity_id,
+      orgId: alert.orgId,
+    };
   } finally {
     await pool.end();
   }
