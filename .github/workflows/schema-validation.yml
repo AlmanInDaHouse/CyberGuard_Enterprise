@@ -26,6 +26,11 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "20"
+          # setup-node@v5 auto-caches when package.json has a `packageManager`
+          # field (default package-manager-cache: true); the root declares
+          # pnpm, so it tries to resolve pnpm BEFORE corepack puts it on PATH
+          # and fails. Disable — this job uses npm -g, not pnpm.
+          package-manager-cache: false
 
       - name: Install ajv-cli and ajv-formats
         run: npm install -g ajv-cli ajv-formats

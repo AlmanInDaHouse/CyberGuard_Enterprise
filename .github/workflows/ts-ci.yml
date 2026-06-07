@@ -39,6 +39,11 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # setup-node@v5 default package-manager-cache: true auto-resolves the
+          # root packageManager (pnpm) BEFORE corepack enable puts it on PATH,
+          # failing the step. Disable — mirrors the no-setup-node-cache rationale
+          # in the Install step comment below (corepack cache-save can't find pnpm).
+          package-manager-cache: false
 
       - name: Enable Corepack (pnpm)
         run: corepack enable
@@ -84,6 +89,11 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # setup-node@v5 default package-manager-cache: true auto-resolves the
+          # root packageManager (pnpm) BEFORE corepack enable puts it on PATH,
+          # failing the step. Disable — mirrors the no-setup-node-cache rationale
+          # in the Install step comment below (corepack cache-save can't find pnpm).
+          package-manager-cache: false
 
       - name: Enable Corepack (pnpm)
         run: corepack enable
@@ -116,6 +126,11 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # setup-node@v5 default package-manager-cache: true auto-resolves the
+          # root packageManager (pnpm) BEFORE corepack enable puts it on PATH,
+          # failing the step. Disable — mirrors the no-setup-node-cache rationale
+          # in the Install step comment below (corepack cache-save can't find pnpm).
+          package-manager-cache: false
 
       - name: Enable Corepack (pnpm)
         run: corepack enable
