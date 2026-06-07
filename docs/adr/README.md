@@ -33,6 +33,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0014](0014-human-authentication-model.md) | Human authentication model — local self-hosted, password + TOTP | Accepted |
 | [0015](0015-readonly-clickhouse-reader-in-api.md) | Read-only ClickHouse reader in `services/api` (forensic event-drill boundary) | Accepted |
 | [0016](0016-forensic-evidence-hash-chain.md) | Forensic evidence hash-chain — per-event SHA-256 chain + dedicated Ed25519 root signature | Accepted |
+| [0017](0017-incident-email-notification.md) | Incident email notification — generic SMTP, fire-and-forget on incident create | Accepted |
 
 ## Dependencies
 
@@ -84,3 +85,6 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0016 → SPEC-010 (the canonicalized drill output `EventTimeline` is the evidence unit; requires its `(time, event_id)` total-order amendment)
 - ADR-0016 → SPEC-011 / SPEC-007 (the incident the evidence is scoped to: its grouped alerts and aggregated severity)
 - ADR-0016 → SPEC-003 (reuses the JCS canonicalization discipline; does not amend it)
+- ADR-0017 → ADR-0009 (best-effort notification is a downstream projection off the at-least-once durable record; the event-durable vs notify-best-effort asymmetry — a missed email is recoverable from the persisted incident, a dropped event is not)
+- ADR-0017 → ADR-0012 (the deferred Go `services/pipeline/` prod-driver / firehose gives `runDetectionCycle` its production caller; notification rides whatever drives the cycle — test-validated altitude until then)
+- ADR-0017 → SPEC-007 (hangs the notify off the `upsertIncident` incident-grouping seam, on incident create only; discharges the SPEC-007 `:37` / SPEC-008 `:42` notifier deferral, incident-notification half)
