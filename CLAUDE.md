@@ -62,6 +62,13 @@ Splitting them across commits to exploit path filters (e.g. landing the debt row
 
 This was the implicit lesson of Sessions 6–7; it is codified here so future sessions inherit it.
 
+### One commit per push when each commit needs independent CI coverage
+
+GitHub Actions runs only against the **head** SHA of a push, never the intermediate commits it carries. A push that batches several commits therefore gets exactly one CI run — covering the tip, not the commits beneath it.
+
+- When each commit must be independently green — because it is a separate logical gate, or to keep the history bisectable under CI — push **one commit per push**, and run the post-push *CI monitoring* gate on each SHA before creating the next commit.
+- When commits are deliberately batched into a single push, that is permitted, but the session report (and handoff) MUST state explicitly that **only the head SHA was covered by the CI run**; the intermediate commits were not independently validated.
+
 ## Local pre-commit gate
 
 Before any `git push`, the agent runs the per-workspace gate locally and confirms it passes. This is the local mirror of the post-push *CI monitoring* gate above: running it first prevents avoidable red CI and the follow-up formatting commit that `cargo fmt` / Biome would otherwise force after the push. The commands below mirror the CI workflows exactly, so a green local gate predicts a green CI run.
@@ -257,3 +264,12 @@ Procedure:
 6. Standing gate before merging changes to the detection path: `services/ingest/src/detect/`, `rules/windows/`, or the `alerts` / `cges_events` schema.
 
 **Validation status:** VALIDATED developer-local + elevated on 2026-05-31 (Phase 5, post-5e at `44fd345`). Full suite 19 files / 44 tests GREEN with `detect_ac_001` running (not skipped, 40171 ms wall-clock): a real `cg-agent` captured the `winword.exe` stand-in spawning `powershell.exe` via ETW, the events reached ClickHouse `cges_events`, `runDetectionCycle` evaluated the `office_spawns_script_host` rule and persisted exactly one alert to the Postgres `alerts` table. All 6 `detect_ac` green, the SPEC-005 marquee and every other suite without regression. The CI-able detection suite (`detect_ac_002`–`006` + migration / read-model / engine / scorer) is GREEN in `ts-ci`; this marquee is the end-to-end gate, validated here.
+
+## Detection prod-driver branch merge gate
+
+`feat/detection-prod-driver` (the ADR-0012 Amendment 2026-06-07 in-process TS scheduler that gives `runDetectionCycle` its first production caller) merges to `main` only when **both** are present:
+
+1. **The elevated `detect_ac_001` marquee is GREEN** — run developer-local + elevated per *Developer-local SPEC-006 marquee validation* above, on the branch tip, by Manuel.
+2. **The Class B documentary-coherence edits are attached** — the *altitude* assertions that state `runDetectionCycle` has *no production caller / test-validated only* (true today, false once the driver lands) are corrected in their **own commit** on the branch, **after** the marquee is green and **before** the merge.
+
+The merge gate is exactly `marquee GREEN + Class B edits present`. Class A edits are a separate track: *mechanism* assertions that wrongly say the deferred Go `services/pipeline/` firehose provides the prod caller are already broken on `main` today (superseded by the Amendment 2026-06-07), independent of this branch, and are fixed on their own without waiting for the marquee. Only the Class B altitude edits ride this gate.
