@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { GenericContainer, type StartedTestContainer, Wait } from "testcontainers";
 import type { Config } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
+import { RULES_WINDOWS_DIR } from "./detect.js";
 
 export interface Backends {
   config: Config;
@@ -63,6 +64,12 @@ export async function startBackends(): Promise<Backends> {
       INGEST_CA_PASSPHRASE: "test-ca-passphrase",
       INGEST_RUN_MIGRATIONS: true,
       INGEST_LOG_LEVEL: "warn",
+      // ADR-0012 Amendment 2026-06-07 — driver tunables. Added to the manual
+      // Config literal because backends builds Config by hand (not via loadConfig,
+      // which would supply the Zod defaults). rulesDir = the real repo rules dir
+      // so the driver's buildDetectConfig loads the office rule, like detectConfig().
+      INGEST_DETECT_INTERVAL_MS: 10_000,
+      INGEST_DETECT_RULES_DIR: RULES_WINDOWS_DIR,
     };
 
     await runMigrations(config);

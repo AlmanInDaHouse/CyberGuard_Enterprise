@@ -6,8 +6,13 @@ import { advanceWatermark, getWatermark, readNewEvents } from "./read-model.js";
 import { scoreAlert } from "./scorer.js";
 import type { DetectConfig, DetectCycleResult } from "./types.js";
 
-/** Per-cycle read cap (SPEC-006 NFR-006-002). */
-const BATCH_LIMIT = 1000;
+/**
+ * Per-cycle read cap (SPEC-006 NFR-006-002). Exported so the production driver
+ * (driver.ts, ADR-0012 Amendment 2026-06-07) can detect a full batch
+ * (`eventsEvaluated === BATCH_LIMIT`) and drain forward — without re-declaring
+ * the constant. The cycle body below is unchanged.
+ */
+export const BATCH_LIMIT = 1000;
 
 /**
  * Run one detection cycle (SPEC-006 §Operational; ADR-0012 §7): poll

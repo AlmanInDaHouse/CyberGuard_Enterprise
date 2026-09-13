@@ -257,14 +257,18 @@ export async function getWatermark(config: Config, orgId: string): Promise<strin
 // enrolled agent). The synthetic detection tests fabricate cges_events directly
 // (cges_events has no FK to agents), so they must enroll the agent the events
 // belong to BEFORE runDetectionCycle inserts an alert. Idempotent.
-export async function enrollTestAgent(config: Config, agentId: string): Promise<void> {
+export async function enrollTestAgent(
+  config: Config,
+  agentId: string,
+  orgId = "default",
+): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   try {
     await pool.query(
-      `INSERT INTO agents (agent_id, pubkey, cert_pem, expires_at)
-       VALUES ($1, $2, $3, now() + interval '1 day')
+      `INSERT INTO agents (agent_id, org_id, pubkey, cert_pem, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '1 day')
        ON CONFLICT (agent_id) DO NOTHING`,
-      [agentId, Buffer.from([0]), "test-cert"],
+      [agentId, orgId, Buffer.from([0]), "test-cert"],
     );
   } finally {
     await pool.end();

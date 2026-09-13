@@ -3,6 +3,7 @@ import { buildEnrollApp, buildHeartbeatApp } from "./app.js";
 import { ensureServerCert } from "./cert.js";
 import type { Config } from "./config.js";
 import { runMigrations } from "./db/migrate.js";
+import { startProdDetectionDriver } from "./detect/driver.js";
 import { buildServices } from "./services.js";
 
 /** A running ingest server: the two listener URLs and the CA PEM. */
@@ -68,11 +69,27 @@ export async function startIngest(config: Config): Promise<IngestServer> {
       "server listening",
     );
 
+    // ADR-0012 Amendment 2026-06-07 — start the production detection driver once
+    // the listeners are bound (this point). It drives runDetectionCycle per org
+    // on a self-rescheduling interval and carries services.notify (SPEC-014).
+    // Cycle errors are logged best-effort; it is stopped in close() below BEFORE
+    // services are torn down, so no cycle is mid-flight when the pool closes.
+    const detectionDriver = startProdDetectionDriver(config, services, (event, fields) =>
+      enrollApp.log.error(fields ?? {}, event),
+    );
+    enrollApp.log.info(
+      { interval_ms: config.INGEST_DETECT_INTERVAL_MS },
+      "detection driver started",
+    );
+
     return {
       enrollUrl: `http://${BIND_HOST}:${enrollPort}`,
       heartbeatUrl: `https://${BIND_HOST}:${heartbeatPort}`,
       caCertPem: services.ca.caCertPem,
       async close() {
+        // Stop the driver first: stop() cancels the pending tick and awaits any
+        // in-flight pass (bounded), so services.close() below never races a cycle.
+        await detectionDriver.stop();
         await Promise.allSettled([enrollApp.close(), heartbeatApp.close()]);
         await services.close();
       },

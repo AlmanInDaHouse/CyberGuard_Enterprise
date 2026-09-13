@@ -28,7 +28,12 @@ let config: Config;
 let server: IngestServer;
 
 beforeAll(async () => {
-  config = inject("ingestConfig");
+  // ADR-0012 Amendment 2026-06-07 off-switch: disable the production detection
+  // driver for this marquee (INGEST_DETECT_INTERVAL_MS=0). The marquee is the
+  // SINGLE producer — it calls runDetectionCycle explicitly below (line ~74).
+  // A live in-process driver would be a second producer racing the same
+  // per-org watermark, blurring the deterministic exactly-one-alert signal.
+  config = { ...inject("ingestConfig"), INGEST_DETECT_INTERVAL_MS: 0 };
   server = await startIngest(config);
 });
 
