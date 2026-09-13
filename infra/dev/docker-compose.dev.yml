@@ -118,8 +118,10 @@ services:
   # port mappings above. This instance runs migrations (single applier).
   ingest:
     build:
-      context: ../../services/ingest
-      dockerfile: Dockerfile
+      # Context = repo root: the ingest image bundles the pnpm workspace lockfile
+      # and the detection rules/ (ADR-0012 driver), both outside services/ingest.
+      context: ../..
+      dockerfile: services/ingest/Dockerfile
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
@@ -139,6 +141,12 @@ services:
       INGEST_CA_PASSPHRASE: ${CG_INGEST_CA_PASSPHRASE:-cyberguard_dev_ca_pass}
       INGEST_RUN_MIGRATIONS: "true"
       INGEST_LOG_LEVEL: ${CG_INGEST_LOG_LEVEL:-info}
+      # ADR-0012 Amendment 2026-06-07 — production detection driver. Poll interval
+      # in ms (0 = driver DISABLED, the kill-switch); rules dir = the image-bundled
+      # path (Dockerfile COPY rules ./rules). Both have safe code defaults; set
+      # here as the explicit operator surface.
+      INGEST_DETECT_INTERVAL_MS: ${CG_INGEST_DETECT_INTERVAL_MS:-10000}
+      INGEST_DETECT_RULES_DIR: ${CG_INGEST_DETECT_RULES_DIR:-/app/rules/windows}
       # SPEC-014 / ADR-0017 — incident email notify (notify-only, on CREATE). OPTIONAL
       # and all-or-nothing: empty defaults ⇒ notify DISABLED cleanly in dev (no relay,
       # no prod detection driver). Set all six CG_INGEST_SMTP_* / CG_INGEST_NOTIFY_RECIPIENT
