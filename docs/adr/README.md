@@ -28,7 +28,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0009](0009-event-delivery-and-buffer.md) | Event delivery semantics and agent buffer model | Accepted |
 | [0010](0010-agent-privilege-model-mvp.md) | Agent privilege model and installation posture for the MVP | Accepted |
 | [0011](0011-cges-process-activity-v0-1.md) | Per-class CGES jurisprudence — Process Activity v0.1 | Accepted |
-| [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) | Accepted |
+| [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) — amended 2026-06-07: production detection driver = in-process TypeScript scheduler in `services/ingest` (the Go `services/pipeline/` firehose is decoupled from the prod-caller role and still deferred) | Accepted |
 | [0013](0013-incident-correlation-windowing.md) | Incident correlation windowing — event-time basis | Accepted |
 | [0014](0014-human-authentication-model.md) | Human authentication model — local self-hosted, password + TOTP | Accepted |
 | [0015](0015-readonly-clickhouse-reader-in-api.md) | Read-only ClickHouse reader in `services/api` (forensic event-drill boundary) | Accepted |
@@ -86,5 +86,5 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0016 → SPEC-011 / SPEC-007 (the incident the evidence is scoped to: its grouped alerts and aggregated severity)
 - ADR-0016 → SPEC-003 (reuses the JCS canonicalization discipline; does not amend it)
 - ADR-0017 → ADR-0009 (best-effort notification is a downstream projection off the at-least-once durable record; the event-durable vs notify-best-effort asymmetry — a missed email is recoverable from the persisted incident, a dropped event is not)
-- ADR-0017 → ADR-0012 (the deferred Go `services/pipeline/` prod-driver / firehose gives `runDetectionCycle` its production caller; notification rides whatever drives the cycle — test-validated altitude until then)
+- ADR-0017 → ADR-0012 (the in-process TypeScript scheduler added by Amendment 2026-06-07 gives `runDetectionCycle` its production caller, the deferred Go `services/pipeline/` firehose being decoupled from that role; notification rides whatever drives the cycle — test-validated altitude until then)
 - ADR-0017 → SPEC-007 (hangs the notify off the `upsertIncident` incident-grouping seam, on incident create only; discharges the SPEC-007 `:37` / SPEC-008 `:42` notifier deferral, incident-notification half)

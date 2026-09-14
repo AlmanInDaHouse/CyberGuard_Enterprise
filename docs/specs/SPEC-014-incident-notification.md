@@ -3,7 +3,7 @@
 - **ID:** SPEC-014
 - **Title:** Incident email notification (criterion MVP 4 — notify-only email on incident creation, generic SMTP fire-and-forget, a module in `services/ingest`)
 - **Status:** Accepted
-- **Depends on:** ADR-0017 (the two load-bearing decisions — generic-SMTP transport, and fire-and-forget-after-commit as the detection pipeline's first external side-effect); SPEC-007 (the incident grouping `upsertIncident` this hangs off, `services/ingest/src/detect/incidents.ts:66-101`, and its caller `runDetectionCycle`, `services/ingest/src/detect/index.ts:24-55`); SPEC-006 (the detection MVP producing the alerts the incident groups, and the `upsertAlert` create-vs-existing seam mirrored here, `services/ingest/src/detect/alerts.ts:74`). Also SPEC-011 (the incident `severity_id` carried in the email, `incidents.ts:84`); ADR-0009 (the at-least-once event delivery the best-effort notify projects off); ADR-0012 (the transitory TypeScript detect seam this module co-locates with, and the deferred Go prod-driver that will drive the cycle).
+- **Depends on:** ADR-0017 (the two load-bearing decisions — generic-SMTP transport, and fire-and-forget-after-commit as the detection pipeline's first external side-effect); SPEC-007 (the incident grouping `upsertIncident` this hangs off, `services/ingest/src/detect/incidents.ts:66-101`, and its caller `runDetectionCycle`, `services/ingest/src/detect/index.ts:24-55`); SPEC-006 (the detection MVP producing the alerts the incident groups, and the `upsertAlert` create-vs-existing seam mirrored here, `services/ingest/src/detect/alerts.ts:74`). Also SPEC-011 (the incident `severity_id` carried in the email, `incidents.ts:84`); ADR-0009 (the at-least-once event delivery the best-effort notify projects off); ADR-0012 (the transitory TypeScript detect seam this module co-locates with, and the in-process TypeScript scheduler that drives the cycle in production — Amendment 2026-06-07; the deferred Go `services/pipeline/` firehose is decoupled from that role).
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -35,7 +35,7 @@ Each names its destination:
 - **Delivery guarantees** (retry, durable queue / outbox, dead-letter) — the MVP is a single best-effort attempt. A later increment (ADR-0017 §A3).
 - **Per-org / templated routing** — a single operator-set recipient; per-org templates are a later increment.
 - **The SOAR playbook** (Blueprint §18 criterion 6) — a separate MVP item, separate branch; `services/soar/` stays a placeholder.
-- **The production detection driver** — the Go `services/pipeline/` extraction / firehose that gives `runDetectionCycle` a prod caller (ADR-0012 §1 / §Out of scope, `../adr/0012-normalize-before-correlate-pipeline.md:28,236`). Inherited gap; notify rides whatever drives the cycle.
+- **The production detection driver** — the in-process TypeScript scheduler in `services/ingest` that gives `runDetectionCycle` its production caller, specified by ADR-0012 Amendment 2026-06-07 (`../adr/0012-normalize-before-correlate-pipeline.md:271`). Inherited gap; notify rides whatever drives the cycle. (The Go `services/pipeline/` extraction / firehose remains deferred to the firehose ADR — `../adr/0012-normalize-before-correlate-pipeline.md:236` — but is decoupled from the prod-caller role.)
 - **Recipient from `users.email`** — ownership boundary (the `users` table is owned by `services/api` per SPEC-008); recipient is config.
 
 ## Data contracts
@@ -93,7 +93,7 @@ Per ADR-0005 §Harness obligation; each maps 1:1 to an AC.
 - A notify send failure **MUST** be caught and logged and **MUST NOT** propagate into `runDetectionCycle` or change `DetectCycleResult` — best-effort, fire-and-forget (ADR-0017 §2).
 - Transport **MUST** be generic SMTP; it **MUST NOT** use the Gmail REST API / Google OAuth (ADR-0017 §1).
 - Recipient, sender, SMTP endpoint, and credentials **MUST** come from operator-set `services/ingest` config (EnvSchema, like `INGEST_CA_PASSPHRASE`, `config.ts:18`) and **MUST NOT** be derived from `users.email` (owned by `services/api`, an ownership boundary).
-- This SPEC closes criterion MVP 4 at **test-validated altitude** only: `runDetectionCycle` has no production driver (`index.ts:24`), so it **MUST** be read as delivering a testable capability hung at the correct seam, **not** an email running in production. When the prod-driver lands (the ADR-0012 firehose), notification activates without re-touching the seam.
+- This SPEC closes criterion MVP 4 at **test-validated altitude** only: `runDetectionCycle` has no production driver (`index.ts:24`), so it **MUST** be read as delivering a testable capability hung at the correct seam, **not** an email running in production. When the prod-driver lands (the in-process TypeScript scheduler, ADR-0012 Amendment 2026-06-07), notification activates without re-touching the seam.
 
 ## Risks
 
@@ -130,5 +130,5 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 - [SPEC-008](SPEC-008-auth-core.md) — the second notifier deferral (`§Out of scope:42`) this supersedes (the email-delivery half only; the TOTP-on-screen and password-reset scoping is unchanged).
 - [SPEC-006](SPEC-006-detection-mvp.md) — the detection MVP producing the alerts; `services/ingest/src/detect/alerts.ts:74` (the `rowCount` create-vs-existing seam mirrored here for incidents).
 - [ADR-0009](../adr/0009-event-delivery-and-buffer.md) — at-least-once delivery + dedup (`:29,33`); the durable record best-effort notify projects off.
-- [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) — the transitory TS detect seam (`:28`, `:213`) and the deferred Go prod-driver / firehose (`:236`).
+- [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) — the transitory TS detect seam (`:28`, `:213`), the in-process TypeScript scheduler that drives the cycle in production (Amendment 2026-06-07, `:271`), and the deferred Go `services/pipeline/` firehose (`:236`), decoupled from the prod-caller role.
 - `services/ingest/src/config.ts:18` (`INGEST_CA_PASSPHRASE`, the required-secret EnvSchema pattern the notify config mirrors).
