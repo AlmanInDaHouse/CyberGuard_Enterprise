@@ -9,9 +9,23 @@ CyberGuard is composed of two main components:
 
 The product promise is to deploy a functional, self-hosted, auditable SOC in under 30 minutes, with real detections from day one and an exportable forensic report at the first incident.
 
-## Repository status
+## Status
 
-Bootstrap phase. Only scaffolding and meta-files. See [`docs/specs/`](docs/specs/) for incoming specifications and [`docs/adr/`](docs/adr/) for architectural decisions.
+Active development, past the bootstrap phase. Built and in the tree: the Rust endpoint agent (`agent/`), the TypeScript `ingest` and `api` services (`services/`), the Next.js SOC dashboard (`dashboard/`), the detection engine, incident grouping, the forensic hash-chain and PDF report, and email notification. See [`docs/adr/`](docs/adr/) for the accepted architecture decisions and [`docs/specs/`](docs/specs/) for the accepted specifications.
+
+### MVP scorecard (Blueprint §18)
+
+| # | Criterion | State |
+|---|---|---|
+| 3 | OTP login + RBAC (3 roles) | **Delivered** (SPEC-008). |
+| 4 | Gmail/SMTP notification | **Delivered** — test-validated altitude. |
+| 5 | Incident PDF export | **Delivered** (SPEC-013). |
+| 1 | 10 detection rules | **Partial 1/10** (SPEC-006). |
+| 2 | Windows agent: processes / network / logins | **Partial 1/3** — processes only (SPEC-005). |
+| 6 | 1 SOAR playbook | **Pending** — unblocked by the prod-driver seam. |
+| 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
+
+Criteria **1 / 2 / 4** currently run only under the test harness (detection → incident → notify), not in a standing stack. The latest session handoff, [`docs/handoff-session-26.md`](docs/handoff-session-26.md), is the canonical current state.
 
 ## Layout
 
@@ -19,7 +33,7 @@ Bootstrap phase. Only scaffolding and meta-files. See [`docs/specs/`](docs/specs
 |---|---|
 | [`docs/`](docs/) | Specifications (SPEC-XXX), architecture decisions (ADR-NNNN), threat model, runbook. |
 | [`schemas/`](schemas/) | CyberGuard Common Event Schema (CGES) and OpenAPI contracts. |
-| [`services/`](services/) | Server-side services (api, ingest, pipeline, soar, ml, forensic). |
+| [`services/`](services/) | Server-side services. Built: `api`, `ingest` (TypeScript). Placeholders: `pipeline`, `soar`, `ml`. Forensic ships inside `services/api` (SPEC-013). |
 | [`agent/`](agent/) | Rust workspace for the endpoint agent. |
 | [`dashboard/`](dashboard/) | Next.js 15 SOC dashboard. |
 | [`rules/`](rules/) | Sigma-compatible detection rules and per-rule tests. |
@@ -35,7 +49,7 @@ The project uses [Task](https://taskfile.dev) as a cross-platform task runner. I
 - **Windows (scoop):** `scoop install task`
 - **macOS / Linux:** see <https://taskfile.dev/installation/>
 
-Available targets (currently empty stubs, populated by incoming SPECs):
+The top-level lifecycle targets below are still stubs pending the infrastructure SPEC. The working developer stack runs via `task dev:*` (see [`infra/dev/`](infra/dev/)) and per-workspace `cargo` / `pnpm` commands:
 
 | Target | Purpose |
 |---|---|
