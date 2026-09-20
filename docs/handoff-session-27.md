@@ -29,3 +29,15 @@ Continues the numbering from [handoff-session-26.md](handoff-session-26.md)
   `SPEC-007:148`, and `roadmap.md:36`. **Class A**: corrected in its own
   Class-A pass that sweeps by pattern, never inside a Class B commit —
   correcting some along the way would leave the pattern sweep incomplete.
+- **#14 — MVP-criteria altitude mis-grouping.** `SPEC-014:17` equated criteria
+  1–3 as the test-validated group. The real group is 1/2/4 (`README.md:28`);
+  criterion 3 (OTP + RBAC) is delivered and runs in the auth request-path — it
+  was never at that altitude. Present since SPEC-014 was written; caught in the
+  Session 27 Class B pass on a clause-by-clause re-read. The `SPEC-014:17`
+  instance disappears when the comparison is removed in that pass. A repo sweep
+  (`criteria 1–3` / `1, 2 and 3`) found the same grouping at `ADR-0012:275`
+  (Amendment §Context), which labels *"criteria 1, 2 and 3"* as *"detection,
+  incident, notification"* — a parallel mis-numbering (notification is criterion
+  4; "incident" is not a numbered criterion); that site is **Class H-inline**
+  (immutable amendment record), so it is recorded here, never corrected. No live
+  (non-H-inline) instance remains once `SPEC-014:17` is fixed.
