@@ -41,3 +41,27 @@ Continues the numbering from [handoff-session-26.md](handoff-session-26.md)
   4; "incident" is not a numbered criterion); that site is **Class H-inline**
   (immutable amendment record), so it is recorded here, never corrected. No live
   (non-H-inline) instance remains once `SPEC-014:17` is fixed.
+
+## Step 7 — deferred post-merge scorecard / roadmap refresh
+
+The README MVP scorecard and the roadmap phase-A prose are a **status surface**,
+not documentary coherence — refreshed by whoever owns the scorecard, post-merge,
+in one hand (never a Class B pass; see [CLAUDE.md](../CLAUDE.md) rule 3b, scope of
+rule (a)). The Session 27 Class B pass therefore left `README.md` out of the
+Class B commit (`:21` and `:28` are the same scorecard region; resolving one
+without the other would leave `main` self-contradicting until step 7). Deferred
+here so it is not lost:
+
+- **`README.md:21`** (criterion-4 row) → `**Delivered** (SPEC-014).` — drop the
+  "test-validated altitude" term (format parity with rows 3 / 5).
+- **`README.md:28`** (caveat) → criteria **1 / 2 / 4** now run in a standing
+  stack, driven by the in-process detection driver — group **1 / 2 / 4**, never
+  1–3 (debt #14). Ready wording from the S27 pass: *"Criteria 1 / 2 / 4 now run
+  in a standing stack (detection → incident → notify), driven by the in-process
+  detection scheduler, not only under the test harness."* (the handoff pointer in
+  that line is left for step 7 to update).
+- **`README.md`** scorecard rows **1 / 2 / 6** and the handoff pointer (→ latest
+  handoff); criterion 6 from *"Pending"* to *"unblocked by the prod-driver seam"*.
+- **`docs/product/roadmap.md:35, :43`** — the phase-A prose (prod-driver in
+  production) refreshed once phase A completes at the merge. Distinct from debt
+  #13's `roadmap.md:36` stale `index.ts:31` anchor (a Class-A citation fix).
