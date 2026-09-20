@@ -27,6 +27,8 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 
 Criteria **1 / 2 / 4** currently run only under the test harness (detection → incident → notify), not in a standing stack. The latest session handoff, [`docs/handoff-session-26.md`](docs/handoff-session-26.md), is the canonical current state.
 
+The remaining MVP work — phases ordered by technical dependency, plus the owner-STOP decisions gating them — is the work order in [`docs/product/roadmap.md`](docs/product/roadmap.md).
+
 ## Layout
 
 | Path | Purpose |
