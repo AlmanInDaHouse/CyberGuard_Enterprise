@@ -23,8 +23,9 @@ export interface Services {
   /**
    * SPEC-014 — the incident email notify dependency, or `null` when SMTP is
    * unconfigured (notify disabled cleanly). Built once at boot (ADR-0017
-   * §Decision §2); dormant until a production detection driver consumes it
-   * (the inherited test-validated-altitude gap, ADR-0017 §Consequences).
+   * §Decision §2); consumed by the production detection driver (`driver.ts`) —
+   * the inherited test-validated-altitude gap is now resolved by the prod-driver
+   * merge (ADR-0017 §Consequences).
    */
   notify: NotifyConfig | null;
   close(): Promise<void>;

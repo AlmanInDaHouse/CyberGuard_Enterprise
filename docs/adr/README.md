@@ -86,5 +86,5 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0016 → SPEC-011 / SPEC-007 (the incident the evidence is scoped to: its grouped alerts and aggregated severity)
 - ADR-0016 → SPEC-003 (reuses the JCS canonicalization discipline; does not amend it)
 - ADR-0017 → ADR-0009 (best-effort notification is a downstream projection off the at-least-once durable record; the event-durable vs notify-best-effort asymmetry — a missed email is recoverable from the persisted incident, a dropped event is not)
-- ADR-0017 → ADR-0012 (the in-process TypeScript scheduler added by Amendment 2026-06-07 gives `runDetectionCycle` its production caller, the deferred Go `services/pipeline/` firehose being decoupled from that role; notification rides whatever drives the cycle — test-validated altitude until then)
+- ADR-0017 → ADR-0012 (the in-process TypeScript scheduler added by Amendment 2026-06-07 gives `runDetectionCycle` its production caller, the deferred Go `services/pipeline/` firehose being decoupled from that role; notification rides whatever drives the cycle — test-validated altitude, now resolved by the prod-driver merge)
 - ADR-0017 → SPEC-007 (hangs the notify off the `upsertIncident` incident-grouping seam, on incident create only; discharges the SPEC-007 `:37` / SPEC-008 `:42` notifier deferral, incident-notification half)

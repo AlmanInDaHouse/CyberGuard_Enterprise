@@ -14,7 +14,7 @@ A READ-ONLY audit (this session) established the constraints this SPEC fixes; it
 
 - Notify-only, criterion MVP 4 — on incident **creation**, not escalation.
 - A module in `services/ingest` (where detection and the `upsertIncident` write live), hung off `upsertIncident` (`incidents.ts:66-101`) — the point a future production driver activates without re-touching.
-- **Test-validated altitude.** `runDetectionCycle` has no production caller (`index.ts:24`, test-only); this SPEC inherits that gap and does not resolve it. The capability is wired at the correct seam and exercised through the detection harness, exactly as MVP criteria 1–3 are — it is **not** an email running in production today.
+- **Test-validated altitude — resolved by the prod-driver.** `runDetectionCycle` now has a production caller (`index.ts:24`); the gap this SPEC inherited is closed by the prod-driver merge. The capability is wired at the correct seam and exercised through the detection harness — and now also runs in a deployed system, not only under test.
 - Generic SMTP, fire-and-forget after the upsert commits (ADR-0017).
 - Recipient + SMTP credentials are operator-set `services/ingest` config (deployment-contract), never derived from `users.email`.
 
@@ -35,7 +35,7 @@ Each names its destination:
 - **Delivery guarantees** (retry, durable queue / outbox, dead-letter) — the MVP is a single best-effort attempt. A later increment (ADR-0017 §A3).
 - **Per-org / templated routing** — a single operator-set recipient; per-org templates are a later increment.
 - **The SOAR playbook** (Blueprint §18 criterion 6) — a separate MVP item, separate branch; `services/soar/` stays a placeholder.
-- **The production detection driver** — the in-process TypeScript scheduler in `services/ingest` that gives `runDetectionCycle` its production caller, specified by ADR-0012 Amendment 2026-06-07 (`../adr/0012-normalize-before-correlate-pipeline.md:271`). Inherited gap; notify rides whatever drives the cycle. (The Go `services/pipeline/` extraction / firehose remains deferred to the firehose ADR — `../adr/0012-normalize-before-correlate-pipeline.md:236` — but is decoupled from the prod-caller role.)
+- **The production detection driver** — the in-process TypeScript scheduler in `services/ingest` that gives `runDetectionCycle` its production caller, specified by ADR-0012 Amendment 2026-06-07 (`../adr/0012-normalize-before-correlate-pipeline.md:271`). Inherited gap, now closed by the prod-driver; notify rides whatever drives the cycle. (The Go `services/pipeline/` extraction / firehose remains deferred to the firehose ADR — `../adr/0012-normalize-before-correlate-pipeline.md:236` — but is decoupled from the prod-caller role.)
 - **Recipient from `users.email`** — ownership boundary (the `users` table is owned by `services/api` per SPEC-008); recipient is config.
 
 ## Data contracts
@@ -93,7 +93,7 @@ Per ADR-0005 §Harness obligation; each maps 1:1 to an AC.
 - A notify send failure **MUST** be caught and logged and **MUST NOT** propagate into `runDetectionCycle` or change `DetectCycleResult` — best-effort, fire-and-forget (ADR-0017 §2).
 - Transport **MUST** be generic SMTP; it **MUST NOT** use the Gmail REST API / Google OAuth (ADR-0017 §1).
 - Recipient, sender, SMTP endpoint, and credentials **MUST** come from operator-set `services/ingest` config (EnvSchema, like `INGEST_CA_PASSPHRASE`, `config.ts:18`) and **MUST NOT** be derived from `users.email` (owned by `services/api`, an ownership boundary).
-- This SPEC closes criterion MVP 4 at **test-validated altitude** only: `runDetectionCycle` has no production driver (`index.ts:24`), so it **MUST** be read as delivering a testable capability hung at the correct seam, **not** an email running in production. When the prod-driver lands (the in-process TypeScript scheduler, ADR-0012 Amendment 2026-06-07), notification activates without re-touching the seam.
+- This SPEC closes criterion MVP 4 at **test-validated altitude**, now resolved by the prod-driver: `runDetectionCycle` has a production driver (`index.ts:24`), so it **MUST** be read as delivering a testable capability hung at the correct seam **and** firing in a deployed system. The prod-driver (the in-process TypeScript scheduler, ADR-0012 Amendment 2026-06-07) activated notification without re-touching the seam.
 
 ## Risks
 

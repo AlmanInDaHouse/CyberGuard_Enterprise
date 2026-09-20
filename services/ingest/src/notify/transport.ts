@@ -17,8 +17,9 @@ const nodemailer = createRequire(import.meta.url)("nodemailer") as typeof Nodema
  * all-or-nothing, so a single present field implies all are present.
  *
  * Returns `null` when SMTP is unconfigured — notification is then disabled
- * cleanly and the boot does NOT fail (ADR-0017: test-validated altitude; no
- * production detection driver consumes this yet). Constructed once per process,
+ * cleanly and the boot does NOT fail (ADR-0017: test-validated altitude,
+ * resolved by the prod-driver — the production detection driver now consumes
+ * this). Constructed once per process,
  * mirroring api's `forensicKey` (ADR-0017 §Decision §2).
  */
 export function buildNotifyConfig(config: Config): NotifyConfig | null {
