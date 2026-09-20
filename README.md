@@ -18,14 +18,14 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 | # | Criterion | State |
 |---|---|---|
 | 3 | OTP login + RBAC (3 roles) | **Delivered** (SPEC-008). |
-| 4 | Gmail/SMTP notification | **Delivered** — test-validated altitude. |
+| 4 | Gmail/SMTP notification | **Delivered** (SPEC-014). |
 | 5 | Incident PDF export | **Delivered** (SPEC-013). |
 | 1 | 10 detection rules | **Partial 1/10** (SPEC-006). |
 | 2 | Windows agent: processes / network / logins | **Partial 1/3** — processes only (SPEC-005). |
 | 6 | 1 SOAR playbook | **Pending** — unblocked by the prod-driver seam. |
 | 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
 
-Criteria **1 / 2 / 4** currently run only under the test harness (detection → incident → notify), not in a standing stack. The latest session handoff, [`docs/handoff-session-26.md`](docs/handoff-session-26.md), is the canonical current state.
+Criteria **1 / 2 / 4** now run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07). The latest session handoff, [`docs/handoff-session-26.md`](docs/handoff-session-26.md), is the canonical current state.
 
 The remaining MVP work — phases ordered by technical dependency, plus the owner-STOP decisions gating them — is the work order in [`docs/product/roadmap.md`](docs/product/roadmap.md).
 

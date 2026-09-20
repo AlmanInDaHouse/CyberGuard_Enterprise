@@ -31,6 +31,8 @@ This dependency-ordered document supersedes both for planning.
 
 ### A — Detection prod-driver in production
 
+- **Status: DONE** — merged as `63019bc` (S27, 2026-09-20); the
+  non-elevated suite is at 57 as predicted.
 - Does: merge `feat/detection-prod-driver` — the in-process TS scheduler
   that gives `runDetectionCycle` its first production caller
   (`services/ingest/src/detect/index.ts:31`).
@@ -40,7 +42,7 @@ This dependency-ordered document supersedes both for planning.
   (S27 gate), then the Class B coherence edits.
 - Needs: ADR-0012 Amendment 2026-06-07 (Accepted;
   `docs/adr/0012-normalize-before-correlate-pipeline.md:275,288`).
-- Discharges: the "no production caller" assertions
+- Discharged: the "no production caller" assertions
   (`docs/specs/SPEC-014-incident-notification.md:17,96`).
 - Verification invariant: the non-elevated ingest suite is at 52/52
   today (main, S27). The "57/57" in `docs/handoff-session-26.md:34` was
