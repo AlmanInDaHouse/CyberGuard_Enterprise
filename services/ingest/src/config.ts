@@ -75,7 +75,7 @@ const EnvSchema = z
     INGEST_DETECT_RULES_DIR: z.string().min(1).default(defaultDetectRulesDir()),
     // SPEC-014 / ADR-0017 — incident email notification (notify-only). This SMTP
     // block is OPTIONAL and all-or-nothing: when unset, notification is disabled
-    // cleanly (the boot does NOT fail — there is no prod detection driver yet,
+    // cleanly (the boot does NOT fail — detection still runs, only the email is skipped,
     // ADR-0017 §Consequences); when ANY member is set, ALL six are required (the
     // superRefine below). The values are an operator-set deployment contract
     // (ADR-0017 §Out of scope), never defaulted here.

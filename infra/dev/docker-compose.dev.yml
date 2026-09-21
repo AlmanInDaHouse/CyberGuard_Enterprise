@@ -153,7 +153,7 @@ services:
       INGEST_DETECT_RULES_DIR: ${CG_INGEST_DETECT_RULES_DIR:-/app/rules/windows}
       # SPEC-014 / ADR-0017 — incident email notify (notify-only, on CREATE). OPTIONAL
       # and all-or-nothing: empty defaults ⇒ notify DISABLED cleanly in dev (no relay,
-      # no prod detection driver). Set all six CG_INGEST_SMTP_* / CG_INGEST_NOTIFY_RECIPIENT
+      # detection still runs). Set all six CG_INGEST_SMTP_* / CG_INGEST_NOTIFY_RECIPIENT
       # to enable. Generic SMTP (Gmail = smtp.gmail.com host, not the Gmail API).
       INGEST_SMTP_HOST: ${CG_INGEST_SMTP_HOST:-}
       INGEST_SMTP_PORT: ${CG_INGEST_SMTP_PORT:-}
