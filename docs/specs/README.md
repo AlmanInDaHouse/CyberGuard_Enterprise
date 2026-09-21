@@ -40,6 +40,7 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 
 Cross-document edges surfaced at landing (each SPEC's own "Depends on" header is authoritative; this records the load-bearing catalog edges).
 
+- SPEC-004 self-amendment 2026-09-21: listener bind address → optional `INGEST_BIND_HOST` (default `127.0.0.1`, the prior behavior); additive, FR-002 ports unchanged
 - SPEC-010 → ADR-0015 (the read-only ClickHouse reader in `services/api` that SPEC-010 implements)
 - SPEC-010 → SPEC-009 (amends §Out of scope `:34` **by scope**: the deferred alert→source-event drill is delivered here; SPEC-009's `IncidentDetail` / `ResolvedAlert` read-models are unchanged)
 - SPEC-010 self-amendment 2026-06-06: drill order → total `(time, event_id)` (requirement of ADR-0016; response shape unchanged, only the same-`time` row order is newly pinned)

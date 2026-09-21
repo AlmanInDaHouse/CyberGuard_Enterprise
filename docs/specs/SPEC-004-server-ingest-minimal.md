@@ -185,6 +185,7 @@ INGEST_CH_URL            http://…:8123           # ClickHouse HTTP
 INGEST_REDIS_URL         redis://…:6379          # Redis
 INGEST_ENROLL_PORT       8080                    # plain-HTTP enroll listener
 INGEST_HEARTBEAT_PORT    8443                    # mTLS heartbeat listener
+INGEST_BIND_HOST         127.0.0.1               # bind address, both listeners (see Amendment 2026-09-21)
 INGEST_SERVER_CERT_PATH  /…/server.pem           # server TLS identity (see §Ratification)
 INGEST_SERVER_KEY_PATH   /…/server-key.pem
 INGEST_CA_PASSPHRASE     <secret>                # CA private-key protection (see §Ratification)
@@ -300,6 +301,14 @@ The mTLS heartbeat listener needs a server certificate that the agent's `trust_a
 ### 4. Admin user model
 
 SPEC-004 could stand up a minimal user/RBAC model so token issuance and (future) admin actions are authenticated. The **recommendation is NOT to** — defer all of RBAC to a dedicated future SPEC. For SPEC-004, the only privileged action is token issuance, and it runs as a CLI under whoever has shell access to the server box. For a local-deploy MVP that is an accepted threat (shell access to the server is already total compromise); building a user model now would be premature and would expand the SPEC's security surface for no MVP benefit. The cost of deferring is that there is no per-operator attribution for token issuance until the RBAC SPEC lands. Recommendation: defer; no user model in SPEC-004.
+
+## Amendment 2026-09-21: listener bind address
+
+**What surfaced it.** Running the ingest container image for the first time, during the roadmap A' packaging work (Session 28), showed both listeners bound to a hard-coded `127.0.0.1` (`services/ingest/src/server.ts`, since `f407c05`). That suits the host-process topology the test harness and `pnpm dev` use (agent and server on the same loopback), but inside a container it binds only the container's own loopback, so neither the published ports nor the container network can reach the server. This SPEC never fixed a bind address; the loopback bind was an implementation choice.
+
+**Amendment.** Both listeners bind `INGEST_BIND_HOST`, a new optional environment variable; its default, `127.0.0.1`, keeps the prior behavior. A containerised deployment needs a non-loopback bind such as `0.0.0.0`; exposure stays governed by the port mapping, not by the bind. The bind is independent of the server certificate: SAN verification is against the host the agent dials (SPEC-003 FR-005), not the bound interface. The self-issued cert (§Behavior > First run) covers only `localhost` / `127.0.0.1`, so an agent dialing any other host needs an operator-provided cert at `INGEST_SERVER_CERT_PATH` / `INGEST_SERVER_KEY_PATH`, which the server honours and never overwrites.
+
+**Effect.** Additive and backward-compatible: with the variable unset the bind is unchanged, and the test harness sets loopback explicitly. FR-002 is unaffected: both listeners and their ports are intact; only the bind interface became configurable. §Configuration gains the `INGEST_BIND_HOST` row. Status stays **Accepted**.
 
 ## References
 

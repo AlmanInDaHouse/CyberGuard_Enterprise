@@ -51,6 +51,11 @@ const EnvSchema = z
     INGEST_REDIS_URL: z.string().url(),
     INGEST_ENROLL_PORT: z.coerce.number().int().positive().default(8080),
     INGEST_HEARTBEAT_PORT: z.coerce.number().int().positive().default(8443),
+    // Bind address for BOTH listeners. Default loopback = the host-process
+    // topology (tests, `pnpm dev`); a container needs a non-loopback bind such
+    // as 0.0.0.0. Independent of the cert SAN, which is verified against the
+    // host the agent dials (SPEC-003 FR-005), not the bound interface.
+    INGEST_BIND_HOST: z.string().min(1).default("127.0.0.1"),
     INGEST_SERVER_CERT_PATH: z.string().default("/certs/server.pem"),
     INGEST_SERVER_KEY_PATH: z.string().default("/certs/server-key.pem"),
     INGEST_CA_PASSPHRASE: z.string().min(1),

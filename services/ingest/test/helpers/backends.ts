@@ -59,6 +59,10 @@ export async function startBackends(): Promise<Backends> {
       INGEST_REDIS_URL: `redis://:cyberguard_dev@${redis.getHost()}:${redis.getMappedPort(6379)}`,
       INGEST_ENROLL_PORT: 0,
       INGEST_HEARTBEAT_PORT: 0,
+      // Manual Config literal (no loadConfig → no Zod default), so INGEST_BIND_HOST
+      // is set explicitly. Loopback matches the host-process test topology (agent +
+      // server both on 127.0.0.1).
+      INGEST_BIND_HOST: "127.0.0.1",
       INGEST_SERVER_CERT_PATH: join(certDir, "server.pem"),
       INGEST_SERVER_KEY_PATH: join(certDir, "server-key.pem"),
       INGEST_CA_PASSPHRASE: "test-ca-passphrase",

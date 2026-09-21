@@ -18,13 +18,14 @@ export interface IngestServer {
   close(): Promise<void>;
 }
 
-const BIND_HOST = "127.0.0.1";
-
 /**
  * Start the SPEC-004 ingest server: a plain-HTTP enroll listener and an mTLS
  * heartbeat listener, backed by Postgres / ClickHouse / Redis, returning the
- * bound URLs and the server CA PEM. Binds to 127.0.0.1 so the agent's IP-based
- * TLS server-name verification matches the server cert's `IP:127.0.0.1` SAN.
+ * bound URLs and the server CA PEM. Both listeners bind INGEST_BIND_HOST
+ * (default loopback; a container needs a non-loopback bind such as 0.0.0.0).
+ * The bind is independent of the cert SAN: SAN verification is against the
+ * host the agent dials (SPEC-003 FR-005), not the bound interface, and the
+ * self-issued cert (cert.ts) covers only localhost / 127.0.0.1.
  */
 export async function startIngest(config: Config): Promise<IngestServer> {
   if (config.INGEST_RUN_MIGRATIONS) {
@@ -34,6 +35,7 @@ export async function startIngest(config: Config): Promise<IngestServer> {
   const services = await buildServices(config);
 
   try {
+    const bindHost = config.INGEST_BIND_HOST;
     const serverIdentity = await ensureServerCert(
       services.ca,
       config.INGEST_SERVER_CERT_PATH,
@@ -58,8 +60,8 @@ export async function startIngest(config: Config): Promise<IngestServer> {
       logger,
     );
 
-    await enrollApp.listen({ host: BIND_HOST, port: config.INGEST_ENROLL_PORT });
-    await heartbeatApp.listen({ host: BIND_HOST, port: config.INGEST_HEARTBEAT_PORT });
+    await enrollApp.listen({ host: bindHost, port: config.INGEST_ENROLL_PORT });
+    await heartbeatApp.listen({ host: bindHost, port: config.INGEST_HEARTBEAT_PORT });
 
     const enrollPort = (enrollApp.server.address() as AddressInfo).port;
     const heartbeatPort = (heartbeatApp.server.address() as AddressInfo).port;
@@ -83,8 +85,8 @@ export async function startIngest(config: Config): Promise<IngestServer> {
     );
 
     return {
-      enrollUrl: `http://${BIND_HOST}:${enrollPort}`,
-      heartbeatUrl: `https://${BIND_HOST}:${heartbeatPort}`,
+      enrollUrl: `http://${bindHost}:${enrollPort}`,
+      heartbeatUrl: `https://${bindHost}:${heartbeatPort}`,
       caCertPem: services.ca.caCertPem,
       async close() {
         // Stop the driver first: stop() cancels the pending tick and awaits any
