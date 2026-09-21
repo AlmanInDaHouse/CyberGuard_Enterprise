@@ -112,14 +112,17 @@ services:
       retries: 12
       start_period: 10s
 
-  # SPEC-004 server ingest (TypeScript + Fastify, per ADR-0007). Built
-  # from services/ingest/. Connects to the backends over the compose
-  # network by service name (internal ports), independent of the host
-  # port mappings above. This instance runs migrations (single applier).
+  # SPEC-004 server ingest (TypeScript + Fastify, per ADR-0007). Built from the
+  # repo root (context ../.., dockerfile services/ingest/Dockerfile). Connects to
+  # the backends over the compose network by service name (internal ports),
+  # independent of the host port mappings above. This instance runs migrations
+  # (single applier).
   ingest:
     build:
-      context: ../../services/ingest
-      dockerfile: Dockerfile
+      # Context = repo root: the ingest image bundles the pnpm workspace lockfile
+      # and the detection rules/ (ADR-0012 driver), both outside services/ingest.
+      context: ../..
+      dockerfile: services/ingest/Dockerfile
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
@@ -134,11 +137,20 @@ services:
       INGEST_REDIS_URL: redis://:${CG_REDIS_PASSWORD:-cyberguard_dev}@redis:6379
       INGEST_ENROLL_PORT: "8080"
       INGEST_HEARTBEAT_PORT: "8443"
+      # In a container the server must listen on all interfaces so the published
+      # ports (and the compose network) reach it; exposure is governed by ports:.
+      INGEST_BIND_HOST: "0.0.0.0"
       INGEST_SERVER_CERT_PATH: /certs/server.pem
       INGEST_SERVER_KEY_PATH: /certs/server-key.pem
       INGEST_CA_PASSPHRASE: ${CG_INGEST_CA_PASSPHRASE:-cyberguard_dev_ca_pass}
       INGEST_RUN_MIGRATIONS: "true"
       INGEST_LOG_LEVEL: ${CG_INGEST_LOG_LEVEL:-info}
+      # ADR-0012 Amendment 2026-06-07 — production detection driver. Poll interval
+      # in ms (0 = driver DISABLED, the kill-switch); rules dir = the image-bundled
+      # path (Dockerfile COPY rules ./rules). Both have safe code defaults; set
+      # here as the explicit operator surface.
+      INGEST_DETECT_INTERVAL_MS: ${CG_INGEST_DETECT_INTERVAL_MS:-10000}
+      INGEST_DETECT_RULES_DIR: ${CG_INGEST_DETECT_RULES_DIR:-/app/rules/windows}
       # SPEC-014 / ADR-0017 — incident email notify (notify-only, on CREATE). OPTIONAL
       # and all-or-nothing: empty defaults ⇒ notify DISABLED cleanly in dev (no relay,
       # no prod detection driver). Set all six CG_INGEST_SMTP_* / CG_INGEST_NOTIFY_RECIPIENT
@@ -159,7 +171,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/health || exit 1"]
+      # 127.0.0.1, not localhost: localhost can resolve to ::1 in alpine; the bind is IPv4.
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 12

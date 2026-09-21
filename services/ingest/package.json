@@ -12,7 +12,7 @@
     "cg-ingest-token": "./dist/cli/issue-token.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
