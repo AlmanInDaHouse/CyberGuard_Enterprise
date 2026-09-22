@@ -184,6 +184,15 @@ When reporting autonomous decisions taken during a session, distinguish:
 
 Both are valid. (1) speaks to briefing or SPEC quality; (2) speaks to what reality surfaced. Bundling them loses signal.
 
+### Relay transport and verification
+
+The advisor and the executor communicate over a chat relay that corrupts long lines. This shapes how diffs, dictated text, and long documents move between them.
+
+1. **Diffs go as `--word-diff`, one file per message.** A plain unified diff arrives unreliable because the relay wraps and mangles long lines. Deliver each file's diff with `git diff --word-diff`, one file per message; anything that still does not survive is re-sent split into short-line `[n/m]` partitions (precedent: `docs/handoff-session-26.md:237-244`).
+2. **Literal text dictated by the advisor is verified by hash, not by re-sending.** When the advisor dictates exact prose (a SPEC amendment, a comment block), the executor writes it and confirms with the SHA-256 of the resulting lines with CR stripped (`tr -d '\r' | sha256sum`), which the advisor matches against the expected hashes. Re-sending the text through the relay would re-introduce the corruption the hash is meant to catch.
+3. **Long documents are reviewed on a pushed branch.** A handoff or multi-file doc change is committed to a review branch and pushed; the draft commit carries a `NOT YET RATIFIED` marker (precedent: the inventory backup, `docs/handoff-session-26.md:88-92`). The advisor reads the draft from the repo, not from chat. After ratification the branch is squashed to `main` **without** the marker and deleted. CI does not run on branches, so the executor runs `markdownlint` locally before the push (the local mirror of the CI gate).
+4. **A conditioned ratification gets its verification output.** When Manuel ratifies subject to conditions (hashes match, `--stat` exact, gate green), the executor reports the **literal** output of each condition, not a summary.
+
 ### SPEC amendment workflow
 
 When implementation reality contradicts an already-`Accepted` SPEC (or ADR) in a way that needs a contract change, amend it in place rather than rewriting history:
@@ -236,7 +245,7 @@ The marquee is therefore validated developer-local. Procedure:
    pnpm test
    ```
 
-4. The vitest run executes all 8 tests including the SPEC-005 marquee. Expected outcome: 8 passed (the marquee included). The marquee's `.skipIf(process.platform !== "win32")` gate is inactive on Windows; the test runs end-to-end.
+4. The vitest run executes the whole suite, including the SPEC-005 marquee. Expected outcome: all tests pass, the marquee included. The marquee's `.skipIf(process.platform !== "win32")` gate is inactive on Windows; the test runs end-to-end.
 5. This procedure is the standing validation gate for any merge that touches the ETW path. Run before merging changes to `agent/cg-agent/src/etw/`, `agent/cg-agent/src/cges/`, or `services/ingest/src/routes/heartbeat.ts`.
 
 **Validation status:** marquee 8/8 GREEN, validated developer-local in Phase 4 Session 16 (two consecutive runs, zombie reclaim validated). ts-ci Known CI debt row removed in this commit.

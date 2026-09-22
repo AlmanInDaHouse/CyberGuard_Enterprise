@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-26.md](../handoff-session-26.md)).
+([handoff-session-28.md](../handoff-session-28.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -53,6 +53,9 @@ This dependency-ordered document supersedes both for planning.
 
 ### A' — Land feat/ingest-container-packaging
 
+- **Status: DONE** — landed as `48e3bd6` (bind) + `a67315c` (packaging) (S28,
+  2026-09-21); the WIP's build-context fix (D1) plus two reactive corrections
+  (D2, D3; see handoff-28); Class B residue closed in `e01c1f5`.
 - Does: land the packaging branch (`feat/ingest-container-packaging`
   @03005f0) — already-written, pushed WIP that was falling out of the
   record.
@@ -65,6 +68,20 @@ This dependency-ordered document supersedes both for planning.
   positive AND negative.
 - Blocked by: A (part of main-with-driver — needs the env vars + the
   driver contract).
+
+### A'' — api container packaging
+
+- Does: the api image builds and runs, and ts-ci builds ingest and api
+  (#15, #16), so `task dev:up` works again.
+- Work: apply the A' pattern to `services/api` + a `pnpm run build` step in
+  the ts-ci ingest and api jobs; restore `README.md:54` once `task dev:up` is
+  green.
+- Gate (own): first-hand `task dev:up` with everything healthy + api reachable
+  from the host + the ts-ci build steps green.
+- Owner-STOP on the path: `API_BIND_HOST` (a new env var — the CLAUDE.md
+  deployment-contract rule; precedent `INGEST_BIND_HOST`) and where the api
+  config surface is documented (no SPEC covers it today).
+- Blocked by: nothing (A' landed).
 
 ### B1 — Evaluator generalization
 

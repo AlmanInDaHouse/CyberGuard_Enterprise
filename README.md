@@ -25,7 +25,7 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 | 6 | 1 SOAR playbook | **Pending** — unblocked by the prod-driver seam. |
 | 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
 
-Criteria **1 / 2 / 4** now run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07). The latest session handoff, [`docs/handoff-session-27.md`](docs/handoff-session-27.md), is the canonical current state.
+Criteria **1 / 2 / 4** now run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07). The latest session handoff, [`docs/handoff-session-28.md`](docs/handoff-session-28.md), is the canonical current state.
 
 The remaining MVP work — phases ordered by technical dependency, plus the owner-STOP decisions gating them — is the work order in [`docs/product/roadmap.md`](docs/product/roadmap.md).
 
@@ -51,7 +51,7 @@ The project uses [Task](https://taskfile.dev) as a cross-platform task runner. I
 - **Windows (scoop):** `scoop install task`
 - **macOS / Linux:** see <https://taskfile.dev/installation/>
 
-The top-level lifecycle targets below are still stubs pending the infrastructure SPEC. The working developer stack runs via `task dev:*` (see [`infra/dev/`](infra/dev/)) and per-workspace `cargo` / `pnpm` commands:
+The top-level lifecycle targets below are still stubs pending the infrastructure SPEC. The working developer stack runs via `task dev:*` (see [`infra/dev/`](infra/dev/); `task dev:up` currently fails building the `api` image — debt #15, roadmap A'') and per-workspace `cargo` / `pnpm` commands:
 
 | Target | Purpose |
 |---|---|
