@@ -20,7 +20,9 @@ export class NotImplementedError extends Error {
 /** Thrown when a rule (or its `condition`) uses a construct outside the evaluator subset. */
 export class UnsupportedRuleError extends Error {
   constructor(detail: string) {
-    super(`unsupported Sigma construct (outside the evaluator subset): ${detail}`);
+    super(
+      `unsupported Sigma construct — outside the SPEC-015 §Scope evaluator subset (fields Image/ParentImage; modifiers exact/endswith/startswith/contains; a boolean condition over and/or/not/parentheses; logsource.category process_creation; the MVP rule is SPEC-006): ${detail}`,
+    );
     this.name = "UnsupportedRuleError";
   }
 }

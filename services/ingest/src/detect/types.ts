@@ -1,4 +1,5 @@
 import type { Config } from "../config.js";
+import type { ConditionAst } from "./condition.js";
 
 /**
  * ADR-0012 §8 default correlation window (seconds). One tunable shared by the
@@ -29,17 +30,40 @@ export interface DetectConfig {
   correlationWindowSeconds: number;
 }
 
+/** A comparison modifier for a field matcher (SPEC-015 §Scope). */
+export type SigmaModifier = "exact" | "endswith" | "startswith" | "contains";
+
 /**
- * The minimal Sigma-subset rule the MVP evaluator understands: a single
- * `selection` matching `|endswith` over `Image` and `ParentImage` (SPEC-006
- * §Data contracts). Carries the CyberGuard `cg:` scoring/severity/MITRE block.
+ * One `Field|modifier: values` matcher within a detection block. `values` are
+ * lowercased at parse time (case-insensitive matching, SPEC-015 §Data contracts).
+ */
+export interface SigmaFieldMatcher {
+  field: "Image" | "ParentImage";
+  modifier: SigmaModifier;
+  values: string[];
+}
+
+/** A named detection block: the AND of its field matchers (SPEC-015 §Data contracts). */
+export interface SigmaBlock {
+  name: string;
+  fields: SigmaFieldMatcher[];
+}
+
+/**
+ * A rule the generalized SPEC-015 evaluator understands: named detection blocks
+ * over `Image` / `ParentImage` with the `exact` / `endswith` / `startswith` /
+ * `contains` modifiers, combined by a parsed boolean `condition` and dispatched
+ * by `logsourceCategory`. Carries the CyberGuard `cg:` scoring/severity/MITRE
+ * block. Supersedes SPEC-006's single-`selection`, `|endswith`-only shape by
+ * scope (SPEC-015); the SPEC-006 MVP rule remains valid and evaluates identically.
  */
 export interface SigmaRule {
   id: string;
   title: string;
   level: string;
-  parentImageEndsWith: string[];
-  imageEndsWith: string[];
+  logsourceCategory: string;
+  blocks: SigmaBlock[];
+  condition: ConditionAst;
   heuristicScore: number;
   severityId: number;
   cgMitre: { tactics: string[]; techniques: string[] };
