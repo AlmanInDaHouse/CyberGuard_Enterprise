@@ -51,9 +51,9 @@ export interface SigmaBlock {
 
 /**
  * A rule the generalized SPEC-015 evaluator understands: named detection blocks
- * over `Image` / `ParentImage` with the `exact` / `endswith` / `startswith` /
- * `contains` modifiers, combined by a parsed boolean `condition` and dispatched
- * by `logsourceCategory`. Carries the CyberGuard `cg:` scoring/severity/MITRE
+ * over `Image` / `ParentImage` with exact match (no modifier), `endswith`,
+ * `startswith`, and `contains`, combined by a parsed boolean `condition` and
+ * dispatched by `logsourceCategory`. Carries the CyberGuard `cg:` scoring/severity/MITRE
  * block. Supersedes SPEC-006's single-`selection`, `|endswith`-only shape by
  * scope (SPEC-015); the SPEC-006 MVP rule remains valid and evaluates identically.
  */

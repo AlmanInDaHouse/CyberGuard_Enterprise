@@ -33,6 +33,12 @@ test("more than one modifier on a field is rejected", () => {
   rejects({ selection: { "Image|endswith|all": ["x"] }, condition: "selection" });
 });
 
+test("an explicit |exact modifier is rejected (exact match is written without a modifier)", () => {
+  expect(() =>
+    parseRule(rawRule({ selection: { "Image|exact": ["c:\\a.exe"] }, condition: "selection" })),
+  ).toThrow(/exact match is written without a modifier/);
+});
+
 test("a wildcard value is rejected", () => {
   expect(() =>
     parseRule(rawRule({ selection: { "Image|endswith": ["*.exe"] }, condition: "selection" })),

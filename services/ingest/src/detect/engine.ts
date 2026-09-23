@@ -19,7 +19,8 @@ import type {
 //   - fields Image and ParentImage — the populated v0.1 process fields (SPEC-006
 //     §Data contracts; ADR-0012:61). CommandLine / User are rejected (empty in
 //     v0.1, deferred to B2).
-//   - modifiers exact / endswith / startswith / contains, all case-insensitive.
+//   - modifiers: exact match (no modifier), endswith, startswith, contains,
+//     all case-insensitive. An explicit `|exact` is rejected (Sigma has none).
 //   - one or more named detection blocks (a block is the AND of its fields; a
 //     field is the OR of its values) combined by a boolean `condition` over
 //     and / or / not / parentheses (parsed by ./condition.js).
@@ -95,12 +96,19 @@ function normalizeValues(field: string, block: string, raw: unknown): string[] {
   return values;
 }
 
+/**
+ * Resolve an EXPLICIT `|modifier`. The no-modifier case (`exact`) is the
+ * caller's; an explicit `|exact` is rejected — Sigma has no `|exact`, and exact
+ * match is written without a modifier (SPEC-015 §Scope).
+ */
 function resolveModifier(field: string, modifier: string, block: string): SigmaModifier {
-  if (modifier === "exact") {
-    return "exact";
-  }
   if (SUPPORTED_MODIFIERS.has(modifier)) {
     return modifier as SigmaModifier;
+  }
+  if (modifier === "exact") {
+    throw new UnsupportedRuleError(
+      `unsupported modifier "exact" on ${field} in block "${block}" (exact match is written without a modifier)`,
+    );
   }
   throw new UnsupportedRuleError(
     `unsupported modifier "${modifier}" on ${field} in block "${block}"`,
@@ -115,7 +123,6 @@ function parseFieldMatcher(block: string, key: string, raw: unknown): SigmaField
   }
   const sep = key.indexOf("|");
   const field = sep === -1 ? key : key.slice(0, sep);
-  const modifierName = sep === -1 ? "exact" : key.slice(sep + 1);
 
   if (field === "CommandLine" || field === "User") {
     throw new UnsupportedRuleError(
@@ -129,7 +136,9 @@ function parseFieldMatcher(block: string, key: string, raw: unknown): SigmaField
   }
   return {
     field,
-    modifier: resolveModifier(field, modifierName, block),
+    // No `|` ⇒ exact (written without a modifier); an explicit `|modifier` must
+    // be one of SUPPORTED_MODIFIERS (resolveModifier rejects an explicit exact).
+    modifier: sep === -1 ? "exact" : resolveModifier(field, key.slice(sep + 1), block),
     values: normalizeValues(field, block, raw),
   };
 }

@@ -21,7 +21,7 @@ export class NotImplementedError extends Error {
 export class UnsupportedRuleError extends Error {
   constructor(detail: string) {
     super(
-      `unsupported Sigma construct — outside the SPEC-015 §Scope evaluator subset (fields Image/ParentImage; modifiers exact/endswith/startswith/contains; a boolean condition over and/or/not/parentheses; logsource.category process_creation; the MVP rule is SPEC-006): ${detail}`,
+      `unsupported Sigma construct — outside the SPEC-015 §Scope evaluator subset (fields Image/ParentImage; modifiers exact match (no modifier), endswith, startswith, contains; a boolean condition over and/or/not/parentheses; logsource.category process_creation; the MVP rule is SPEC-006): ${detail}`,
     );
     this.name = "UnsupportedRuleError";
   }
