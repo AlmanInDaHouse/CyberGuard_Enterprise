@@ -28,6 +28,10 @@ const EnvSchema = z.object({
   // z.string().min(1) shape — a deployment-contract value the operator sets.
   API_FORENSIC_PASSPHRASE: z.string().min(1),
   API_PORT: z.coerce.number().int().positive().default(8081),
+  // Bind address for the api listener. Default loopback = the host-process
+  // topology (tests, `pnpm dev`); a container needs a non-loopback bind such
+  // as 0.0.0.0. Plain HTTP; TLS termination is a deployment concern.
+  API_BIND_HOST: z.string().min(1).default("127.0.0.1"),
   API_RUN_MIGRATIONS: z
     .enum(["true", "false"])
     .default("false")

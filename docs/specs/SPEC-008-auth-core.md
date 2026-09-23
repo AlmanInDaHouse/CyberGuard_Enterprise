@@ -265,6 +265,14 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 7. **Rate-limit is a MUST on two dimensions** (account + IP), Redis-homed; thresholds per-org configurable.
 8. **First-admin via CLI** (`create-user.ts`, mirroring `issue-token.ts`); no unauthenticated HTTP bootstrap.
 
+## Amendment 2026-09-23: listener bind address
+
+**What surfaced it.** Diagnosing the api container packaging (roadmap A'', Session 29) showed the listener bound to a hard-coded `127.0.0.1` (`services/api/src/server.ts`, since `fc33274`). That suits the host-process topology the test harness and `pnpm dev` use, but inside a container it binds only the container's own loopback, so neither the published port nor the container network can reach the api. This SPEC never fixed a bind address; the loopback bind was an implementation choice.
+
+**Amendment.** The listener binds `API_BIND_HOST`, a new optional environment variable; its default, `127.0.0.1`, keeps the prior behavior. A containerised deployment needs a non-loopback bind such as `0.0.0.0`; exposure stays governed by the port mapping, not by the bind. The listener stays plain HTTP; TLS termination remains a deployment concern.
+
+**Effect.** Additive and backward-compatible: with the variable unset the bind is unchanged, and the test harness sets loopback explicitly. No endpoint, port (`API_PORT`) or data contract changes. No SPEC consolidates the api's configuration surface today; that table is deferred to the operator configuration surface of roadmap Phase F. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0014](../adr/0014-human-authentication-model.md) — the human-auth model this SPEC realises (identity §1, session §2, `services/api` §3, RBAC §4); the §Compliance MUSTs (rate-limit, cookies, CI-blocking RBAC, audit) and the §Out of scope CSRF deferral this SPEC closes.

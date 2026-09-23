@@ -62,6 +62,9 @@ export async function startBackends(): Promise<Backends> {
       API_DB_ENC_PASSPHRASE: "test-api-passphrase",
       API_FORENSIC_PASSPHRASE: "test-forensic-passphrase",
       API_PORT: 0,
+      // Manual Config literal (no loadConfig → no Zod default), so API_BIND_HOST
+      // is set explicitly. Loopback matches the host-process test topology.
+      API_BIND_HOST: "127.0.0.1",
       API_RUN_MIGRATIONS: true,
       API_LOG_LEVEL: "warn",
     };
