@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-28.md](../handoff-session-28.md)).
+([handoff-session-29.md](../handoff-session-29.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -71,6 +71,9 @@ This dependency-ordered document supersedes both for planning.
 
 ### A'' — api container packaging
 
+- **Status: DONE** — landed as `2cd0231` (bind) + `569f92d` (packaging) +
+  `faac8b3` (ts-ci guard) (S29, 2026-09-23); `API_BIND_HOST` owner-STOP ratified
+  (SPEC-008 Amendment 2026-09-23).
 - Does: the api image builds and runs, and ts-ci builds ingest and api
   (#15, #16), so `task dev:up` works again.
 - Work: apply the A' pattern to `services/api` + a `pnpm run build` step in
