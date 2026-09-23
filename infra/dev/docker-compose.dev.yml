@@ -179,16 +179,19 @@ services:
       start_period: 15s
 
   # SPEC-008 human-facing API / auth-core (TypeScript + Fastify, ADR-0014 §3).
-  # Built from services/api/. The user-facing trust boundary, distinct from
+  # Built from the repo root (context ../.., dockerfile services/api/Dockerfile).
+  # The user-facing trust boundary, distinct from
   # ingest's agent-mTLS boundary. Reuses the SAME Postgres (users / audit_log) +
   # Redis (sessions / rate-limit) as the rest of the stack (ADR-0003 one-instance);
-  # its OWN migration runner (API_RUN_MIGRATIONS) applies migrations 0001/0002
+  # its OWN migration runner (API_RUN_MIGRATIONS) applies its own migrations
   # under a DISTINCT Kysely ledger table + advisory-lock key, so it never races
   # ingest's migrations on the shared database.
   api:
     build:
-      context: ../../services/api
-      dockerfile: Dockerfile
+      # Context = repo root: the api image needs the pnpm
+      # workspace lockfile, which lives outside services/api.
+      context: ../..
+      dockerfile: services/api/Dockerfile
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
@@ -209,6 +212,9 @@ services:
       # key at rest (pgcrypto), distinct from API_DB_ENC_PASSPHRASE and NOT the ingest CA.
       API_FORENSIC_PASSPHRASE: ${CG_API_FORENSIC_PASSPHRASE:-cyberguard_dev_forensic_pass}
       API_PORT: "8081"
+      # In a container the server must listen on all interfaces so the published
+      # ports (and the compose network) reach it; exposure is governed by ports:.
+      API_BIND_HOST: "0.0.0.0"
       API_RUN_MIGRATIONS: "true"
       API_LOG_LEVEL: ${CG_API_LOG_LEVEL:-info}
     depends_on:
@@ -219,8 +225,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      # No /health endpoint yet (lands with the API surface, SPEC-009); a TCP
-      # liveness probe on the bound port suffices for dev. Runs in-container.
+      # The api exposes no /health endpoint; a TCP liveness probe on the bound
+      # port suffices for dev. Runs in-container.
       test:
         - "CMD-SHELL"
         - "node -e \"require('net').connect(8081,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))\""

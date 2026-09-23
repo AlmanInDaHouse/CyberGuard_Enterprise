@@ -51,7 +51,7 @@ The project uses [Task](https://taskfile.dev) as a cross-platform task runner. I
 - **Windows (scoop):** `scoop install task`
 - **macOS / Linux:** see <https://taskfile.dev/installation/>
 
-The top-level lifecycle targets below are still stubs pending the infrastructure SPEC. The working developer stack runs via `task dev:*` (see [`infra/dev/`](infra/dev/); `task dev:up` currently fails building the `api` image — debt #15, roadmap A'') and per-workspace `cargo` / `pnpm` commands:
+The top-level lifecycle targets below are still stubs pending the infrastructure SPEC. The working developer stack runs via `task dev:*` (see [`infra/dev/`](infra/dev/)) and per-workspace `cargo` / `pnpm` commands:
 
 | Target | Purpose |
 |---|---|
