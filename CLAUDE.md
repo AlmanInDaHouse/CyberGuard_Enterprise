@@ -262,16 +262,16 @@ The SPEC-006 detection marquee (`services/ingest/test/detect-ac-001-marquee.test
 Procedure:
 
 1. Have Docker Desktop running on the Windows machine.
-2. Open an **elevated** terminal (Run as Administrator) at the repo root.
+2. Open an **elevated** terminal (Run as Administrator) at the repo root. An elevated terminal starts in `C:\Windows\System32`; `cd` to the repo root first.
 3. Run:
 
    ```sh
    cd services/ingest
-   pnpm install
+   pnpm install --frozen-lockfile
    pnpm test
    ```
 
-4. The vitest run executes the full suite including the SPEC-005 marquee AND `detect_ac_001` (both `.skipIf` gates are inactive on Windows).
+4. The vitest run executes the full suite including the SPEC-005 marquee AND `detect_ac_001` (both `.skipIf` gates are inactive on Windows). The evidence to report is the vitest summary (`Test Files N passed (N)` / `Tests M passed (M)`, nothing skipped); with output redirected, vitest does not list every file.
 5. `detect_ac_001` asserts exactly one Postgres alert with `rule_id = rule.office_spawns_script_host`, `cg_detection_source = rule`, `final_score = 0.9`, `status = new`, and a well-formed `dedup_key`. The probe spawns the `winword.exe` stand-in **after** the agent's ETW session opens, so the parent is captured — a green run does NOT imply production coverage of the already-running-Office case (SPEC-006 §Operational §2 production false-negative).
 6. Standing gate before merging changes to the detection path: `services/ingest/src/detect/`, `rules/windows/`, or the `alerts` / `cges_events` schema.
 

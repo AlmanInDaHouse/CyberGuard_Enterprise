@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-29.md](../handoff-session-29.md)).
+([handoff-session-30.md](../handoff-session-30.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -88,34 +88,38 @@ This dependency-ordered document supersedes both for planning.
 
 ### B1 — Evaluator generalization
 
+- **Status: DONE** — landed as `f006b9e` (condition parser) + `1f9aa4a`
+  (evaluator) + `18fc2d3` (reject explicit `|exact`) (S30, 2026-09-23);
+  elevated marquee green on the reviewed tip (37 files / 107 tests).
 - Contract: SPEC-015 (Accepted 2026-09-23), amends SPEC-006 by scope.
 - Does: relax the strict-reject validator
-  (`services/ingest/src/detect/engine.ts:32-51`) to admit more Sigma
+  (`services/ingest/src/detect/engine.ts:32-51` at `1fbb035`) to admit more Sigma
   fields and the `contains` operator; no read-model change (SPEC-015
   §Scope; widening belongs to B2 / D). No new capture, no agent
   decision.
 - Blocked by: A. Cheap.
 - Prerequisite of C AND D: network and login rules also need to leave the
   logsource pinned to `process_creation`
-  (`services/ingest/src/detect/engine.ts:51`). This is the piece that
+  (`services/ingest/src/detect/engine.ts:51` at `1fbb035`). This is the piece that
   must NOT travel inside the capture work.
 
 ### C — Criterion 1: the 10 rules
 
 - Blocked by: B1 (not B2).
-- With B1 done, the engine accepts `contains` and more Sigma fields over
-  the already-normalized process fields
-  (`services/ingest/src/detect/read-model.ts:89`: parentImage,
-  imageFileName, pid, uid). That yields rules with real content —
-  suspicious image paths, execution from Temp/AppData, multi-hop lineage
-  — WITHOUT touching the agent.
+- With B1 done (SPEC-015), the engine accepts exact / `endswith` /
+  `startswith` / `contains` over `Image` and `ParentImage`, with named
+  blocks and `and` / `or` / `not` conditions. That yields rules with real
+  content — suspicious image paths, execution from Temp/AppData, parent
+  lineage — WITHOUT touching the agent. Multi-hop lineage needs a
+  read-model change (SPEC-015 Open question 1) and is decided here.
 - Only rules that inspect the COMMAND LINE stay out until B2 lands;
   everything expressible over process image / path / lineage is in scope
   here.
 - Quality bar: ten rules, each with a WIRED test. Today `rules/tests/`
-  holds a JSON fixture that no `.ts` loads; the real coverage is inline
-  in `services/ingest/test/engine.test.ts:13`. That is fixed here.
-- Loader is ready (`services/ingest/src/detect/engine.ts:88`).
+  holds a JSON fixture that no `.ts` loads (and whose format has drifted
+  from `rules/tests/README.md`); the office rule's real coverage is in
+  `services/ingest/test/eval-ac-005-regression.test.ts`. That is fixed here.
+- Loader is ready (`loadRules` in `services/ingest/src/detect/engine.ts`).
 
 ### D — Criterion 2: new classes (4001 network + 3002 login)
 
