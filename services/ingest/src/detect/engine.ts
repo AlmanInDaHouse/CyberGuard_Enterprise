@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { UnsupportedRuleError } from "./errors.js";
 import type { NormalizedProcessEvent, RuleMatch, SigmaRule } from "./types.js";
 
 // SPEC-006 5c — the rule evaluator. Loads Sigma rules (rules/windows/*.yml) and
@@ -15,15 +16,9 @@ import type { NormalizedProcessEvent, RuleMatch, SigmaRule } from "./types.js";
 // Frontier: this is 5c. evaluateRule returns a RuleMatch (the rule's
 // contribution); it does NOT score (5d) or assemble/persist the alert (5e).
 
-/** Thrown when a rule uses a Sigma construct outside the MVP evaluator's subset. */
-export class UnsupportedRuleError extends Error {
-  constructor(detail: string) {
-    super(
-      `SPEC-006 unsupported Sigma construct (the MVP evaluator handles only \`|endswith\` over Image/ParentImage with \`condition: selection\` and \`logsource.category: process_creation\`): ${detail}`,
-    );
-    this.name = "UnsupportedRuleError";
-  }
-}
+// `UnsupportedRuleError` now lives in ./errors.js; re-exported here so existing
+// imports from ./engine.js keep working unchanged.
+export { UnsupportedRuleError };
 
 // zod schema for the supported subset. `.strict()` on `selection` and
 // `detection` is the load-bearing defense: any extra key (an unsupported
