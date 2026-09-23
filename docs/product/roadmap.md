@@ -88,10 +88,12 @@ This dependency-ordered document supersedes both for planning.
 
 ### B1 — Evaluator generalization
 
+- Contract: SPEC-015 (Accepted 2026-09-23), amends SPEC-006 by scope.
 - Does: relax the strict-reject validator
   (`services/ingest/src/detect/engine.ts:32-51`) to admit more Sigma
-  fields and the `contains` operator; widen the read-model projection.
-  No new capture, no agent decision.
+  fields and the `contains` operator; no read-model change (SPEC-015
+  §Scope; widening belongs to B2 / D). No new capture, no agent
+  decision.
 - Blocked by: A. Cheap.
 - Prerequisite of C AND D: network and login rules also need to leave the
   logsource pinned to `process_creation`
