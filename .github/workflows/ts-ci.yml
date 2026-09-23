@@ -60,6 +60,19 @@ jobs:
       - name: Lint (biome)
         run: pnpm run lint
 
+      - name: Build (tsc)
+        run: pnpm run build
+
+      - name: Entrypoints exist (start + bin)
+        # tsc can succeed while emitting a layout that start/bin never
+        # resolve (S28, D2): assert every file package.json points at.
+        run: >-
+          node -e 'const p=require("./package.json");const fs=require("fs");
+          const f=[p.scripts.start.split(" ").pop(),...Object.values(p.bin||{})];
+          const m=f.filter((x)=>!fs.existsSync(x));
+          if(m.length){console.error("missing:",m);process.exit(1)}
+          console.log("entrypoints ok:",f)'
+
       # The marquee acceptance test (SPEC-004 AC-001) runs the REAL cg-agent
       # binary against the real testcontainers-backed server — no mock. Build
       # it here so vitest can spawn it from <repo-root>/target/debug/cg-agent.
@@ -106,6 +119,19 @@ jobs:
 
       - name: Lint (biome)
         run: pnpm run lint
+
+      - name: Build (tsc)
+        run: pnpm run build
+
+      - name: Entrypoints exist (start + bin)
+        # tsc can succeed while emitting a layout that start/bin never
+        # resolve (S28, D2): assert every file package.json points at.
+        run: >-
+          node -e 'const p=require("./package.json");const fs=require("fs");
+          const f=[p.scripts.start.split(" ").pop(),...Object.values(p.bin||{})];
+          const m=f.filter((x)=>!fs.existsSync(x));
+          if(m.length){console.error("missing:",m);process.exit(1)}
+          console.log("entrypoints ok:",f)'
 
       # auth-core needs no ETW and no agent — Postgres + Redis via testcontainers
       # only (ADR-0003). No Rust build step here, unlike the ingest job.
