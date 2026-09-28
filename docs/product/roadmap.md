@@ -105,13 +105,15 @@ This dependency-ordered document supersedes both for planning.
 
 ### C — Criterion 1: the 10 rules
 
+- Contract: SPEC-016 (Accepted), amends SPEC-015 and SPEC-006 by scope.
 - Blocked by: B1 (not B2).
 - With B1 done (SPEC-015), the engine accepts exact / `endswith` /
   `startswith` / `contains` over `Image` and `ParentImage`, with named
   blocks and `and` / `or` / `not` conditions. That yields rules with real
   content — suspicious image paths, execution from Temp/AppData, parent
-  lineage — WITHOUT touching the agent. Multi-hop lineage needs a
-  read-model change (SPEC-015 Open question 1) and is decided here.
+  lineage — WITHOUT touching the agent. Multi-hop lineage stays out of
+  the MVP (SPEC-016); instead, the parent is resolved per child, with its
+  own 24 h look-back.
 - Only rules that inspect the COMMAND LINE stay out until B2 lands;
   everything expressible over process image / path / lineage is in scope
   here.
@@ -119,7 +121,38 @@ This dependency-ordered document supersedes both for planning.
   holds a JSON fixture that no `.ts` loads (and whose format has drifted
   from `rules/tests/README.md`); the office rule's real coverage is in
   `services/ingest/test/eval-ac-005-regression.test.ts`. That is fixed here.
-- Loader is ready (`loadRules` in `services/ingest/src/detect/engine.ts`).
+- Loader: `loadRules` (`services/ingest/src/detect/engine.ts`), hardened
+  here (SPEC-016 §Data contracts §1).
+- On a real agent the rules see events only once G lands: today capture
+  runs only on the agent's test-mode path (§G).
+
+### G — Agent capture on the normal run path
+
+- Does: give the agent's normal run path (`run_secure`) the SPEC-005
+  capture that only the test-mode path has today, with ADR-0009 §1
+  at-least-once delivery (a batch that fails transiently is resent with
+  the same `event_id`s), heartbeats independent of events, the
+  going-offline handshake, and the SPEC-005 §Operational §3 device-path →
+  Win32 translation.
+- Why (observed at `8a0ed9f`): `agent/cg-agent/src/main.rs` reaches
+  `run_test_mode`, the only path that opens the ETW session, only when
+  `CG_AGENT_TEST_MODE=1`; `run_secure` sends heartbeats only
+  (`agent/cg-agent/src/lib.rs`). The test-mode loop drops a drained batch
+  on a transient send failure, sends nothing while no events are
+  drained, and skips the going-offline handshake. No translation exists:
+  the agent copies `ImageName` unchanged. Origin: the S15 fix moved mTLS
+  into `run_test_mode` instead of ETW into `run_secure`
+  (`docs/handoff-session-15.md:67`).
+- Unblocks: process capture, and so detection, on a real deployment
+  (today only with the test switch); D, whose network and login capture
+  builds on this path.
+- Blocked by: nothing technical. Sequencing: after C, before D — advisor
+  decision under the owner's delegation, S31 (2026-09-27).
+- Needs: a SPEC (successor to SPEC-005, or an amendment of it).
+- Gate (own): the SPEC-005 marquee, pointed at the normal run path.
+- Owner-STOP on the path: with capture on the normal path, an unelevated
+  agent exits with code 9 (SPEC-005 AC-002) instead of sending
+  heartbeats — a deployment-contract change (Part (b) §2).
 
 ### D — Criterion 2: new classes (4001 network + 3002 login)
 
@@ -127,7 +160,7 @@ This dependency-ordered document supersedes both for planning.
   (login), fused — they share the per-class projection and the widening
   of `class_uid: z.literal(1007)` (`services/ingest/src/schemas.ts:44`)
   to a union, so splitting them duplicates the plumbing.
-- Blocked by: B1 (the evaluator generalization is already done).
+- Blocked by: G (capture on the normal run path); B1 is done.
 - Needs: successor SPEC(s) to SPEC-005 + per-class ADRs.
 - Discharges: `docs/adr/0011-cges-process-activity-v0-1.md:197` +
   `docs/adr/0012-normalize-before-correlate-pipeline.md:240` (4001 / 3002
@@ -144,7 +177,13 @@ This dependency-ordered document supersedes both for planning.
   `subject_user_sid`, then carry them end-to-end (agent → wire schema →
   `services/ingest/src/detect/read-model.ts:60`). An agent decision with
   its OWN ADR.
-- Blocked by: B1 and D.
+- Also carries the parent at the edge (SPEC-016 §Scope): the agent stamps
+  the parent's image from its own process table (ADR-0011 §5 already lets
+  it emit `parent_process.name`; the CGES schema models `parent_process`),
+  seeded by an initial process enumeration at startup (the destination
+  SPEC-006 §Operational §2 names). That removes both the pre-agent false
+  negative and the need for the server-side look-back.
+- Blocked by: B1, G and D.
 - Why a separate phase (S27 verification): the wired Kernel-Process
   provider (keyword 0x10, `agent/cg-agent/src/etw/session.rs:114`) does
   NOT expose CommandLine or a usable UserSID in ProcessStart. The agent
