@@ -1,0 +1,54 @@
+{
+  "rule": "rule.script_host_spawns_powershell",
+  "description": "wscript, cscript or mshta launching PowerShell or pwsh matches, in both path forms; PowerShell under explorer, a script host launching cmd, and an unknown parent do not.",
+  "cases": [
+    {
+      "name": "wscript.exe spawns powershell.exe -> match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: mshta.exe spawns pwsh.exe -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "ParentImage": "\\Device\\HarddiskVolume3\\Windows\\System32\\mshta.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "cscript.exe (SysWOW64) spawns powershell.exe (SysWOW64) -> match",
+      "event": {
+        "Image": "C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": "C:\\Windows\\SysWOW64\\cscript.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: explorer.exe spawns powershell.exe -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: wscript.exe spawns cmd.exe -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\cmd.exe",
+        "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "parent unresolved (ParentImage null) -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    }
+  ]
+}

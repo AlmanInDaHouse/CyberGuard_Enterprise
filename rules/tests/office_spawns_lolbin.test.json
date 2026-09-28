@@ -1,0 +1,54 @@
+{
+  "rule": "rule.office_spawns_lolbin",
+  "description": "An Office parent launching a proxy-execution or download LOLBin matches, in both path forms; Outlook as the parent, a benign child of Word, and an unknown parent do not.",
+  "cases": [
+    {
+      "name": "EXCEL.EXE spawns rundll32.exe -> match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\rundll32.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: WINWORD.EXE spawns certutil.exe -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\Windows\\System32\\certutil.exe",
+        "ParentImage": "\\Device\\HarddiskVolume3\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "ONENOTE.EXE spawns msiexec.exe (SysWOW64) -> match",
+      "event": {
+        "Image": "C:\\Windows\\SysWOW64\\msiexec.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: OUTLOOK.EXE spawns rundll32.exe -> no match (Outlook is not a parent here)",
+      "event": {
+        "Image": "C:\\Windows\\System32\\rundll32.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: WINWORD.EXE spawns splwow64.exe (not a LOLBin) -> no match",
+      "event": {
+        "Image": "C:\\Windows\\splwow64.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "parent unresolved (ParentImage null) -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\rundll32.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    }
+  ]
+}

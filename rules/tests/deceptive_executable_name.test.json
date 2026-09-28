@@ -1,0 +1,54 @@
+{
+  "rule": "rule.deceptive_executable_name",
+  "description": "A double extension, a right-to-left override character, or a screensaver outside the system folders matches, in both path forms; a system screensaver and an ordinary executable name do not.",
+  "cases": [
+    {
+      "name": "invoice.pdf.exe in Downloads -> match",
+      "event": {
+        "Image": "C:\\Users\\alice\\Downloads\\invoice.pdf.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: photo.jpg.exe on the Desktop -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\Users\\alice\\Desktop\\photo.jpg.exe",
+        "ParentImage": "\\Device\\HarddiskVolume3\\Windows\\explorer.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "right-to-left override (U+202E) in the name -> match",
+      "event": {
+        "Image": "C:\\Users\\alice\\Downloads\\invoice\u202efdp.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "a screensaver outside the system folders -> match",
+      "event": {
+        "Image": "C:\\Users\\alice\\Downloads\\holiday.scr",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: a screensaver in System32 -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\Bubbles.scr",
+        "ParentImage": "C:\\Windows\\System32\\winlogon.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: an underscore, not a double extension (invoice_pdf.exe) -> no match",
+      "event": {
+        "Image": "C:\\Users\\alice\\Downloads\\invoice_pdf.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    }
+  ]
+}

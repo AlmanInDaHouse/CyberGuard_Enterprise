@@ -1,0 +1,32 @@
+title: Executable Launched from a Startup Folder
+id: rule.exec_from_startup_folder
+status: test
+description: >
+  An executable ran from a Start Menu Startup folder, per user or common. A
+  shortcut there runs its target from elsewhere; an executable in the folder
+  itself is a persistence foothold. Does not need the parent.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|contains:
+      - '\start menu\programs\startup\'
+  condition: selection
+level: medium
+tags:
+  - attack.persistence
+  - attack.t1547.001
+# CyberGuard extension (SPEC-016 §Data contracts §2): severity_id 3 = OCSF Medium
+# for level medium; final_score equals heuristic_score for a rule-only alert.
+cg:
+  heuristic_score: 0.7
+  severity_id: 3
+  cg_detection_source: rule
+  cg_mitre:
+    tactics:
+      - persistence
+    techniques:
+      - T1547.001

@@ -1,0 +1,38 @@
+{
+  "rule": "rule.exec_from_startup_folder",
+  "description": "An executable in a per-user or common Start Menu Startup folder matches, in both path forms; a Start Menu folder whose name only begins with Startup, and a program merely named startup, do not.",
+  "cases": [
+    {
+      "name": "an executable in the per-user Startup folder -> match",
+      "event": {
+        "Image": "C:\\Users\\alice\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\helper.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: an executable in the common StartUp folder -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\svc.exe",
+        "ParentImage": "\\Device\\HarddiskVolume3\\Windows\\explorer.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: a Start Menu folder named Startup Tools -> no match",
+      "event": {
+        "Image": "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup Tools\\tool.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: a program named startup.exe under Program Files -> no match",
+      "event": {
+        "Image": "C:\\Program Files\\Vendor\\startup.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    }
+  ]
+}

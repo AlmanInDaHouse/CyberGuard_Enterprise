@@ -1,0 +1,42 @@
+title: PsExec-like Remote Service Executed
+id: rule.psexec_like_service
+status: test
+description: >
+  The service binary of PsExec or of a PsExec-like tool (PAExec, RemCom,
+  CSExec) ran: remote execution over an admin share. IT uses PsExec
+  legitimately, hence level medium. Does not need the parent.
+references:
+  - https://attack.mitre.org/techniques/T1569/002/
+  - https://attack.mitre.org/techniques/T1021/002/
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  service_binary:
+    Image|endswith:
+      - '\psexesvc.exe'
+      - '\remcomsvc.exe'
+      - '\csexecsvc.exe'
+  paexec_service:
+    Image|contains:
+      - '\paexec-'
+  condition: service_binary or paexec_service
+level: medium
+tags:
+  - attack.execution
+  - attack.t1569.002
+  - attack.lateral-movement
+  - attack.t1021.002
+# CyberGuard extension (SPEC-016 §Data contracts §2): severity_id 3 = OCSF Medium
+# for level medium; final_score equals heuristic_score for a rule-only alert.
+cg:
+  heuristic_score: 0.6
+  severity_id: 3
+  cg_detection_source: rule
+  cg_mitre:
+    tactics:
+      - execution
+      - lateral-movement
+    techniques:
+      - T1569.002
+      - T1021.002

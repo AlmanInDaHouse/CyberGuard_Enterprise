@@ -1,0 +1,46 @@
+title: Execution from a Suspicious Folder
+id: rule.exec_from_suspicious_folder
+status: test
+description: >
+  An executable ran from a folder that legitimate software rarely runs from:
+  the public profile, PerfLogs, the recycle bin, or Windows data folders (Tasks,
+  Fonts, Debug, Help, Tracing, Media, Cursors, AddIns, Repair). Temp and
+  ProgramData are left out on purpose, because installers and security
+  products run from them. Does not need the parent.
+references:
+  - https://attack.mitre.org/techniques/T1036/
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|contains:
+      - '\users\public\'
+      - '\perflogs\'
+      - '\$recycle.bin\'
+      - '\windows\tasks\'
+      - '\windows\system32\tasks\'
+      - '\windows\fonts\'
+      - '\windows\debug\'
+      - '\windows\help\'
+      - '\windows\tracing\'
+      - '\windows\media\'
+      - '\windows\cursors\'
+      - '\windows\addins\'
+      - '\windows\repair\'
+  condition: selection
+level: medium
+tags:
+  - attack.defense-evasion
+  - attack.t1036
+# CyberGuard extension (SPEC-016 §Data contracts §2): severity_id 3 = OCSF Medium
+# for level medium; final_score equals heuristic_score for a rule-only alert.
+cg:
+  heuristic_score: 0.6
+  severity_id: 3
+  cg_detection_source: rule
+  cg_mitre:
+    tactics:
+      - defense-evasion
+    techniques:
+      - T1036

@@ -1,6 +1,6 @@
 {
-  "rule": "office_spawns_script_host",
-  "description": "Per-rule unit fixture (rules/README convention): normalized process_creation events + expected match. Input events are in the normalized Sigma shape (Image / ParentImage) the evaluator sees AFTER the parent-pid self-join (SPEC-006 §Data contracts). Consumed by the Phase-5 rule evaluator.",
+  "rule": "rule.office_spawns_script_host",
+  "description": "Per-rule fixture (SPEC-016 §Data contracts §3), evaluated by rules_ac_002: normalized process_creation events + expected match. Input events are in the normalized Sigma shape (Image / ParentImage) the evaluator sees AFTER the parent resolution (SPEC-016 §Operational §1). Pins an Office parent spawning a script host, in both path forms; a non-Office parent, a non-script child and an unknown parent do not match.",
   "cases": [
     {
       "name": "winword.exe spawns powershell.exe -> match",
@@ -15,6 +15,14 @@
       "event": {
         "Image": "C:\\Windows\\System32\\mshta.exe",
         "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\excel.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: WINWORD.EXE spawns powershell.exe -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "ParentImage": "\\Device\\HarddiskVolume3\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
       },
       "expected_match": true
     },

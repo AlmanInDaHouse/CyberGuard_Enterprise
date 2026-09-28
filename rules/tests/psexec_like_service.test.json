@@ -1,0 +1,46 @@
+{
+  "rule": "rule.psexec_like_service",
+  "description": "The PsExec, RemCom, CSExec or PAExec service binary matches, in both path forms; the PsExec and PAExec clients do not.",
+  "cases": [
+    {
+      "name": "PSEXESVC.exe in C:\\Windows -> match",
+      "event": {
+        "Image": "C:\\Windows\\PSEXESVC.exe",
+        "ParentImage": "C:\\Windows\\System32\\services.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: the PAExec service binary -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\Windows\\PAExec-4312-HOST01.exe",
+        "ParentImage": "\\Device\\HarddiskVolume3\\Windows\\System32\\services.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "RemComSvc.exe -> match",
+      "event": {
+        "Image": "C:\\Windows\\RemComSvc.exe",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: the PsExec client -> no match",
+      "event": {
+        "Image": "C:\\Tools\\SysinternalsSuite\\PsExec.exe",
+        "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: the PAExec client (no hyphen) -> no match",
+      "event": {
+        "Image": "C:\\Tools\\paexec.exe",
+        "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+      },
+      "expected_match": false
+    }
+  ]
+}

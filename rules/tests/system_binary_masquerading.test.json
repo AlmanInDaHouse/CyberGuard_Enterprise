@@ -1,0 +1,70 @@
+{
+  "rule": "rule.system_binary_masquerading",
+  "description": "A core Windows binary name outside System32, SysWOW64 and WinSxS matches, in both path forms; the same names in the system folders (Win32 or device form), the kernel \\SystemRoot\\ form, and pwsh.exe do not.",
+  "cases": [
+    {
+      "name": "svchost.exe in AppData\\Roaming -> match",
+      "event": {
+        "Image": "C:\\Users\\alice\\AppData\\Roaming\\svchost.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: lsass.exe in ProgramData -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\ProgramData\\lsass.exe",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "csrss.exe in C:\\Windows\\Temp -> match",
+      "event": {
+        "Image": "C:\\Windows\\Temp\\csrss.exe",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: svchost.exe in System32 -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\svchost.exe",
+        "ParentImage": "C:\\Windows\\System32\\services.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: rundll32.exe in SysWOW64, device form -> no match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\Windows\\SysWOW64\\rundll32.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: smss.exe in the kernel \\SystemRoot\\ form -> no match",
+      "event": {
+        "Image": "\\SystemRoot\\System32\\smss.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: dllhost.exe in WinSxS -> no match",
+      "event": {
+        "Image": "C:\\Windows\\WinSxS\\amd64_microsoft-windows-com-surrogate_31bf3856ad364e35_10.0.26100.1_none_0\\dllhost.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    },
+    {
+      "name": "pwsh.exe under Program Files (not listed) -> no match",
+      "event": {
+        "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    }
+  ]
+}

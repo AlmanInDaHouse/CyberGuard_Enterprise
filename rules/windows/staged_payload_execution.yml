@@ -1,0 +1,54 @@
+title: Staged Payload Executed from a Document, Script or Mail Attachment
+id: rule.staged_payload_execution
+status: test
+description: >
+  An Office application or a script host launched an executable from a user
+  staging folder (the user Temp folder, Downloads), or any executable ran from
+  Outlook's attachment cache (Content.Outlook). The attachment-cache branch does
+  not need the parent; the document or script branch does, and the parent is
+  resolved per child (SPEC-016 §Operational §1).
+references:
+  - https://attack.mitre.org/techniques/T1204/002/
+  - https://attack.mitre.org/techniques/T1566/001/
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  document_or_script_parent:
+    ParentImage|endswith:
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\msaccess.exe'
+      - '\onenote.exe'
+      - '\mspub.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\mshta.exe'
+  staging_folder:
+    Image|contains:
+      - '\appdata\local\temp\'
+      - '\downloads\'
+  outlook_attachment_cache:
+    Image|contains:
+      - '\content.outlook\'
+  condition: (document_or_script_parent and staging_folder) or outlook_attachment_cache
+level: high
+tags:
+  - attack.execution
+  - attack.t1204.002
+  - attack.initial-access
+  - attack.t1566.001
+# CyberGuard extension (SPEC-016 §Data contracts §2): severity_id 4 = OCSF High
+# for level high; final_score equals heuristic_score for a rule-only alert.
+cg:
+  heuristic_score: 0.8
+  severity_id: 4
+  cg_detection_source: rule
+  cg_mitre:
+    tactics:
+      - execution
+      - initial-access
+    techniques:
+      - T1204.002
+      - T1566.001

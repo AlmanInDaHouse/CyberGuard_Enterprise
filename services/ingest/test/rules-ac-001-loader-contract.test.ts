@@ -203,3 +203,81 @@ test("the repo's rules load, each with the id of its file name", () => {
     files.map((f) => `rule.${f.replace(/\.ya?ml$/, "")}`).sort(),
   );
 });
+
+// SPEC-016 §Data contracts §2, the rule-set table: id, level → severity_id,
+// heuristic_score, tactics, techniques.
+const RULE_SET: Array<[string, string, number, number, string[], string[]]> = [
+  [
+    "rule.office_spawns_script_host",
+    "high",
+    4,
+    0.9,
+    ["execution", "initial-access"],
+    ["T1059.001", "T1566.001"],
+  ],
+  [
+    "rule.office_spawns_lolbin",
+    "high",
+    4,
+    0.8,
+    ["execution", "defense-evasion"],
+    ["T1204.002", "T1218"],
+  ],
+  [
+    "rule.script_host_spawns_powershell",
+    "high",
+    4,
+    0.75,
+    ["execution", "defense-evasion"],
+    ["T1059.001", "T1059.005", "T1218.005"],
+  ],
+  [
+    "rule.staged_payload_execution",
+    "high",
+    4,
+    0.8,
+    ["execution", "initial-access"],
+    ["T1204.002", "T1566.001"],
+  ],
+  [
+    "rule.deceptive_executable_name",
+    "high",
+    4,
+    0.85,
+    ["execution", "defense-evasion"],
+    ["T1204.002", "T1036.002", "T1036.007"],
+  ],
+  ["rule.system_binary_masquerading", "high", 4, 0.8, ["defense-evasion"], ["T1036.005"]],
+  ["rule.exec_from_suspicious_folder", "medium", 3, 0.6, ["defense-evasion"], ["T1036"]],
+  ["rule.exec_from_startup_folder", "medium", 3, 0.7, ["persistence"], ["T1547.001"]],
+  [
+    "rule.psexec_like_service",
+    "medium",
+    3,
+    0.6,
+    ["execution", "lateral-movement"],
+    ["T1569.002", "T1021.002"],
+  ],
+  [
+    "rule.credential_theft_tool",
+    "critical",
+    5,
+    0.9,
+    ["credential-access"],
+    ["T1003.001", "T1555", "T1558"],
+  ],
+];
+
+test("the ten rules of the rule set load, with the table's level, severity, score and ATT&CK mapping", () => {
+  const rules = loadRules(RULES_WINDOWS_DIR);
+  expect(rules.map((r) => r.id).sort()).toEqual(RULE_SET.map(([id]) => id).sort());
+  for (const [id, level, severityId, score, tactics, techniques] of RULE_SET) {
+    const rule = rules.find((r) => r.id === id);
+    expect(rule, id).toBeDefined();
+    expect(rule?.level, id).toBe(level);
+    expect(rule?.severityId, id).toBe(severityId);
+    expect(rule?.heuristicScore, id).toBe(score);
+    expect(rule?.cgMitre.tactics, id).toEqual(tactics);
+    expect(rule?.cgMitre.techniques, id).toEqual(techniques);
+  }
+});

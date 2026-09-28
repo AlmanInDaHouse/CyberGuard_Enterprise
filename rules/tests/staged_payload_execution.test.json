@@ -1,0 +1,70 @@
+{
+  "rule": "rule.staged_payload_execution",
+  "description": "A document or script parent launching an executable from the user Temp or Downloads folder matches, in both path forms; any executable in Outlook's attachment cache matches without a parent. A staging folder under a benign parent, a document parent launching an installed program, and a staging folder with an unknown parent do not.",
+  "cases": [
+    {
+      "name": "WINWORD.EXE spawns an executable from AppData\\Local\\Temp -> match",
+      "event": {
+        "Image": "C:\\Users\\alice\\AppData\\Local\\Temp\\invoice_viewer.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: WINWORD.EXE spawns an executable from AppData\\Local\\Temp -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\Users\\alice\\AppData\\Local\\Temp\\invoice_viewer.exe",
+        "ParentImage": "\\Device\\HarddiskVolume3\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "wscript.exe spawns an executable from Downloads -> match",
+      "event": {
+        "Image": "C:\\Users\\alice\\Downloads\\payload.exe",
+        "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "an executable in Outlook's attachment cache, parent unknown -> match (no parent needed)",
+      "event": {
+        "Image": "C:\\Users\\alice\\AppData\\Local\\Microsoft\\Windows\\INetCache\\Content.Outlook\\AB12CD34\\invoice.exe",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: explorer.exe spawns an executable from Downloads -> no match",
+      "event": {
+        "Image": "C:\\Users\\alice\\Downloads\\setup.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: WINWORD.EXE spawns an installed program -> no match",
+      "event": {
+        "Image": "C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: WINWORD.EXE spawns an executable from C:\\Windows\\Temp (not a user staging folder) -> no match",
+      "event": {
+        "Image": "C:\\Windows\\Temp\\update.exe",
+        "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "parent unresolved (ParentImage null), staging folder -> no match",
+      "event": {
+        "Image": "C:\\Users\\alice\\AppData\\Local\\Temp\\invoice_viewer.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    }
+  ]
+}

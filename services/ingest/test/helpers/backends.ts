@@ -71,7 +71,7 @@ export async function startBackends(): Promise<Backends> {
       // ADR-0012 Amendment 2026-06-07 — driver tunables. Added to the manual
       // Config literal because backends builds Config by hand (not via loadConfig,
       // which would supply the Zod defaults). rulesDir = the real repo rules dir
-      // so the driver's buildDetectConfig loads the office rule, like detectConfig().
+      // so the driver's buildDetectConfig loads the repo's rule set, like detectConfig().
       INGEST_DETECT_INTERVAL_MS: 10_000,
       INGEST_DETECT_RULES_DIR: RULES_WINDOWS_DIR,
     };

@@ -1,0 +1,62 @@
+{
+  "rule": "rule.exec_from_suspicious_folder",
+  "description": "An executable in the public profile, PerfLogs, the recycle bin or a Windows data folder matches, in both path forms; the user Temp folder, ProgramData, and System32 next to the Tasks folder do not.",
+  "cases": [
+    {
+      "name": "an executable in Users\\Public -> match",
+      "event": {
+        "Image": "C:\\Users\\Public\\Libraries\\update.exe",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "device form: an executable in PerfLogs -> match",
+      "event": {
+        "Image": "\\Device\\HarddiskVolume3\\PerfLogs\\svc.exe",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "an executable in the recycle bin -> match",
+      "event": {
+        "Image": "C:\\$Recycle.Bin\\S-1-5-21-1004336348-1177238915-682003330-1001\\x.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": true
+    },
+    {
+      "name": "an executable in System32\\Tasks -> match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\Tasks\\updater.exe",
+        "ParentImage": null
+      },
+      "expected_match": true
+    },
+    {
+      "name": "near miss: an executable in the user Temp folder (left out on purpose) -> no match",
+      "event": {
+        "Image": "C:\\Users\\alice\\AppData\\Local\\Temp\\setup.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: an executable in ProgramData (left out on purpose) -> no match",
+      "event": {
+        "Image": "C:\\ProgramData\\Vendor\\agent.exe",
+        "ParentImage": null
+      },
+      "expected_match": false
+    },
+    {
+      "name": "near miss: taskmgr.exe in System32, not in System32\\Tasks -> no match",
+      "event": {
+        "Image": "C:\\Windows\\System32\\taskmgr.exe",
+        "ParentImage": "C:\\Windows\\explorer.exe"
+      },
+      "expected_match": false
+    }
+  ]
+}

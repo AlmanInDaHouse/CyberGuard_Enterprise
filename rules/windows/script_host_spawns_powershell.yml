@@ -1,0 +1,46 @@
+title: Script Host Spawns PowerShell
+id: rule.script_host_spawns_powershell
+status: test
+description: >
+  Windows Script Host (wscript, cscript) or mshta launched PowerShell, the
+  usual second stage of a script or HTA dropper. Keys on process image lineage;
+  the script host is usually short-lived, and the parent is resolved per child
+  (SPEC-016 §Operational §1).
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1059/005/
+  - https://attack.mitre.org/techniques/T1218/005/
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    ParentImage|endswith:
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\mshta.exe'
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  condition: selection
+level: high
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.t1059.005
+  - attack.defense-evasion
+  - attack.t1218.005
+# CyberGuard extension (SPEC-016 §Data contracts §2): severity_id 4 = OCSF High
+# for level high; final_score equals heuristic_score for a rule-only alert.
+cg:
+  heuristic_score: 0.75
+  severity_id: 4
+  cg_detection_source: rule
+  cg_mitre:
+    tactics:
+      - execution
+      - defense-evasion
+    techniques:
+      - T1059.001
+      - T1059.005
+      - T1218.005
