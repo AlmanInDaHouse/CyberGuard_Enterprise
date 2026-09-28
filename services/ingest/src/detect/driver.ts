@@ -3,11 +3,7 @@ import type { Config } from "../config.js";
 import type { Services } from "../services.js";
 import { loadRules } from "./engine.js";
 import { BATCH_LIMIT, runDetectionCycle } from "./index.js";
-import {
-  CORRELATION_WINDOW_SECONDS_DEFAULT,
-  type DetectConfig,
-  type DetectCycleResult,
-} from "./types.js";
+import type { DetectConfig, DetectCycleResult } from "./types.js";
 
 // ADR-0012 Amendment 2026-06-07 — production detection driver (in-process TS
 // scheduler). Adds a PRODUCTION caller for runDetectionCycle without touching
@@ -24,14 +20,13 @@ export type DriverLog = (event: string, fields?: Record<string, unknown>) => voi
 /**
  * Production analog of test/helpers/detect.ts:12 — build one org's DetectConfig
  * from the validated Config. rulesDir comes from INGEST_DETECT_RULES_DIR
- * (config.ts); the correlation window keeps the ADR-0012 §8 default.
+ * (config.ts).
  */
 export function buildDetectConfig(config: Config, orgId: string): DetectConfig {
   return {
     ingest: config,
     orgId,
     rulesDir: config.INGEST_DETECT_RULES_DIR,
-    correlationWindowSeconds: CORRELATION_WINDOW_SECONDS_DEFAULT,
   };
 }
 

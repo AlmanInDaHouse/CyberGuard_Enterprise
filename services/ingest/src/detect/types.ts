@@ -2,10 +2,13 @@ import type { Config } from "../config.js";
 import type { ConditionAst } from "./condition.js";
 
 /**
- * ADR-0012 §8 default correlation window (seconds). One tunable shared by the
- * dedup bucket AND the parent-pid self-join look-back (SPEC-006 §Operational §2).
+ * SPEC-016 §Operational §1 parent-resolution look-back (seconds): a child's parent
+ * is the most recent Launch of its parent pid on the same agent at most this long
+ * before the child. Its own constant — decoupled from the 300 s dedup bucket
+ * (ADR-0012 §8, alerts.ts) and from the 1800 s incident window below; not
+ * per-org configurable (roadmap §F).
  */
-export const CORRELATION_WINDOW_SECONDS_DEFAULT = 300;
+export const PARENT_LOOKBACK_SECONDS = 86_400;
 
 /**
  * SPEC-007 / ADR-0013 §2 incident correlation window (seconds). Incident grouping's
@@ -21,13 +24,6 @@ export interface DetectConfig {
   ingest: Config;
   orgId: string;
   rulesDir: string;
-  /**
-   * ADR-0012 §8 correlation window (seconds), per-org configurable. Bounds the
-   * parent-pid self-join look-back (SPEC-006 §Operational §2): a parent launched
-   * more than this many seconds before the child — or never captured — resolves
-   * to parent_image = null (the documented production false-negative).
-   */
-  correlationWindowSeconds: number;
 }
 
 /** A comparison modifier for a field matcher (SPEC-015 §Scope). */
@@ -79,7 +75,10 @@ export interface NormalizedProcessEvent {
   processName: string;
   imageFileName: string;
   parentPid: number | null;
-  /** Resolved via the parent-pid self-join; null when the parent Launch was not captured. */
+  /**
+   * Resolved per child (SPEC-016 §Operational §1); null when no Launch of the
+   * parent pid lies within the look-back, or that process terminated before the child.
+   */
   parentImage: string | null;
   time: string;
 }
