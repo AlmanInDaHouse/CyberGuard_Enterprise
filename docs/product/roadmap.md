@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-30.md](../handoff-session-30.md)).
+([handoff-session-31.md](../handoff-session-31.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -105,6 +105,10 @@ This dependency-ordered document supersedes both for planning.
 
 ### C — Criterion 1: the 10 rules
 
+- **Status: DONE** — landed as `6f2ad9a` (loader contract) + `33ba7f3`
+  (parent per child) + `c64172d` (marquee) + `72a40db` (rules) + `d68655a`
+  (scenarios) + `ed391aa` (stale text) (S31, 2026-09-28); elevated marquee
+  green on the reviewed tip (41 files / 152 tests).
 - Contract: SPEC-016 (Accepted), amends SPEC-015 and SPEC-006 by scope.
 - Blocked by: B1 (not B2).
 - With B1 done (SPEC-015), the engine accepts exact / `endswith` /
@@ -117,10 +121,10 @@ This dependency-ordered document supersedes both for planning.
 - Only rules that inspect the COMMAND LINE stay out until B2 lands;
   everything expressible over process image / path / lineage is in scope
   here.
-- Quality bar: ten rules, each with a WIRED test. Today `rules/tests/`
-  holds a JSON fixture that no `.ts` loads (and whose format has drifted
-  from `rules/tests/README.md`); the office rule's real coverage is in
-  `services/ingest/test/eval-ac-005-regression.test.ts`. That is fixed here.
+- Quality bar: ten rules, each with a WIRED test. At `8a0ed9f`
+  `rules/tests/` held a JSON fixture that no `.ts` loaded (and whose format
+  had drifted from `rules/tests/README.md`); fixed here: `rules_ac_002`
+  evaluates every fixture and `rules_ac_003` every scenario.
 - Loader: `loadRules` (`services/ingest/src/detect/engine.ts`), hardened
   here (SPEC-016 §Data contracts §1).
 - On a real agent the rules see events only once G lands: today capture
@@ -140,7 +144,8 @@ This dependency-ordered document supersedes both for planning.
   (`agent/cg-agent/src/lib.rs`). The test-mode loop drops a drained batch
   on a transient send failure, sends nothing while no events are
   drained, and skips the going-offline handshake. No translation exists:
-  the agent copies `ImageName` unchanged. Origin: the S15 fix moved mTLS
+  the agent copies `ImageName` unchanged — the S31 marquee recorded
+  `\Device\HarddiskVolume3\…` paths. Origin: the S15 fix moved mTLS
   into `run_test_mode` instead of ETW into `run_secure`
   (`docs/handoff-session-15.md:67`).
 - Unblocks: process capture, and so detection, on a real deployment
