@@ -1,0 +1,26 @@
+{
+  "id": "SC014",
+  "title": "Executable with a deceptive name",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.deceptive_executable_name",
+  "description": "Positive, single process: invoice.pdf.exe runs from Downloads; its parent was not captured. rule.deceptive_executable_name matches and exactly one alert is emitted with final_score 0.85; no other rule fires. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "invoice.pdf.exe",
+        "image_file_name": "C:\\Users\\alice\\Downloads\\invoice.pdf.exe",
+        "process_pid": 4400,
+        "process_parent_pid": 930
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.deceptive_executable_name",
+    "detection_source": "rule",
+    "final_score": 0.85
+  }
+}

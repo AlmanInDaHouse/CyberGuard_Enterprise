@@ -1,0 +1,26 @@
+{
+  "id": "SC015",
+  "title": "System binary name outside the system folders",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.system_binary_masquerading",
+  "description": "Positive, single process: svchost.exe runs from AppData\\Roaming; its parent was not captured. rule.system_binary_masquerading matches and exactly one alert is emitted with final_score 0.8; no other rule fires. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "svchost.exe",
+        "image_file_name": "C:\\Users\\alice\\AppData\\Roaming\\svchost.exe",
+        "process_pid": 4500,
+        "process_parent_pid": 940
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.system_binary_masquerading",
+    "detection_source": "rule",
+    "final_score": 0.8
+  }
+}

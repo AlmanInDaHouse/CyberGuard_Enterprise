@@ -1,0 +1,26 @@
+{
+  "id": "SC019",
+  "title": "Credential theft tool executed",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.credential_theft_tool",
+  "description": "Positive, single process: mimikatz.exe runs from the Desktop; its parent was not captured. rule.credential_theft_tool matches and exactly one alert is emitted with final_score 0.9; no other rule fires. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "mimikatz.exe",
+        "image_file_name": "C:\\Users\\alice\\Desktop\\mimikatz.exe",
+        "process_pid": 4900,
+        "process_parent_pid": 980
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.credential_theft_tool",
+    "detection_source": "rule",
+    "final_score": 0.9
+  }
+}

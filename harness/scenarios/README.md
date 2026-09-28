@@ -12,8 +12,17 @@ End-to-end scenarios driving the harness.
 |---|---|---|
 | [SC001](SC001-office-spawns-script-host/) | Office spawns a script host | rule |
 | [SC010](SC010-benign-script-host/) | Benign script host (false positive) | rule |
+| [SC011](SC011-office-spawns-lolbin/) | Office spawns a LOLBin | rule |
+| [SC012](SC012-script-host-spawns-powershell/) | Script host spawns PowerShell | rule |
+| [SC013](SC013-staged-payload-execution/) | Staged payload executed from a document | rule |
+| [SC014](SC014-deceptive-executable-name/) | Executable with a deceptive name | rule |
+| [SC015](SC015-system-binary-masquerading/) | System binary name outside the system folders | rule |
+| [SC016](SC016-exec-from-suspicious-folder/) | Execution from a suspicious folder | rule |
+| [SC017](SC017-exec-from-startup-folder/) | Executable launched from a Startup folder | rule |
+| [SC018](SC018-psexec-like-service/) | PsExec-like remote service executed | rule |
+| [SC019](SC019-credential-theft-tool/) | Credential theft tool executed | rule |
 
-Populated by the SPECs of the detectors each scenario validates. SC001 / SC010 land with SPEC-006 (Detection MVP).
+Populated by the SPECs of the detectors each scenario validates. SC001 / SC010 land with SPEC-006 (Detection MVP); SC011–SC019 land with SPEC-016 (rule set v1). SC002–SC009 stay reserved for the blueprint §14 scenarios. Every scenario runs in CI through `rules_ac_003` (`services/ingest/test/rules-ac-003-scenarios.test.ts`), against the whole of `rules/windows/` (SPEC-016 §Data contracts §4).
 
 ## Scenario format
 

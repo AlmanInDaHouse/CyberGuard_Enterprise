@@ -1,0 +1,26 @@
+{
+  "id": "SC016",
+  "title": "Execution from a suspicious folder",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.exec_from_suspicious_folder",
+  "description": "Positive, single process: an executable runs from C:\\Users\\Public; its parent was not captured. rule.exec_from_suspicious_folder matches and exactly one alert is emitted with final_score 0.6; no other rule fires. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "update.exe",
+        "image_file_name": "C:\\Users\\Public\\Libraries\\update.exe",
+        "process_pid": 4600,
+        "process_parent_pid": 950
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.exec_from_suspicious_folder",
+    "detection_source": "rule",
+    "final_score": 0.6
+  }
+}

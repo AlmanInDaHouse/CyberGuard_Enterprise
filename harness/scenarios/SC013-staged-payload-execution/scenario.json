@@ -1,0 +1,33 @@
+{
+  "id": "SC013",
+  "title": "Staged payload executed from a document",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.staged_payload_execution",
+  "description": "Positive, in the device path form: a WINWORD.EXE parent spawns an executable from the user's AppData\\Local\\Temp folder, both paths written behind \\Device\\HarddiskVolume3. rule.staged_payload_execution matches and exactly one alert is emitted with final_score 0.8; no other rule fires on either event. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "WINWORD.EXE",
+        "image_file_name": "\\Device\\HarddiskVolume3\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+        "process_pid": 4300,
+        "process_parent_pid": 920
+      },
+      {
+        "activity_id": 1,
+        "process_name": "invoice_viewer.exe",
+        "image_file_name": "\\Device\\HarddiskVolume3\\Users\\alice\\AppData\\Local\\Temp\\invoice_viewer.exe",
+        "process_pid": 4301,
+        "process_parent_pid": 4300
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.staged_payload_execution",
+    "detection_source": "rule",
+    "final_score": 0.8
+  }
+}

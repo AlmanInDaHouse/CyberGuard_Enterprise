@@ -1,0 +1,26 @@
+{
+  "id": "SC018",
+  "title": "PsExec-like remote service executed",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.psexec_like_service",
+  "description": "Positive, single process: the PsExec service binary runs from C:\\Windows; its parent was not captured. rule.psexec_like_service matches and exactly one alert is emitted with final_score 0.6; no other rule fires. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "PSEXESVC.exe",
+        "image_file_name": "C:\\Windows\\PSEXESVC.exe",
+        "process_pid": 4800,
+        "process_parent_pid": 970
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.psexec_like_service",
+    "detection_source": "rule",
+    "final_score": 0.6
+  }
+}

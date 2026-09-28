@@ -7,6 +7,9 @@ on:
       - "services/ingest/**"
       - "services/api/**"
       - "dashboard/**"
+      # SPEC-016 §Operational §4: the ingest suites load the rules and the scenarios.
+      - "rules/**"
+      - "harness/**"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "package.json"
@@ -16,6 +19,9 @@ on:
       - "services/ingest/**"
       - "services/api/**"
       - "dashboard/**"
+      # SPEC-016 §Operational §4: the ingest suites load the rules and the scenarios.
+      - "rules/**"
+      - "harness/**"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "package.json"

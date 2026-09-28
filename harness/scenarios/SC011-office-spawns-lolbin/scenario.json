@@ -1,0 +1,33 @@
+{
+  "id": "SC011",
+  "title": "Office spawns a LOLBin",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.office_spawns_lolbin",
+  "description": "Positive: an EXCEL.EXE parent spawns rundll32.exe. The parent is resolved per child, rule.office_spawns_lolbin matches, and exactly one alert is emitted with final_score 0.8; no other rule fires on either event. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "EXCEL.EXE",
+        "image_file_name": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE",
+        "process_pid": 4100,
+        "process_parent_pid": 900
+      },
+      {
+        "activity_id": 1,
+        "process_name": "rundll32.exe",
+        "image_file_name": "C:\\Windows\\System32\\rundll32.exe",
+        "process_pid": 4101,
+        "process_parent_pid": 4100
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.office_spawns_lolbin",
+    "detection_source": "rule",
+    "final_score": 0.8
+  }
+}

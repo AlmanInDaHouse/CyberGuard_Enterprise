@@ -1,0 +1,33 @@
+{
+  "id": "SC012",
+  "title": "Script host spawns PowerShell",
+  "track": "rule",
+  "expected_detection_source": "rule",
+  "rule_id": "rule.script_host_spawns_powershell",
+  "description": "Positive: a wscript.exe parent spawns powershell.exe. The parent is resolved per child, rule.script_host_spawns_powershell matches, and exactly one alert is emitted with final_score 0.75; no other rule fires on either event. Run in CI by rules_ac_003 against the whole rule set.",
+  "input": {
+    "cges_events": [
+      {
+        "activity_id": 1,
+        "process_name": "wscript.exe",
+        "image_file_name": "C:\\Windows\\System32\\wscript.exe",
+        "process_pid": 4200,
+        "process_parent_pid": 910
+      },
+      {
+        "activity_id": 1,
+        "process_name": "powershell.exe",
+        "image_file_name": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "process_pid": 4201,
+        "process_parent_pid": 4200
+      }
+    ]
+  },
+  "expected": {
+    "alert": true,
+    "alert_count": 1,
+    "rule_id": "rule.script_host_spawns_powershell",
+    "detection_source": "rule",
+    "final_score": 0.75
+  }
+}
