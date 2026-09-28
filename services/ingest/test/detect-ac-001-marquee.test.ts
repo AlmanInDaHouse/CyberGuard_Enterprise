@@ -26,8 +26,7 @@ import { prepareAgent } from "./helpers/marquee-agent.js";
 // image_file_name of the probe and its child — the first recorded sample of the
 // path form the agent emits (SPEC-016 §Context, fact 3).
 //
-// Harness-first RED: runDetectionCycle throws NotImplemented until the Phase-5
-// impl. IMPORTANT: a green run here does NOT imply production coverage of the
+// IMPORTANT: a green run here does NOT imply production coverage of the
 // already-running-Office case — the probe spawns the parent AFTER the agent
 // session opens so it is captured (SPEC-006 §Operational §2 production FN).
 

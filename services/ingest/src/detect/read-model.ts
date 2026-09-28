@@ -11,8 +11,8 @@ import {
 // at-least-once duplicates, ADR-0012 §2/§7), resolves each child's parent image
 // per child (SPEC-016 §Operational §1, amending SPEC-006 §Operational §2 by
 // scope), and manages the Postgres detect_watermark cursor. It does NOT evaluate
-// rules (5c), score (5d), or persist alerts (5e); runDetectionCycle (index.ts)
-// stays NotImplemented until 5e wires these together.
+// rules (engine.ts), score (scorer.ts), or persist alerts (alerts.ts);
+// runDetectionCycle (index.ts) wires those steps together.
 //
 // NOTE on aliasing: the projected timestamp is aliased `event_time`, NOT `time`.
 // Aliasing `toString(time) AS time` would shadow the DateTime64 `time` column in
