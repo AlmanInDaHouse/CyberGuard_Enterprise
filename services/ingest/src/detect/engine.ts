@@ -13,9 +13,11 @@ import type {
   SigmaRule,
 } from "./types.js";
 
-// SPEC-015 — the generalized Sigma-subset rule evaluator. Loads rules
-// (rules/windows/*.yml), validates each against the SPEC-015 §Scope subset, and
-// evaluates normalized events against them. The subset:
+// SPEC-015 / SPEC-016 — the generalized Sigma-subset rule evaluator and its
+// loader. Loads the `*.yml` / `*.yaml` rules directly under rules/windows/ (the
+// loader does not recurse), validates each against the SPEC-015 §Scope subset
+// and the SPEC-016 §Data contracts §1 loader contract, and evaluates normalized
+// events against them. The subset:
 //   - fields Image and ParentImage — the populated v0.1 process fields (SPEC-006
 //     §Data contracts; ADR-0012:61). CommandLine / User are rejected (empty in
 //     v0.1, deferred to B2).
@@ -26,11 +28,25 @@ import type {
 //     and / or / not / parentheses (parsed by ./condition.js).
 //   - logsource.category resolved against a dispatch table; only
 //     `process_creation` is implemented (roadmap §D adds the others).
-// Anything outside the subset is REJECTED at load (UnsupportedRuleError naming
-// the construct): a security evaluator that silently accepts a rule it cannot
-// evaluate is worse than one that does not detect. The one MVP rule
-// (rules/windows/office_spawns_script_host.yml) is SPEC-006's — valid unchanged
-// and evaluated identically.
+// The loader contract, on top of the subset:
+//   - `id` is `rule.<file name without extension>` (`^rule\.[a-z0-9_]+$`), and
+//     no two files carry the same id;
+//   - `logsource.product` is `windows`;
+//   - `level` is informational / low / medium / high / critical, and
+//     `cg.severity_id` is its OCSF value (1–5);
+//   - `cg` holds only heuristic_score, severity_id, cg_detection_source and
+//     cg_mitre (tactics, techniques); cg_detection_source is always `rule`
+//     (ADR-0012 §Compliance); tactics are ATT&CK Enterprise tactic names and
+//     techniques TNNNN[.NNN], none repeated;
+//   - no value contains `\\` (one escaped backslash in Sigma; values are
+//     matched literally here);
+//   - the condition is false when every block is false: a rule must need at
+//     least one block to match.
+// Anything outside is REJECTED at load (UnsupportedRuleError naming the
+// construct): a security evaluator that silently accepts a rule it cannot
+// evaluate is worse than one that does not detect. The SPEC-006 MVP rule
+// (rules/windows/office_spawns_script_host.yml) is valid under both and
+// evaluates identically.
 //
 // evaluateRule returns a RuleMatch (unchanged shape); it does NOT score (scorer)
 // or assemble/persist the alert (alerts).
@@ -45,16 +61,56 @@ type CategoryEvaluator = (rule: SigmaRule, event: NormalizedProcessEvent) => Rul
 /** The explicit modifiers (the no-modifier case is `exact`). */
 const SUPPORTED_MODIFIERS: ReadonlySet<string> = new Set(["endswith", "startswith", "contains"]);
 
+/** SPEC-016 §Data contracts §1 — a rule id. */
+const RULE_ID_RE = /^rule\.[a-z0-9_]+$/;
+
+/** Sigma `level` → OCSF severity_id (schemas/cges/v0.1/common/ocsf_severity.json). */
+const LEVEL_SEVERITY: ReadonlyMap<string, number> = new Map([
+  ["informational", 1],
+  ["low", 2],
+  ["medium", 3],
+  ["high", 4],
+  ["critical", 5],
+]);
+
+/** The fourteen MITRE ATT&CK Enterprise tactics, in the kebab-case names of common/cg_mitre.json. */
+const ATTACK_TACTICS: ReadonlySet<string> = new Set([
+  "reconnaissance",
+  "resource-development",
+  "initial-access",
+  "execution",
+  "persistence",
+  "privilege-escalation",
+  "defense-evasion",
+  "credential-access",
+  "discovery",
+  "lateral-movement",
+  "collection",
+  "command-and-control",
+  "exfiltration",
+  "impact",
+]);
+
+/** An ATT&CK technique id, TNNNN or TNNNN.NNN (common/cg_mitre.json). */
+const TECHNIQUE_RE = /^T[0-9]{4}(\.[0-9]{3})?$/;
+
 // The stable rule shell: scalar metadata, the logsource, the `cg:` block, and an
-// opaque `detection` object whose dynamic keys are hand-validated below.
-const cgSchema = z.object({
-  heuristic_score: z.number().min(0).max(1),
-  severity_id: z.number().int().min(0).max(6),
-  cg_mitre: z.object({
-    tactics: z.array(z.string().min(1)).nonempty(),
-    techniques: z.array(z.string().min(1)).nonempty(),
-  }),
-});
+// opaque `detection` object whose dynamic keys are hand-validated below. `cg` and
+// `cg_mitre` are strict: an unknown key is rejected, not dropped (SPEC-016).
+const cgSchema = z
+  .object({
+    heuristic_score: z.number().min(0).max(1),
+    severity_id: z.number().int().min(0).max(6),
+    // Checked by hand in checkRuleMetadata, so a missing or wrong value is named.
+    cg_detection_source: z.unknown(),
+    cg_mitre: z
+      .object({
+        tactics: z.array(z.string().min(1)).nonempty(),
+        techniques: z.array(z.string().min(1)).nonempty(),
+      })
+      .strict(),
+  })
+  .strict();
 
 const ruleShellSchema = z
   .object({
@@ -68,8 +124,75 @@ const ruleShellSchema = z
   // Top-level metadata (status, description, references, tags, …) is ignored.
   .passthrough();
 
+type RuleShell = z.infer<typeof ruleShellSchema>;
+
 function zodDetail(error: z.ZodError): string {
   return error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+}
+
+/** A metadata value for an error message: `missing`, or its JSON form. */
+function describe(value: unknown): string {
+  return value === undefined ? "missing" : JSON.stringify(value);
+}
+
+/** Reject the first repeated entry of a cg_mitre list. */
+function assertNoRepeats(list: readonly string[], where: string): void {
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (seen.has(item)) {
+      throw new UnsupportedRuleError(`${where} "${item}" is repeated`);
+    }
+    seen.add(item);
+  }
+}
+
+/**
+ * The metadata half of the SPEC-016 §Data contracts §1 loader contract: id shape,
+ * product, level ↔ severity_id, cg_detection_source, and the ATT&CK vocabulary.
+ */
+function checkRuleMetadata(r: RuleShell): void {
+  if (!RULE_ID_RE.test(r.id)) {
+    throw new UnsupportedRuleError(`id "${r.id}" does not match ^rule\\.[a-z0-9_]+$`);
+  }
+  const product: unknown = r.logsource.product;
+  if (product !== "windows") {
+    throw new UnsupportedRuleError(
+      `logsource.product ${describe(product)} is not supported (only "windows")`,
+    );
+  }
+  const severity = LEVEL_SEVERITY.get(r.level);
+  if (severity === undefined) {
+    throw new UnsupportedRuleError(
+      `level "${r.level}" is not one of ${[...LEVEL_SEVERITY.keys()].join(", ")}`,
+    );
+  }
+  if (r.cg.severity_id !== severity) {
+    throw new UnsupportedRuleError(
+      `cg.severity_id ${r.cg.severity_id} does not match level "${r.level}" (OCSF severity_id ${severity})`,
+    );
+  }
+  const source = r.cg.cg_detection_source;
+  if (source !== "rule") {
+    throw new UnsupportedRuleError(
+      `cg.cg_detection_source ${describe(source)} is not supported (only "rule": ml and hybrid need a model pairing that no rule can carry)`,
+    );
+  }
+  for (const tactic of r.cg.cg_mitre.tactics) {
+    if (!ATTACK_TACTICS.has(tactic)) {
+      throw new UnsupportedRuleError(
+        `cg.cg_mitre.tactics "${tactic}" is not a MITRE ATT&CK Enterprise tactic name`,
+      );
+    }
+  }
+  assertNoRepeats(r.cg.cg_mitre.tactics, "cg.cg_mitre.tactics");
+  for (const technique of r.cg.cg_mitre.techniques) {
+    if (!TECHNIQUE_RE.test(technique)) {
+      throw new UnsupportedRuleError(
+        `cg.cg_mitre.techniques "${technique}" does not match ^T[0-9]{4}(\\.[0-9]{3})?$`,
+      );
+    }
+  }
+  assertNoRepeats(r.cg.cg_mitre.techniques, "cg.cg_mitre.techniques");
 }
 
 /** Validate a field's values: a string or a non-empty list of non-empty, wildcard-free strings. */
@@ -89,6 +212,11 @@ function normalizeValues(field: string, block: string, raw: unknown): string[] {
     if (v.includes("*") || v.includes("?")) {
       throw new UnsupportedRuleError(
         `field "${field}" in block "${block}" value "${v}" contains a wildcard (* or ?)`,
+      );
+    }
+    if (v.includes("\\\\")) {
+      throw new UnsupportedRuleError(
+        `field "${field}" in block "${block}" value "${v}" contains "\\\\" (Sigma reads it as one escaped backslash; values are matched literally)`,
       );
     }
     values.push(v.toLowerCase());
@@ -232,6 +360,7 @@ export function parseRule(raw: unknown): SigmaRule {
     throw new UnsupportedRuleError(zodDetail(shell.error));
   }
   const r = shell.data;
+  checkRuleMetadata(r);
 
   const category = r.logsource.category;
   if (!Object.hasOwn(CATEGORY_DISPATCH, category)) {
@@ -272,6 +401,14 @@ export function parseRule(raw: unknown): SigmaRule {
       throw new UnsupportedRuleError(`block "${name}" is not referenced by the condition`);
     }
   }
+  // SPEC-016 §Data contracts §1: a rule must need at least one block to match —
+  // `not filter`, or `selection or not filter`, would fire on almost every process.
+  const noBlockMatches = new Map(blocks.map((b): [string, boolean] => [b.name, false]));
+  if (evaluateCondition(ast, noBlockMatches)) {
+    throw new UnsupportedRuleError(
+      `condition "${conditionRaw}" is true when no block matches (a rule must need at least one block to match)`,
+    );
+  }
 
   return {
     id: r.id,
@@ -286,11 +423,41 @@ export function parseRule(raw: unknown): SigmaRule {
   };
 }
 
-/** Load + validate every `*.yml` / `*.yaml` rule in `rulesDir`. */
+/**
+ * Load + validate every `*.yml` / `*.yaml` rule directly in `rulesDir` (no
+ * recursion), in file-name order. On top of parseRule, each `id` must be
+ * `rule.<file name without extension>` and unique across the directory
+ * (SPEC-016 §Data contracts §1). A rejection names the file and the construct.
+ */
 export function loadRules(rulesDir: string): SigmaRule[] {
-  return readdirSync(rulesDir)
+  const rules: SigmaRule[] = [];
+  const loaded = new Set<string>();
+  const files = readdirSync(rulesDir)
     .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
-    .map((f) => parseRule(parseYaml(readFileSync(join(rulesDir, f), "utf-8"))));
+    .sort();
+  for (const file of files) {
+    let rule: SigmaRule;
+    try {
+      rule = parseRule(parseYaml(readFileSync(join(rulesDir, file), "utf-8")));
+    } catch (err) {
+      if (err instanceof UnsupportedRuleError) {
+        throw new UnsupportedRuleError(`rule file "${file}": ${err.detail}`);
+      }
+      throw err;
+    }
+    const expectedId = `rule.${file.replace(/\.ya?ml$/, "")}`;
+    if (rule.id !== expectedId) {
+      throw new UnsupportedRuleError(
+        `rule file "${file}": id "${rule.id}" does not match its file name (expected "${expectedId}")`,
+      );
+    }
+    if (loaded.has(rule.id)) {
+      throw new UnsupportedRuleError(`rule file "${file}": id "${rule.id}" is already loaded`);
+    }
+    loaded.add(rule.id);
+    rules.push(rule);
+  }
+  return rules;
 }
 
 /**

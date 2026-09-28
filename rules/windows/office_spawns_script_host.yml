@@ -42,9 +42,11 @@ tags:
 # confidence — Office spawning a script host is low-FP). severity_id 4 = OCSF
 # High per common/ocsf_severity.json (Sigma level:high -> 4). tactics use names
 # per common/cg_mitre.json, not TA-codes. SPEC-006 §Data contracts + §Ratification.
+# cg_detection_source: rule, required by the loader (SPEC-016 §Data contracts §1).
 cg:
   heuristic_score: 0.9
   severity_id: 4
+  cg_detection_source: rule
   cg_mitre:
     tactics:
       - execution

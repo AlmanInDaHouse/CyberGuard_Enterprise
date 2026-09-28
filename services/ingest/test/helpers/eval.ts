@@ -37,6 +37,7 @@ export function rawRule(detection: unknown, over: Record<string, unknown> = {}):
     cg: {
       heuristic_score: 0.9,
       severity_id: 4,
+      cg_detection_source: "rule",
       cg_mitre: { tactics: ["execution"], techniques: ["T1059.001"] },
     },
     ...over,
