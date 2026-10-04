@@ -131,10 +131,13 @@ serde_jcs = "0.1"
 # DPAPI bindings for at-rest key encryption at CRYPTPROTECT_LOCAL_MACHINE
 # scope (SPEC-002 §Security considerations). Windows-only; the
 # non-Windows SecureStore impl is test-only and uses no native deps.
+# Win32_Storage_FileSystem: QueryDosDeviceW for the device-path → Win32
+# translation (SPEC-017 §Operational §5).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_Etw",
 ] }
 # ETW runtime dep (Windows-only). Promoted from dev-dependency to runtime
