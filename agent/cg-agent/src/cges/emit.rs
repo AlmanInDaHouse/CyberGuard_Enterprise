@@ -6,8 +6,9 @@
 //! emission entry points:
 //! - `render_process_activity(&CapturedEvent, agent_id, &DevicePathMap)`
 //!   — what the agent sends: the dispatch-resolved `created_time_nanos`
-//!   and `image_file_name` translated to Win32 form (SPEC-017
-//!   §Operational §5).
+//!   and `image_file_name` translated to Win32 form when it is a device
+//!   path the map resolves (SPEC-017 §Operational §5); a Terminate's base
+//!   name passes through unchanged.
 //! - `emit_process_activity(&CapturedEvent, agent_id)` — the same with
 //!   no drive map (device paths stay verbatim; UNC still applies).
 //! - `emit_process_activity_with_cache(&CapturedEvent, Option<u64>,
