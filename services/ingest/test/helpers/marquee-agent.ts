@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -21,6 +21,25 @@ export function agentBinaryPath(): string {
   );
 }
 
+/**
+ * True on Windows when this process is elevated. On Windows the agent's
+ * secure path opens the ETW session and an unelevated agent exits with
+ * code 9 before its first heartbeat (SPEC-017 §Operational §1), so a
+ * suite that needs the agent's heartbeats runs there only elevated.
+ * `net session` succeeds only for an elevated process.
+ */
+export function isElevatedWindows(): boolean {
+  if (process.platform !== "win32") {
+    return false;
+  }
+  try {
+    execFileSync("net", ["session"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface AgentRunResult {
   exitCode: number | null;
   stdout: string;
@@ -38,21 +57,14 @@ export interface MarqueeAgent {
  * Prepare a real cg-agent: write its `agent.toml` with `server.url` (plain
  * enroll), `server.heartbeat_url` (mTLS), the server CA as `trust_anchor_path`,
  * and an `[enrollment]` block carrying the issued token. One `main()` run does
- * enroll-then-heartbeat (SPEC-003 Amendment 2026-05-22).
+ * enroll-then-heartbeat (SPEC-003 Amendment 2026-05-22) on the secure path,
+ * which on Windows also captures processes (SPEC-017).
  */
 export function prepareAgent(args: {
   enrollUrl: string;
   heartbeatUrl: string;
   caCertPem: string;
   token: string;
-  /**
-   * SPEC-005 marquee opt-in. When true, the spawned cg-agent subprocess
-   * receives `CG_AGENT_TEST_MODE=1` in its env so main.rs dispatches to
-   * `run_test_mode` (ETW capture + events[] in signed envelope) instead
-   * of `run_secure` (heartbeat-only). Omit/false for SPEC-001/002/003
-   * marquees that don't exercise the ETW path.
-   */
-  etwEnabled?: boolean;
 }): MarqueeAgent {
   const dir = mkdtempSync(join(tmpdir(), "cg-agent-marquee-"));
   const caPath = join(dir, "server-ca.pem");
@@ -100,12 +112,8 @@ export function prepareAgent(args: {
     agentTomlPath: tomlPath,
     run(runMs = 4000): Promise<AgentRunResult> {
       return new Promise<AgentRunResult>((resolveRun, rejectRun) => {
-        const childEnv = args.etwEnabled
-          ? { ...process.env, CG_AGENT_TEST_MODE: "1" }
-          : process.env;
         const child = spawn(agentBinaryPath(), ["--config", tomlPath], {
           stdio: ["ignore", "pipe", "pipe"],
-          env: childEnv,
         });
         let stdout = "";
         let stderr = "";

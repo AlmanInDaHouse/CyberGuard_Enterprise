@@ -7,11 +7,14 @@
 //!   - `transport`— HTTP client with retry + exponential backoff.
 //!   - `shutdown` — Signal-driven graceful shutdown helper.
 //!   - `errors`   — Domain error enums.
+//!   - `delivery` — The secure path's at-least-once delivery loop
+//!     (SPEC-017).
 
 pub mod canonical;
 pub mod cges;
 pub mod config;
 pub mod crypto;
+pub mod delivery;
 pub mod enrollment;
 pub mod envelope;
 pub mod errors;
@@ -168,16 +171,34 @@ where
     }
 }
 
-/// Run the SPEC-003 secure heartbeat loop: TLS 1.3 mutual authentication
-/// presenting the SPEC-002 `identity`, with each heartbeat wrapped in a
-/// signed outer envelope (nonce + timestamp + Ed25519 signature). Mirrors
-/// [`run`]'s scheduling and graceful-shutdown semantics over a TLS-only
-/// transport. A fatal TLS or signature failure returns an [`AgentError`]
-/// whose `exit_code()` is 6/7/8 per SPEC-003 §Failure modes; a server
-/// rejection of a signed envelope is non-fatal (logged, next interval).
+/// Where the secure path's events come from (SPEC-017 §Operational §1).
+pub enum Capture {
+    /// The platform capture backend. On Windows, the ETW Kernel-Process
+    /// session, opened after the identity is loaded; a failed start ends
+    /// the agent (exit code 9 for privilege, 1 otherwise). Elsewhere
+    /// there is no backend: heartbeats only, and one `info` line.
+    Platform,
+    /// Events fed into this ring by the caller (the harness); no ETW.
+    Ring(Arc<crate::etw::EventRing>),
+    /// No events: heartbeats only.
+    Off,
+}
+
+/// Run the secure path: TLS 1.3 mutual authentication presenting the
+/// SPEC-002 `identity`, each POST wrapped in a signed outer envelope
+/// (SPEC-003), and the events of `capture` delivered at least once by
+/// the loop of SPEC-017 §Operational §2–§4 (`delivery.rs`). Every POST is
+/// a heartbeat; ticks follow SPEC-001 FR-011.
+///
+/// On `shutdown_signal` it stops the capture (the ETW session and its
+/// thread), then makes one attempt at a final `going_offline` POST
+/// carrying the remaining events. A failed capture start, or a fatal
+/// TLS or signing failure, returns an [`AgentError`] whose `exit_code()`
+/// is 9 or 1 (SPEC-017), or 6/7/8 (SPEC-003 §Failure modes).
 pub async fn run_secure<F>(
     config: AgentConfig,
     identity: crate::identity::Identity,
+    capture: Capture,
     shutdown_signal: F,
 ) -> Result<(), AgentError>
 where
@@ -186,8 +207,14 @@ where
     use crate::errors::TlsError;
 
     let start_time = Instant::now();
-    let interval = Duration::from_secs(config.heartbeat.interval_seconds);
-    let timeout = Duration::from_secs(config.heartbeat.request_timeout_seconds);
+
+    // The capture source: the identity is already loaded, so the ETW
+    // session opens before anything is sent (SPEC-017 §Operational §1).
+    let (ring, mut session, paths) = match capture {
+        Capture::Platform => open_platform_capture()?,
+        Capture::Ring(ring) => (Some(ring), None, crate::paths::DevicePathMap::empty()),
+        Capture::Off => (None, None, crate::paths::DevicePathMap::empty()),
+    };
 
     // Build the TLS client config from the trust anchor + SPEC-002 identity.
     let trust_anchor_path = config.server.trust_anchor_path.as_ref().ok_or_else(|| {
@@ -199,207 +226,6 @@ where
     let client_config = crate::tls::build_client_config(&trust_anchor_pem, &identity)?;
     // SPEC-003 Amendment 2026-05-22: heartbeat connects to heartbeat_url
     // when set (enroll/heartbeat on different ports), else server.url.
-    let sender =
-        crate::tls::SecureSender::new(client_config, config.server.heartbeat_target(), timeout)?;
-
-    let agent_block = AgentBlock {
-        agent_id: identity.agent_id.clone(),
-        agent_version: env!("CARGO_PKG_VERSION").to_string(),
-        agent_platform: detect_platform().to_string(),
-        agent_hostname: config.agent.hostname.clone(),
-    };
-    let agent_id = identity.agent_id.clone();
-    let keypair = &identity.keypair;
-    const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
-
-    let mut shutdown_signal = pin!(shutdown_signal);
-    let mut sequence: u64 = 0;
-
-    loop {
-        sequence += 1;
-        let target = start_time + interval.saturating_mul((sequence - 1) as u32);
-        let until = target.saturating_duration_since(Instant::now());
-
-        tokio::select! {
-            _ = tokio::time::sleep(until) => {
-                send_secure_with_retry(
-                    &sender, HEARTBEAT_PATH, &agent_block, sequence, start_time,
-                    &agent_id, keypair, &config.heartbeat, HeartbeatStatus::Online,
-                ).await?;
-            }
-            _ = &mut shutdown_signal => {
-                tracing::info!(signal = "shutdown", "shutdown signal received");
-                send_secure_once(
-                    &sender, HEARTBEAT_PATH, &agent_block, sequence, start_time,
-                    &agent_id, keypair, HeartbeatStatus::GoingOffline,
-                ).await;
-                tracing::info!(uptime_seconds = start_time.elapsed().as_secs(), "agent stopping");
-                return Ok(());
-            }
-        }
-    }
-}
-
-/// Seal and send one heartbeat over TLS with the SPEC-001 retry policy.
-/// Returns `Ok(())` on delivery, on a non-fatal server rejection, and on
-/// transient-failure exhaustion (all "warn, next interval"). Returns
-/// `Err` only on a fatal TLS (exit 6/7) or signing (exit 8) failure.
-#[allow(clippy::too_many_arguments)]
-async fn send_secure_with_retry(
-    sender: &crate::tls::SecureSender,
-    path: &str,
-    agent_block: &AgentBlock,
-    sequence: u64,
-    start_time: Instant,
-    agent_id: &str,
-    keypair: &crate::crypto::AgentKeypair,
-    heartbeat: &crate::config::HeartbeatConfig,
-    status: HeartbeatStatus,
-) -> Result<(), AgentError> {
-    use crate::errors::{SigningError, TlsError};
-    use crate::tls::SendResult;
-
-    let mut attempt: u32 = 0;
-    let mut backoff_ms = heartbeat.backoff_initial_ms;
-
-    loop {
-        attempt += 1;
-        let inner = build_envelope(agent_block, sequence, start_time, Utc::now(), status);
-        let sent_at = inner.sent_at.clone();
-        let outer = crate::signing::seal_envelope(inner, agent_id, keypair, &sent_at)?;
-        let bytes = serde_json::to_vec(&outer)
-            .map_err(|e| SigningError::Canonical(format!("serialize outer envelope: {e}")))?;
-
-        match sender.send(path, &bytes).await {
-            SendResult::Status(s) if (200..300).contains(&s) => {
-                tracing::info!(
-                    sequence_number = sequence,
-                    status = ?status,
-                    sent_at = %sent_at,
-                    response_status = s,
-                    "signed heartbeat sent"
-                );
-                return Ok(());
-            }
-            SendResult::Status(s) => {
-                tracing::warn!(
-                    sequence_number = sequence,
-                    response_status = s,
-                    "signed envelope rejected by server"
-                );
-                return Ok(());
-            }
-            SendResult::ServerCertFatal(m) => {
-                return Err(TlsError::ServerCertUntrusted(m).into());
-            }
-            SendResult::ClientCertFatal(m) => {
-                return Err(TlsError::ClientCertRejected(m).into());
-            }
-            SendResult::Transient(m) => {
-                if attempt >= heartbeat.max_retries {
-                    tracing::warn!(
-                        sequence_number = sequence,
-                        attempts = attempt,
-                        error = %m,
-                        "secure heartbeat failed after retries"
-                    );
-                    return Ok(());
-                }
-                tracing::warn!(
-                    sequence_number = sequence,
-                    attempt,
-                    backoff_ms,
-                    error = %m,
-                    "secure heartbeat retry"
-                );
-                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-                backoff_ms = ((backoff_ms as f64) * heartbeat.backoff_factor) as u64;
-                backoff_ms = backoff_ms.min(heartbeat.backoff_max_ms);
-            }
-        }
-    }
-}
-
-/// Best-effort single send for the graceful-shutdown final heartbeat.
-#[allow(clippy::too_many_arguments)]
-async fn send_secure_once(
-    sender: &crate::tls::SecureSender,
-    path: &str,
-    agent_block: &AgentBlock,
-    sequence: u64,
-    start_time: Instant,
-    agent_id: &str,
-    keypair: &crate::crypto::AgentKeypair,
-    status: HeartbeatStatus,
-) {
-    let inner = build_envelope(agent_block, sequence, start_time, Utc::now(), status);
-    let sent_at = inner.sent_at.clone();
-    if let Ok(outer) = crate::signing::seal_envelope(inner, agent_id, keypair, &sent_at) {
-        if let Ok(bytes) = serde_json::to_vec(&outer) {
-            let _ = sender.send(path, &bytes).await;
-        }
-    }
-}
-
-/// SPEC-005 test-mode entry point — invokes the ETW capture + CGES
-/// emission path against the real ingest server.
-///
-/// Phase 3.5.I-FIX refactor: uses mTLS + signed envelope path (same
-/// shape as `run_secure`) so it can POST to the SPEC-004 two-port
-/// topology's mTLS heartbeat listener. Differs from `run_secure` in:
-/// 1. Opens an ETW Kernel-Process session on startup; a failed start
-///    returns `AgentError::Etw` (exit 9 for a privilege failure, 1 for
-///    any other, per `EtwError::exit_code`).
-/// 2. The heartbeat loop drains the EventRing each tick and populates
-///    the envelope's `events[]` field with CgesProcessActivity rows
-///    before signing.
-/// 3. On shutdown_signal resolution, stops the ETW session and returns
-///    `Ok(())` (no graceful "going_offline" handshake).
-///
-/// Invoked by `tests/common/start_test_agent` (Rust integration tests
-/// AC-004 cache-hit + AC-007 on Windows) and by `main.rs` when the
-/// `CG_AGENT_TEST_MODE=1` env var is set (the developer-local SPEC-005
-/// marquee path on Windows + Docker Desktop).
-///
-/// Identity is REQUIRED (no longer `_identity`): the mTLS client cert
-/// and Ed25519 signing key both flow from it. Callers that pass a
-/// dummy identity (e.g., zeroed keypair, empty cert) will fail at
-/// TLS client-config build time.
-pub async fn run_test_mode<F>(
-    config: AgentConfig,
-    identity: crate::identity::Identity,
-    shutdown_signal: F,
-) -> Result<(), AgentError>
-where
-    F: Future<Output = ()> + Send + 'static,
-{
-    use crate::cges::render_process_activity;
-    use crate::errors::TlsError;
-    use crate::etw::{EtwSession, OverflowWarning};
-    use crate::paths::UnresolvedPathLog;
-    use crate::tls::SendResult;
-
-    const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
-
-    // Returns only once the session started or failed; a failure carries
-    // its Win32 code. The session stops when dropped (early returns).
-    let mut session = EtwSession::open(65536).map_err(|e| AgentError::Etw(e.into()))?;
-    let ring = Arc::clone(&session.ring);
-    let mut overflow = OverflowWarning::new();
-    let paths = device_path_map();
-    let mut unresolved = UnresolvedPathLog::new();
-
-    // SPEC-003 TLS setup, mirroring run_secure's pattern. The marquee
-    // uses the SPEC-004 two-port topology: server.url is the plain HTTP
-    // enroll port; server.heartbeat_url is the mTLS heartbeat port.
-    // heartbeat_target() returns heartbeat_url when set, else url.
-    let trust_anchor_path = config.server.trust_anchor_path.as_ref().ok_or_else(|| {
-        TlsError::ClientConfig("test mode requires server.trust_anchor_path".to_string())
-    })?;
-    let trust_anchor_pem = std::fs::read(trust_anchor_path).map_err(|e| {
-        TlsError::ClientConfig(format!("read trust anchor {trust_anchor_path}: {e}"))
-    })?;
-    let client_config = crate::tls::build_client_config(&trust_anchor_pem, &identity)?;
     let timeout = Duration::from_secs(config.heartbeat.request_timeout_seconds);
     let sender =
         crate::tls::SecureSender::new(client_config, config.server.heartbeat_target(), timeout)?;
@@ -411,104 +237,64 @@ where
         agent_hostname: config.agent.hostname.clone(),
     };
 
-    let start_time = Instant::now();
-    let mut tick = tokio::time::interval(Duration::from_secs(1));
-    let mut sequence: u64 = 0;
+    let mut delivery = crate::delivery::Delivery::new(
+        &sender,
+        agent_block,
+        &identity.agent_id,
+        &identity.keypair,
+        &config.heartbeat,
+        start_time,
+        ring,
+        paths,
+    );
     let mut shutdown_signal = pin!(shutdown_signal);
+    let in_flight = delivery.run_until(shutdown_signal.as_mut()).await?;
 
-    tracing::info!("test mode heartbeat loop entered");
+    tracing::info!(signal = "shutdown", "shutdown signal received");
+    // Stop the session and wait for its thread before the final POST, so
+    // the events it flushed on the way out ride in it.
+    if let Some(mut session) = session.take() {
+        let _ = tokio::task::spawn_blocking(move || session.stop()).await;
+    }
+    delivery.finish(in_flight).await;
+    tracing::info!(
+        uptime_seconds = start_time.elapsed().as_secs(),
+        "agent stopping"
+    );
+    Ok(())
+}
 
-    loop {
-        tokio::select! {
-            _ = tick.tick() => {
-                overflow.check(&ring, Instant::now());
-                let events = ring.drain_events();
-                if events.is_empty() {
-                    continue;
-                }
-                sequence += 1;
-                tracing::info!(
-                    target: "cg_agent::run_test_mode",
-                    event_count = events.len(),
-                    sequence_number = sequence,
-                    "events drained; building envelope",
-                );
+/// Open the platform capture: the ETW session on Windows, with the
+/// device-path map; on a build without a backend, nothing (one `info`).
+#[allow(clippy::type_complexity)]
+fn open_platform_capture() -> Result<
+    (
+        Option<Arc<crate::etw::EventRing>>,
+        Option<crate::etw::EtwSession>,
+        crate::paths::DevicePathMap,
+    ),
+    AgentError,
+> {
+    use crate::etw::{EtwSession, OpenError};
 
-                // The Terminate's created_time was resolved at dispatch;
-                // the image path is translated here, at render.
-                let cges_events: Vec<_> = events
-                    .iter()
-                    .map(|event| {
-                        let rendered = render_process_activity(event, &identity.agent_id, &paths);
-                        unresolved.note(&event.image_file_name, &rendered.process.image_file_name);
-                        rendered
-                    })
-                    .collect();
-
-                let mut inner = build_envelope(
-                    &agent_block,
-                    sequence,
-                    start_time,
-                    Utc::now(),
-                    HeartbeatStatus::Online,
-                );
-                inner.events = cges_events;
-
-                let sent_at = inner.sent_at.clone();
-                let outer = match crate::signing::seal_envelope(
-                    inner,
-                    &identity.agent_id,
-                    &identity.keypair,
-                    &sent_at,
-                ) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        tracing::error!(error = %e, "test mode seal failed");
-                        continue;
-                    }
-                };
-                let bytes = match serde_json::to_vec(&outer) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        tracing::error!(error = %e, "test mode serialize failed");
-                        continue;
-                    }
-                };
-                match sender.send(HEARTBEAT_PATH, &bytes).await {
-                    SendResult::Status(s) if (200..300).contains(&s) => {
-                        tracing::info!(
-                            sequence_number = sequence,
-                            events_count = events.len(),
-                            response_status = s,
-                            "test mode batch sent",
-                        );
-                    }
-                    SendResult::Status(s) => {
-                        tracing::warn!(
-                            sequence_number = sequence,
-                            response_status = s,
-                            "test mode batch rejected",
-                        );
-                    }
-                    SendResult::ServerCertFatal(m) => {
-                        return Err(TlsError::ServerCertUntrusted(m).into());
-                    }
-                    SendResult::ClientCertFatal(m) => {
-                        return Err(TlsError::ClientCertRejected(m).into());
-                    }
-                    SendResult::Transient(m) => {
-                        tracing::warn!(error = %m, "test mode batch transient");
-                    }
-                }
-            }
-            _ = &mut shutdown_signal => {
-                tracing::info!("test mode shutdown signal received");
-                session.stop();
-                return Ok(());
-            }
+    match EtwSession::open(RING_CAPACITY) {
+        Ok(session) => {
+            let ring = Arc::clone(&session.ring);
+            Ok((Some(ring), Some(session), device_path_map()))
         }
+        Err(OpenError::Unsupported) => {
+            tracing::info!(
+                platform = detect_platform(),
+                "process capture is not available on this platform; sending heartbeats only"
+            );
+            Ok((None, None, crate::paths::DevicePathMap::empty()))
+        }
+        Err(e) => Err(AgentError::Etw(e.into())),
     }
 }
+
+/// The ring capacity (SPEC-005 NFR-005-002).
+const RING_CAPACITY: usize = 65536;
 
 /// The device-prefix → drive map, built once at startup (SPEC-017
 /// §Operational §5). Empty off Windows, where there is no capture.
