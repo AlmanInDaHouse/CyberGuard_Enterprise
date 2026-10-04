@@ -1,10 +1,10 @@
 //! Windows-only ETW Kernel-Process session.
 //!
-//! Opens the Microsoft-Windows-Kernel-Process provider via ferrisetw,
+//! Opens the Microsoft-Windows-Kernel-Process provider via ferrisetw and
 //! dispatches Launch + Terminate events to the dispatch callback, which
-//! parses the EventRecord, constructs a CapturedEvent, populates the
-//! CreatedTimeCache (Launch) or leaves it (Terminate), and enqueues to
-//! the EventRing.
+//! parses the EventRecord and hands the fields to `dispatch_record`
+//! (timestamp, UUIDv7 event_id, cache insert or consult-and-purge,
+//! enqueue to the EventRing).
 //!
 //! Per ADR-0009 §Decision part 1: the dispatch path is constrained to
 //! parse-and-enqueue; no I/O, no synchronization beyond the ring's
@@ -31,11 +31,11 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use uuid::Uuid;
 
 use super::cache::CreatedTimeCache;
+use super::dispatch::{dispatch_record, RawProcessRecord};
 use super::ring::EventRing;
-use super::types::{win32_from_os_error, ActivityId, CapturedEvent, OpenError};
+use super::types::{win32_from_os_error, ActivityId, OpenError};
 use super::SESSION_NAME;
 
 const KERNEL_PROCESS_GUID: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
@@ -286,48 +286,21 @@ fn dispatch_callback(
 
     let parser = Parser::create(record, &schema);
 
-    let pid: u32 = parser.try_parse("ProcessID").unwrap_or(0);
-    let parent_pid: u32 = parser.try_parse("ParentProcessID").unwrap_or(0);
-    // Property name is "ImageName" per the Kernel-Process provider manifest (v0–v4).
-    let image_file_name: String = parser.try_parse("ImageName").unwrap_or_default();
-    let command_line: String = parser.try_parse("CommandLine").unwrap_or_default();
-    let subject_user_sid: String = parser.try_parse("UserSID").unwrap_or_default();
-    let exit_status: Option<i32> = match activity_id {
-        // Property name is "ExitCode" per the Kernel-Process provider manifest (v0–v2).
-        ActivityId::Terminate => parser.try_parse("ExitCode").ok(),
-        ActivityId::Launch => None,
-    };
-
-    let etw_timestamp_nanos = etw_filetime_to_unix_nanos(record.raw_timestamp());
-    let event_id = Uuid::new_v4().to_string();
-
-    let event = CapturedEvent {
-        pid,
-        event_id,
+    let raw = RawProcessRecord {
         activity_id,
-        image_file_name,
-        parent_pid,
-        command_line,
-        subject_user_sid,
-        etw_timestamp_nanos,
-        exit_status,
+        pid: parser.try_parse("ProcessID").unwrap_or(0),
+        parent_pid: parser.try_parse("ParentProcessID").unwrap_or(0),
+        // Property name is "ImageName" per the Kernel-Process provider manifest (v0–v4).
+        image_file_name: parser.try_parse("ImageName").unwrap_or_default(),
+        command_line: parser.try_parse("CommandLine").unwrap_or_default(),
+        subject_user_sid: parser.try_parse("UserSID").unwrap_or_default(),
+        filetime_100ns: record.raw_timestamp(),
+        exit_status: match activity_id {
+            // Property name is "ExitCode" per the Kernel-Process provider manifest (v0–v2).
+            ActivityId::Terminate => parser.try_parse("ExitCode").ok(),
+            ActivityId::Launch => None,
+        },
     };
 
-    if matches!(activity_id, ActivityId::Launch) {
-        cache.insert(pid, etw_timestamp_nanos);
-    }
-
-    ring.enqueue_or_drop(event);
-}
-
-/// Convert ETW FILETIME (100-nanosecond intervals since 1601-01-01 UTC)
-/// to Unix nanoseconds (since 1970-01-01 UTC).
-///
-/// FILETIME-to-Unix-nanos: 11_644_473_600 seconds between 1601 and 1970
-/// epochs × 10_000_000 (100-ns intervals per second) = 116444736000000000.
-/// Per SPEC-005 §Operational §1.
-fn etw_filetime_to_unix_nanos(filetime_100ns: i64) -> u64 {
-    const FILETIME_TO_UNIX_100NS: i64 = 116_444_736_000_000_000;
-    let unix_100ns = filetime_100ns.saturating_sub(FILETIME_TO_UNIX_100NS);
-    (unix_100ns.max(0) as u64).saturating_mul(100)
+    dispatch_record(raw, cache, ring);
 }

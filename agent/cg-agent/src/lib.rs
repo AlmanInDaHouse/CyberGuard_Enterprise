@@ -372,9 +372,9 @@ pub async fn run_test_mode<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    use crate::cges::emit_process_activity_with_cache;
+    use crate::cges::emit_process_activity;
     use crate::errors::TlsError;
-    use crate::etw::{ActivityId, EtwSession};
+    use crate::etw::{EtwSession, OverflowWarning};
     use crate::tls::SendResult;
 
     const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
@@ -383,7 +383,7 @@ where
     // its Win32 code. The session stops when dropped (early returns).
     let mut session = EtwSession::open(65536).map_err(|e| AgentError::Etw(e.into()))?;
     let ring = Arc::clone(&session.ring);
-    let cache = Arc::clone(&session.cache);
+    let mut overflow = OverflowWarning::new();
 
     // SPEC-003 TLS setup, mirroring run_secure's pattern. The marquee
     // uses the SPEC-004 two-port topology: server.url is the plain HTTP
@@ -417,6 +417,7 @@ where
     loop {
         tokio::select! {
             _ = tick.tick() => {
+                overflow.check(&ring, Instant::now());
                 let events = ring.drain_events();
                 if events.is_empty() {
                     continue;
@@ -429,15 +430,10 @@ where
                     "events drained; building envelope",
                 );
 
+                // The Terminate's created_time was resolved at dispatch.
                 let cges_events: Vec<_> = events
                     .iter()
-                    .map(|event| {
-                        let cached = match event.activity_id {
-                            ActivityId::Launch => Some(event.etw_timestamp_nanos),
-                            ActivityId::Terminate => cache.consult_and_purge(event.pid),
-                        };
-                        emit_process_activity_with_cache(event, cached, &identity.agent_id)
-                    })
+                    .map(|event| emit_process_activity(event, &identity.agent_id))
                     .collect();
 
                 let mut inner = build_envelope(

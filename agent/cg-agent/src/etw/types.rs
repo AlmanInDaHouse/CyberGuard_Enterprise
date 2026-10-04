@@ -2,17 +2,13 @@
 //! open-error variants.
 //!
 //! `CapturedEvent` is the post-capture pre-emission representation of a
-//! Kernel-Process Launch or Terminate event. It is produced by the ETW
-//! dispatch callback (β3 session.rs on Windows; session_stub.rs returns
-//! Err on non-Windows), traverses the bounded ring buffer (β1 ring.rs),
-//! and is rendered to CGES JSON via the emit functions (β2 cges/emit.rs).
-//! `EtwSession` is provided by session.rs/session_stub.rs (β3); the β2
-//! uninhabited-enum stub previously here is removed.
+//! Kernel-Process Launch or Terminate event. It is produced by the
+//! dispatch logic (`dispatch.rs`, fed by session.rs on Windows),
+//! traverses the bounded ring buffer (ring.rs), and is rendered to CGES
+//! JSON once, when its batch is formed (cges/emit.rs).
 //!
-//! Fields are minimal and match exactly what the Phase 3.4 RED tests
-//! prescribe (see SPEC-005 §AC AC-005/AC-006/AC-004/AC-008). The struct
-//! is `Clone` because the ring buffer's snapshot_events accessor (test
-//! API) needs to return owned copies.
+//! The struct is `Clone` because the ring buffer's snapshot_events
+//! accessor (test API) needs to return owned copies.
 
 use serde::{Deserialize, Serialize};
 
@@ -47,7 +43,7 @@ impl TryFrom<u64> for ActivityId {
 
 /// Post-capture in-memory event representation.
 ///
-/// Eight fields per the Phase 3.4 RED test contract:
+/// Fields:
 /// - `pid`: PID assigned by Windows at process creation.
 /// - `activity_id`: Launch or Terminate.
 /// - `image_file_name`: NT-style device path from ETW
@@ -57,19 +53,23 @@ impl TryFrom<u64> for ActivityId {
 ///   when the parent is unresolvable per ADR-0011 §5 + AC-007.
 /// - `command_line`: ETW `CommandLine` field (empty for Terminate).
 /// - `subject_user_sid`: SID string form (e.g., `S-1-5-18`).
-/// - `etw_timestamp_nanos`: monotonic timestamp from ETW
+/// - `etw_timestamp_nanos`: the event's ETW timestamp
 ///   (FILETIME-converted to UTC nanoseconds at capture per
 ///   SPEC-005 §Operational §1).
+/// - `created_time_nanos`: the process creation time, resolved at
+///   dispatch: the event's own timestamp for Launch; for Terminate, the
+///   cached Launch timestamp, or `None` on a cache miss (SPEC-005
+///   §Operational §2, SPEC-017 §Operational §6).
 /// - `exit_status`: ETW `ExitStatus` for Terminate events; `None` for
 ///   Launch (serde-skipped at emit time per AC-005).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedEvent {
     pub pid: u32,
-    /// Agent-generated UUID v4 unique per capture event. Retries reuse
-    /// the same event_id for dedup at the ClickHouse ReplacingMergeTree
-    /// merge stage per ADR-0009 §References. Per SPEC-005 §AC AC-001
-    /// the event_id is part of the persisted row and round-trips
-    /// agent → envelope → ingest → cges_events column.
+    /// Agent-generated UUIDv7, unique per captured event, generated at
+    /// capture (ADR-0009 §1). Retries reuse the same event_id for dedup
+    /// at the ClickHouse ReplacingMergeTree merge stage. Per SPEC-005
+    /// §AC AC-001 the event_id is part of the persisted row and
+    /// round-trips agent → envelope → ingest → cges_events column.
     pub event_id: String,
     pub activity_id: ActivityId,
     pub image_file_name: String,
@@ -77,6 +77,7 @@ pub struct CapturedEvent {
     pub command_line: String,
     pub subject_user_sid: String,
     pub etw_timestamp_nanos: u64,
+    pub created_time_nanos: Option<u64>,
     pub exit_status: Option<i32>,
 }
 

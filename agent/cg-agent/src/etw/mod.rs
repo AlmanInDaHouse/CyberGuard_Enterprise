@@ -3,7 +3,9 @@
 //! Submodule organization:
 //! - `types`: in-memory captured-event shape + activity discriminants +
 //!   the session-start error.
-//! - `ring`: bounded ring buffer with FIFO-drop + monotonic drop counter.
+//! - `dispatch`: the dispatch-callback logic, platform-independent.
+//! - `ring`: bounded ring buffer with FIFO-drop + monotonic drop counter,
+//!   and the throttled overflow warning.
 //! - `uid`: `process.uid` recipe formatter per ADR-0011 §6.
 //! - `cache`: `CreatedTimeCache` for Terminate retention.
 //! - `session` (Windows-only): ETW session + dispatch callback.
@@ -13,6 +15,7 @@
 //! Module-level public surface is the union of submodule re-exports below.
 
 mod cache;
+mod dispatch;
 mod events_lost_impl;
 mod ring;
 mod types;
@@ -33,9 +36,10 @@ pub use session_stub::EtwSession;
 pub const SESSION_NAME: &str = "CGAgent-KernelProcess";
 
 pub use cache::CreatedTimeCache;
+pub use dispatch::{dispatch_record, filetime_to_unix_nanos, RawProcessRecord};
 pub use events_lost_impl::events_lost;
 pub use events_lost_impl::reclaim_zombie;
 pub use events_lost_impl::stop_session;
-pub use ring::EventRing;
+pub use ring::{EventRing, OverflowWarning};
 pub use types::{win32_from_os_error, ActivityId, CapturedEvent, OpenError};
 pub use uid::format_process_uid;

@@ -69,6 +69,7 @@ fn ac_006_empty_process_name_logs_error_and_drops() {
         command_line: String::from("synthetic"),
         subject_user_sid: String::from("S-1-5-18"),
         etw_timestamp_nanos: 1716123612901000000,
+        created_time_nanos: Some(1716123612901000000),
         exit_status: None,
     };
 

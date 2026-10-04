@@ -25,6 +25,7 @@ fn synthetic_event(activity_id: ActivityId, exit_status: Option<i32>) -> Capture
         command_line: String::from("cmd.exe /c exit"),
         subject_user_sid: String::from("S-1-5-18"),
         etw_timestamp_nanos: 1716123612901000000,
+        created_time_nanos: Some(1716123612901000000),
         exit_status,
     }
 }
