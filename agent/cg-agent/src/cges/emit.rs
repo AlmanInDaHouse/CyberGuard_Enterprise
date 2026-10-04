@@ -2,14 +2,17 @@
 //!
 //! Renders the full SPEC-005 wire shape per the cges_events ClickHouse
 //! table DDL (Phase 3.5.E γ), once per event, when its batch is formed
-//! (SPEC-017 §Data contracts: a resent event is byte-identical). Two
+//! (SPEC-017 §Data contracts: a resent event is byte-identical). Three
 //! emission entry points:
-//! - `emit_process_activity(&CapturedEvent, agent_id)` — uses the
-//!   `created_time_nanos` the dispatch resolved (SPEC-017 §Operational
-//!   §6).
+//! - `render_process_activity(&CapturedEvent, agent_id, &DevicePathMap)`
+//!   — what the agent sends: the dispatch-resolved `created_time_nanos`
+//!   and `image_file_name` translated to Win32 form (SPEC-017
+//!   §Operational §5).
+//! - `emit_process_activity(&CapturedEvent, agent_id)` — the same with
+//!   no drive map (device paths stay verbatim; UNC still applies).
 //! - `emit_process_activity_with_cache(&CapturedEvent, Option<u64>,
-//!   agent_id)` — the primitive, with the creation time passed in (None
-//!   for a cache miss → JSON null; Some → string-encoded nanos).
+//!   agent_id)` — with the creation time passed in (None for a cache
+//!   miss → JSON null; Some → string-encoded nanos).
 //!
 //! agent_id is a parameter (not on CapturedEvent) so the capture path
 //! stays config-free per Phase 3.5.F Option (a); the delivery loop
@@ -27,6 +30,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::etw::{ActivityId, CapturedEvent};
+use crate::paths::DevicePathMap;
 
 /// CGES Process Activity event — wire shape per SPEC-005 §AC + OCSF
 /// Process Activity (class_uid 1007). The full 15-field shape mirrors
@@ -64,20 +68,49 @@ pub struct CgesProcess {
 
 const CGES_PROCESS_ACTIVITY_CLASS_UID: u32 = 1007;
 
-/// Emit a Process Activity event with the creation time the dispatch
-/// resolved (`event.created_time_nanos`).
-pub fn emit_process_activity(event: &CapturedEvent, agent_id: &str) -> CgesProcessActivity {
-    emit_process_activity_with_cache(event, event.created_time_nanos, agent_id)
+/// Render a Process Activity event as the agent sends it: the creation
+/// time the dispatch resolved, and `process.image_file_name` in Win32
+/// form when `paths` resolves it (verbatim otherwise). `process.name` is
+/// the last segment of the rendered path.
+pub fn render_process_activity(
+    event: &CapturedEvent,
+    agent_id: &str,
+    paths: &DevicePathMap,
+) -> CgesProcessActivity {
+    build(
+        event,
+        event.created_time_nanos,
+        paths.translate(&event.image_file_name),
+        agent_id,
+    )
 }
 
-/// Emit a Process Activity event with an explicit creation time.
-///
-/// Primitive emission entry point:
+/// Emit a Process Activity event with the creation time the dispatch
+/// resolved (`event.created_time_nanos`) and no drive map.
+pub fn emit_process_activity(event: &CapturedEvent, agent_id: &str) -> CgesProcessActivity {
+    render_process_activity(event, agent_id, &DevicePathMap::empty())
+}
+
+/// Emit a Process Activity event with an explicit creation time:
 /// - For Launch events: `Some(event.etw_timestamp_nanos)`.
 /// - For Terminate events: the cache lookup result (`None` on a miss).
 pub fn emit_process_activity_with_cache(
     event: &CapturedEvent,
     cached_created_time: Option<u64>,
+    agent_id: &str,
+) -> CgesProcessActivity {
+    build(
+        event,
+        cached_created_time,
+        DevicePathMap::empty().translate(&event.image_file_name),
+        agent_id,
+    )
+}
+
+fn build(
+    event: &CapturedEvent,
+    cached_created_time: Option<u64>,
+    image_file_name: String,
     agent_id: &str,
 ) -> CgesProcessActivity {
     let parent_pid = if event.parent_pid == 0 {
@@ -86,7 +119,7 @@ pub fn emit_process_activity_with_cache(
         Some(event.parent_pid)
     };
 
-    let process_name = derive_process_name(&event.image_file_name);
+    let process_name = derive_process_name(&image_file_name);
     // Cache-hit: use the Launch creation_time (stable across Launch +
     // Terminate per ADR-0011 §6 amendment 2026-05-28). Cache-miss:
     // fallback to this event's own ETW timestamp (best-effort; the
@@ -110,13 +143,14 @@ pub fn emit_process_activity_with_cache(
             parent_pid,
             command_line: event.command_line.clone(),
             subject_user_sid: event.subject_user_sid.clone(),
-            image_file_name: event.image_file_name.clone(),
+            image_file_name,
         },
     }
 }
 
-/// Extract the basename from an NT device path (e.g.,
-/// `\Device\HarddiskVolume2\Windows\System32\cmd.exe` → `cmd.exe`).
+/// Extract the basename from an image path in either form (e.g.,
+/// `\Device\HarddiskVolume2\Windows\System32\cmd.exe` or
+/// `C:\Windows\System32\cmd.exe` → `cmd.exe`).
 ///
 /// Per AC-006 the process_name must be non-empty; `EventRing::
 /// enqueue_or_drop` filters events with an empty image_file_name BEFORE

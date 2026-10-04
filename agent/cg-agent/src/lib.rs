@@ -17,6 +17,7 @@ pub mod envelope;
 pub mod errors;
 pub mod etw;
 pub mod identity;
+pub mod paths;
 pub mod secure_storage;
 pub mod shutdown;
 pub mod signing;
@@ -372,9 +373,10 @@ pub async fn run_test_mode<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    use crate::cges::emit_process_activity;
+    use crate::cges::render_process_activity;
     use crate::errors::TlsError;
     use crate::etw::{EtwSession, OverflowWarning};
+    use crate::paths::UnresolvedPathLog;
     use crate::tls::SendResult;
 
     const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
@@ -384,6 +386,8 @@ where
     let mut session = EtwSession::open(65536).map_err(|e| AgentError::Etw(e.into()))?;
     let ring = Arc::clone(&session.ring);
     let mut overflow = OverflowWarning::new();
+    let paths = device_path_map();
+    let mut unresolved = UnresolvedPathLog::new();
 
     // SPEC-003 TLS setup, mirroring run_secure's pattern. The marquee
     // uses the SPEC-004 two-port topology: server.url is the plain HTTP
@@ -430,10 +434,15 @@ where
                     "events drained; building envelope",
                 );
 
-                // The Terminate's created_time was resolved at dispatch.
+                // The Terminate's created_time was resolved at dispatch;
+                // the image path is translated here, at render.
                 let cges_events: Vec<_> = events
                     .iter()
-                    .map(|event| emit_process_activity(event, &identity.agent_id))
+                    .map(|event| {
+                        let rendered = render_process_activity(event, &identity.agent_id, &paths);
+                        unresolved.note(&event.image_file_name, &rendered.process.image_file_name);
+                        rendered
+                    })
                     .collect();
 
                 let mut inner = build_envelope(
@@ -499,6 +508,17 @@ where
             }
         }
     }
+}
+
+/// The device-prefix → drive map, built once at startup (SPEC-017
+/// §Operational §5). Empty off Windows, where there is no capture.
+fn device_path_map() -> crate::paths::DevicePathMap {
+    #[cfg(windows)]
+    let map = crate::paths::DevicePathMap::from_system();
+    #[cfg(not(windows))]
+    let map = crate::paths::DevicePathMap::empty();
+    tracing::info!(drive_prefixes = map.len(), "device path map built");
+    map
 }
 
 /// The compile-time target platform string carried in the heartbeat
