@@ -23,7 +23,7 @@ async fn mtls_ac_007_client_cert_presented() {
 
     let (tx, rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
-        cg_agent::run_secure(config, identity, async move {
+        cg_agent::run_secure(config, identity, cg_agent::Capture::Off, async move {
             let _ = rx.await;
         })
         .await

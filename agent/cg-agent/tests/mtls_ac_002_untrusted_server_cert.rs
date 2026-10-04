@@ -21,7 +21,12 @@ async fn mtls_ac_002_untrusted_server_cert() {
 
     let result = tokio::time::timeout(
         Duration::from_secs(10),
-        cg_agent::run_secure(config, identity, std::future::pending::<()>()),
+        cg_agent::run_secure(
+            config,
+            identity,
+            cg_agent::Capture::Off,
+            std::future::pending::<()>(),
+        ),
     )
     .await
     .expect("run_secure must return on a fatal cert failure, not hang");

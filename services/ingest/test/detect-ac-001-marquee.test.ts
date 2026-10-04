@@ -96,7 +96,6 @@ test.skipIf(process.platform !== "win32")(
       heartbeatUrl: server.heartbeatUrl,
       caCertPem: server.caCertPem,
       token,
-      etwEnabled: true,
     });
 
     // ~40 s observation window; the agent enrolls, opens its ETW session, then

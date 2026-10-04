@@ -93,6 +93,13 @@ impl EventRing {
         self.dropped_total.load(Ordering::Relaxed)
     }
 
+    /// Add `n` events dropped outside the ring — a batch dropped after
+    /// repeated rejections (SPEC-017 §Operational §3) — to the dropped
+    /// total.
+    pub fn add_dropped(&self, n: u64) {
+        self.dropped_total.fetch_add(n, Ordering::Relaxed);
+    }
+
     /// Test-only accessor: returns a snapshot of currently retained
     /// events (cloned). Used by AC-008 to verify FIFO drop semantics.
     /// Production code drains instead.
