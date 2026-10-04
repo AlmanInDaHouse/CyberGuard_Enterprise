@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-20
-- Last updated: 2026-05-23
+- Last updated: 2026-10-04
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -179,6 +179,16 @@ Cross-reference convention applied: each rewritten bullet cites SPEC-003 §Drift
 **Backward compatibility.** Strictly tightening. The wire envelope is unchanged: agent emits the same fields, server reads the same fields. The semantics of `sequence_number` no longer claim cross-restart persistence (the agent never honoured that claim since SPEC-003 D3 anyway) and no longer participate in anti-replay enforcement (the server's secure path was already `nonce` + `sent_at` per D3). No SPEC needs revision; SPEC-003 §Drift D3 stands and is now matched by ADR-0004's own prose.
 
 **Effect on other sections.** §Context point 4 (must define server-unreachable behavior) — unchanged; the new model still defines it. §Enrollment, §Transport in operation, §Rotation and revocation, §Version compatibility, §Out of scope — all unchanged. §Consequences > Neutral — second bullet rewritten by part (c); first bullet (Ed25519 choice) unchanged. §Compliance — unchanged; the term "buffer caps" remains valid for the ephemeral ring's size cap.
+
+## Amendment 2026-10-04: events travel inside the signed body; no `batch_hash` (SPEC-017)
+
+**Status.** This amendment supersedes step 7 of the server validation order in §Message integrity per batch, and the "empty events array" wording of §Heartbeat and degraded mode. ADR-0004 remains `Accepted`.
+
+**Context.** The 2026-05-23 cascade (this ADR, ADR-0009, SPEC-003) specified `events` and `batch_hash` as top-level fields of the outer envelope, with the server recomputing the hash. The implementation that shipped with SPEC-005 placed the events inside `body` instead (`body.events`), on the agent and on the server, and never computed `batch_hash`. The S32 audit surfaced the difference.
+
+**Amendment.** The realized shape is the contract (SPEC-017 §Data contracts). `body` carries an optional `events` array; the signature covers `body`, so the events are signed directly and a separate hash adds nothing. Step 7 (verify `batch_hash`) is retired. A heartbeat without events omits the member.
+
+**Effect on other sections.** None on steps 1–6, rotation, revocation or version compatibility. The integrity argument of §Message integrity per batch is unchanged: every event is under the envelope signature.
 
 ## References
 

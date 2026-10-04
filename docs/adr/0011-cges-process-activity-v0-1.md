@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-23
-- Last updated: 2026-05-23
+- Last updated: 2026-10-04
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -243,6 +243,16 @@ The byte-level reproducibility argument from the 2026-05-23 amendment part (a) i
 **Backward compatibility.** Not backward-compatible with pre-amendment wire format. No external consumers exist; the change lands atomically across agent, ingest, and schema in Phase 4.
 
 **Effect on other sections.** §6 (`process.uid` recipe) unchanged — the uid embeds nanos as a decimal string internally, independent of the wire encoding of `process.created_time`. Schema `objects/process.json` updated in the same commit (`"type": ["string", "null"]` with pattern `^[1-9][0-9]*$`). Root schema `event.json` `time` field: `format: "date-time"` removed (per-class format is authoritative; Process Activity uses string-encoded nanos, other classes may use ISO 8601).
+
+## Amendment 2026-10-04: realized wire names; the Win32 form travels in `image_file_name` (SPEC-017)
+
+**Status.** This amendment supersedes the *CGES path* column of the §4 mapping table for the agent → ingest wire, and the wire form of §5. ADR-0011 remains `Accepted`.
+
+**Context.** §4 names the fields by their OCSF paths (`process.file.path`, `process.parent_process.pid`, `process.cmd_line`, `process.user.uid`). The wire that shipped with SPEC-005, which the ingest schema validates and ClickHouse stores, is flatter: `process.image_file_name`, `process.parent_pid`, `process.command_line` and `process.subject_user_sid`. The S32 audit surfaced the difference.
+
+**Amendment.** The realized names are the wire contract (SPEC-017 §Data contracts); the OCSF paths of §4 remain the mapping they realise. `process.image_file_name` carries the path in Win32 form when the translation resolves, and the kernel device form verbatim otherwise — the translation §4 row 3 requires, which SPEC-017 implements. For §5, an unresolvable parent is `process.parent_pid: null` (when ETW reports 0), not a `parent_process` object with only a `pid`.
+
+**Effect on other sections.** None on §3 (activities), §6 (`process.uid`) or the earlier amendments' encodings.
 
 ## References
 

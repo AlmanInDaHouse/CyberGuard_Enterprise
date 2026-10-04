@@ -132,12 +132,15 @@ This dependency-ordered document supersedes both for planning.
 
 ### G — Agent capture on the normal run path
 
+- Contract: SPEC-017 (Accepted), amends SPEC-005, SPEC-003 and SPEC-001
+  by scope, and ADR-0004 and ADR-0011 in place.
 - Does: give the agent's normal run path (`run_secure`) the SPEC-005
-  capture that only the test-mode path has today, with ADR-0009 §1
-  at-least-once delivery (a batch that fails transiently is resent with
-  the same `event_id`s), heartbeats independent of events, the
+  capture that only the test-mode path has today, with a session start
+  that reports its failure (exit code 9 or 1), ADR-0009 §1 at-least-once
+  delivery (a batch that fails transiently is resent with the same
+  `event_id`s), a heartbeat on every interval without a POST, the
   going-offline handshake, and the SPEC-005 §Operational §3 device-path →
-  Win32 translation.
+  Win32 translation. The test-mode path is removed.
 - Why (observed at `8a0ed9f`): `agent/cg-agent/src/main.rs` reaches
   `run_test_mode`, the only path that opens the ETW session, only when
   `CG_AGENT_TEST_MODE=1`; `run_secure` sends heartbeats only
@@ -153,11 +156,31 @@ This dependency-ordered document supersedes both for planning.
   builds on this path.
 - Blocked by: nothing technical. Sequencing: after C, before D — advisor
   decision under the owner's delegation, S31 (2026-09-27).
-- Needs: a SPEC (successor to SPEC-005, or an amendment of it).
-- Gate (own): the SPEC-005 marquee, pointed at the normal run path.
-- Owner-STOP on the path: with capture on the normal path, an unelevated
-  agent exits with code 9 (SPEC-005 AC-002) instead of sending
-  heartbeats — a deployment-contract change (Part (b) §2).
+- Gate (own): the Rust ETW tests and both marquees, elevated, on the
+  normal run path (SPEC-017 §Acceptance criteria).
+- Owner decision, S32 (2026-10-04): an unelevated agent exits with code 9
+  (SPEC-005 AC-002), instead of degrading to heartbeats only (Part (b)
+  §7).
+
+### H — Late events in detection
+
+- Does: make the detection read-model advance by arrival instead of by
+  event time, so an event that reaches the server after the watermark has
+  passed its `time` is still evaluated.
+- Why (observed at `e19f782`): `readNewEvents`
+  (`services/ingest/src/detect/read-model.ts`) selects `time > watermark`
+  per org (ADR-0012 §7). With two agents in one org, the events of the
+  one that delivers later are never evaluated. `cges_events` already
+  stores a server-assigned `arrived_at`.
+- Unblocks: correct detection with more than one agent per org; D, whose
+  classes share the read-model.
+- Blocked by: nothing technical. Sequencing: after G, before D — advisor
+  decision under the owner's delegation, S32 (2026-10-04). With one agent
+  and G's in-order retries, G does not make it worse.
+- Needs: an ADR-0012 amendment (§7) and a SPEC that amends SPEC-006
+  §Operational §1 by scope. Owner-STOP: amending an ADR.
+- Gate (own): a CI test with two agents delivering out of order, and the
+  SPEC-006 marquee.
 
 ### D — Criterion 2: new classes (4001 network + 3002 login)
 
@@ -165,7 +188,8 @@ This dependency-ordered document supersedes both for planning.
   (login), fused — they share the per-class projection and the widening
   of `class_uid: z.literal(1007)` (`services/ingest/src/schemas.ts:44`)
   to a union, so splitting them duplicates the plumbing.
-- Blocked by: G (capture on the normal run path); B1 is done.
+- Blocked by: G (capture on the normal run path) and H (late events);
+  B1 is done.
 - Needs: successor SPEC(s) to SPEC-005 + per-class ADRs.
 - Discharges: `docs/adr/0011-cges-process-activity-v0-1.md:197` +
   `docs/adr/0012-normalize-before-correlate-pipeline.md:240` (4001 / 3002
@@ -279,6 +303,8 @@ This dependency-ordered document supersedes both for planning.
    Architect's recommendation: the former, via option (1); keeping audit
    policy out of the deployment contract is worth something on its own
    for a "<30-min self-deploy" product.
+7. RESOLVED (S32, 2026-10-04) — an unelevated agent on the normal run
+   path exits with code 9 (SPEC-017 §Operational §1). Owner decision.
 
-§1–§4 and §6 remain owner-STOP; §5 is resolved (above). Part (a) phase F
+§1–§4 and §6 remain owner-STOP; §5 and §7 are resolved (above). Part (a) phase F
 resolves §2 + §3 + §4 (and B2 option (2), per §6).
