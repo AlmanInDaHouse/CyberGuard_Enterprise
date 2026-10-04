@@ -47,8 +47,8 @@ impl TryFrom<u64> for ActivityId {
 /// - `pid`: PID assigned by Windows at process creation.
 /// - `activity_id`: Launch or Terminate.
 /// - `image_file_name`: NT-style device path from ETW
-///   (`\Device\HarddiskVolumeN\...`); translation to Win32 path happens
-///   at emit time per SPEC-005 §Operational §3.
+///   (`\Device\HarddiskVolumeN\...`); it is translated to Win32 form
+///   when the event is rendered (`paths.rs`, SPEC-017 §Operational §5).
 /// - `parent_pid`: kernel `ParentProcessID`; emitted with `name` absent
 ///   when the parent is unresolvable per ADR-0011 §5 + AC-007.
 /// - `command_line`: ETW `CommandLine` field (empty for Terminate).
