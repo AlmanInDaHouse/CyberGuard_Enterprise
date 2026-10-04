@@ -11,8 +11,8 @@
 //! Storage: `Mutex<HashMap<u32, u64>>`. Blocking Mutex per the
 //! established convention (tests/common/mod.rs + EventRing). The
 //! periodic sweep of stale entries (§Operational §2's bounded-memory
-//! contract) is not implemented here; this primitive provides only
-//! new() + insert + consult_and_purge.
+//! contract, NFR-005-006) is `sweep`, driven every 60 s by the Windows
+//! session's hygiene thread (`hygiene.rs`).
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -45,7 +45,32 @@ impl CreatedTimeCache {
         entries.remove(&pid)
     }
 
-    /// Current number of entries retained. Used by test diagnostics.
+    /// Evict the entries whose process is gone (SPEC-005 §Operational §2,
+    /// NFR-005-006). `is_alive` is asked about each cached PID outside
+    /// the lock, so the dispatch callback is never held up by it; an
+    /// entry that a new Launch replaced meanwhile is kept. Returns the
+    /// number evicted.
+    pub fn sweep(&self, is_alive: impl Fn(u32) -> bool) -> usize {
+        let snapshot: Vec<(u32, u64)> = {
+            let entries = self.entries.lock().expect("cache mutex poisoned");
+            entries.iter().map(|(&pid, &time)| (pid, time)).collect()
+        };
+        let gone: Vec<(u32, u64)> = snapshot
+            .into_iter()
+            .filter(|&(pid, _)| !is_alive(pid))
+            .collect();
+        let mut entries = self.entries.lock().expect("cache mutex poisoned");
+        let mut evicted = 0;
+        for (pid, time) in gone {
+            if entries.get(&pid) == Some(&time) {
+                entries.remove(&pid);
+                evicted += 1;
+            }
+        }
+        evicted
+    }
+
+    /// Current number of entries retained.
     pub fn len(&self) -> usize {
         let entries = self.entries.lock().expect("cache mutex poisoned");
         entries.len()
