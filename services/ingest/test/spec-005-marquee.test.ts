@@ -48,7 +48,6 @@ test.skipIf(process.platform !== "win32")(
       heartbeatUrl: server.heartbeatUrl,
       caCertPem: server.caCertPem,
       token,
-      etwEnabled: true, // SPEC-005 marquee: route agent to run_test_mode for ETW capture
     });
 
     // ~40 s observation window. Within the window: agent enrolls,
@@ -80,15 +79,9 @@ test.skipIf(process.platform !== "win32")(
     // Let the agent finish its observation window + envelope POST.
     const result = await runPromise;
 
-    // Phase 3.5.I-DIAG2 diagnostic dumps. Surface the agent's complete
-    // stderr + stdout to distinguish three remaining failure-mode
-    // hypotheses after Phase 3.5.I-DIAG ruled out ETW privilege:
-    // (1) prepareAgent invokes run_secure not run_test_mode — stderr
-    //     would lack ETW lifecycle log lines.
-    // (2) run_test_mode invoked but trace.start() Err swallowed —
-    //     stderr might have ferrisetw / windows error tracing.
-    // (3) ETW dispatch fires but event_id != 1/2 — stderr might
-    //     show dispatch tracing without matching activity discrim.
+    // Diagnostic dumps: the agent's complete stderr + stdout, so a red
+    // run shows whether the ETW session opened (an unelevated agent
+    // exits 9 with its cause on stderr) and what was sent.
     console.info(
       JSON.stringify({
         diag_event: "marquee_agent_stderr_full",

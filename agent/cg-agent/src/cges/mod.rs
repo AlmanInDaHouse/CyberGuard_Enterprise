@@ -1,9 +1,9 @@
 //! CGES (CyberGuard Event Stream) emission path.
 //!
 //! Renders `CapturedEvent` instances from the etw module into the CGES
-//! wire shape per SPEC-005 §AC + ADR-0011 §3. The emitted shape is
-//! consumed by the envelope-construction path (β3 forthcoming) and
-//! ultimately POSTed via the existing transport layer.
+//! wire shape per SPEC-005 §AC + ADR-0011 §3. The delivery loop
+//! (`delivery.rs`) renders each event once, when its batch is formed,
+//! and sends it inside the signed envelope's `body.events`.
 
 mod emit;
 

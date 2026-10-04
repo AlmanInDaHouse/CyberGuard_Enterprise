@@ -463,22 +463,39 @@ pub enum TlsMockMode {
 }
 
 /// In-process TLS-terminating mock for the secure heartbeat path. Records
-/// every accepted outer envelope. Verifies the Ed25519 signature over the
+/// every accepted outer envelope, and every attempt with the status it
+/// answered. Verifies the Ed25519 signature over the
 /// JCS(outer-minus-signature), rejects replayed nonces, and (optionally)
-/// rejects every envelope to exercise the agent's warn-and-continue path.
+/// rejects every envelope to exercise the agent's warn-and-continue path,
+/// or lets a responder force the status of chosen envelopes.
 pub struct TlsMockServer {
     pub base_url: String,
     received: Arc<Mutex<Vec<Value>>>,
+    attempts: Arc<Mutex<Vec<MockAttempt>>>,
     _task: JoinHandle<()>,
+}
+
+/// Sees each parsed envelope before verification; `Some(status)` answers
+/// it with that status instead.
+pub type Responder = Arc<dyn Fn(&Value) -> Option<u16> + Send + Sync>;
+
+/// One envelope the mock answered, the status it answered with, and when.
+#[derive(Clone)]
+pub struct MockAttempt {
+    pub status: u16,
+    pub envelope: Value,
+    pub at: std::time::Instant,
 }
 
 struct TlsMockState {
     received: Arc<Mutex<Vec<Value>>>,
+    attempts: Arc<Mutex<Vec<MockAttempt>>>,
     seen_nonces: Mutex<HashSet<String>>,
     agent_pubkey: [u8; 32],
     /// When set, every envelope is answered with this status (simulates a
     /// server-side rejection, e.g. timestamp skew — AC-005).
     reject_status: Option<u16>,
+    responder: Option<Responder>,
 }
 
 fn ring_provider() -> Arc<rustls::crypto::CryptoProvider> {
@@ -530,29 +547,49 @@ impl TlsMockServer {
     /// Start a TLS mock in the given `mode`, accepting valid signed
     /// envelopes.
     pub async fn start(pki: &TlsTestPki, mode: TlsMockMode) -> Self {
-        Self::start_inner(pki, mode, None).await
+        Self::start_inner(pki, mode, None, None, 0).await
     }
 
     /// Start a TLS mock that completes the handshake but answers every
     /// signed envelope with `reject_status` (simulates a server-side
     /// rejection such as timestamp skew — AC-005). TLS itself is Normal.
     pub async fn start_rejecting(pki: &TlsTestPki, reject_status: u16) -> Self {
-        Self::start_inner(pki, TlsMockMode::Normal, Some(reject_status)).await
+        Self::start_inner(pki, TlsMockMode::Normal, Some(reject_status), None, 0).await
     }
 
-    async fn start_inner(pki: &TlsTestPki, mode: TlsMockMode, reject_status: Option<u16>) -> Self {
+    /// Start a Normal TLS mock whose `responder` may force the status of
+    /// any envelope; envelopes it passes on are verified as usual.
+    pub async fn start_with_responder(pki: &TlsTestPki, responder: Responder) -> Self {
+        Self::start_inner(pki, TlsMockMode::Normal, None, Some(responder), 0).await
+    }
+
+    /// Start a Normal TLS mock on a given local `port` (0 = any).
+    pub async fn start_on_port(pki: &TlsTestPki, port: u16) -> Self {
+        Self::start_inner(pki, TlsMockMode::Normal, None, None, port).await
+    }
+
+    async fn start_inner(
+        pki: &TlsTestPki,
+        mode: TlsMockMode,
+        reject_status: Option<u16>,
+        responder: Option<Responder>,
+        port: u16,
+    ) -> Self {
         let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let attempts: Arc<Mutex<Vec<MockAttempt>>> = Arc::new(Mutex::new(Vec::new()));
         let acceptor = TlsAcceptor::from(Arc::new(build_server_config(pki, mode)));
-        let listener = TcpListener::bind("127.0.0.1:0")
+        let listener = TcpListener::bind(("127.0.0.1", port))
             .await
             .expect("bind tls mock");
         let port = listener.local_addr().expect("local_addr").port();
 
         let state = Arc::new(TlsMockState {
             received: received.clone(),
+            attempts: attempts.clone(),
             seen_nonces: Mutex::new(HashSet::new()),
             agent_pubkey: pki.agent_pubkey,
             reject_status,
+            responder,
         });
 
         let task = tokio::spawn(async move {
@@ -572,8 +609,13 @@ impl TlsMockServer {
         });
 
         Self {
-            base_url: format!("https://localhost:{port}"),
+            // The IP, not `localhost`: the mock listens on 127.0.0.1 only,
+            // and on Windows `localhost` resolves to ::1 first, where a
+            // refused connection costs ~2 s per POST. The server cert
+            // carries a 127.0.0.1 IP SAN.
+            base_url: format!("https://127.0.0.1:{port}"),
             received,
+            attempts,
             _task: task,
         }
     }
@@ -584,6 +626,11 @@ impl TlsMockServer {
 
     pub fn received_count(&self) -> usize {
         self.received.lock().expect("received lock").len()
+    }
+
+    /// Every envelope answered so far, in arrival order.
+    pub fn attempts(&self) -> Vec<MockAttempt> {
+        self.attempts.lock().expect("attempts lock").clone()
     }
 }
 
@@ -624,7 +671,24 @@ fn process_body(body: &[u8], state: &TlsMockState) -> u16 {
         Ok(v) => v,
         Err(_) => return 400,
     };
+    let status = verify_and_accept(&envelope, state);
+    state
+        .attempts
+        .lock()
+        .expect("attempts lock")
+        .push(MockAttempt {
+            status,
+            envelope,
+            at: std::time::Instant::now(),
+        });
+    status
+}
+
+fn verify_and_accept(envelope: &Value, state: &TlsMockState) -> u16 {
     if let Some(status) = state.reject_status {
+        return status;
+    }
+    if let Some(status) = state.responder.as_ref().and_then(|r| r(envelope)) {
         return status;
     }
 
@@ -668,7 +732,11 @@ fn process_body(body: &[u8], state: &TlsMockState) -> u16 {
         }
     }
 
-    state.received.lock().expect("received lock").push(envelope);
+    state
+        .received
+        .lock()
+        .expect("received lock")
+        .push(envelope.clone());
     200
 }
 
@@ -692,6 +760,7 @@ fn status_text(status: u16) -> &'static str {
         400 => "Bad Request",
         401 => "Unauthorized",
         409 => "Conflict",
+        503 => "Service Unavailable",
         _ => "Error",
     }
 }
@@ -760,10 +829,7 @@ pub fn secure_fixture(server_url: &str, pki: &TlsTestPki) -> SecureFixture {
 }
 
 // SPEC-005 additions — TestAgentHandle + start_test_agent for in-process
-// agent control. Existing common::MockServer already covers envelope
-// capture (POST /v1/agents/heartbeat plain HTTP, std::sync::Mutex
-// blocking convention preserved); no MockHeartbeatServer parallel
-// helper introduced.
+// agent control.
 
 pub struct TestAgentHandle {
     _join: JoinHandle<()>,
@@ -771,8 +837,7 @@ pub struct TestAgentHandle {
 }
 
 impl TestAgentHandle {
-    /// Signal the test-mode agent to shut down. Phase 3.5 implementation
-    /// honours the shutdown signal via its tokio entry point.
+    /// Signal the in-process agent to shut down.
     pub async fn shutdown(self) {
         let _ = self.shutdown_tx.send(());
         // Test-side timeout is the caller's concern; the join handle is
@@ -780,16 +845,11 @@ impl TestAgentHandle {
     }
 }
 
-/// Start a test-mode instance of cg-agent against the given mock server URL
-/// with a fixed agent_id. The agent runs in-process on a tokio task; the
-/// returned handle controls shutdown.
-///
-/// Phase 3.5.F implementation: invokes `cg_agent::run_test_mode` which
-/// opens an ETW Kernel-Process session (on Windows) and spawns a ring-
-/// drain task that POSTs events[]-populated envelopes to `mock_url`.
-/// Identity is a dummy (run_test_mode's `_identity` arg is unused; the
-/// MockServer accepts unsigned envelopes). Config uses the existing
-/// `config_with_url` helper with the agent_id override.
+/// Start `cg_agent::run_secure` in-process with the platform capture
+/// (the ETW session on Windows) against `mock_url`, with a fixed
+/// agent_id. The config comes from `config_with_url` and carries no
+/// trust anchor, so `run_secure` opens the ETW session and then fails at
+/// the TLS client configuration: nothing reaches the mock.
 pub async fn start_test_agent(mock_url: &str, agent_id: &str) -> TestAgentHandle {
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -806,11 +866,134 @@ pub async fn start_test_agent(mock_url: &str, agent_id: &str) -> TestAgentHandle
         let shutdown_future = async move {
             let _ = shutdown_rx.await;
         };
-        let _ = cg_agent::run_test_mode(config, identity, shutdown_future).await;
+        let _ = cg_agent::run_secure(
+            config,
+            identity,
+            cg_agent::Capture::Platform,
+            shutdown_future,
+        )
+        .await;
     });
 
     TestAgentHandle {
         _join: join,
         shutdown_tx,
     }
+}
+
+// SPEC-017 additions — the secure path run in-process with a capture
+// source, synthetic captured events, and envelope accessors.
+
+/// A `run_secure` running in-process against a TLS mock.
+pub struct SecureAgent {
+    join: JoinHandle<Result<(), cg_agent::errors::AgentError>>,
+    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    _trust_anchor: NamedTempFile,
+}
+
+impl SecureAgent {
+    /// Signal shutdown and wait for `run_secure` to return.
+    pub async fn stop(self) -> Result<(), cg_agent::errors::AgentError> {
+        let _ = self.shutdown_tx.send(());
+        self.join.await.expect("run_secure must not panic")
+    }
+}
+
+/// Start `run_secure` with `capture` against `mock_url`, trusting `pki`,
+/// with the heartbeat interval set to `interval_seconds`.
+pub fn start_secure_agent(
+    pki: &TlsTestPki,
+    mock_url: &str,
+    interval_seconds: u64,
+    capture: cg_agent::Capture,
+) -> SecureAgent {
+    let SecureFixture {
+        mut config,
+        identity,
+        trust_anchor,
+    } = secure_fixture(mock_url, pki);
+    config.heartbeat.interval_seconds = interval_seconds;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let join = tokio::spawn(async move {
+        cg_agent::run_secure(config, identity, capture, async move {
+            let _ = shutdown_rx.await;
+        })
+        .await
+    });
+    SecureAgent {
+        join,
+        shutdown_tx,
+        _trust_anchor: trust_anchor,
+    }
+}
+
+/// A synthetic captured Launch for `pid`, as the dispatch would produce it.
+pub fn synthetic_launch(pid: u32) -> cg_agent::etw::CapturedEvent {
+    let ts = 1_791_072_000_000_000_000 + u64::from(pid) * 1_000;
+    cg_agent::etw::CapturedEvent {
+        pid,
+        event_id: uuid::Uuid::now_v7().to_string(),
+        activity_id: cg_agent::etw::ActivityId::Launch,
+        image_file_name: format!("\\Device\\HarddiskVolume3\\probe\\p{pid}.exe"),
+        parent_pid: 4,
+        command_line: String::new(),
+        subject_user_sid: String::new(),
+        etw_timestamp_nanos: ts,
+        created_time_nanos: Some(ts),
+        exit_status: None,
+    }
+}
+
+/// Enqueue a synthetic Launch for each pid in `pids`.
+pub fn enqueue_launches(ring: &cg_agent::etw::EventRing, pids: impl IntoIterator<Item = u32>) {
+    for pid in pids {
+        ring.enqueue_or_drop(synthetic_launch(pid));
+    }
+}
+
+/// The `body.events` of an outer envelope (empty when omitted).
+pub fn envelope_events(envelope: &Value) -> Vec<Value> {
+    envelope
+        .pointer("/body/events")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The pids of an envelope's events, in order.
+pub fn envelope_pids(envelope: &Value) -> Vec<u64> {
+    envelope_events(envelope)
+        .iter()
+        .filter_map(|e| e.pointer("/process/pid").and_then(Value::as_u64))
+        .collect()
+}
+
+/// The `body.sequence_number` of an outer envelope.
+pub fn envelope_sequence(envelope: &Value) -> u64 {
+    envelope
+        .pointer("/body/sequence_number")
+        .and_then(Value::as_u64)
+        .expect("body.sequence_number")
+}
+
+/// The `body.status` of an outer envelope.
+pub fn envelope_status(envelope: &Value) -> String {
+    envelope
+        .pointer("/body/status")
+        .and_then(Value::as_str)
+        .expect("body.status")
+        .to_string()
+}
+
+/// Poll `cond` every 20 ms until it holds or `timeout` passes; returns
+/// whether it held.
+pub async fn wait_until(timeout: std::time::Duration, mut cond: impl FnMut() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if cond() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    cond()
 }

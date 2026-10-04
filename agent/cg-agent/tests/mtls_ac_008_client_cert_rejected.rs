@@ -21,7 +21,12 @@ async fn mtls_ac_008_client_cert_rejected() {
 
     let result = tokio::time::timeout(
         Duration::from_secs(10),
-        cg_agent::run_secure(config, identity, std::future::pending::<()>()),
+        cg_agent::run_secure(
+            config,
+            identity,
+            cg_agent::Capture::Off,
+            std::future::pending::<()>(),
+        ),
     )
     .await
     .expect("run_secure must return on client-cert rejection, not hang");
