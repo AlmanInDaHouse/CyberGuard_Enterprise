@@ -238,42 +238,155 @@ fn rewrite_without_token(config_path: &Path) -> Result<(), String> {
 
 /// Harden a persisted artifact to owner-only access (NFR-003).
 ///
-/// Windows: strip inherited ACEs and grant full control only to the
-/// current user and `SYSTEM` (well-known SID S-1-5-18), via `icacls`.
+/// Windows: replace the file's DACL with a protected one (no inherited
+/// entries) holding exactly two entries, full control for the current
+/// user's SID and for `SYSTEM` (S-1-5-18). Any entry the file was created
+/// with, inherited or explicit, is gone afterwards.
 #[cfg(windows)]
 fn harden(path: &Path) -> Result<(), EnrollmentError> {
-    let owner = current_user_principal();
-    let output = std::process::Command::new("icacls")
-        .arg(path)
-        .arg("/inheritance:r")
-        .arg("/grant:r")
-        .arg(format!("{owner}:(F)"))
-        .arg("*S-1-5-18:(F)")
-        .output()
-        .map_err(|e| EnrollmentError::Persistence(format!("cannot run icacls: {e}")))?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(EnrollmentError::Persistence(format!(
-            "icacls failed on {}: {}",
-            path.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )))
-    }
+    win_acl::set_owner_only_dacl(path).map_err(|e| {
+        EnrollmentError::Persistence(format!("cannot restrict {}: {e}", path.display()))
+    })
 }
 
-/// `whoami` prints `DOMAIN\user` (or `COMPUTERNAME\user`), which `icacls`
-/// accepts directly as a principal. Falls back to `%USERNAME%`.
+/// The Win32 calls behind `harden`: the current user's SID from the
+/// process token, the well-known SYSTEM SID, and a protected DACL set
+/// with `SetNamedSecurityInfoW`.
 #[cfg(windows)]
-fn current_user_principal() -> String {
-    std::process::Command::new("whoami")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| std::env::var("USERNAME").unwrap_or_default())
+mod win_acl {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
+    use windows_sys::Win32::Security::Authorization::{
+        SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE,
+        SET_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+    };
+    use windows_sys::Win32::Security::{
+        CreateWellKnownSid, GetTokenInformation, TokenUser, WinLocalSystemSid, ACL,
+        DACL_SECURITY_INFORMATION, NO_INHERITANCE, PROTECTED_DACL_SECURITY_INFORMATION, PSID,
+        SECURITY_MAX_SID_SIZE, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    pub(super) fn set_owner_only_dacl(path: &Path) -> Result<(), String> {
+        // TOKEN_USER holds a pointer into this buffer: keep it u64-aligned.
+        let token_user = current_token_user()?;
+        // SAFETY: `token_user` holds a TOKEN_USER written by
+        // GetTokenInformation(TokenUser); its Sid points into the buffer.
+        let user_sid: PSID = unsafe { (*(token_user.as_ptr() as *const TOKEN_USER)).User.Sid };
+
+        let mut system_sid = [0u32; (SECURITY_MAX_SID_SIZE as usize).div_ceil(4)];
+        let mut system_sid_len = SECURITY_MAX_SID_SIZE;
+        // SAFETY: the buffer holds SECURITY_MAX_SID_SIZE bytes, the size passed.
+        let ok = unsafe {
+            CreateWellKnownSid(
+                WinLocalSystemSid,
+                std::ptr::null_mut(),
+                system_sid.as_mut_ptr().cast(),
+                &mut system_sid_len,
+            )
+        };
+        if ok == 0 {
+            return Err(format!(
+                "CreateWellKnownSid: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        let entries = [
+            full_control(user_sid),
+            full_control(system_sid.as_mut_ptr().cast()),
+        ];
+        let mut acl: *mut ACL = std::ptr::null_mut();
+        // SAFETY: two initialized entries whose SIDs outlive the call; no
+        // old ACL; `acl` receives a LocalAlloc'd ACL freed below.
+        let rc = unsafe { SetEntriesInAclW(2, entries.as_ptr(), std::ptr::null(), &mut acl) };
+        if rc != 0 {
+            return Err(format!(
+                "SetEntriesInAclW: {}",
+                std::io::Error::from_raw_os_error(rc as i32)
+            ));
+        }
+
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        // SAFETY: `wide` is NUL-terminated; `acl` is a valid ACL; the
+        // owner, group and SACL are left unchanged (null).
+        let rc = unsafe {
+            SetNamedSecurityInfoW(
+                wide.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                acl,
+                std::ptr::null(),
+            )
+        };
+        // SAFETY: `acl` was allocated by SetEntriesInAclW.
+        unsafe { LocalFree(acl.cast()) };
+        if rc != 0 {
+            return Err(format!(
+                "SetNamedSecurityInfoW: {}",
+                std::io::Error::from_raw_os_error(rc as i32)
+            ));
+        }
+        Ok(())
+    }
+
+    /// The process token's TOKEN_USER, in a u64-aligned buffer.
+    fn current_token_user() -> Result<Vec<u64>, String> {
+        let mut token: HANDLE = std::ptr::null_mut();
+        // SAFETY: the pseudo-handle of the current process needs no close;
+        // `token` receives a handle closed below.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+            return Err(format!(
+                "OpenProcessToken: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        let mut needed = 0u32;
+        // SAFETY: a size query (null buffer, length 0) on a valid token.
+        unsafe { GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed) };
+        let mut buffer = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+        let mut written = 0u32;
+        // SAFETY: `buffer` holds at least `needed` bytes.
+        let ok = unsafe {
+            GetTokenInformation(
+                token,
+                TokenUser,
+                buffer.as_mut_ptr().cast(),
+                (buffer.len() * 8) as u32,
+                &mut written,
+            )
+        };
+        let error = std::io::Error::last_os_error();
+        // SAFETY: `token` was opened above.
+        unsafe { CloseHandle(token) };
+        if ok == 0 {
+            return Err(format!("GetTokenInformation(TokenUser): {error}"));
+        }
+        Ok(buffer)
+    }
+
+    fn full_control(sid: PSID) -> EXPLICIT_ACCESS_W {
+        EXPLICIT_ACCESS_W {
+            grfAccessPermissions: FILE_ALL_ACCESS,
+            grfAccessMode: SET_ACCESS,
+            grfInheritance: NO_INHERITANCE,
+            Trustee: TRUSTEE_W {
+                pMultipleTrustee: std::ptr::null_mut(),
+                MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                TrusteeForm: TRUSTEE_IS_SID,
+                TrusteeType: TRUSTEE_IS_UNKNOWN,
+                ptstrName: sid.cast(),
+            },
+        }
+    }
 }
 
 /// POSIX: mode `0600`. Parked for SPEC-003 Linux work (AC-012), but the

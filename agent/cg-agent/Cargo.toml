@@ -133,10 +133,13 @@ serde_jcs = "0.1"
 # non-Windows SecureStore impl is test-only and uses no native deps.
 # Win32_Storage_FileSystem: QueryDosDeviceW for the device-path → Win32
 # translation (SPEC-017 §Operational §5). Win32_System_Threading:
-# OpenProcess for the cache sweep (SPEC-005 NFR-005-006).
+# OpenProcess for the cache sweep (SPEC-005 NFR-005-006), and
+# OpenProcessToken with Win32_Security_Authorization for the owner-only
+# DACL of the identity artifacts (SPEC-002 NFR-003).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Security_Authorization",
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_Etw",
