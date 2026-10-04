@@ -70,7 +70,7 @@ async fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 report_agent_error(&e);
-                ExitCode::from(agent_exit_code(&e))
+                ExitCode::from(e.exit_code())
             }
         };
     }
@@ -90,7 +90,7 @@ async fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 report_agent_error(&e);
-                ExitCode::from(agent_exit_code(&e))
+                ExitCode::from(e.exit_code())
             }
         };
     }
@@ -129,7 +129,7 @@ fn report_enrollment_error(err: &EnrollmentError) {
     }
 }
 
-/// SPEC-003 §Failure-modes stderr line for a secure-path error.
+/// SPEC-003 / SPEC-017 §Failure-modes stderr line for a secure-path error.
 fn report_agent_error(err: &AgentError) {
     match err {
         AgentError::Tls(TlsError::ServerCertUntrusted(m)) => {
@@ -142,17 +142,12 @@ fn report_agent_error(err: &AgentError) {
             eprintln!("cg-agent: tls: server rejected client certificate")
         }
         AgentError::Signing(s) => eprintln!("cg-agent: signing failed: {s}"),
+        // SPEC-017 §Operational §1: the line goes to stderr and to the log.
+        AgentError::Etw(etw) => {
+            let line = etw.stderr_line();
+            tracing::error!(exit_code = etw.exit_code(), "{line}");
+            eprintln!("{line}");
+        }
         other => eprintln!("cg-agent: {other}"),
-    }
-}
-
-/// Map an `AgentError` to its process exit code (SPEC-003 §Failure modes).
-fn agent_exit_code(err: &AgentError) -> u8 {
-    match err {
-        AgentError::Tls(t) => t.exit_code(),
-        AgentError::Signing(s) => s.exit_code(),
-        AgentError::Enrollment(en) => en.exit_code(),
-        AgentError::Config(_) => 2,
-        _ => 1,
     }
 }

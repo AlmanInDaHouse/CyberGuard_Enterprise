@@ -346,13 +346,14 @@ async fn send_secure_once(
 /// Phase 3.5.I-FIX refactor: uses mTLS + signed envelope path (same
 /// shape as `run_secure`) so it can POST to the SPEC-004 two-port
 /// topology's mTLS heartbeat listener. Differs from `run_secure` in:
-/// 1. Opens an ETW Kernel-Process session on startup; aborts cleanly
-///    via `startup::handle_etw_open_result` if privilege is insufficient.
+/// 1. Opens an ETW Kernel-Process session on startup; a failed start
+///    returns `AgentError::Etw` (exit 9 for a privilege failure, 1 for
+///    any other, per `EtwError::exit_code`).
 /// 2. The heartbeat loop drains the EventRing each tick and populates
 ///    the envelope's `events[]` field with CgesProcessActivity rows
 ///    before signing.
-/// 3. Reaches `Ok(())` on shutdown_signal resolution (no graceful
-///    "going_offline" handshake — test mode is fire-and-forget).
+/// 3. On shutdown_signal resolution, stops the ETW session and returns
+///    `Ok(())` (no graceful "going_offline" handshake).
 ///
 /// Invoked by `tests/common/start_test_agent` (Rust integration tests
 /// AC-004 cache-hit + AC-007 on Windows) and by `main.rs` when the
@@ -374,23 +375,15 @@ where
     use crate::cges::emit_process_activity_with_cache;
     use crate::errors::TlsError;
     use crate::etw::{ActivityId, EtwSession};
-    use crate::startup::handle_etw_open_result;
     use crate::tls::SendResult;
 
     const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
 
-    let session = match EtwSession::open(65536) {
-        Ok(s) => s,
-        Err(e) => {
-            if let Err(abort) = handle_etw_open_result(Err(e)) {
-                eprintln!("{}", abort.stderr_message);
-            }
-            let etw_err: crate::errors::EtwError = e.into();
-            return Err(AgentError::Etw(etw_err));
-        }
-    };
-    let ring = session.ring;
-    let cache = session.cache;
+    // Returns only once the session started or failed; a failure carries
+    // its Win32 code. The session stops when dropped (early returns).
+    let mut session = EtwSession::open(65536).map_err(|e| AgentError::Etw(e.into()))?;
+    let ring = Arc::clone(&session.ring);
+    let cache = Arc::clone(&session.cache);
 
     // SPEC-003 TLS setup, mirroring run_secure's pattern. The marquee
     // uses the SPEC-004 two-port topology: server.url is the plain HTTP
@@ -505,6 +498,7 @@ where
             }
             _ = &mut shutdown_signal => {
                 tracing::info!("test mode shutdown signal received");
+                session.stop();
                 return Ok(());
             }
         }

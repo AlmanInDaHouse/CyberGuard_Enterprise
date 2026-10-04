@@ -9,42 +9,36 @@
 //! Per ADR-0009 §Decision part 1: the dispatch path is constrained to
 //! parse-and-enqueue; no I/O, no synchronization beyond the ring's
 //! Mutex + AtomicU64 + the cache's Mutex<HashMap>. The ring drain
-//! (POST loop) happens on a separate tokio task; β3 spawns this from
-//! `run_test_mode`.
+//! (POST loop) runs on the agent's async task.
 //!
-//! Architecture decision (Option A per the β3 brief): the UserTrace
-//! handle is moved into a spawned std::thread that runs `trace.start()`
-//! (blocking, returns when the session is stopped). EtwSession itself
-//! stores only the Arc<EventRing> + Arc<CreatedTimeCache>; trace's
-//! lifetime is implicit in the thread's lifetime. On process exit the
-//! thread is leaked along with the trace; for integration-test usage
-//! (AC-004 cache-hit + AC-007 run a single agent per test then exit
-//! the process) this is acceptable. Phase 4+ refactor candidate when
-//! explicit stop() semantics are needed (hot-reload, graceful restart).
-//!
-//! Privilege-check semantics: `open()` currently always returns Ok on
-//! Windows. The real privilege check happens inside `trace.start()` on
-//! the spawned thread, but its error is not surfaced (the thread
-//! silently exits, the drain task in lib.rs's run_test_mode polls an
-//! empty ring and POSTs empty envelopes). AC-002 exercises the
-//! Err(OpenError) path via synthetic injection in
-//! `handle_etw_open_result`, not via this open(). Phase 4+ could add
-//! a sync Win32 privilege probe before the spawn.
+//! Threading (SPEC-017 §Operational §1 and §4): `open` spawns one
+//! dedicated pump thread that runs `trace.start()` and then
+//! `process_from_handle()` (the pattern ferrisetw documents as its most
+//! powerful option). `open` blocks until that thread reports the start
+//! result, so a failed start (missing privilege, or any other Win32
+//! error) reaches the caller with its code. The `UserTrace` is not
+//! `Send`, so it stays on the pump thread; `stop` (or `Drop`) ends the
+//! session by name through the side-channel helper, which makes
+//! `process_from_handle` return, and then waits for the pump thread.
 
+use ferrisetw::native::EvntraceNativeError;
 use ferrisetw::parser::Parser;
 use ferrisetw::provider::Provider;
 use ferrisetw::schema_locator::SchemaLocator;
-use ferrisetw::trace::{TraceTrait, UserTrace};
+use ferrisetw::trace::{TraceError, TraceTrait, UserTrace};
 use ferrisetw::EventRecord;
+use std::sync::mpsc;
 use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use super::cache::CreatedTimeCache;
 use super::ring::EventRing;
-use super::types::{ActivityId, CapturedEvent, OpenError};
+use super::types::{win32_from_os_error, ActivityId, CapturedEvent, OpenError};
+use super::SESSION_NAME;
 
 const KERNEL_PROCESS_GUID: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
-const SESSION_NAME: &str = "CGAgent-KernelProcess";
 
 /// `WINEVENT_KEYWORD_PROCESS` — Microsoft-Windows-Kernel-Process keyword for
 /// ProcessStart (event_id 1) + ProcessStop (event_id 2). Per provider
@@ -56,24 +50,25 @@ const SESSION_NAME: &str = "CGAgent-KernelProcess";
 /// ProcessStart/ProcessStop events across Windows builds.
 const WINEVENT_KEYWORD_PROCESS: u64 = 0x10;
 
+/// How long `stop` waits for the pump thread after stopping the session.
+const PUMP_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// ETW Kernel-Process capture session.
 ///
 /// Owns the dispatch-side handles on the shared EventRing and
-/// CreatedTimeCache. The UserTrace itself lives in a separately-spawned
-/// std::thread (see module-level doc-comment on architecture).
+/// CreatedTimeCache, and the pump thread that holds the `UserTrace`.
 pub struct EtwSession {
     pub ring: Arc<EventRing>,
     pub cache: Arc<CreatedTimeCache>,
+    pump: Option<JoinHandle<()>>,
 }
 
 impl EtwSession {
     /// Open the Kernel-Process ETW session.
     ///
-    /// Spawns a background thread that runs `UserTrace::start()`
-    /// (blocking ETW event-pump loop). The dispatch callback closes
-    /// over Arc clones of the ring + cache; the returned EtwSession
-    /// holds equivalent Arc clones so the caller (drain task) can
-    /// snapshot the ring and consult/purge the cache.
+    /// Returns only when the session has started (`Ok`) or its start has
+    /// failed (`Err`, with the Win32 code). On success the pump thread
+    /// delivers events to the dispatch callback until `stop`.
     pub fn open(ring_capacity: usize) -> Result<Self, OpenError> {
         tracing::info!(target: "cg_agent::etw", "EtwSession::open invoked");
 
@@ -134,60 +129,141 @@ impl EtwSession {
             .named(String::from(SESSION_NAME))
             .enable(provider);
 
-        // Phase 4 fix: call start() then process_from_handle() on the
-        // SAME dedicated thread. ferrisetw's documented "most powerful
-        // option" (trace.rs §TraceBuilder::start docstring): start()
-        // registers the session (StartTraceW + EnableTraceEx2 +
-        // OpenTraceW), process_from_handle() blocks on Win32 ProcessTrace
-        // which delivers events to the callback on this thread.
-        //
-        // Prior pattern (start_and_process + park) separated the session
-        // owner thread from the ProcessTrace pump thread — ferrisetw's
-        // start_and_process() spawns an internal fire-and-forget thread
-        // for ProcessTrace. That topology prevented event delivery: the
-        // callback never fired despite the session being open. Collapsing
-        // start + pump onto one dedicated thread (the spike's working
-        // pattern) resolves the dispatch gap.
-        //
-        // The OUTER thread::spawn isolates the non-Send UserTrace from
-        // the tokio async runtime in run_test_mode. UserTrace lives as a
-        // local on this thread's stack; its Drop impl calls
-        // ControlTrace(STOP) when process_from_handle returns.
-        std::thread::spawn(move || {
-            tracing::info!(target: "cg_agent::etw", "trace.start invoked on dedicated ETW thread");
-            match trace.start() {
-                Ok((trace_session, handle)) => {
-                    tracing::info!(
-                        target: "cg_agent::etw",
-                        "trace.start completed Ok; entering process_from_handle pump on this thread (blocking until session stops)",
-                    );
-                    match UserTrace::process_from_handle(handle) {
-                        Ok(()) => {
-                            tracing::info!(
-                                target: "cg_agent::etw",
-                                "process_from_handle returned Ok (session stopped normally)",
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                target: "cg_agent::etw",
-                                error = ?e,
-                                "process_from_handle returned Err",
-                            );
-                        }
+        // The pump thread reports the start result once, then blocks in
+        // process_from_handle until the session is stopped.
+        let (started_tx, started_rx) = mpsc::channel::<Result<(), OpenError>>();
+        let pump = std::thread::Builder::new()
+            .name("cg-etw-pump".to_string())
+            .spawn(move || {
+                let (trace_session, handle) = match trace.start() {
+                    Ok(started) => started,
+                    Err(e) => {
+                        let _ = started_tx.send(Err(open_error(&e)));
+                        return;
                     }
-                    // trace_session (UserTrace) drops here — its Drop impl
-                    // calls ControlTrace(STOP), releasing the OS session.
-                    drop(trace_session);
+                };
+                let _ = started_tx.send(Ok(()));
+                match UserTrace::process_from_handle(handle) {
+                    Ok(()) => {
+                        tracing::info!(
+                            target: "cg_agent::etw",
+                            "process_from_handle returned Ok (session stopped)",
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            target: "cg_agent::etw",
+                            error = ?e,
+                            "process_from_handle returned Err",
+                        );
+                    }
                 }
-                Err(e) => {
-                    tracing::error!(target: "cg_agent::etw", error = ?e, "trace.start failed")
-                }
-            }
-        });
+                // UserTrace's Drop stops (already stopped) and closes the
+                // trace handle.
+                drop(trace_session);
+            })
+            .map_err(|e| OpenError::Failed {
+                code: 0,
+                message: format!("could not spawn the ETW pump thread: {e}"),
+            })?;
 
-        tracing::debug!(target: "cg_agent::etw", "EtwSession::open returning Ok");
-        Ok(Self { ring, cache })
+        match started_rx.recv() {
+            Ok(Ok(())) => {
+                tracing::info!(
+                    target: "cg_agent::etw",
+                    session_name = SESSION_NAME,
+                    provider_guid = KERNEL_PROCESS_GUID,
+                    "ETW session opened",
+                );
+                Ok(Self {
+                    ring,
+                    cache,
+                    pump: Some(pump),
+                })
+            }
+            Ok(Err(e)) => {
+                let _ = pump.join();
+                // A start that failed after StartTraceW succeeded (e.g. in
+                // EnableTraceEx2) can leave the session behind; a privilege
+                // failure creates none.
+                if !e.is_privilege() {
+                    let _ = super::stop_session(SESSION_NAME);
+                }
+                Err(e)
+            }
+            Err(_) => {
+                let _ = pump.join();
+                Err(OpenError::Failed {
+                    code: 0,
+                    message: "the ETW pump thread ended before reporting the session start"
+                        .to_string(),
+                })
+            }
+        }
+    }
+
+    /// Stop the session and wait for the pump thread (SPEC-017
+    /// §Operational §4). Idempotent; also run by `Drop`.
+    pub fn stop(&mut self) {
+        let Some(pump) = self.pump.take() else {
+            return;
+        };
+        if let Err(rc) = super::stop_session(SESSION_NAME) {
+            tracing::warn!(
+                target: "cg_agent::etw",
+                session_name = SESSION_NAME,
+                win32_status = rc,
+                "ControlTraceW(STOP) of the agent's session failed",
+            );
+        }
+        let deadline = Instant::now() + PUMP_JOIN_TIMEOUT;
+        while !pump.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if pump.is_finished() {
+            let _ = pump.join();
+            tracing::info!(
+                target: "cg_agent::etw",
+                session_name = SESSION_NAME,
+                "ETW session closed",
+            );
+        } else {
+            tracing::warn!(
+                target: "cg_agent::etw",
+                session_name = SESSION_NAME,
+                timeout_ms = PUMP_JOIN_TIMEOUT.as_millis() as u64,
+                "ETW pump thread did not finish after the session stop",
+            );
+        }
+    }
+}
+
+impl Drop for EtwSession {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Map a ferrisetw start error to the agent's `OpenError`, recovering
+/// the Win32 code (ferrisetw carries it as an `HRESULT_FROM_WIN32`).
+fn open_error(err: &TraceError) -> OpenError {
+    match err {
+        TraceError::EtwNativeError(EvntraceNativeError::IoError(io)) => match io.raw_os_error() {
+            Some(raw) => OpenError::from_win32(win32_from_os_error(raw)),
+            None => OpenError::Failed {
+                code: 0,
+                message: io.to_string(),
+            },
+        },
+        // ERROR_ALREADY_EXISTS (183): a session of our name survived the
+        // startup reclaim.
+        TraceError::EtwNativeError(EvntraceNativeError::AlreadyExist) => OpenError::from_win32(183),
+        // ERROR_INVALID_HANDLE (6).
+        TraceError::EtwNativeError(EvntraceNativeError::InvalidHandle) => OpenError::from_win32(6),
+        TraceError::InvalidTraceName => OpenError::Failed {
+            code: 0,
+            message: "invalid ETW session name".to_string(),
+        },
     }
 }
 
