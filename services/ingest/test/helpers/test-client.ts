@@ -41,6 +41,8 @@ export interface EnvelopeOptions {
   /** Override the envelope agent_id to mismatch the cert CN (AC-005). */
   agentIdOverride?: string;
   status?: "online" | "going_offline";
+  /** `body.events` (SPEC-017 §Data contracts); omitted when absent. */
+  events?: Record<string, unknown>[];
 }
 
 export interface HeartbeatResult {
@@ -127,6 +129,7 @@ export async function buildSignedEnvelope(
       sent_at: sentAt,
       status: opts.status ?? "online",
       uptime_seconds: 0,
+      ...(opts.events === undefined ? {} : { events: opts.events }),
     },
   };
   const canonical = canonicalize(signedRegion);
