@@ -11,12 +11,14 @@
 //! - `session` (Windows-only): ETW session + dispatch callback.
 //! - `session_stub` (non-Windows): no capture backend.
 //! - `events_lost_impl`: side-channel helpers (events_lost, stop by name).
+//! - `hygiene`: the 60 s cache sweep and `events_lost` poll.
 //!
 //! Module-level public surface is the union of submodule re-exports below.
 
 mod cache;
 mod dispatch;
 mod events_lost_impl;
+mod hygiene;
 mod ring;
 mod types;
 mod uid;
@@ -40,6 +42,9 @@ pub use dispatch::{dispatch_record, filetime_to_unix_nanos, RawProcessRecord};
 pub use events_lost_impl::events_lost;
 pub use events_lost_impl::reclaim_zombie;
 pub use events_lost_impl::stop_session;
+#[cfg(target_os = "windows")]
+pub use hygiene::process_is_alive;
+pub use hygiene::{EventsLostMonitor, LostObservation, HYGIENE_INTERVAL};
 pub use ring::{EventRing, OverflowWarning};
 pub use types::{win32_from_os_error, ActivityId, CapturedEvent, OpenError};
 pub use uid::format_process_uid;

@@ -1,10 +1,14 @@
 //! SPEC-017 capture_ac_010 — capture hygiene.
 //!
 //! `event_id` is a UUIDv7 generated at dispatch; a ring overflow produces
-//! one `warn` with the dropped total, at most once per 60 s.
+//! one `warn` with the dropped total, at most once per 60 s; the cache
+//! sweep evicts the entries of processes that are gone (SPEC-005
+//! NFR-005-006); an `events_lost` increase produces its `warn`, a
+//! decrease an `error`.
 
 use cg_agent::etw::{
-    dispatch_record, ActivityId, CreatedTimeCache, EventRing, OverflowWarning, RawProcessRecord,
+    dispatch_record, ActivityId, CreatedTimeCache, EventRing, EventsLostMonitor, LostObservation,
+    OverflowWarning, RawProcessRecord, HYGIENE_INTERVAL,
 };
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -132,4 +136,83 @@ fn capture_ac_010_ring_overflow_warns_with_a_60_s_throttle() {
         lines[1]
     );
     assert!(lines.iter().all(|l| l.contains("\"level\":\"WARN\"")));
+}
+
+#[test]
+fn capture_ac_010_hygiene_runs_every_60_s() {
+    assert_eq!(HYGIENE_INTERVAL, Duration::from_secs(60));
+}
+
+#[test]
+fn capture_ac_010_sweep_evicts_entries_of_processes_that_are_gone() {
+    let cache = CreatedTimeCache::new();
+    cache.insert(1, 100);
+    cache.insert(2, 200);
+    cache.insert(3, 300);
+
+    let evicted = cache.sweep(|pid| pid != 2);
+
+    assert_eq!(evicted, 1);
+    assert_eq!(cache.len(), 2);
+    assert_eq!(cache.consult_and_purge(2), None, "pid 2 was evicted");
+    assert_eq!(cache.consult_and_purge(1), Some(100));
+}
+
+#[test]
+fn capture_ac_010_sweep_keeps_an_entry_replaced_during_the_sweep() {
+    let cache = CreatedTimeCache::new();
+    cache.insert(5, 500);
+
+    // The process is gone, but a new Launch reuses its PID meanwhile.
+    let evicted = cache.sweep(|pid| {
+        cache.insert(pid, 900);
+        false
+    });
+
+    assert_eq!(evicted, 0);
+    assert_eq!(cache.consult_and_purge(5), Some(900));
+}
+
+#[test]
+fn capture_ac_010_events_lost_increase_warns_and_decrease_errors() {
+    let mut monitor = EventsLostMonitor::new();
+    let mut observations = Vec::new();
+    let lines = capture_warn_logs(|| {
+        observations.push(monitor.observe(0, "CGAgent-KernelProcess"));
+        observations.push(monitor.observe(7, "CGAgent-KernelProcess"));
+        observations.push(monitor.observe(7, "CGAgent-KernelProcess"));
+        observations.push(monitor.observe(3, "CGAgent-KernelProcess"));
+    });
+
+    assert_eq!(
+        observations,
+        vec![
+            LostObservation::Unchanged,
+            LostObservation::Increased { total: 7, delta: 7 },
+            LostObservation::Unchanged,
+            LostObservation::Decreased {
+                current: 3,
+                previous: 7
+            },
+        ]
+    );
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines[0].contains("\"level\":\"WARN\""), "{}", lines[0]);
+    assert!(lines[0].contains("\"events_lost\":7"), "{}", lines[0]);
+    assert!(lines[1].contains("\"level\":\"ERROR\""), "{}", lines[1]);
+}
+
+#[cfg(windows)]
+#[test]
+fn capture_ac_010_process_liveness_probe() {
+    use cg_agent::etw::process_is_alive;
+
+    assert!(
+        process_is_alive(std::process::id()),
+        "this process is alive"
+    );
+    // PID 4 is the System process: access is denied, yet it exists.
+    assert!(process_is_alive(4));
+    // No process has this PID (PIDs are multiples of 4, far below this).
+    assert!(!process_is_alive(0xFFFF_FFF0));
 }

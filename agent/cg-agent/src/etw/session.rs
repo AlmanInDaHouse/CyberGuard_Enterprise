@@ -19,7 +19,8 @@
 //! error) reaches the caller with its code. The `UserTrace` is not
 //! `Send`, so it stays on the pump thread; `stop` (or `Drop`) ends the
 //! session by name through the side-channel helper, which makes
-//! `process_from_handle` return, and then waits for the pump thread.
+//! `process_from_handle` return, and then waits for the pump thread. A
+//! second thread runs the hygiene work every 60 s (`hygiene.rs`).
 
 use ferrisetw::native::EvntraceNativeError;
 use ferrisetw::parser::Parser;
@@ -34,6 +35,7 @@ use std::time::{Duration, Instant};
 
 use super::cache::CreatedTimeCache;
 use super::dispatch::{dispatch_record, RawProcessRecord};
+use super::hygiene::HygieneThread;
 use super::ring::EventRing;
 use super::types::{win32_from_os_error, ActivityId, OpenError};
 use super::SESSION_NAME;
@@ -56,11 +58,13 @@ const PUMP_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 /// ETW Kernel-Process capture session.
 ///
 /// Owns the dispatch-side handles on the shared EventRing and
-/// CreatedTimeCache, and the pump thread that holds the `UserTrace`.
+/// CreatedTimeCache, the pump thread that holds the `UserTrace`, and the
+/// hygiene thread (cache sweep + `events_lost` poll every 60 s).
 pub struct EtwSession {
     pub ring: Arc<EventRing>,
     pub cache: Arc<CreatedTimeCache>,
     pump: Option<JoinHandle<()>>,
+    hygiene: Option<HygieneThread>,
 }
 
 impl EtwSession {
@@ -175,10 +179,22 @@ impl EtwSession {
                     provider_guid = KERNEL_PROCESS_GUID,
                     "ETW session opened",
                 );
+                let hygiene = match HygieneThread::spawn(Arc::clone(&cache), SESSION_NAME) {
+                    Ok(thread) => Some(thread),
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "cg_agent::etw",
+                            error = %e,
+                            "could not spawn the hygiene thread; no cache sweep or events_lost poll",
+                        );
+                        None
+                    }
+                };
                 Ok(Self {
                     ring,
                     cache,
                     pump: Some(pump),
+                    hygiene,
                 })
             }
             Ok(Err(e)) => {
@@ -202,9 +218,12 @@ impl EtwSession {
         }
     }
 
-    /// Stop the session and wait for the pump thread (SPEC-017
-    /// §Operational §4). Idempotent; also run by `Drop`.
+    /// Stop the hygiene thread, then the session, and wait for the pump
+    /// thread (SPEC-017 §Operational §4). Idempotent; also run by `Drop`.
     pub fn stop(&mut self) {
+        if let Some(hygiene) = self.hygiene.take() {
+            hygiene.stop();
+        }
         let Some(pump) = self.pump.take() else {
             return;
         };
