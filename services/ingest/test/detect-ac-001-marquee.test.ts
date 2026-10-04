@@ -22,15 +22,18 @@ import { prepareAgent } from "./helpers/marquee-agent.js";
 // powershell.exe), and EXACTLY ONE rule.office_spawns_script_host alert is
 // persisted to Postgres for the agent, sourced from the captured powershell.exe
 // child (SPEC-016 §Operational §3). Alerts from other rules on the machine's
-// background activity are logged, not asserted, and so is the captured
-// image_file_name of the probe and its child — the first recorded sample of the
-// path form the agent emits (SPEC-016 §Context, fact 3).
+// background activity are logged, not asserted. The captured image_file_name of
+// the probe and its child is logged and asserted in Win32 form (SPEC-017
+// capture_ac_012); the agent runs its normal secure path.
 //
 // IMPORTANT: a green run here does NOT imply production coverage of the
 // already-running-Office case — the probe spawns the parent AFTER the agent
 // session opens so it is captured (SPEC-006 §Operational §2 production FN).
 
 const OFFICE_RULE = "rule.office_spawns_script_host";
+
+/** A drive-letter (Win32) path: `C:\...` (SPEC-017 §Operational §5). */
+const WIN32_PATH = /^[A-Za-z]:\\/;
 
 /** Dedup bucket width (ADR-0012 §5 / §8), as alerts.ts builds the dedup_key. */
 const DEDUP_BUCKET_SECONDS = 300;
@@ -155,6 +158,9 @@ test.skipIf(process.platform !== "win32")(
     expect(probePid, "probe pid").toBeDefined();
     expect(child, "the probe's powershell.exe child in cges_events").toBeDefined();
     if (child === undefined) return;
+    // SPEC-017 capture_ac_012: the captured image paths are in Win32 form.
+    expect(probeLaunch?.image_file_name, "probe image path").toMatch(WIN32_PATH);
+    expect(child.image_file_name, "child image path").toMatch(WIN32_PATH);
     expect(alert?.source_events).toContain(child.event_id);
     // dedup_key = <agent_id>::<rule_id>::<process_name>::<5-min bucket> (ADR-0012 §5),
     // built from the child's event.

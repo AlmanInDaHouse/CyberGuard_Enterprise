@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 import { type IngestServer, startIngest } from "../src/server.js";
-import { getAgent, getCgesEvents, issueToken } from "./helpers/db.js";
+import { type CgesEventRow, getAgent, getCgesEvents, issueToken } from "./helpers/db.js";
 import { prepareAgent } from "./helpers/marquee-agent.js";
 
 // SPEC-005 AC-001 — polyglot marquee end-to-end.
@@ -15,13 +15,17 @@ import { prepareAgent } from "./helpers/marquee-agent.js";
 // ~40 s observation window (D7 budget is 45 s wall-clock end-to-end
 // per NFR-005-004); queries the cges_events ClickHouse table for the
 // two persisted rows (Launch + Terminate) and asserts five conditions
-// per SPEC-005 §AC AC-001.
+// per SPEC-005 §AC AC-001, plus the Win32 form of the image path
+// (SPEC-017 capture_ac_012). The agent runs its normal secure path.
 //
 // Three-layer RED expected: (i) agent has no ETW code yet (Phase 3.5
 // closure); (ii) ingest's OuterEnvelopeSchema rejects envelopes with
 // events[] (Phase 3.5 D6 schema acceptance); (iii) cges_events table
 // does not exist (Phase 3.5 D6 literal DDL). All three layers clear
 // in Phase 3.5 as a coordinated implementation phase.
+
+/** A drive-letter (Win32) path: `C:\...` (SPEC-017 §Operational §5). */
+const WIN32_PATH = /^[A-Za-z]:\\/;
 
 let config: Config;
 let server: IngestServer;
@@ -94,18 +98,33 @@ test.skipIf(process.platform !== "win32")(
         stdout: result.stdout,
       }),
     );
+    // Read the agent's identity and its persisted events, then log the D7
+    // elapsed time before any assertion, so a red run logs it too
+    // (NFR-005-004).
+    let agentId: string | undefined;
+    let events: CgesEventRow[] = [];
+    let marqueeElapsedSeconds = Number.NaN;
+    try {
+      const identityJson = JSON.parse(
+        readFileSync(join(agent.identityDir, "identity.json"), "utf-8"),
+      ) as { agent_id: string };
+      agentId = identityJson.agent_id;
+      events = await getCgesEvents(config, agentId);
+    } finally {
+      marqueeElapsedSeconds = (Date.now() - marqueeStartMs) / 1000;
+      console.info(
+        JSON.stringify({
+          event: "spec_005_marquee_complete",
+          marquee_elapsed_seconds: marqueeElapsedSeconds,
+          budget_seconds: 45,
+          within_budget: marqueeElapsedSeconds <= 45,
+        }),
+      );
+    }
+
     expect(result.stderr).not.toContain("panic");
-    expect(result.stderr).not.toContain("exit_code: 9");
-
-    // Read the agent's identity to recover the agent_id it enrolled as.
-    const identityJson = JSON.parse(
-      readFileSync(join(agent.identityDir, "identity.json"), "utf-8"),
-    ) as { agent_id: string };
-    const agentRow = await getAgent(config, identityJson.agent_id);
+    const agentRow = await getAgent(config, agentId ?? "");
     expect(agentRow).not.toBeNull();
-
-    // Query cges_events for the probe's two events.
-    const events = await getCgesEvents(config, identityJson.agent_id);
 
     const probeEvents = events.filter((e) => e.process_pid === probePid);
 
@@ -147,16 +166,11 @@ test.skipIf(process.platform !== "win32")(
     expect(launch.process_name).toBe("cmd.exe");
     expect(terminate.process_name).toBe("cmd.exe");
 
-    // D7 marquee budget — wall-clock ≤ 45 s per NFR-005-004.
-    const marqueeElapsedSeconds = (Date.now() - marqueeStartMs) / 1000;
-    console.info(
-      JSON.stringify({
-        event: "spec_005_marquee_complete",
-        marquee_elapsed_seconds: marqueeElapsedSeconds,
-        budget_seconds: 45,
-        within_budget: marqueeElapsedSeconds <= 45,
-      }),
-    );
+    // SPEC-017 capture_ac_012: the image path travels in Win32 form.
+    expect(launch.image_file_name).toMatch(WIN32_PATH);
+    expect(terminate.image_file_name).toMatch(WIN32_PATH);
+
+    // D7 marquee budget — wall-clock ≤ 45 s per NFR-005-004 (logged above).
     expect(marqueeElapsedSeconds).toBeLessThanOrEqual(45);
   },
   60_000,

@@ -75,10 +75,9 @@ export async function getHeartbeats(config: Config, agentId: string): Promise<He
 
 // SPEC-005 additions — getCgesEvents helper + CgesEventRow interface.
 // Queries the cges_events ClickHouse table for rows belonging to a
-// given agent_id, ordered by capture timestamp ascending. The table
-// itself does not exist yet (D6 PARTIALLY DONE; literal DDL lands in
-// Phase 3.5 alongside the schema acceptance for events[] envelopes);
-// this helper compiles cleanly and runs once Phase 3.5 lands the DDL.
+// given agent_id, ordered by capture timestamp ascending, with FINAL:
+// the agent delivers at least once, and FINAL collapses a resent event
+// (SPEC-017 §Data contracts) as the detection read-model does.
 
 export interface CgesEventRow {
   agent_id: string;
@@ -89,6 +88,7 @@ export interface CgesEventRow {
   process_name: string;
   process_created_time: string | null;
   process_exit_code: number | null;
+  image_file_name: string;
   time: string;
 }
 
@@ -111,8 +111,9 @@ export async function getCgesEvents(config: Config, agentId: string): Promise<Cg
           process_name,
           process_created_time,
           process_exit_code,
+          image_file_name,
           time
-        FROM cges_events
+        FROM cges_events FINAL
         WHERE agent_id = {agent_id:String}
         ORDER BY time ASC
       `,
