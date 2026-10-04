@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-description = "CyberGuard endpoint agent — SPEC-001 (heartbeat)."
+description = "CyberGuard endpoint agent — heartbeat, enrollment, mTLS and Windows process capture."
 
 [[bin]]
 name = "cg-agent"
