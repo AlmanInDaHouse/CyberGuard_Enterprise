@@ -234,24 +234,26 @@ When adding an entry, also link to the relevant memory (e.g. `[[project-pending-
 
 The SPEC-005 polyglot marquee test (`services/ingest/test/spec-005-marquee.test.ts`) validates the end-to-end agent → ingest → ClickHouse path on Windows. It cannot run in CI per the Path D resolution documented at Phase 3.5.H and ADR-0010 §Decision part 3 Amendment 2026-05-29 (Fallback 2): hosted GitHub Actions Windows runners do not expose a working container runtime for testcontainers, and Linux runners cannot spawn `cmd.exe` for the probe process. Additionally, the MVP elevated-user privilege model (ADR-0010 §Decision part 1) has not been validated on `runneradmin`.
 
-The marquee is therefore validated developer-local. Procedure:
+The marquee is therefore validated developer-local. Procedure (the elevated gate):
 
 1. Have Docker Desktop running on the Windows machine.
 2. Open an **elevated** terminal (Run as Administrator) at the repo root.
 3. Run:
 
    ```sh
+   cargo build --release -p cg-agent
+   cargo test -p cg-agent -- --ignored --test-threads=1
    cd services/ingest
    pnpm install
    pnpm test
    ```
 
-4. The vitest run executes the whole suite, including the SPEC-005 marquee. Expected outcome: all tests pass, the marquee included. The marquee's `.skipIf(process.platform !== "win32")` gate is inactive on Windows; the test runs end-to-end.
-5. This procedure is the standing validation gate for any merge that touches the ETW path. Run before merging changes to `agent/cg-agent/src/etw/`, `agent/cg-agent/src/cges/`, or `services/ingest/src/routes/heartbeat.ts`.
+4. `cargo build --release` refreshes the binary the marquees launch (`agentBinaryPath()` prefers `target/release/`). The `cargo test ... --ignored` run executes the agent tests that need real ETW and elevation, `#[ignore]`d everywhere else (SPEC-017 capture_ac_013): `process_ac_004` (cache hit), `process_ac_007`, `process_ac_009` and the elevated case of `capture_ac_006`; expected outcome: those four pass. The vitest run executes the whole suite, including the SPEC-005 marquee, `detect_ac_001` and `ac-001-marquee` (on Windows these run only elevated). Expected outcome: all tests pass, the marquees included. The agent runs its normal secure path (SPEC-017); there is no environment switch.
+5. This procedure is the standing validation gate for any merge that touches the capture path. Run before merging changes to `agent/cg-agent/src/etw/`, `agent/cg-agent/src/cges/`, `agent/cg-agent/src/delivery.rs`, `agent/cg-agent/src/paths.rs`, the secure path in `agent/cg-agent/src/lib.rs`, or `services/ingest/src/routes/heartbeat.ts`.
 
 **Validation status:** marquee 8/8 GREEN, validated developer-local in Phase 4 Session 16 (two consecutive runs, zombie reclaim validated). ts-ci Known CI debt row removed in this commit.
 
-If the local run fails, surface the failure to architect-Claude for diagnosis. The marquee's 5 assertions per SPEC-005 §AC AC-001 + the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 implementation defects, not infrastructure issues.
+If the local run fails, surface the failure to architect-Claude for diagnosis. The marquee's 5 assertions per SPEC-005 §AC AC-001, the Win32 form of the image path (SPEC-017 capture_ac_012) and the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 / SPEC-017 implementation defects, not infrastructure issues.
 
 ## Developer-local SPEC-006 marquee validation
 
@@ -263,16 +265,18 @@ Procedure:
 
 1. Have Docker Desktop running on the Windows machine.
 2. Open an **elevated** terminal (Run as Administrator) at the repo root. An elevated terminal starts in `C:\Windows\System32`; `cd` to the repo root first.
-3. Run:
+3. Run (the same elevated gate as the SPEC-005 marquee above):
 
    ```sh
+   cargo build --release -p cg-agent
+   cargo test -p cg-agent -- --ignored --test-threads=1
    cd services/ingest
    pnpm install --frozen-lockfile
    pnpm test
    ```
 
-4. The vitest run executes the full suite including the SPEC-005 marquee AND `detect_ac_001` (both `.skipIf` gates are inactive on Windows). The evidence to report is the vitest summary (`Test Files N passed (N)` / `Tests M passed (M)`, nothing skipped); with output redirected, vitest does not list every file.
-5. `detect_ac_001` runs the whole rule set over the capture and asserts, for the agent, exactly one Postgres alert with `rule_id = rule.office_spawns_script_host`, and on it `cg_detection_source = rule`, `final_score = 0.9`, `status = new`, a well-formed `dedup_key`, and `source_events` containing the `event_id` of the captured `powershell.exe` child (SPEC-016 §Operational §3). Alerts from other rules on background activity are logged, not asserted, together with the captured `image_file_name` of the probe and its child — the first recorded sample of the path form the agent emits; report those two log lines with the vitest summary. The probe spawns the `winword.exe` stand-in **after** the agent's ETW session opens, so the parent is captured — a green run does NOT imply production coverage of the already-running-Office case (SPEC-006 §Operational §2 production false-negative).
+4. The vitest run executes the full suite including the SPEC-005 marquee AND `detect_ac_001` (both `.skipIf` gates are inactive on Windows). The evidence to report is the vitest summary (`Test Files N passed (N)` / `Tests M passed (M)`, nothing skipped; with output redirected, vitest does not list every file) and, from the cargo run, the four real-ETW tests passed.
+5. `detect_ac_001` runs the whole rule set over the capture and asserts, for the agent, exactly one Postgres alert with `rule_id = rule.office_spawns_script_host`, and on it `cg_detection_source = rule`, `final_score = 0.9`, `status = new`, a well-formed `dedup_key`, and `source_events` containing the `event_id` of the captured `powershell.exe` child (SPEC-016 §Operational §3). Alerts from other rules on background activity are logged, not asserted. The captured `image_file_name` of the probe and its child is logged and asserted in Win32 form (SPEC-017 capture_ac_012); report those two log lines with the vitest summary. The probe spawns the `winword.exe` stand-in **after** the agent's ETW session opens, so the parent is captured — a green run does NOT imply production coverage of the already-running-Office case (SPEC-006 §Operational §2 production false-negative).
 6. Standing gate before merging changes to the detection path: `services/ingest/src/detect/`, `rules/windows/`, or the `alerts` / `cges_events` schema.
 
 **A green run stays valid over later commits** only if none of them touches a runtime input of the path it tests — `services/`, `agent/`, `dashboard/` or `rules/` — and the non-elevated suite count is identical before and after; any other change forces a re-run. This is criterion (a) of the *Detection prod-driver branch merge gate* below, extended to `rules/`: a change to a rule alone changes what the marquee evaluates.
