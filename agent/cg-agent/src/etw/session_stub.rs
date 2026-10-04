@@ -1,11 +1,12 @@
 //! Non-Windows stub for `EtwSession`.
 //!
 //! Debug builds: provides a stub `EtwSession::open()` that returns
-//! `Err(OpenError::AccessDenied)`. The agent's startup path treats this
-//! identically to a real ETW open failure on Windows. Linux developers
-//! can build + run the agent for non-ETW code paths without it crashing
-//! at the secure_storage hard-stop (debug builds tolerate non-Windows
-//! per `secure_storage.rs:14` `cfg(all(not(windows), not(debug_assertions)))`).
+//! `Err(OpenError::Unsupported)` — this build has no capture backend, and
+//! the secure path then sends heartbeats only (SPEC-017 §Operational §1).
+//! Linux developers can build + run the agent for non-ETW code paths
+//! without it crashing at the secure_storage hard-stop (debug builds
+//! tolerate non-Windows per `secure_storage.rs:14`
+//! `cfg(all(not(windows), not(debug_assertions)))`).
 //!
 //! Release builds: compile_error per the `secure_storage.rs` precedent.
 //! Production deployments on non-Windows are not supported.
@@ -26,10 +27,9 @@ use super::types::OpenError;
 
 /// Non-Windows stub for EtwSession.
 ///
-/// `open()` always returns Err(OpenError::AccessDenied). The ring + cache
-/// fields exist so callers (lib.rs `run_test_mode`) compile against the
-/// same struct shape as the Windows impl, even though they are never
-/// populated on non-Windows.
+/// `open()` always returns `Err(OpenError::Unsupported)`. The ring +
+/// cache fields exist so callers compile against the same struct shape
+/// as the Windows impl, even though they are never populated here.
 pub struct EtwSession {
     pub ring: Arc<EventRing>,
     pub cache: Arc<CreatedTimeCache>,
@@ -37,6 +37,9 @@ pub struct EtwSession {
 
 impl EtwSession {
     pub fn open(_ring_capacity: usize) -> Result<Self, OpenError> {
-        Err(OpenError::AccessDenied)
+        Err(OpenError::Unsupported)
     }
+
+    /// No session to stop on this platform.
+    pub fn stop(&mut self) {}
 }

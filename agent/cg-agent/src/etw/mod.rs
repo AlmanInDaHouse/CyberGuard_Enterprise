@@ -1,14 +1,14 @@
 //! ETW capture path — Windows Kernel-Process events.
 //!
-//! Submodule organization (Phase 3.5 complete after β3):
+//! Submodule organization:
 //! - `types`: in-memory captured-event shape + activity discriminants +
-//!   raw open-error variants.
+//!   the session-start error.
 //! - `ring`: bounded ring buffer with FIFO-drop + monotonic drop counter.
 //! - `uid`: `process.uid` recipe formatter per ADR-0011 §6.
 //! - `cache`: `CreatedTimeCache` for Terminate retention.
 //! - `session` (Windows-only): ETW session + dispatch callback.
-//! - `session_stub` (non-Windows): debug-build stub returning Err.
-//! - `events_lost_impl`: side-channel events_lost helper.
+//! - `session_stub` (non-Windows): no capture backend.
+//! - `events_lost_impl`: side-channel helpers (events_lost, stop by name).
 //!
 //! Module-level public surface is the union of submodule re-exports below.
 
@@ -28,9 +28,14 @@ pub use session::EtwSession;
 #[cfg(not(target_os = "windows"))]
 pub use session_stub::EtwSession;
 
+/// The agent's ETW session name. One constant (ADR-0008 §Compliance):
+/// ferrisetw's `named(...)` and the side-channel helpers both use it.
+pub const SESSION_NAME: &str = "CGAgent-KernelProcess";
+
 pub use cache::CreatedTimeCache;
 pub use events_lost_impl::events_lost;
 pub use events_lost_impl::reclaim_zombie;
+pub use events_lost_impl::stop_session;
 pub use ring::EventRing;
-pub use types::{ActivityId, CapturedEvent, OpenError};
+pub use types::{win32_from_os_error, ActivityId, CapturedEvent, OpenError};
 pub use uid::format_process_uid;

@@ -80,20 +80,64 @@ pub struct CapturedEvent {
     pub exit_status: Option<i32>,
 }
 
-/// Raw ETW session-open error variants per ADR-0010 §Decision part 1.
+/// Why an ETW session did not start (SPEC-017 §Operational §1, ADR-0010
+/// §Decision part 1).
 ///
-/// Internal to the etw module. The agent-level error domain wraps these
-/// via `EtwError` in `errors.rs`, which is what `handle_etw_open_result`
-/// in `startup.rs` consumes. β3 will expand the variant set when the
-/// real Win32 `StartTraceW` / `ControlTraceW` paths surface additional
-/// failure modes (TraceNotFound, AlreadyExists, ControlFailed, etc.).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `EtwSession::open` returns one of these only after the session start
+/// has actually run and failed. The agent-level error domain wraps it
+/// via `EtwError` in `errors.rs`; `handle_etw_open_result` in
+/// `startup.rs` maps it to a startup action.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenError {
     /// Win32 `ERROR_PRIVILEGE_NOT_HELD` (1314). The process is not
     /// running with the SeSystemProfilePrivilege or equivalent required
     /// to open the Kernel-Process provider.
     PrivilegeNotHeld,
-    /// Win32 `ERROR_ACCESS_DENIED` (5). Similar to PrivilegeNotHeld in
-    /// effect; surfaces on certain hardened SKUs or under group policy.
+    /// Win32 `ERROR_ACCESS_DENIED` (5). What an unelevated process gets
+    /// from `StartTraceW`.
     AccessDenied,
+    /// Any other start failure: the Win32 code and its system message.
+    Failed { code: u32, message: String },
+    /// This build has no capture backend (non-Windows platforms).
+    Unsupported,
+}
+
+impl OpenError {
+    /// Classify the Win32 error code a session start failed with.
+    pub fn from_win32(code: u32) -> Self {
+        match code {
+            5 => OpenError::AccessDenied,
+            1314 => OpenError::PrivilegeNotHeld,
+            other => OpenError::Failed {
+                code: other,
+                message: win32_message(other),
+            },
+        }
+    }
+
+    /// True for the two privilege failures (exit code 9).
+    pub fn is_privilege(&self) -> bool {
+        matches!(self, OpenError::PrivilegeNotHeld | OpenError::AccessDenied)
+    }
+}
+
+/// The Win32 error code inside a raw OS error value. ferrisetw reports
+/// `StartTraceW` / `EnableTraceEx2` failures as `HRESULT_FROM_WIN32`
+/// values (`0x8007xxxx`) carried in an `io::Error`; a plain Win32 code
+/// passes through unchanged.
+pub fn win32_from_os_error(raw: i32) -> u32 {
+    let value = raw as u32;
+    if value & 0xFFFF_0000 == 0x8007_0000 {
+        value & 0xFFFF
+    } else {
+        value
+    }
+}
+
+/// The system message for a Win32 code, without the `(os error N)`
+/// suffix the standard library appends.
+fn win32_message(code: u32) -> String {
+    let text = std::io::Error::from_raw_os_error(code as i32).to_string();
+    let suffix = format!(" (os error {code})");
+    text.strip_suffix(&suffix).unwrap_or(&text).to_string()
 }
