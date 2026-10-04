@@ -24,7 +24,9 @@ pub struct RawProcessRecord {
     pub activity_id: ActivityId,
     pub pid: u32,
     pub parent_pid: u32,
-    /// ETW `ImageName`, in kernel device form.
+    /// ETW `ImageName`: on Launch (ProcessStart) the kernel device path
+    /// (`\Device\HarddiskVolumeN\...`); on Terminate (ProcessStop) only
+    /// the image's base name.
     pub image_file_name: String,
     pub command_line: String,
     pub subject_user_sid: String,

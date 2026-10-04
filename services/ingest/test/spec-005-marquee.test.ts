@@ -15,8 +15,10 @@ import { prepareAgent } from "./helpers/marquee-agent.js";
 // ~40 s observation window (D7 budget is 45 s wall-clock end-to-end
 // per NFR-005-004); queries the cges_events ClickHouse table for the
 // two persisted rows (Launch + Terminate) and asserts five conditions
-// per SPEC-005 §AC AC-001, plus the Win32 form of the image path
-// (SPEC-017 capture_ac_012). The agent runs its normal secure path.
+// per SPEC-005 §AC AC-001, plus the Win32 form of the Launch's image
+// path (SPEC-017 capture_ac_012). The Terminate (ProcessStop) carries
+// only the image's base name: it is logged, and must not be in device
+// form. The agent runs its normal secure path.
 //
 // Three-layer RED expected: (i) agent has no ETW code yet (Phase 3.5
 // closure); (ii) ingest's OuterEnvelopeSchema rejects envelopes with
@@ -26,6 +28,9 @@ import { prepareAgent } from "./helpers/marquee-agent.js";
 
 /** A drive-letter (Win32) path: `C:\...` (SPEC-017 §Operational §5). */
 const WIN32_PATH = /^[A-Za-z]:\\/;
+
+/** A kernel device path: `\Device\...`. */
+const DEVICE_FORM = /^\\Device\\/i;
 
 let config: Config;
 let server: IngestServer;
@@ -127,11 +132,13 @@ test.skipIf(process.platform !== "win32")(
     expect(agentRow).not.toBeNull();
 
     const probeEvents = events.filter((e) => e.process_pid === probePid);
-
-    expect(probeEvents.length).toBe(2);
-
     const launch = probeEvents.find((e) => e.activity_id === 1);
     const terminate = probeEvents.find((e) => e.activity_id === 2);
+    console.log(
+      `spec_005 captured image_file_name — launch: ${launch?.image_file_name ?? "(not captured)"}; terminate: ${terminate?.image_file_name ?? "(not captured)"}`,
+    );
+
+    expect(probeEvents.length).toBe(2);
     if (!launch || !terminate) {
       throw new Error(
         `AC-001: probe MUST have both Launch (activity_id=1) and Terminate (activity_id=2) events; got ${JSON.stringify(probeEvents)}`,
@@ -166,9 +173,11 @@ test.skipIf(process.platform !== "win32")(
     expect(launch.process_name).toBe("cmd.exe");
     expect(terminate.process_name).toBe("cmd.exe");
 
-    // SPEC-017 capture_ac_012: the image path travels in Win32 form.
+    // SPEC-017 capture_ac_012: the Launch's image path travels in Win32
+    // form. ProcessStop carries only the base name, with nothing to
+    // translate; it is emitted as is, never in device form.
     expect(launch.image_file_name).toMatch(WIN32_PATH);
-    expect(terminate.image_file_name).toMatch(WIN32_PATH);
+    expect(terminate.image_file_name).not.toMatch(DEVICE_FORM);
 
     // D7 marquee budget — wall-clock ≤ 45 s per NFR-005-004 (logged above).
     expect(marqueeElapsedSeconds).toBeLessThanOrEqual(45);

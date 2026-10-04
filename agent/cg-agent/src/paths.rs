@@ -1,9 +1,11 @@
 //! Kernel device path → Win32 path translation (SPEC-005 §Operational §3,
 //! SPEC-017 §Operational §5).
 //!
-//! ETW reports a process image as a kernel device path
-//! (`\Device\HarddiskVolume3\Windows\System32\cmd.exe`). The agent builds
-//! a device-prefix → drive-letter map once at startup with
+//! ETW's ProcessStart (Launch) reports a process image as a kernel device
+//! path (`\Device\HarddiskVolume3\Windows\System32\cmd.exe`); ProcessStop
+//! (Terminate) carries only the base name (`cmd.exe`), which no rule
+//! below matches and which is returned as is. The agent builds a
+//! device-prefix → drive-letter map once at startup with
 //! `QueryDosDeviceW` (Windows only) and applies it when an event is
 //! rendered, never in the dispatch callback:
 //!
