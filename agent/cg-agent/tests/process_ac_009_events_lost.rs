@@ -9,73 +9,56 @@
 //! observable via the `ControlTraceW(EVENT_TRACE_CONTROL_QUERY)`
 //! mechanism.
 //!
-//! Spike reproduction note. The spike cites "1 KB × 2 buffers + 80 ms
-//! in-callback sleep + three 200-process bursts → 7649 lost in 25 s".
-//! Win32 `EVENT_TRACE_PROPERTIES.BufferSize` minimum is 4 KB; the spike's
-//! 1 KB likely hit OS clamp or used raw Win32 bypassing ferrisetw
-//! defaults. AC-009 reproduces the spike's *principle* (pressure → loss),
-//! not the exact buffer config — uses `TraceProperties::default()` +
-//! `flush_timer = 1` (aggressive flush) + 80 ms callback sleep + 3
-//! bursts × 200 processes. The empirical reach of `events_lost > 0`
-//! is the load-bearing assertion; exact lost-count varies with runner
-//! CPU contention and is not deterministic.
+//! Pressure: the smallest buffer pool the API allows (4 KB × 2 buffers;
+//! the spike's 1 KB is below the Win32 minimum), the process keyword
+//! (`0x10`, as the agent subscribes), an 80 ms in-callback sleep (a
+//! test-only callback; the agent has no sleep) and 3 bursts × 200
+//! processes. The empirical reach of `events_lost > 0` is the
+//! load-bearing assertion; the exact lost count varies with runner CPU
+//! contention and is not deterministic.
 //!
-//! Windows-only integration test. Sets up its own standalone ferrisetw
-//! UserTrace session (independent of any cg-agent ETW path) and invokes
-//! the agent's `events_lost` helper directly. No mock server, no
-//! test-agent, no testcontainers.
+//! Windows-only, real ETW, elevated: in the elevated gate
+//! (`cargo test -p cg-agent -- --ignored --test-threads=1`). The test
+//! owns a standalone ferrisetw session (independent of the agent's),
+//! reclaims a leftover of it first and stops it at the end, so no
+//! session is left behind.
 
-// The entire test body and its dependencies (ferrisetw + the agent's
-// events_lost helper) are Windows-only. ferrisetw is declared under
-// [target.'cfg(windows)'.dev-dependencies] so its imports do not
-// resolve on non-Windows runners; cfg-gating each item below keeps
-// Linux compile clean while preserving the test's Windows semantics
-// verbatim. Phase 3.5.C β3 fix to the Phase 3.4 cfg gap.
+#![cfg(windows)]
 
-#[cfg(target_os = "windows")]
-use cg_agent::etw::events_lost;
-#[cfg(target_os = "windows")]
+use cg_agent::etw::{events_lost, stop_session};
 use ferrisetw::provider::Provider;
-#[cfg(target_os = "windows")]
 use ferrisetw::schema_locator::SchemaLocator;
-#[cfg(target_os = "windows")]
-use ferrisetw::trace::{TraceTrait, UserTrace};
-#[cfg(target_os = "windows")]
+use ferrisetw::trace::{TraceProperties, TraceTrait, UserTrace};
 use ferrisetw::EventRecord;
-#[cfg(target_os = "windows")]
 use std::process::Command;
-#[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicU32, Ordering};
-#[cfg(target_os = "windows")]
-use std::sync::Arc;
-#[cfg(target_os = "windows")]
+use std::sync::{mpsc, Arc};
 use std::thread;
-#[cfg(target_os = "windows")]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-#[cfg(target_os = "windows")]
 const SESSION_NAME: &str = "CGAgent-AC009-LostTest";
-#[cfg(target_os = "windows")]
 const KERNEL_PROCESS_GUID: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
-#[cfg(target_os = "windows")]
+const WINEVENT_KEYWORD_PROCESS: u64 = 0x10;
 const CALLBACK_SLEEP_MS: u64 = 80;
-#[cfg(target_os = "windows")]
 const PROCESSES_PER_BURST: usize = 200;
-#[cfg(target_os = "windows")]
 const BURSTS_BEFORE_FIRST_POLL: usize = 2;
-#[cfg(target_os = "windows")]
 const BURSTS_BEFORE_SECOND_POLL: usize = 1;
 
-#[cfg(target_os = "windows")]
+#[ignore = "real ETW, elevated gate: cargo test -p cg-agent -- --ignored --test-threads=1"]
 #[test]
 fn ac_009_events_lost_under_deliberate_etw_buffer_pressure() {
+    // A session of this name left by an earlier run would make the start
+    // fail with ERROR_ALREADY_EXISTS.
+    let _ = stop_session(SESSION_NAME);
+
     let callback_invocations = Arc::new(AtomicU32::new(0));
     let callback_invocations_for_handler = Arc::clone(&callback_invocations);
 
-    // Set up the test-owned ETW session. The callback deliberately sleeps
-    // to induce dispatch backpressure (the spike's key insight: any
-    // non-trivial callback work risks kernel-side buffer overflow).
+    // The callback deliberately sleeps to induce dispatch backpressure
+    // (the spike's key insight: any non-trivial callback work risks
+    // kernel-side buffer overflow).
     let provider = Provider::by_guid(KERNEL_PROCESS_GUID)
+        .any(WINEVENT_KEYWORD_PROCESS)
         .add_callback(move |_record: &EventRecord, _schema: &SchemaLocator| {
             callback_invocations_for_handler.fetch_add(1, Ordering::Relaxed);
             thread::sleep(Duration::from_millis(CALLBACK_SLEEP_MS));
@@ -84,45 +67,64 @@ fn ac_009_events_lost_under_deliberate_etw_buffer_pressure() {
 
     let trace = UserTrace::new()
         .named(String::from(SESSION_NAME))
+        .set_trace_properties(TraceProperties {
+            buffer_size: 4,
+            min_buffer: 2,
+            max_buffer: 2,
+            flush_timer: Duration::from_secs(1),
+            ..TraceProperties::default()
+        })
         .enable(provider);
 
-    // Start the trace and pump events on this dedicated background thread,
-    // mirroring the production fix at src/etw/session.rs (Phase 4, 70d8e3e):
-    // ferrisetw's start() registers the session (StartTraceW + OpenTraceW)
-    // and returns the handle; process_from_handle() then blocks on Win32
-    // ProcessTrace, delivering events to the callback on THIS thread. The
-    // prior `let _ = trace.start()` dropped the returned (UserTrace, handle)
-    // tuple immediately, so the session stopped before any event was pumped:
-    // the callback never fired and the 80 ms in-callback sleep never induced
-    // the buffer pressure AC-009 needs to drive events_lost > 0.
-    let trace_handle = thread::spawn(move || {
-        if let Ok((_trace_session, handle)) = trace.start() {
-            // _trace_session keeps the UserTrace (and its OS session) alive
-            // for the duration of the pump; its Drop calls ControlTrace(STOP)
-            // when process_from_handle returns.
+    // Start and pump on a dedicated thread (the agent's pattern): start()
+    // registers the session, process_from_handle() delivers events to the
+    // callback on this thread until the session is stopped.
+    let (started_tx, started_rx) = mpsc::channel::<Result<(), String>>();
+    let pump = thread::spawn(move || match trace.start() {
+        Ok((trace_session, handle)) => {
+            let _ = started_tx.send(Ok(()));
             let _ = UserTrace::process_from_handle(handle);
+            drop(trace_session);
+        }
+        Err(e) => {
+            let _ = started_tx.send(Err(format!("{e:?}")));
         }
     });
+    started_rx
+        .recv()
+        .expect("the pump thread reports the start")
+        .expect("AC-009: the test session must start (elevated?)");
 
     // Allow the session to initialize.
     thread::sleep(Duration::from_secs(1));
 
-    // Burst 1+2: spawn short-lived processes to flood Kernel-Process
-    // events into the session. The callback sleep + flood combination
-    // induces backpressure on the ETW kernel buffers.
     for _burst in 0..BURSTS_BEFORE_FIRST_POLL {
         spawn_process_burst(PROCESSES_PER_BURST);
         thread::sleep(Duration::from_millis(500));
     }
-
     // Let the kernel surface its lost-events counter.
     thread::sleep(Duration::from_secs(2));
 
-    // First poll: events_lost MUST be > 0 (the helper observes the kernel
-    // counter via ControlTraceW(EVENT_TRACE_CONTROL_QUERY) per ADR-0008
-    // §Decision part 2).
-    let first_lost = events_lost(SESSION_NAME)
-        .expect("AC-009: events_lost helper MUST return Ok (not Err) under pressure");
+    // First poll: events_lost MUST be > 0 (ADR-0008 §Decision part 2).
+    let first_lost = events_lost(SESSION_NAME);
+
+    for _burst in 0..BURSTS_BEFORE_SECOND_POLL {
+        spawn_process_burst(PROCESSES_PER_BURST);
+        thread::sleep(Duration::from_millis(500));
+    }
+    thread::sleep(Duration::from_secs(2));
+    let second_lost = events_lost(SESSION_NAME);
+
+    // Stop the session (process_from_handle returns) before asserting, so
+    // a failure leaves nothing behind.
+    let _ = stop_session(SESSION_NAME);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !pump.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let first_lost =
+        first_lost.expect("AC-009: events_lost helper MUST return Ok (not Err) under pressure");
     assert!(
         first_lost > 0,
         "AC-009: events_lost MUST be > 0 after deliberate pressure \
@@ -130,19 +132,8 @@ fn ac_009_events_lost_under_deliberate_etw_buffer_pressure() {
         callback_invocations.load(Ordering::Relaxed),
         first_lost
     );
-
-    // Burst 3: additional load to drive the counter further.
-    for _burst in 0..BURSTS_BEFORE_SECOND_POLL {
-        spawn_process_burst(PROCESSES_PER_BURST);
-        thread::sleep(Duration::from_millis(500));
-    }
-    thread::sleep(Duration::from_secs(2));
-
-    // Second poll: events_lost MUST be monotonically non-decreasing.
-    // A backwards count would falsify ADR-0008's spike findings and is
-    // treated as a capture-time anomaly per SPEC-005 §Failure modes.
-    let second_lost = events_lost(SESSION_NAME)
-        .expect("AC-009: events_lost helper MUST return Ok on second poll");
+    let second_lost =
+        second_lost.expect("AC-009: events_lost helper MUST return Ok on second poll");
     assert!(
         second_lost >= first_lost,
         "AC-009: events_lost MUST be monotonically non-decreasing under sustained pressure \
@@ -150,21 +141,12 @@ fn ac_009_events_lost_under_deliberate_etw_buffer_pressure() {
         first_lost,
         second_lost
     );
-
-    // Cleanup: drop the trace_handle's join to allow the test to exit.
-    // The trace's session is also reclaimed when UserTrace drops out of
-    // scope (ADR-0008 §Decision part 1: ferrisetw owns the session via
-    // its Drop impl). The thread::spawn's handle is intentionally not
-    // joined here to avoid blocking on the trace's processing thread,
-    // which has been observed to outlive the parent in some kernel states.
-    drop(trace_handle);
 }
 
 /// Spawn `count` short-lived processes in rapid succession to flood the
 /// Kernel-Process ETW provider. Each `cmd.exe /c rem` spawns + exits in
 /// <50 ms typically; the burst produces a Launch and Terminate event per
 /// spawn, doubling the event rate observed by the session.
-#[cfg(target_os = "windows")]
 fn spawn_process_burst(count: usize) {
     let mut handles = Vec::with_capacity(count);
     for _ in 0..count {
