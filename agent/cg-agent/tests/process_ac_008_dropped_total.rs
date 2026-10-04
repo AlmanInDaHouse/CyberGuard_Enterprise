@@ -37,6 +37,7 @@ fn synthetic_event(seq: u32) -> CapturedEvent {
         command_line: format!("probe_{seq}.exe"),
         subject_user_sid: String::from("S-1-5-18"),
         etw_timestamp_nanos: 1_716_123_612_901_000_000 + (seq as u64) * 1_000_000,
+        created_time_nanos: Some(1_716_123_612_901_000_000 + (seq as u64) * 1_000_000),
         exit_status: None,
     }
 }

@@ -104,6 +104,7 @@ fn ac_004_cache_miss_terminate_emits_null_created_time() {
         command_line: String::from("cmd.exe /c exit"),
         subject_user_sid: String::from("S-1-5-18"),
         etw_timestamp_nanos: 1716123612901000000,
+        created_time_nanos: None,
         exit_status: Some(0),
     };
 
