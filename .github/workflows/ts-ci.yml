@@ -10,6 +10,11 @@ on:
       # SPEC-016 §Operational §4: the ingest suites load the rules and the scenarios.
       - "rules/**"
       - "harness/**"
+      # SPEC-017: the ingest job builds the agent and launches it (ac-001-marquee).
+      - "agent/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "package.json"
@@ -22,6 +27,11 @@ on:
       # SPEC-016 §Operational §4: the ingest suites load the rules and the scenarios.
       - "rules/**"
       - "harness/**"
+      # SPEC-017: the ingest job builds the agent and launches it (ac-001-marquee).
+      - "agent/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "package.json"
