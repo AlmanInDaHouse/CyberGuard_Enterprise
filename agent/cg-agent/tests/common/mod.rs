@@ -828,59 +828,6 @@ pub fn secure_fixture(server_url: &str, pki: &TlsTestPki) -> SecureFixture {
     }
 }
 
-// SPEC-005 additions — TestAgentHandle + start_test_agent for in-process
-// agent control.
-
-pub struct TestAgentHandle {
-    _join: JoinHandle<()>,
-    shutdown_tx: tokio::sync::oneshot::Sender<()>,
-}
-
-impl TestAgentHandle {
-    /// Signal the in-process agent to shut down.
-    pub async fn shutdown(self) {
-        let _ = self.shutdown_tx.send(());
-        // Test-side timeout is the caller's concern; the join handle is
-        // not awaited here to avoid blocking on a misbehaving agent.
-    }
-}
-
-/// Start `cg_agent::run_secure` in-process with the platform capture
-/// (the ETW session on Windows) against `mock_url`, with a fixed
-/// agent_id. The config comes from `config_with_url` and carries no
-/// trust anchor, so `run_secure` opens the ETW session and then fails at
-/// the TLS client configuration: nothing reaches the mock.
-pub async fn start_test_agent(mock_url: &str, agent_id: &str) -> TestAgentHandle {
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
-    let mut config = config_with_url(mock_url, 1);
-    config.agent.id = agent_id.to_string();
-
-    let identity = cg_agent::identity::Identity {
-        agent_id: agent_id.to_string(),
-        keypair: cg_agent::crypto::AgentKeypair::from_secret_bytes(&[0u8; 32]),
-        client_certificate_pem: String::new(),
-    };
-
-    let join = tokio::spawn(async move {
-        let shutdown_future = async move {
-            let _ = shutdown_rx.await;
-        };
-        let _ = cg_agent::run_secure(
-            config,
-            identity,
-            cg_agent::Capture::Platform,
-            shutdown_future,
-        )
-        .await;
-    });
-
-    TestAgentHandle {
-        _join: join,
-        shutdown_tx,
-    }
-}
-
 // SPEC-017 additions — the secure path run in-process with a capture
 // source, synthetic captured events, and envelope accessors.
 

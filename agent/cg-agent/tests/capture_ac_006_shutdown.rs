@@ -2,7 +2,9 @@
 //!
 //! The final POST has status `going_offline` and carries the remaining
 //! events up to 1024: the batch in flight, or else the next batch.
-//! Synthetic events against the TLS mock; no ETW.
+//! Synthetic events against the TLS mock; no ETW. On Windows, elevated
+//! (the elevated gate), the agent's real ETW session is stopped on
+//! shutdown and no session of its name is left behind.
 
 mod common;
 
@@ -84,4 +86,31 @@ async fn capture_ac_006_final_post_carries_the_batch_in_flight_up_to_1024() {
     );
     // The other 976 were never formed into a POST and are lost.
     assert_eq!(ring.len(), 2000 - MAX_BATCH_EVENTS);
+}
+
+#[cfg(windows)]
+#[ignore = "real ETW, elevated gate: cargo test -p cg-agent -- --ignored --test-threads=1"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn capture_ac_006_elevated_shutdown_leaves_no_session() {
+    use cg_agent::etw::{events_lost, SESSION_NAME};
+
+    let pki = common::generate_test_pki(AGENT_ID);
+    let mock = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
+    let agent = common::start_secure_agent(&pki, &mock.base_url, 1, Capture::Platform);
+    assert!(
+        common::wait_until(Duration::from_secs(10), || mock.received_count() >= 1).await,
+        "the agent must open its ETW session and heartbeat (elevated?)"
+    );
+    assert!(
+        events_lost(SESSION_NAME).is_ok(),
+        "the agent's session runs while the agent does"
+    );
+
+    agent.stop().await.expect("clean stop");
+
+    // ERROR_WMI_INSTANCE_NOT_FOUND: no session of that name is left.
+    assert_eq!(events_lost(SESSION_NAME), Err(4201));
+    let received = mock.received();
+    let last = received.last().expect("a final POST");
+    assert_eq!(common::envelope_status(last), "going_offline");
 }
