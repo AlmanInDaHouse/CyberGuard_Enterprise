@@ -9,10 +9,10 @@
 //!   rather than a fabricated value.
 //!
 //! Storage: `Mutex<HashMap<u32, u64>>`. Blocking Mutex per the
-//! established convention (tests/common/mod.rs + EventRing in β1).
-//! Periodic sweep of stale entries (per §Operational §2's bounded-
-//! memory contract) is β3 territory — requires a background tokio
-//! task; this primitive provides only new() + consult_and_purge.
+//! established convention (tests/common/mod.rs + EventRing). The
+//! periodic sweep of stale entries (§Operational §2's bounded-memory
+//! contract) is not implemented here; this primitive provides only
+//! new() + insert + consult_and_purge.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -31,22 +31,21 @@ impl CreatedTimeCache {
     }
 
     /// Insert a (pid, created_time_nanos) pair. Called at Launch
-    /// dispatch by the ETW callback (β3 forthcoming).
+    /// dispatch (`dispatch_record`).
     pub fn insert(&self, pid: u32, created_time_nanos: u64) {
         let mut entries = self.entries.lock().expect("cache mutex poisoned");
         entries.insert(pid, created_time_nanos);
     }
 
-    /// Consult-and-purge for a Terminate event. Returns the cached
-    /// `created_time_nanos` and removes the entry on hit; returns None
-    /// on miss.
+    /// Consult-and-purge for a Terminate event, at dispatch. Returns the
+    /// cached `created_time_nanos` and removes the entry on hit; returns
+    /// None on miss.
     pub fn consult_and_purge(&self, pid: u32) -> Option<u64> {
         let mut entries = self.entries.lock().expect("cache mutex poisoned");
         entries.remove(&pid)
     }
 
-    /// Current number of entries retained. Used by future sweep logic
-    /// (β3) and test diagnostics.
+    /// Current number of entries retained. Used by test diagnostics.
     pub fn len(&self) -> usize {
         let entries = self.entries.lock().expect("cache mutex poisoned");
         entries.len()

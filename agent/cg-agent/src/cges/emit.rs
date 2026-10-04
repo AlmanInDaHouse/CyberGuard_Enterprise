@@ -1,18 +1,19 @@
 //! CGES event emission — translates `CapturedEvent` to `CgesProcessActivity`.
 //!
 //! Renders the full SPEC-005 wire shape per the cges_events ClickHouse
-//! table DDL (Phase 3.5.E γ). Two emission entry points:
-//! - `emit_process_activity(&CapturedEvent, agent_id)` — sugar for
-//!   cache-less contexts (Launch events: created_time =
-//!   etw_timestamp_nanos verbatim).
+//! table DDL (Phase 3.5.E γ), once per event, when its batch is formed
+//! (SPEC-017 §Data contracts: a resent event is byte-identical). Two
+//! emission entry points:
+//! - `emit_process_activity(&CapturedEvent, agent_id)` — uses the
+//!   `created_time_nanos` the dispatch resolved (SPEC-017 §Operational
+//!   §6).
 //! - `emit_process_activity_with_cache(&CapturedEvent, Option<u64>,
-//!   agent_id)` — primitive for Terminate events; the cache lookup
-//!   result is passed in (None for cache-miss → JSON null; Some for
-//!   cache-hit → integer nanos).
+//!   agent_id)` — the primitive, with the creation time passed in (None
+//!   for a cache miss → JSON null; Some → string-encoded nanos).
 //!
 //! agent_id is a parameter (not on CapturedEvent) so the capture path
-//! stays config-free per Phase 3.5.F Option (a). The ring-drain task in
-//! `lib.rs::run_test_mode` passes `&config.agent.id`.
+//! stays config-free per Phase 3.5.F Option (a); the delivery loop
+//! passes the enrolled identity's agent_id.
 //!
 //! Serialization conventions per the Phase 3.4 RED tests + γ DDL:
 //! - `process.exit_code`: `#[serde(skip_serializing_if = "Option::is_none")]`
@@ -20,7 +21,7 @@
 //! - `process.created_time`: NO skip_serializing_if → serializes as
 //!   JSON null when None (AC-004 cache-miss contract).
 //! - `process.parent_pid`: similar to created_time; JSON null when
-//!   None (AC-007 PPID unresolvable contract).
+//!   None (ETW reported 0; SPEC-017 §Data contracts).
 //! - All other string fields always present; empty string acceptable.
 
 use serde::{Deserialize, Serialize};
@@ -53,7 +54,8 @@ pub struct CgesProcess {
     /// Absent in JSON output when None (Launch path); integer when Some.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
-    /// JSON null when None (PPID unresolvable per AC-007); integer when Some.
+    /// JSON null when None (ETW reported ParentProcessID 0); integer when
+    /// Some. Never a `parent_process` object (SPEC-017 §Data contracts).
     pub parent_pid: Option<u32>,
     pub command_line: String,
     pub subject_user_sid: String,
@@ -62,26 +64,17 @@ pub struct CgesProcess {
 
 const CGES_PROCESS_ACTIVITY_CLASS_UID: u32 = 1007;
 
-/// Emit a Process Activity event without consulting a cache.
-///
-/// For Launch events, `process.created_time` derives directly from the
-/// ETW timestamp. For Terminate events without cache awareness, this
-/// produces `process.created_time = null`. Production code should use
-/// `emit_process_activity_with_cache` for Terminate events.
+/// Emit a Process Activity event with the creation time the dispatch
+/// resolved (`event.created_time_nanos`).
 pub fn emit_process_activity(event: &CapturedEvent, agent_id: &str) -> CgesProcessActivity {
-    let cached_created_time = match event.activity_id {
-        ActivityId::Launch => Some(event.etw_timestamp_nanos),
-        ActivityId::Terminate => None,
-    };
-    emit_process_activity_with_cache(event, cached_created_time, agent_id)
+    emit_process_activity_with_cache(event, event.created_time_nanos, agent_id)
 }
 
-/// Emit a Process Activity event with explicit cache lookup result.
+/// Emit a Process Activity event with an explicit creation time.
 ///
-/// Primitive emission entry point. The caller (β3 dispatch callback)
-/// passes:
-/// - For Launch events: `Some(event.etw_timestamp_nanos)` (always populated).
-/// - For Terminate events: `cache.consult_and_purge(event.pid)` (Option result).
+/// Primitive emission entry point:
+/// - For Launch events: `Some(event.etw_timestamp_nanos)`.
+/// - For Terminate events: the cache lookup result (`None` on a miss).
 pub fn emit_process_activity_with_cache(
     event: &CapturedEvent,
     cached_created_time: Option<u64>,
@@ -125,11 +118,10 @@ pub fn emit_process_activity_with_cache(
 /// Extract the basename from an NT device path (e.g.,
 /// `\Device\HarddiskVolume2\Windows\System32\cmd.exe` → `cmd.exe`).
 ///
-/// Per AC-006 the process_name must be non-empty; β3 dispatch callback
-/// is responsible for filtering events with empty image_file_name BEFORE
-/// they reach the ring (via `EventRing::enqueue_or_drop`), so this
-/// function may assume image_file_name is non-empty. Returns empty
-/// string if no separator found (degenerate case).
+/// Per AC-006 the process_name must be non-empty; `EventRing::
+/// enqueue_or_drop` filters events with an empty image_file_name BEFORE
+/// they reach the ring, so this function may assume image_file_name is
+/// non-empty.
 fn derive_process_name(image_file_name: &str) -> String {
     image_file_name
         .rsplit(['\\', '/'])
