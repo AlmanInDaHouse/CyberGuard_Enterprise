@@ -133,11 +133,14 @@ impl SigningError {
     }
 }
 
-/// ETW session-open failure (SPEC-005 §Failure modes + ADR-0010
-/// §Decision part 1). Terminal at startup; the agent exits with code
-/// 9 after emitting the documented stderr line via `handle_etw_open_result`
-/// in `startup.rs`. β3 will expand variants when the real Win32 paths
-/// surface additional failure modes.
+/// The exact stderr line for a privilege failure (SPEC-005 AC-002,
+/// ADR-0010 §Decision part 1).
+pub const STDERR_INSUFFICIENT_PRIVILEGE: &str = "cg-agent: insufficient privilege to open \
+     Microsoft-Windows-Kernel-Process ETW session; run as elevated user or LocalSystem";
+
+/// ETW session-start failure (SPEC-017 §Operational §1, SPEC-005
+/// §Failure modes, ADR-0010 §Decision part 1). Terminal at startup:
+/// exit code 9 for a privilege failure, 1 for any other.
 #[derive(Debug, Error)]
 pub enum EtwError {
     #[error("ETW open refused: insufficient privilege")]
@@ -145,12 +148,32 @@ pub enum EtwError {
 
     #[error("ETW open refused: access denied")]
     AccessDenied,
+
+    #[error("ETW session open failed: {code} {message}")]
+    Failed { code: u32, message: String },
+
+    #[error("ETW capture is not available on this platform")]
+    Unsupported,
 }
 
 impl EtwError {
-    /// Process exit code per ADR-0010 §Decision part 1.
+    /// Process exit code: 9 for a privilege failure (ADR-0010 §Decision
+    /// part 1), 1 otherwise (SPEC-005 §Failure modes).
     pub fn exit_code(&self) -> u8 {
-        9
+        match self {
+            EtwError::PrivilegeNotHeld | EtwError::AccessDenied => 9,
+            EtwError::Failed { .. } | EtwError::Unsupported => 1,
+        }
+    }
+
+    /// The single stderr line written before the process exits.
+    pub fn stderr_line(&self) -> String {
+        match self {
+            EtwError::PrivilegeNotHeld | EtwError::AccessDenied => {
+                STDERR_INSUFFICIENT_PRIVILEGE.to_string()
+            }
+            other => format!("cg-agent: {other}"),
+        }
     }
 }
 
@@ -159,6 +182,8 @@ impl From<crate::etw::OpenError> for EtwError {
         match err {
             crate::etw::OpenError::PrivilegeNotHeld => EtwError::PrivilegeNotHeld,
             crate::etw::OpenError::AccessDenied => EtwError::AccessDenied,
+            crate::etw::OpenError::Failed { code, message } => EtwError::Failed { code, message },
+            crate::etw::OpenError::Unsupported => EtwError::Unsupported,
         }
     }
 }
@@ -185,4 +210,19 @@ pub enum AgentError {
 
     #[error(transparent)]
     Etw(#[from] EtwError),
+}
+
+impl AgentError {
+    /// The process exit code for a terminal agent error (SPEC-001/002/003
+    /// §Failure modes, SPEC-005 exit code 9).
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            AgentError::Tls(t) => t.exit_code(),
+            AgentError::Signing(s) => s.exit_code(),
+            AgentError::Enrollment(en) => en.exit_code(),
+            AgentError::Config(_) => 2,
+            AgentError::Etw(e) => e.exit_code(),
+            _ => 1,
+        }
+    }
 }

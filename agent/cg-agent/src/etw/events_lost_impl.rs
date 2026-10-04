@@ -8,8 +8,9 @@
 //!
 //! - `events_lost`: `EVENT_TRACE_CONTROL_QUERY` → `EventsLost` field
 //!   (ADR-0008 §Decision part 2).
-//! - `reclaim_zombie`: `EVENT_TRACE_CONTROL_STOP` by session name,
-//!   treating "no such session" as success (Phase 0 spike pattern).
+//! - `stop_session` / `reclaim_zombie`: `EVENT_TRACE_CONTROL_STOP` by
+//!   session name, treating "no such session" as success (Phase 0 spike
+//!   pattern).
 
 #[cfg(target_os = "windows")]
 mod windows_impl {
@@ -79,14 +80,16 @@ mod windows_impl {
         Ok(events_lost)
     }
 
-    /// Stop a pre-existing ETW session by name. Returns `Ok(true)` if a
-    /// session was stopped, `Ok(false)` if no session existed (clean state),
+    /// Stop an ETW session by name. Returns `Ok(true)` if a session was
+    /// stopped, `Ok(false)` if no session existed (clean state),
     /// `Err(win32_status)` on unexpected failure.
     ///
-    /// Called before `start_and_process` to reclaim zombie sessions left
-    /// by a prior crash or force-kill (ferrisetw 1.2 lacks `stop_if_exist`;
-    /// same side-channel as `events_lost` per the Phase 0 spike pattern).
-    pub fn reclaim_zombie(session_name: &str) -> Result<bool, u32> {
+    /// Used at startup to reclaim a zombie session left by a prior crash
+    /// or force-kill (ferrisetw 1.2 lacks `stop_if_exist`), and by
+    /// `EtwSession::stop` to end the agent's own session: the session
+    /// object lives on the pump thread, so it is reached by name (the
+    /// same side-channel as `events_lost`, per the Phase 0 spike pattern).
+    pub fn stop_session(session_name: &str) -> Result<bool, u32> {
         let mut session_name_wide: Vec<u16> = OsStr::new(session_name).encode_wide().collect();
         session_name_wide.push(0);
 
@@ -119,6 +122,11 @@ mod windows_impl {
             other => Err(other),
         }
     }
+
+    /// Startup reclaim of a zombie session: `stop_session` by name.
+    pub fn reclaim_zombie(session_name: &str) -> Result<bool, u32> {
+        stop_session(session_name)
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -127,6 +135,11 @@ mod stub_impl {
     /// cfg-gated to Windows so this branch is never invoked from a test.
     pub fn events_lost(_session_name: &str) -> Result<u32, u32> {
         Err(0)
+    }
+
+    /// Non-Windows stub. Always returns Ok(false) (no session to stop).
+    pub fn stop_session(_session_name: &str) -> Result<bool, u32> {
+        Ok(false)
     }
 
     /// Non-Windows stub. Always returns Ok(false) (no zombie to reclaim).
@@ -139,7 +152,11 @@ mod stub_impl {
 pub use stub_impl::events_lost;
 #[cfg(not(target_os = "windows"))]
 pub use stub_impl::reclaim_zombie;
+#[cfg(not(target_os = "windows"))]
+pub use stub_impl::stop_session;
 #[cfg(target_os = "windows")]
 pub use windows_impl::events_lost;
 #[cfg(target_os = "windows")]
 pub use windows_impl::reclaim_zombie;
+#[cfg(target_os = "windows")]
+pub use windows_impl::stop_session;
