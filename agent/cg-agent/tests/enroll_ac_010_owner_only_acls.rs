@@ -3,13 +3,14 @@
 //! ACLs that exclude all principals other than the owner and SYSTEM, each
 //! with full control (NFR-003). `#[cfg(windows)]`.
 //!
-//! The DACL is read with PowerShell's `Get-Acl`, asking for every
-//! identity as a full SID (`SecurityIdentifier` never abbreviates; SDDL
-//! writes the RID-500 account as `LA`, and principal names are
-//! localized). It must be protected (no inherited entries) and hold
-//! exactly two rules, the current user's SID and SYSTEM (S-1-5-18), each
-//! Allow, FullControl and not inherited. The same code runs locally and
-//! on the CI runner.
+//! The DACL is read as SDDL with `icacls /save`, and the SID of every
+//! entry is normalized to its full form with `ConvertStringSidToSidW` +
+//! `ConvertSidToStringSidW`, which understand the SDDL aliases (`SY`, and
+//! `LA` for a RID-500 account) and never depend on localized names or on
+//! the shell that launched the tests. The DACL must be protected (`P`)
+//! and hold exactly two entries, the current user's SID and S-1-5-18,
+//! each an allow entry (`A`), not inherited (no `ID`), with full control
+//! (`FA`). The same code runs locally and on the CI runner.
 //!
 //! A second test gives the artifacts an explicit entry for another
 //! principal (BUILTIN\Users, S-1-5-32-545) before they are persisted: the
@@ -18,7 +19,7 @@
 mod common;
 
 /// The current user's SID, from `whoami /user /fo csv /nh`
-/// (`"domain\user","S-1-5-21-..."`, always the full form).
+/// (`"domain\user","S-1-5-21-..."`), normalized.
 #[cfg(windows)]
 fn current_user_sid() -> String {
     let output = std::process::Command::new("whoami")
@@ -26,96 +27,165 @@ fn current_user_sid() -> String {
         .output()
         .expect("failed to run whoami");
     let text = String::from_utf8_lossy(&output.stdout);
-    text.trim()
+    let sid = text
+        .trim()
         .rsplit(',')
         .next()
         .map(|field| field.trim_matches('"').to_string())
         .filter(|sid| sid.starts_with("S-1-"))
-        .unwrap_or_else(|| panic!("no SID in whoami output: {text}"))
+        .unwrap_or_else(|| panic!("no SID in whoami output: {text}"));
+    full_sid(&sid)
 }
 
-/// One access rule as `Get-Acl` reports it, with the identity as a SID.
+/// A SID string — full (`S-1-...`) or an SDDL alias (`SY`, `LA`, `BU`) —
+/// in its full form, through the Win32 conversions.
 #[cfg(windows)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Rule {
-    sid: String,
-    kind: String,
-    rights: String,
-    inherited: String,
-}
+fn full_sid(sid: &str) -> String {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, ConvertStringSidToSidW,
+    };
+    use windows_sys::Win32::Security::PSID;
 
-/// The DACL of `path`: whether it is protected, and its access rules.
-#[cfg(windows)]
-fn read_dacl(path: &std::path::Path) -> (bool, Vec<Rule>) {
-    const SCRIPT: &str = "$a = Get-Acl -LiteralPath $env:CG_ACL_PATH; \
-        'PROTECTED=' + $a.AreAccessRulesProtected; \
-        $a.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | \
-        ForEach-Object { $_.IdentityReference.Value + '|' + $_.AccessControlType + '|' + \
-        $_.FileSystemRights + '|' + $_.IsInherited }";
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .env("CG_ACL_PATH", path)
-        .output()
-        .expect("failed to run powershell");
-    let text = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        output.status.success(),
-        "Get-Acl failed on {}: {text}{}",
-        path.display(),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let mut protected = None;
-    let mut rules = Vec::new();
-    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        if let Some(value) = line.strip_prefix("PROTECTED=") {
-            protected = Some(value == "True");
-            continue;
-        }
-        let fields: Vec<&str> = line.split('|').collect();
-        assert_eq!(fields.len(), 4, "unexpected Get-Acl line: {line}");
-        rules.push(Rule {
-            sid: fields[0].to_string(),
-            kind: fields[1].to_string(),
-            rights: fields[2].to_string(),
-            inherited: fields[3].to_string(),
-        });
+    let wide: Vec<u16> = sid.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut binary: PSID = std::ptr::null_mut();
+    // SAFETY: `wide` is NUL-terminated; `binary` receives a LocalAlloc'd
+    // SID freed below.
+    if unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut binary) } == 0 {
+        panic!(
+            "ConvertStringSidToSidW({sid}): {}",
+            std::io::Error::last_os_error()
+        );
     }
-    let protected = protected.unwrap_or_else(|| panic!("no PROTECTED line: {text}"));
-    (protected, rules)
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: `binary` is a valid SID; `text` receives a LocalAlloc'd,
+    // NUL-terminated string freed below.
+    let ok = unsafe { ConvertSidToStringSidW(binary, &mut text) };
+    let error = std::io::Error::last_os_error();
+    // SAFETY: allocated by ConvertStringSidToSidW.
+    unsafe { LocalFree(binary.cast()) };
+    if ok == 0 {
+        panic!("ConvertSidToStringSidW({sid}): {error}");
+    }
+    // SAFETY: `text` is NUL-terminated; it is read before being freed.
+    let full = unsafe {
+        let len = (0..).take_while(|&i| *text.add(i) != 0).count();
+        let full = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+        LocalFree(text.cast());
+        full
+    };
+    full
 }
 
-/// Assert the DACL is protected and holds exactly two rules, the current
-/// user's SID and SYSTEM, each Allow, FullControl and not inherited.
+/// The DACL of `path` as SDDL (`D:...`), from `icacls <path> /save`.
 #[cfg(windows)]
-fn assert_owner_only_dacl(path: &std::path::Path, user_sid: &str) {
-    let (protected, rules) = read_dacl(path);
+fn dacl_sddl(path: &std::path::Path) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let saved = dir.path().join("acl.txt");
+    let status = std::process::Command::new("icacls")
+        .arg(path)
+        .arg("/save")
+        .arg(&saved)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .expect("failed to run icacls /save");
     assert!(
-        protected,
-        "DACL on {} is not protected (inherited entries possible): {rules:?}",
+        status.success(),
+        "icacls /save failed on {}",
         path.display()
     );
-    let mut sids: Vec<&str> = rules.iter().map(|r| r.sid.as_str()).collect();
+    // icacls writes UTF-16LE: the file name, then the security descriptor.
+    let bytes = std::fs::read(&saved).expect("read icacls output");
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    let text = String::from_utf16_lossy(&units);
+    let line = text
+        .lines()
+        .map(|l| l.trim_start_matches('\u{feff}').trim())
+        .find(|l| l.contains("D:"))
+        .unwrap_or_else(|| panic!("no DACL in icacls /save output: {text}"));
+    line[line.find("D:").expect("D: present")..].to_string()
+}
+
+/// One DACL entry, its SID in full form.
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Entry {
+    ace_type: String,
+    flags: String,
+    rights: String,
+    sid: String,
+}
+
+/// The DACL of `path`: whether it is protected, and its entries.
+#[cfg(windows)]
+fn read_dacl(path: &std::path::Path) -> (bool, Vec<Entry>, String) {
+    let sddl = dacl_sddl(path);
+    let body = &sddl[2..];
+    let first_ace = body.find('(').unwrap_or(body.len());
+    let protected = body[..first_ace].contains('P');
+    let entries = body[first_ace..]
+        .split('(')
+        .filter(|ace| !ace.is_empty())
+        .map(|ace| {
+            // (type;flags;rights;object_guid;inherit_object_guid;sid)
+            let fields: Vec<&str> = ace.trim_end_matches(')').split(';').collect();
+            assert!(fields.len() >= 6, "unexpected ACE ({ace} in {sddl})");
+            Entry {
+                ace_type: fields[0].to_string(),
+                flags: fields[1].to_string(),
+                rights: fields[2].to_string(),
+                sid: full_sid(fields[5]),
+            }
+        })
+        .collect();
+    (protected, entries, sddl)
+}
+
+/// Assert the DACL is protected and holds exactly two entries, the
+/// current user's SID and SYSTEM, each allow, not inherited, full control.
+#[cfg(windows)]
+fn assert_owner_only_dacl(path: &std::path::Path, user_sid: &str) {
+    let (protected, entries, sddl) = read_dacl(path);
+    assert!(
+        protected,
+        "DACL on {} is not protected (inherited entries possible): {sddl}",
+        path.display()
+    );
+    let mut sids: Vec<&str> = entries.iter().map(|e| e.sid.as_str()).collect();
     sids.sort_unstable();
     let mut expected = vec!["S-1-5-18", user_sid];
     expected.sort_unstable();
     assert_eq!(
         sids,
         expected,
-        "DACL on {} must hold exactly the current user and SYSTEM: {rules:?}",
+        "DACL on {} must hold exactly the current user and SYSTEM: {sddl} -> {entries:?}",
         path.display()
     );
-    for rule in &rules {
-        assert_eq!(
-            (
-                rule.kind.as_str(),
-                rule.rights.as_str(),
-                rule.inherited.as_str()
-            ),
-            ("Allow", "FullControl", "False"),
-            "every rule on {} must be Allow, FullControl, not inherited: {rules:?}",
+    for entry in &entries {
+        assert!(
+            entry.ace_type == "A" && !entry.flags.contains("ID") && entry.rights == "FA",
+            "every entry on {} must be allow, not inherited, full control: {sddl} -> {entries:?}",
             path.display()
         );
     }
+}
+
+/// The SDDL aliases the DACL may carry normalize to full SIDs on every
+/// machine, so the reader's alias path runs locally too.
+#[cfg(windows)]
+#[test]
+fn enroll_ac_010_sddl_aliases_normalize_to_full_sids() {
+    assert_eq!(full_sid("SY"), "S-1-5-18");
+    assert_eq!(full_sid("BU"), "S-1-5-32-545");
+    assert_eq!(full_sid("S-1-5-18"), "S-1-5-18");
+    let local_admin = full_sid("LA");
+    assert!(
+        local_admin.starts_with("S-1-5-21-") && local_admin.ends_with("-500"),
+        "LA is the local RID-500 account: {local_admin}"
+    );
 }
 
 #[cfg(windows)]
@@ -161,12 +231,12 @@ fn enroll_ac_010_hardening_removes_other_explicit_entries() {
             "icacls /grant failed on {}",
             path.display()
         );
-        let (_, before) = read_dacl(path);
+        let (_, before, sddl) = read_dacl(path);
         assert!(
             before
                 .iter()
-                .any(|r| r.sid == USERS_SID && r.inherited == "False"),
-            "setup: an explicit Users entry on {}: {before:?}",
+                .any(|e| e.sid == USERS_SID && !e.flags.contains("ID")),
+            "setup: an explicit Users entry on {}: {sddl}",
             path.display()
         );
     }
