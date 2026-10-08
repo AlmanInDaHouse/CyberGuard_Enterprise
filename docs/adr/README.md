@@ -90,3 +90,4 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0017 → SPEC-007 (hangs the notify off the `upsertIncident` incident-grouping seam, on incident create only; discharges the SPEC-007 `:37` / SPEC-008 `:42` notifier deferral, incident-notification half)
 - ADR-0004 self-amendment 2026-10-04 (SPEC-017): events travel inside the signed `body`; the `batch_hash` verification step is retired
 - ADR-0011 self-amendment 2026-10-04 (SPEC-017): the realized wire names (`process.image_file_name`, `process.parent_pid`, …) are the contract; `image_file_name` carries the Win32 form when the translation resolves
+- ADR-0011 self-amendment 2026-10-09 (SPEC-017): a Terminate's `image_file_name` is ETW's base name; the Win32 form applies to the path a Launch carries

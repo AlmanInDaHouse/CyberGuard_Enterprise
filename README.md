@@ -20,12 +20,12 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 | 3 | OTP login + RBAC (3 roles) | **Delivered** (SPEC-008). |
 | 4 | Gmail/SMTP notification | **Delivered** (SPEC-014). |
 | 5 | Incident PDF export | **Delivered** (SPEC-013). |
-| 1 | 10 detection rules | **Delivered** (SPEC-016): ten rules, each with a wired fixture and a CI scenario; on a deployed agent once roadmap §G lands. |
-| 2 | Windows agent: processes / network / logins | **Partial 1/3** — processes only (SPEC-005), captured only in the agent's test mode until roadmap §G. |
+| 1 | 10 detection rules | **Delivered** (SPEC-016): ten rules, each with a wired fixture and a CI scenario, evaluated over the events a deployed agent captures (SPEC-017). |
+| 2 | Windows agent: processes / network / logins | **Partial 1/3** — processes only (SPEC-005), captured on the agent's normal run path (SPEC-017). |
 | 6 | 1 SOAR playbook | **Pending** — unblocked by the prod-driver seam. |
 | 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
 
-On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07); on the agent side, process capture runs only in the agent's test mode until roadmap §G. The latest session handoff, [`docs/handoff-session-31.md`](docs/handoff-session-31.md), is the canonical current state.
+On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07); on the agent side, process capture runs on the agent's normal secure path (SPEC-017). The latest session handoff, [`docs/handoff-session-32.md`](docs/handoff-session-32.md), is the canonical current state.
 
 The remaining MVP work — phases ordered by technical dependency, plus the owner-STOP decisions gating them — is the work order in [`docs/product/roadmap.md`](docs/product/roadmap.md).
 

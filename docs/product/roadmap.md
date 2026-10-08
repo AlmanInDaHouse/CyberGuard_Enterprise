@@ -127,11 +127,15 @@ This dependency-ordered document supersedes both for planning.
   evaluates every fixture and `rules_ac_003` every scenario.
 - Loader: `loadRules` (`services/ingest/src/detect/engine.ts`), hardened
   here (SPEC-016 §Data contracts §1).
-- On a real agent the rules see events only once G lands: today capture
-  runs only on the agent's test-mode path (§G).
+- On a real agent the rules see events since G landed (§G): capture runs
+  on the agent's normal run path.
 
 ### G — Agent capture on the normal run path
 
+- **Status: DONE** — landed as `9250f68` … `24e0d04`, fourteen commits,
+  one per push (S32, 2026-10-09); elevated gate green on the reviewed tip
+  `4933dfb` (four real-ETW tests; 42 files / 154 tests). Details:
+  `docs/handoff-session-32.md`.
 - Contract: SPEC-017 (Accepted), amends SPEC-005, SPEC-003 and SPEC-001
   by scope, and ADR-0004 and ADR-0011 in place.
 - Does: give the agent's normal run path (`run_secure`) the SPEC-005
@@ -188,8 +192,7 @@ This dependency-ordered document supersedes both for planning.
   (login), fused — they share the per-class projection and the widening
   of `class_uid: z.literal(1007)` (`services/ingest/src/schemas.ts:44`)
   to a union, so splitting them duplicates the plumbing.
-- Blocked by: G (capture on the normal run path) and H (late events);
-  B1 is done.
+- Blocked by: H (late events); G and B1 are done.
 - Needs: successor SPEC(s) to SPEC-005 + per-class ADRs.
 - Discharges: `docs/adr/0011-cges-process-activity-v0-1.md:197` +
   `docs/adr/0012-normalize-before-correlate-pipeline.md:240` (4001 / 3002

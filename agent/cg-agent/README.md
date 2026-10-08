@@ -6,7 +6,7 @@ The CyberGuard endpoint agent crate: a single binary implementing [SPEC-001](../
 
 - Loads `agent.toml` (`--config <path>`, default `./agent.toml`), enrolls on first run and persists its identity (DPAPI-sealed key on Windows).
 - With `server.trust_anchor_path` set, runs the secure path: TLS 1.3 mutual authentication and Ed25519-signed envelopes to `/v1/agents/heartbeat`.
-- On Windows the secure path opens an ETW Kernel-Process session and delivers process Launch / Terminate events inside the signed envelope, at least once, in batches of up to 1024 (SPEC-017). The image path is translated to Win32 form.
+- On Windows the secure path opens an ETW Kernel-Process session and delivers process Launch / Terminate events inside the signed envelope, at least once, in batches of up to 1024 (SPEC-017). A Launch's image path is translated to Win32 form; a Terminate carries the image's base name, as ETW reports it.
 - On Windows the agent must run **elevated**: an unelevated agent exits with code 9 and says so on stderr (SPEC-005 AC-002, ADR-0010). Other platforms have no capture backend and send heartbeats only.
 - Without a trust anchor, the SPEC-001 plain-HTTP heartbeat runs instead (no capture).
 

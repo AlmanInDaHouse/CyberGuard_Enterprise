@@ -79,6 +79,7 @@ Before any `git push`, the agent runs the per-workspace gate locally and confirm
 - **TypeScript (`services/ingest/`, and the future `services/api/` + `dashboard/`, gates `ts-ci`):** `pnpm run typecheck` (`tsc -p tsconfig.json --noEmit`), then `pnpm run lint` (`biome check .`), then `pnpm test` (`vitest run`).
 - **CGES schemas / examples (gates `schema-validation`):** `task validate-schemas` when any schema or example under `schemas/cges/` changes.
 - **Pre-compiled-binary tests:** when agent source changed and a test launches the pre-built binary (the SPEC-005 / SPEC-006 marquees via `agentBinaryPath()`), `cargo build --release --bin cg-agent` and verify the `.exe` timestamp is posterior to the edit before running the test (Convention #10).
+- **Windows CI job (`rust-ci`, `windows-latest`):** its steps run under PowerShell 7 as the built-in Administrator (RID 500). A test must not spawn `powershell.exe` (Windows PowerShell 5.1 fails to load its modules there), nor compare SIDs as SDDL text (SDDL writes RID 500 as `LA`): read SIDs in full form (S32, `enroll_ac_010`).
 
 The gate is expressed as per-workspace commands because the Taskfile `lint` / `test` targets are still `SPEC-XXX-ci` stubs; when an `SPEC-XXX-ci` lands unified `task` targets, this section points at those instead.
 
@@ -237,7 +238,7 @@ The SPEC-005 polyglot marquee test (`services/ingest/test/spec-005-marquee.test.
 The marquee is therefore validated developer-local. Procedure (the elevated gate):
 
 1. Have Docker Desktop running on the Windows machine.
-2. Open an **elevated** terminal (Run as Administrator) at the repo root.
+2. Open an **elevated** terminal (Run as Administrator) at the repo root. Confirm the elevation with `net session` (an unelevated terminal answers with access denied) and record `git rev-parse --short HEAD` with a clean `git status`: the gate is evidence only for that tree. A skipped `ac-001-marquee` in the vitest summary means the terminal was not elevated (S32).
 3. Run:
 
    ```sh
@@ -253,7 +254,7 @@ The marquee is therefore validated developer-local. Procedure (the elevated gate
 
 **Validation status:** marquee 8/8 GREEN, validated developer-local in Phase 4 Session 16 (two consecutive runs, zombie reclaim validated). ts-ci Known CI debt row removed in this commit.
 
-If the local run fails, surface the failure to architect-Claude for diagnosis. The marquee's 5 assertions per SPEC-005 §AC AC-001, the Win32 form of the image path (SPEC-017 capture_ac_012) and the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 / SPEC-017 implementation defects, not infrastructure issues.
+If the local run fails, surface the failure to architect-Claude for diagnosis. The marquee's 5 assertions per SPEC-005 §AC AC-001, the Win32 form of the Launch's image path (SPEC-017 capture_ac_012) and the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 / SPEC-017 implementation defects, not infrastructure issues.
 
 ## Developer-local SPEC-006 marquee validation
 

@@ -160,6 +160,14 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the four owner decisi
 7. **The test-mode path is removed**, not kept beside the normal one.
 8. **Doc-only gate first.** The code is the next gate (a review branch, relay rule 5) and includes the elevated gate: the Rust ETW tests and both marquees.
 
+## Amendment 2026-10-09: a Terminate carries the image base name
+
+**Surfaced by** the elevated gate on the review branch (S32, 2026-10-04): the SPEC-005 marquee's Terminate row had `image_file_name` `cmd.exe` while its Launch row was in `C:\…` form. ETW's ProcessStop event carries in `ImageName` only the image's base name, not a path.
+
+**Amendment.** §Data contracts, `process.image_file_name`: on a Launch it carries the Win32 form when the translation resolves, and the device form verbatim otherwise; on a Terminate it carries ETW's base name unchanged, which has nothing to translate (the SPEC-005 §Operational §3 rule for a value no prefix matches). `process.name` is its last path segment in every case. **capture_ac_012:** the Win32 form is asserted on the Launch; the Terminate must not be in device form.
+
+**Effect.** No change to the agent's behaviour or to the wire; the agent always emitted this. Rules evaluate Launch events only (SPEC-016), so detection is unaffected. Carrying the Launch's path to the Terminate is recorded as debt #29 (`docs/handoff-session-32.md`).
+
 ## References
 
 - [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) — the capture specification this SPEC realises and amends by scope.

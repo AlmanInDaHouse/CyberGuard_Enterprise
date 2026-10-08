@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-23
-- Last updated: 2026-10-04
+- Last updated: 2026-10-09
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -253,6 +253,16 @@ The byte-level reproducibility argument from the 2026-05-23 amendment part (a) i
 **Amendment.** The realized names are the wire contract (SPEC-017 §Data contracts); the OCSF paths of §4 remain the mapping they realise. `process.image_file_name` carries the path in Win32 form when the translation resolves, and the kernel device form verbatim otherwise — the translation §4 row 3 requires, which SPEC-017 implements. For §5, an unresolvable parent is `process.parent_pid: null` (when ETW reports 0), not a `parent_process` object with only a `pid`.
 
 **Effect on other sections.** None on §3 (activities), §6 (`process.uid`) or the earlier amendments' encodings.
+
+## Amendment 2026-10-09: a Terminate carries the image base name (SPEC-017)
+
+**Status.** This amendment narrows the Amendment 2026-10-04 sentence on `process.image_file_name`. ADR-0011 remains `Accepted`.
+
+**Context.** ETW's ProcessStop (Terminate) event carries in `ImageName` only the image's base name, not a path; S32's elevated gate recorded `cmd.exe` on the Terminate of a probe whose Launch carried a `C:\…` path.
+
+**Amendment.** The Win32-or-device-form rule of the Amendment 2026-10-04 applies to the path a Launch carries. A Terminate's `process.image_file_name` is ETW's base name, unchanged; `process.name` (§4 row 2) is the same value.
+
+**Effect on other sections.** None: no field, encoding or activity changes (SPEC-017 Amendment 2026-10-09).
 
 ## References
 
