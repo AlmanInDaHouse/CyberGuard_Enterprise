@@ -168,23 +168,33 @@ This dependency-ordered document supersedes both for planning.
 
 ### H — Late events in detection
 
+- Contract: SPEC-018 (Accepted), amends SPEC-006 by scope, and ADR-0012
+  in place.
 - Does: make the detection read-model advance by arrival instead of by
   event time, so an event that reaches the server after the watermark has
-  passed its `time` is still evaluated.
+  passed its `time` is still evaluated. The cursor is the pair
+  `(arrived_at, event_id)`, read behind a 5 s settle margin and without
+  `FINAL`; an index on `arrived_at` keeps the read from scanning the
+  whole table.
 - Why (observed at `e19f782`): `readNewEvents`
   (`services/ingest/src/detect/read-model.ts`) selects `time > watermark`
   per org (ADR-0012 §7). With two agents in one org, the events of the
   one that delivers later are never evaluated. `cges_events` already
-  stores a server-assigned `arrived_at`.
+  stores a server-assigned `arrived_at`. Read at `7a9160a`, it is wider:
+  every agent is written under one org, so this is any two agents; and,
+  deduced from the code, an agent whose clock runs ahead hides the
+  others' events, and a single agent loses its own when its clock steps
+  back.
 - Unblocks: correct detection with more than one agent per org; D, whose
   classes share the read-model.
 - Blocked by: nothing technical. Sequencing: after G, before D — advisor
   decision under the owner's delegation, S32 (2026-10-04). With one agent
   and G's in-order retries, G does not make it worse.
-- Needs: an ADR-0012 amendment (§7) and a SPEC that amends SPEC-006
-  §Operational §1 by scope. Owner-STOP: amending an ADR.
-- Gate (own): a CI test with two agents delivering out of order, and the
-  SPEC-006 marquee.
+- Gate (own): the `late_ac_*` tests in CI (SPEC-018 §Acceptance
+  criteria), and the elevated gate with both marquees.
+- Owner decisions, S33 (2026-10-09), delegated to the advisor: the
+  vehicle; no lateness horizon; the cursor starts at the beginning after
+  the upgrade (SPEC-018 §Ratification record).
 
 ### D — Criterion 2: new classes (4001 network + 3002 login)
 

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-30
-- Last updated: 2026-06-07
+- Last updated: 2026-10-09
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -290,6 +290,23 @@ This amendment does NOT trigger the §1 seam extraction (line 33) or the §Out-o
 ### Scope
 
 MVP is single-instance. Multi-instance / HA execution (serializing cycles across replicas) is deferred; when needed it is satisfied by the existing pg_try_advisory_lock pattern (migrate.ts) wrapped per-org per-tick, with no redesign. Multi-tenancy remains out of MVP scope; the per-org loop iterates whatever orgs exist (one, 'default', in v0.1).
+
+## Amendment 2026-10-09: the read-model advances by arrival (SPEC-018)
+
+**Status.** This amendment supersedes the cursor of §7 (`time > {watermark}`, advancing to the batch's maximum `time`) and carves the forward read out of the `FINAL` rule of §2 and §Compliance. ADR-0012 remains `Accepted`.
+
+**Context.** §7 advances the read-model by event `time`, the agents' clock, with one watermark per org. An event that reaches the server with a `time` at or before the watermark is never read: a second agent that delivers later, an agent whose clock steps back, or every other agent when one clock runs ahead (SPEC-018 §Context, read at `7a9160a`). Every agent is in one org, so this is any installation with two agents. `cges_events` already stores the arrival time ADR-0006 requires (`cg_ingested_at`, as `arrived_at`).
+
+**Amendment.** The read-model polls `cges_events` forward by **arrival**. The cursor of an org is the pair `(arrived_at, event_id)` of the last row read, ordered and compared by ClickHouse. The read takes only rows older than a settle margin, because `arrived_at` is assigned when an insert starts and its rows are visible when it ends. The forward read does not use `FINAL`: a resent event may be read and evaluated again, and §5's `dedup_key`, no part of which depends on when the event arrived or was processed, makes a repeated match a no-op. The query, the margin's value and its stated assumption are in SPEC-018 §Operational §1–§3. An event is evaluated whenever it arrives, with no lateness horizon (SPEC-018 §Operational §4).
+
+**Effect on other sections.**
+
+- **§2 and §Compliance.** The rule of §2 — a read that must not see duplicates uses `FINAL` or its `GROUP BY` equivalent — stands for every such read; the parent look-back keeps `FINAL`. The forward read is the exception: it tolerates duplicates instead of collapsing them, and the Compliance clause on collapsing duplicates no longer binds it.
+- **§5.** Unchanged, and now what makes a repeated match a no-op on the forward read: the bucket still comes from the event's `time`.
+- **§7.** Its forward query is superseded: the `time` watermark, the `ORDER BY time` and the `FINAL` give way to the read of SPEC-018 §Operational §1. The parent-child join is unchanged: by event `time`, on `(agent_id, parent_pid) → (agent_id, pid)`.
+- **§8 and the Amendment 2026-05-31.** Unchanged: dedup and incident windows stay on event time (ADR-0013 §1).
+- **Amendment 2026-06-07.** Unchanged: `detect_watermark` remains the sole cursor; what it stores changes.
+- **§Out of scope.** The event firehose would replace both the poll and the settle margin with a commit-ordered log; it stays deferred.
 
 ## References
 

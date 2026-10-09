@@ -38,6 +38,7 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-015](SPEC-015-detection-evaluator-generalization.md) | Detection evaluator — generalized Sigma subset (process_creation) | Accepted |
 | [SPEC-016](SPEC-016-detection-rule-set-v1.md) | Detection rule set v1 — MVP criterion 1 (process_creation) | Accepted |
 | [SPEC-017](SPEC-017-agent-capture-normal-run-path.md) | Agent capture on the normal run path — startup, delivery, path translation | Accepted |
+| [SPEC-018](SPEC-018-detection-read-model-arrival-cursor.md) | Detection read-model — arrival cursor (late events) | Accepted |
 
 ## Dependencies
 
@@ -56,3 +57,4 @@ Cross-document edges surfaced at landing (each SPEC's own "Depends on" header is
 - SPEC-015 → SPEC-006 (amends §In scope `:26` and the evaluator note `:134` **by scope**: the generalized Sigma subset is delivered here; SPEC-006's MVP rule and detect_ac_* ACs are unchanged)
 - SPEC-016 → SPEC-015 (amends the rule-document contract `:47` **by scope**: the loader contract; resolves Open question 1 — multi-hop lineage stays out of the MVP) / SPEC-006 (realises §Out of scope `:42` **by scope**: the full detection bar, ten rules; closes Open questions 1–2; amends §Operational §2 and NFR-006-003 / NFR-006-004 **by scope**: the parent is resolved per child, with its own 24 h look-back) / SPEC-007 (meets the reopen condition of Open question 2: grouping kept, reopened at roadmap §E)
 - SPEC-017 → SPEC-005 (realises capture on the normal run path; amends **by scope** the wire shape, the rejected-envelope failure mode, AC-007's `parent_process`, and where the cache and the timestamp are handled; defers NFR-005-003) / SPEC-003 (amends its Amendment 2026-05-23 part (a) **by scope**: events inside the signed `body`, no `batch_hash`) / SPEC-001 (implements its Amendment 2026-05-23; FR-009 amended **by scope** for the two startup lines) / ADR-0004 and ADR-0011 (amended in place, 2026-10-04). SPEC-017 self-amendment 2026-10-09: a Terminate carries the image base name, so the Win32 form is asserted on the Launch
+- SPEC-018 → SPEC-006 (amends **by scope** the read-model line of §In scope, §Operational §1, NFR-006-002 and the wording of detect_ac_005: the forward read advances by an arrival cursor behind a settle margin, without `FINAL`) / SPEC-017 (delivers its §Out of scope item on events that arrive after the watermark; relies on in-order POSTs and byte-identical resends) / SPEC-016 (parent resolution relied on, unchanged) / ADR-0012 (amended in place, 2026-10-09)
