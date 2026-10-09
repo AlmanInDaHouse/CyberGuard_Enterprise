@@ -153,6 +153,19 @@ async function bootstrapClickHouse(config: Config): Promise<void> {
         ORDER BY (org_id, time, event_id)
       `,
     });
+
+    // SPEC-018 §Operational §7 — the detection read-model reads forward by
+    // arrival, and this minmax skip index on arrived_at lets that read prune.
+    // An ALTER after the CREATE (which stays as it is) so a table that already
+    // exists gets the index too. Parts written before the index are not
+    // rewritten (no MATERIALIZE INDEX): they are read unpruned until a merge
+    // rewrites them. Engine, partitioning and ordering are unchanged.
+    await ch.command({
+      query: `
+        ALTER TABLE cges_events
+        ADD INDEX IF NOT EXISTS ix_arrived_at arrived_at TYPE minmax GRANULARITY 1
+      `,
+    });
   } finally {
     await ch.close();
   }
