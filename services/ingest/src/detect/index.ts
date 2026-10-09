@@ -2,25 +2,28 @@ import { type NotifyConfig, notifyIncidentCreated } from "../notify/index.js";
 import { upsertAlert } from "./alerts.js";
 import { evaluateRule, loadRules } from "./engine.js";
 import { upsertIncident } from "./incidents.js";
-import { advanceWatermark, getWatermark, readNewEvents } from "./read-model.js";
+import { advanceCursor, getCursor, readNewEvents } from "./read-model.js";
 import { scoreAlert } from "./scorer.js";
 import type { DetectConfig, DetectCycleResult } from "./types.js";
 
 /**
- * Per-cycle read cap (SPEC-006 NFR-006-002). Exported so the production driver
- * (driver.ts, ADR-0012 Amendment 2026-06-07) can detect a full batch
- * (`eventsEvaluated === BATCH_LIMIT`) and drain forward — without re-declaring
- * the constant. The cycle body below is unchanged.
+ * Per-cycle read cap (SPEC-006 NFR-006-002, amended by SPEC-018 NFR-018-002: rows
+ * read, Launch and Terminate alike, duplicates included). Exported so the
+ * production driver (driver.ts, ADR-0012 Amendment 2026-06-07) can detect a full
+ * batch (`eventsEvaluated === BATCH_LIMIT`) and drain forward — without
+ * re-declaring the constant. The cycle body below is unchanged.
  */
 export const BATCH_LIMIT = 1000;
 
 /**
- * Run one detection cycle (SPEC-006 §Operational; ADR-0012 §7): poll
- * `cges_events` forward by the per-org watermark (FINAL), resolve each event's
- * parent image, evaluate the loaded rules, score each match (renormalized), and
- * upsert the resulting alerts into Postgres (ON CONFLICT DO NOTHING), and group
- * each newly-persisted alert into an incident (SPEC-007 §Operational §6). The
- * watermark advances to the batch's max `time` after processing.
+ * Run one detection cycle (SPEC-006 §Operational; ADR-0012 §7, amended
+ * 2026-10-09): poll `cges_events` forward by the per-org arrival cursor (SPEC-018
+ * §Operational §1, no FINAL), resolve each event's parent image, evaluate the
+ * loaded rules, score each match (renormalized), and upsert the resulting alerts
+ * into Postgres (ON CONFLICT DO NOTHING), and group each newly-persisted alert into
+ * an incident (SPEC-007 §Operational §6). After processing, the cursor advances to
+ * the `(arrived_at, event_id)` of the batch's last row; an empty read leaves it
+ * where it was.
  *
  * Loop structure (a DECISION, not a side effect of ordering): every event is
  * evaluated against EVERY rule — each rule is an independent detector (ADR-0005),
@@ -38,9 +41,9 @@ export async function runDetectionCycle(
   notify?: NotifyConfig,
 ): Promise<DetectCycleResult> {
   const rules = loadRules(config.rulesDir);
-  const watermark = await getWatermark(config);
-  const events = await readNewEvents(config, watermark, BATCH_LIMIT);
-  if (events.length === 0) {
+  const cursor = await getCursor(config);
+  const { events, cursor: processedThrough } = await readNewEvents(config, cursor, BATCH_LIMIT);
+  if (processedThrough === null) {
     return { processedThrough: null, eventsEvaluated: 0, alertsWritten: 0 };
   }
 
@@ -83,7 +86,6 @@ export async function runDetectionCycle(
     }
   }
 
-  const processedThrough = events.map((e) => e.time).reduce((a, b) => (a > b ? a : b));
-  await advanceWatermark(config, processedThrough);
+  await advanceCursor(config, processedThrough);
   return { processedThrough, eventsEvaluated: events.length, alertsWritten };
 }

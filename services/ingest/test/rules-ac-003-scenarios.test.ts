@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Config } from "../src/config.js";
 import { loadRules } from "../src/detect/engine.js";
 import { runDetectionCycle } from "../src/detect/index.js";
-import { enrollTestAgent, getAlerts, getWatermark, insertCgesEvent } from "./helpers/db.js";
+import { enrollTestAgent, getAlerts, getCursor, insertCgesEvent } from "./helpers/db.js";
 import { RULES_WINDOWS_DIR, detectConfig } from "./helpers/detect.js";
 
 // SPEC-016 rules_ac_003 — scenarios wired (§Data contracts §4): every
@@ -143,7 +143,7 @@ test.each(scenarios)("%s passes against the whole rule set", async (_dir, s) => 
   await runDetectionCycle(detectConfig(config, orgId));
 
   // The cycle ran over the scenario's org (a zero-alert pass is not vacuous) ...
-  expect(await getWatermark(config, orgId)).not.toBeNull();
+  expect(await getCursor(config, orgId)).not.toBeNull();
   // ... and the scenario's agent has exactly the expected alerts.
   const alerts = await getAlerts(config, { agentId });
   expect(alerts).toHaveLength(s.expected.alert_count);

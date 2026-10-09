@@ -1,6 +1,7 @@
 import { createClient } from "@clickhouse/client";
 import pg from "pg";
 import type { Config } from "../../src/config.js";
+import type { DetectCursor } from "../../src/detect/types.js";
 
 /**
  * Insert an enrollment_tokens row directly (the server's CLI does this in
@@ -130,8 +131,9 @@ export async function getCgesEvents(config: Config, agentId: string): Promise<Cg
 // for the Detection MVP harness. cges_events exists (migrations run in
 // startBackends), so insertCgesEvent succeeds — it is "setup-that-exists". The
 // alerts and detect_watermark tables do NOT exist yet (migration 0002_alerts
-// lands in the Phase-5 impl); getAlerts/setAlertStatus/getWatermark compile
-// cleanly and run once that migration lands — same pattern as getCgesEvents.
+// lands in the Phase-5 impl); getAlerts/setAlertStatus/getWatermark (getCursor
+// since SPEC-018) compile cleanly and run once that migration lands — same
+// pattern as getCgesEvents.
 // In the harness-first RED, every detect_ac_* test calls runDetectionCycle()
 // (or scoreAlert) — which throws NotImplemented — BEFORE reaching these alert
 // helpers, so the RED is NotImplemented, never "alerts table missing".
@@ -149,9 +151,22 @@ export interface InsertCgesEventRow {
   processUid?: string;
   processParentPid?: number | null;
   orgId?: string;
+  /**
+   * ClickHouse DateTime64(3) literal for `arrived_at`. Omitted ⇒ ClickHouse assigns
+   * it, as for every event the ingest route writes (SPEC-018 §Data contracts).
+   */
+  arrivedAt?: string;
 }
 
 export async function insertCgesEvent(config: Config, ev: InsertCgesEventRow): Promise<void> {
+  await insertCgesEvents(config, [ev]);
+}
+
+/**
+ * Insert `rows` in ONE ClickHouse INSERT: rows that leave `arrivedAt` unset share
+ * one ClickHouse-assigned `arrived_at` (SPEC-018 §Context 6).
+ */
+export async function insertCgesEvents(config: Config, rows: InsertCgesEventRow[]): Promise<void> {
   const ch = createClient({
     url: config.INGEST_CH_URL,
     username: config.INGEST_CH_USER,
@@ -161,21 +176,20 @@ export async function insertCgesEvent(config: Config, ev: InsertCgesEventRow): P
   try {
     await ch.insert({
       table: "cges_events",
-      values: [
-        {
-          agent_id: ev.agentId,
-          org_id: ev.orgId ?? "default",
-          event_id: ev.eventId,
-          class_uid: ev.classUid ?? 1007,
-          activity_id: ev.activityId,
-          process_pid: ev.processPid,
-          process_uid: ev.processUid ?? "",
-          process_name: ev.processName,
-          process_parent_pid: ev.processParentPid ?? null,
-          image_file_name: ev.imageFileName,
-          time: ev.time,
-        },
-      ],
+      values: rows.map((ev) => ({
+        agent_id: ev.agentId,
+        org_id: ev.orgId ?? "default",
+        event_id: ev.eventId,
+        class_uid: ev.classUid ?? 1007,
+        activity_id: ev.activityId,
+        process_pid: ev.processPid,
+        process_uid: ev.processUid ?? "",
+        process_name: ev.processName,
+        process_parent_pid: ev.processParentPid ?? null,
+        image_file_name: ev.imageFileName,
+        time: ev.time,
+        ...(ev.arrivedAt === undefined ? {} : { arrived_at: ev.arrivedAt }),
+      })),
       format: "JSONEachRow",
     });
   } finally {
@@ -192,6 +206,8 @@ export interface AlertRow {
   dedup_key: string;
   source_events: string[];
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
+  /** The source event's `time`, at whole seconds (alerts.ts `to_timestamp`). */
+  event_time: Date;
 }
 
 export async function getAlerts(
@@ -213,7 +229,7 @@ export async function getAlerts(
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const r = await pool.query<AlertRow>(
       `SELECT alert_id, rule_id, cg_detection_source, final_score::float8 AS final_score,
-              status, dedup_key, source_events, cg_mitre
+              status, dedup_key, source_events, cg_mitre, event_time
        FROM alerts ${where}
        ORDER BY created_at`,
       params,
@@ -240,16 +256,50 @@ export async function setAlertStatus(
   }
 }
 
-export async function getWatermark(config: Config, orgId: string): Promise<string | null> {
+/** The org's stored detection cursor (SPEC-018 §Data contracts); null when it has no row yet. */
+export async function getCursor(config: Config, orgId: string): Promise<DetectCursor | null> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   try {
-    const r = await pool.query<{ last_time: string }>(
-      "SELECT last_time::text AS last_time FROM detect_watermark WHERE org_id = $1",
+    const r = await pool.query<{ last_arrived_at: string; last_event_id: string }>(
+      "SELECT last_arrived_at, last_event_id FROM detect_watermark WHERE org_id = $1",
       [orgId],
     );
-    return r.rows[0]?.last_time ?? null;
+    const row = r.rows[0];
+    return row === undefined
+      ? null
+      : { arrivedAt: row.last_arrived_at, eventId: row.last_event_id };
   } finally {
     await pool.end();
+  }
+}
+
+/**
+ * The org's last Process Activity row in arrival order, as ClickHouse orders it
+ * (SPEC-018 §Operational §1): where a cycle that read everything leaves the cursor.
+ */
+export async function lastArrivedRow(config: Config, orgId: string): Promise<DetectCursor | null> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    const rs = await ch.query({
+      query: `
+        SELECT arrived_at, event_id
+        FROM cges_events
+        WHERE org_id = {org:String} AND class_uid = 1007
+        ORDER BY arrived_at DESC, event_id DESC
+        LIMIT 1
+      `,
+      query_params: { org: orgId },
+      format: "JSONEachRow",
+    });
+    const row = (await rs.json<{ arrived_at: string; event_id: string }>())[0];
+    return row === undefined ? null : { arrivedAt: row.arrived_at, eventId: row.event_id };
+  } finally {
+    await ch.close();
   }
 }
 
@@ -293,6 +343,7 @@ export interface IncidentRow {
   cg_mitre: { tactics: string[]; techniques: string[] } | null;
   alert_ids: string[];
   grouping_key: string;
+  updated_at: Date;
 }
 
 export async function getIncidents(
@@ -313,7 +364,8 @@ export async function getIncidents(
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const r = await pool.query<IncidentRow>(
-      `SELECT incident_id, org_id, agent_id, status, severity_id, assigned_to, cg_mitre, alert_ids, grouping_key
+      `SELECT incident_id, org_id, agent_id, status, severity_id, assigned_to, cg_mitre, alert_ids, grouping_key,
+              updated_at
        FROM incidents ${where}
        ORDER BY created_at`,
       params,

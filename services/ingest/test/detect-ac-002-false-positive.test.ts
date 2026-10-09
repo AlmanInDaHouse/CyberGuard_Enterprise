@@ -1,7 +1,7 @@
 import { beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 import { runDetectionCycle } from "../src/detect/index.js";
-import { getAlerts, getWatermark, insertCgesEvent } from "./helpers/db.js";
+import { getAlerts, getCursor, insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
 // SPEC-006 detect_ac_002 — SC010 false-positive: a script host whose parent is
@@ -55,7 +55,7 @@ test("detect_ac_002: explorer.exe -> powershell.exe yields 0 alerts (FP), cycle 
 
   // (a) the cycle processed the batch ...
   expect(result.eventsEvaluated).toBeGreaterThan(0);
-  expect(await getWatermark(config, "detect-ac-002")).not.toBeNull();
+  expect(await getCursor(config, "detect-ac-002")).not.toBeNull();
   // (b) ... and produced no alert (parent is not an Office app).
   expect(await getAlerts(config, { agentId })).toHaveLength(0);
 });
