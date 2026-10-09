@@ -7,7 +7,8 @@ import type { DetectConfig, DetectCycleResult } from "./types.js";
 
 // ADR-0012 Amendment 2026-06-07 — production detection driver (in-process TS
 // scheduler). Adds a PRODUCTION caller for runDetectionCycle without touching
-// its body: the durable per-org detect_watermark stays the sole cursor. This
+// its body: the durable per-org detect_watermark row stays the sole cursor (its
+// (arrived_at, event_id) arrival cursor since SPEC-018 §Data contracts). This
 // does NOT trigger the §1 named-exit (no Go port) — it drives the existing
 // transitional TS slice in prod, gated still on the future event-firehose ADR.
 
@@ -18,9 +19,10 @@ const MAX_ITERATIONS_PER_TICK = 10;
 export type DriverLog = (event: string, fields?: Record<string, unknown>) => void;
 
 /**
- * Production analog of test/helpers/detect.ts:12 — build one org's DetectConfig
+ * Production analog of test/helpers/detect.ts:18 — build one org's DetectConfig
  * from the validated Config. rulesDir comes from INGEST_DETECT_RULES_DIR
- * (config.ts).
+ * (config.ts). settleMarginMs is left unset, so production reads with the
+ * SETTLE_MARGIN_MS constant (SPEC-018 §Operational §2): there is no env var.
  */
 export function buildDetectConfig(config: Config, orgId: string): DetectConfig {
   return {

@@ -1,6 +1,6 @@
 import { beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { getWatermark, readNewEvents } from "../src/detect/read-model.js";
+import { advanceCursor, getCursor, readNewEvents } from "../src/detect/read-model.js";
 import type { NormalizedProcessEvent } from "../src/detect/types.js";
 import { insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
@@ -54,25 +54,34 @@ async function insert(p: Proc): Promise<string> {
   return eventId;
 }
 
-/**
- * Read the org's batch after `watermark` (default: the org's stored watermark)
- * and return the event with `eventId`. A watermark past the parent's Launch puts
- * the parent in an earlier batch, as when an earlier cycle already read it.
- */
+/** Read the org's batch after its stored cursor and return the event with `eventId`. */
 async function readEvent(
   org: string,
   eventId: string,
-  watermark?: string,
 ): Promise<NormalizedProcessEvent | undefined> {
   const cfg = detectConfig(config, org);
-  const events = await readNewEvents(cfg, watermark ?? (await getWatermark(cfg)), 1000);
+  const { events } = await readNewEvents(cfg, await getCursor(cfg), 1000);
   return events.find((e) => e.eventId === eventId);
+}
+
+/**
+ * An earlier cycle: read everything the org has stored so far and advance its
+ * cursor past it, so a parent inserted before this call is in an earlier batch
+ * than a child inserted after it. Returns how many rows that cycle read.
+ */
+async function readEarlierBatch(org: string): Promise<number> {
+  const cfg = detectConfig(config, org);
+  const { events, cursor } = await readNewEvents(cfg, await getCursor(cfg), 1000);
+  if (cursor !== null) await advanceCursor(cfg, cursor);
+  return events.length;
 }
 
 test("a parent launched 2 h before its child resolves", async () => {
   const org = "rules-ac-004-2h";
   const agent = "01934abc-def0-7000-89ab-0000000a4001";
   await insert({ org, agent, pid: 7100, image: WINWORD, time: "2026-09-27 08:00:00.000000000" });
+  // The parent was read by an earlier cycle; the next batch holds the child only.
+  expect(await readEarlierBatch(org)).toBe(1);
   const child = await insert({
     org,
     agent,
@@ -82,9 +91,7 @@ test("a parent launched 2 h before its child resolves", async () => {
     time: "2026-09-27 10:00:00.000000000",
   });
 
-  // The parent was read by an earlier cycle; the batch holds the child only.
-  const behindParent = "2026-09-27 08:00:00.000000000";
-  expect((await readEvent(org, child, behindParent))?.parentImage).toBe(WINWORD);
+  expect((await readEvent(org, child))?.parentImage).toBe(WINWORD);
 });
 
 test("a later reuse of the parent's pid, inside the same batch, does not replace it", async () => {
@@ -187,8 +194,12 @@ test("a candidate whose Terminate precedes the child is not used", async () => {
 test("a parent launched more than 24 h before its child resolves to null", async () => {
   const org = "rules-ac-004-24h";
   const agent = "01934abc-def0-7000-89ab-0000000a4004";
-  // 24 h + 1 s before the child: outside the look-back.
+  // 24 h + 1 s before its child: outside the look-back.
   await insert({ org, agent, pid: 7400, image: WINWORD, time: "2026-09-26 09:59:59.000000000" });
+  // Exactly 24 h before its child: the look-back is inclusive.
+  await insert({ org, agent, pid: 7410, image: EXCEL, time: "2026-09-26 10:00:00.000000000" });
+  // Both parents were read by an earlier cycle; the next batch holds the children only.
+  expect(await readEarlierBatch(org)).toBe(2);
   const tooOld = await insert({
     org,
     agent,
@@ -197,8 +208,6 @@ test("a parent launched more than 24 h before its child resolves to null", async
     parentPid: 7400,
     time: "2026-09-27 10:00:00.000000000",
   });
-  // Exactly 24 h before the child: the look-back is inclusive.
-  await insert({ org, agent, pid: 7410, image: EXCEL, time: "2026-09-26 10:00:00.000000000" });
   const boundary = await insert({
     org,
     agent,
@@ -208,8 +217,6 @@ test("a parent launched more than 24 h before its child resolves to null", async
     time: "2026-09-27 10:00:00.000000000",
   });
 
-  // Both parents were read by an earlier cycle; the batch holds the children only.
-  const behindParents = "2026-09-27 00:00:00.000000000";
-  expect((await readEvent(org, tooOld, behindParents))?.parentImage).toBeNull();
-  expect((await readEvent(org, boundary, behindParents))?.parentImage).toBe(EXCEL);
+  expect((await readEvent(org, tooOld))?.parentImage).toBeNull();
+  expect((await readEvent(org, boundary))?.parentImage).toBe(EXCEL);
 });

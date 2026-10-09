@@ -5,10 +5,11 @@ import { createClient } from "@clickhouse/client";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 import { eventUnixSeconds } from "../src/detect/alerts.js";
+import { buildDetectConfig } from "../src/detect/driver.js";
 import { runDetectionCycle } from "../src/detect/index.js";
+import { SETTLE_MARGIN_MS } from "../src/detect/types.js";
 import { type IngestServer, startIngest } from "../src/server.js";
 import { getAlerts, issueToken } from "./helpers/db.js";
-import { detectConfig } from "./helpers/detect.js";
 import { prepareAgent } from "./helpers/marquee-agent.js";
 
 // SPEC-006 detect_ac_001 — SC001 marquee, polyglot end-to-end. DEVELOPER-LOCAL
@@ -125,8 +126,13 @@ test.skipIf(process.platform !== "win32")(
     ) as { agent_id: string };
     const agentId = identity.agent_id;
 
-    // Run detection over the captured events, against the whole rule set.
-    await runDetectionCycle(detectConfig(config));
+    // Run detection over the captured events, against the whole rule set, as the
+    // production driver configures the cycle: with the 5000 ms settle margin
+    // (SPEC-018 §Operational §2, late_ac_008). The agent has exited, so its last
+    // POST is in; waiting out the margin (plus 1 s for the ClickHouse container's
+    // clock) lets this single cycle read everything the agent delivered.
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MARGIN_MS + 1000));
+    await runDetectionCycle(buildDetectConfig(config, "default"));
 
     // The probe (winword.exe stand-in) and its powershell.exe child, as captured.
     const launches = await capturedLaunches(config, agentId);

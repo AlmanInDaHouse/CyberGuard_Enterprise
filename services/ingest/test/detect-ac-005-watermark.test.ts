@@ -4,11 +4,11 @@ import { runDetectionCycle } from "../src/detect/index.js";
 import { enrollTestAgent, insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
-// SPEC-006 detect_ac_005 — read-model watermark: batch A is not re-evaluated
-// when batch B arrives. The second cycle evaluates ONLY batch B's events (batch
-// A is behind the advanced watermark). Asserting eventsEvaluated (not alert
-// count) isolates the watermark from the dedup path, which would otherwise mask
-// re-processing. CI-able.
+// SPEC-006 detect_ac_005, as SPEC-018 amends it — the read-model cursor: batch A
+// is not re-evaluated when batch B arrives. The second cycle evaluates ONLY what
+// was inserted after the first, whatever its `time` (batch A is behind the
+// arrival cursor). Asserting eventsEvaluated (not alert count) isolates the
+// cursor from the dedup path, which would otherwise mask re-processing. CI-able.
 //
 // Harness-first RED: the first runDetectionCycle throws NotImplemented.
 
@@ -63,6 +63,6 @@ test("detect_ac_005: watermark advances; the 2nd cycle evaluates only batch B", 
   // Batch B — a later bucket at 13:10.
   await insertOfficeSpawn(agentId, 8002, 8003, 5502, "13:10");
   const second = await runDetectionCycle(detectConfig(config, "detect-ac-005"));
-  // Only batch B's 2 events are evaluated; batch A is behind the watermark.
+  // Only batch B's 2 events are evaluated; batch A arrived before the cursor.
   expect(second.eventsEvaluated).toBe(2);
 });

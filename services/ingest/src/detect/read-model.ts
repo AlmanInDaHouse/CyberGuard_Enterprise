@@ -2,25 +2,33 @@ import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import pg from "pg";
 import {
   type DetectConfig,
+  type DetectCursor,
   type NormalizedProcessEvent,
   PARENT_LOOKBACK_SECONDS,
+  SETTLE_MARGIN_MS,
 } from "./types.js";
 
 // SPEC-006 5b — the read-model. Reads CGES Process Activity (class_uid 1007)
-// from ClickHouse cges_events forward by a per-org watermark (FINAL collapses
-// at-least-once duplicates, ADR-0012 §2/§7), resolves each child's parent image
-// per child (SPEC-016 §Operational §1, amending SPEC-006 §Operational §2 by
-// scope), and manages the Postgres detect_watermark cursor. It does NOT evaluate
-// rules (engine.ts), score (scorer.ts), or persist alerts (alerts.ts);
-// runDetectionCycle (index.ts) wires those steps together.
+// from ClickHouse cges_events forward by a per-org arrival cursor (SPEC-018
+// §Operational §1, amending SPEC-006 §Operational §1 by scope; ADR-0012
+// Amendment 2026-10-09), resolves each child's parent image per child (SPEC-016
+// §Operational §1, amending SPEC-006 §Operational §2 by scope), and manages the
+// Postgres detect_watermark cursor. It does NOT evaluate rules (engine.ts),
+// score (scorer.ts), or persist alerts (alerts.ts); runDetectionCycle (index.ts)
+// wires those steps together.
 //
 // NOTE on aliasing: the projected timestamp is aliased `event_time`, NOT `time`.
 // Aliasing `toString(time) AS time` would shadow the DateTime64 `time` column in
 // the WHERE clause (ClickHouse resolves the String alias there), producing
-// "No operation greater between String and DateTime64".
+// "No operation greater between String and DateTime64". For the same reason the
+// forward read projects `event_id` and `arrived_at` unaliased: its WHERE and
+// ORDER BY must compare and order the UUID and DateTime64 columns themselves.
 
-/** Epoch default; mirrors the detect_watermark.last_time column default (0003). */
-const WATERMARK_EPOCH = "1970-01-01 00:00:00.000000000";
+/** The cursor before any read; mirrors the detect_watermark column defaults (0007). */
+const CURSOR_START: DetectCursor = {
+  arrivedAt: "1970-01-01 00:00:00.000",
+  eventId: "00000000-0000-0000-0000-000000000000",
+};
 
 interface ChildRow {
   event_id: string;
@@ -32,6 +40,14 @@ interface ChildRow {
   image_file_name: string;
   process_parent_pid: number | null;
   event_time: string;
+  arrived_at: string;
+}
+
+/** One forward read: its events, and the cursor of its last row. */
+export interface ReadBatch {
+  events: NormalizedProcessEvent[];
+  /** The `(arrived_at, event_id)` of the last row returned; null when the read was empty. */
+  cursor: DetectCursor | null;
 }
 
 /** A candidate parent: a Launch of one of the batch's parent pids inside the look-back. */
@@ -78,8 +94,19 @@ function minusSeconds(time: string, seconds: number): string {
 }
 
 /**
- * Read the next batch of Process Activity events with `time` strictly after the
- * watermark, FINAL-collapsed, ordered ascending. Each event carries its resolved
+ * Read the next batch of Process Activity events after `cursor`, in arrival order
+ * (SPEC-018 §Operational §1): the rows whose `(arrived_at, event_id)` is after the
+ * cursor and whose `arrived_at` is at least the settle margin older than
+ * ClickHouse's `now64(3)` (§2), ordered by `(arrived_at, event_id)`, at most
+ * `limit`. No FINAL: a resent event is a later row and is read again; the
+ * dedup_key makes a repeated match a no-op (§3). The lower bound on `arrived_at`
+ * is a predicate of its own beside the tuple comparison, which is what lets the
+ * ix_arrived_at index prune (§7). The margin is measured on ClickHouse's clock,
+ * the one that assigned `arrived_at`, never on this host's.
+ *
+ * The returned cursor is the `(arrived_at, event_id)` of the last row, as
+ * ClickHouse returned it: ClickHouse orders and compares the pair, and this
+ * service never orders `event_id` values itself. Each event carries its resolved
  * `parentImage` (null when no parent resolves — see resolveParents).
  *
  * Column names are read VERBATIM from cges_events (process_pid, process_name,
@@ -89,32 +116,41 @@ function minusSeconds(time: string, seconds: number): string {
  */
 export async function readNewEvents(
   config: DetectConfig,
-  watermark: string,
+  cursor: DetectCursor,
   limit: number,
-): Promise<NormalizedProcessEvent[]> {
+): Promise<ReadBatch> {
   const ch = chClient(config);
   try {
     const childRs = await ch.query({
       query: `
-        SELECT toString(event_id) AS event_id, toString(agent_id) AS agent_id, activity_id,
+        SELECT event_id, toString(agent_id) AS agent_id, activity_id,
                process_pid, process_uid, process_name, image_file_name,
-               process_parent_pid, toString(time) AS event_time
-        FROM cges_events FINAL
+               process_parent_pid, toString(time) AS event_time, arrived_at
+        FROM cges_events
         WHERE org_id = {org:String}
           AND class_uid = 1007
-          AND time > parseDateTime64BestEffort({watermark:String}, 9, 'UTC')
-        ORDER BY time ASC
+          AND arrived_at >= {cursorAt:DateTime64(3, 'UTC')}
+          AND (arrived_at, event_id) > ({cursorAt:DateTime64(3, 'UTC')}, {cursorId:UUID})
+          AND arrived_at <= subtractMilliseconds(now64(3), {settle:UInt32})
+        ORDER BY arrived_at ASC, event_id ASC
         LIMIT {batch:UInt32}
       `,
-      query_params: { org: config.orgId, watermark, batch: limit },
+      query_params: {
+        org: config.orgId,
+        cursorAt: cursor.arrivedAt,
+        cursorId: cursor.eventId,
+        settle: config.settleMarginMs ?? SETTLE_MARGIN_MS,
+        batch: limit,
+      },
       format: "JSONEachRow",
     });
     const children = await childRs.json<ChildRow>();
-    if (children.length === 0) return [];
+    const last = children.at(-1);
+    if (last === undefined) return { events: [], cursor: null };
 
     const parentImages = await resolveParents(ch, config, children);
 
-    return children.map((c, i) => ({
+    const events = children.map((c, i) => ({
       eventId: c.event_id,
       agentId: c.agent_id,
       activityId: c.activity_id,
@@ -126,6 +162,7 @@ export async function readNewEvents(
       parentImage: parentImages[i] ?? null,
       time: c.event_time,
     }));
+    return { events, cursor: { arrivedAt: last.arrived_at, eventId: last.event_id } };
   } finally {
     await ch.close();
   }
@@ -240,29 +277,34 @@ async function resolveParents(
   });
 }
 
-/** Read the per-org watermark; the epoch default when no row exists yet. */
-export async function getWatermark(config: DetectConfig): Promise<string> {
+/** Read the per-org cursor (SPEC-018 §Data contracts); the start when no row exists yet. */
+export async function getCursor(config: DetectConfig): Promise<DetectCursor> {
   const pool = new pg.Pool({ connectionString: config.ingest.INGEST_PG_URL });
   try {
-    const r = await pool.query<{ last_time: string }>(
-      "SELECT last_time FROM detect_watermark WHERE org_id = $1",
+    const r = await pool.query<{ last_arrived_at: string; last_event_id: string }>(
+      "SELECT last_arrived_at, last_event_id FROM detect_watermark WHERE org_id = $1",
       [config.orgId],
     );
-    return r.rows[0]?.last_time ?? WATERMARK_EPOCH;
+    const row = r.rows[0];
+    if (row === undefined) return CURSOR_START;
+    return { arrivedAt: row.last_arrived_at, eventId: row.last_event_id };
   } finally {
     await pool.end();
   }
 }
 
-/** Advance the per-org watermark to `maxTime` (the max `time` of a processed batch). */
-export async function advanceWatermark(config: DetectConfig, maxTime: string): Promise<void> {
+/** Advance the per-org cursor to `cursor`, the last row of a processed batch. */
+export async function advanceCursor(config: DetectConfig, cursor: DetectCursor): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.ingest.INGEST_PG_URL });
   try {
     await pool.query(
-      `INSERT INTO detect_watermark (org_id, last_time, updated_at)
-       VALUES ($1, $2, now())
-       ON CONFLICT (org_id) DO UPDATE SET last_time = excluded.last_time, updated_at = now()`,
-      [config.orgId, maxTime],
+      `INSERT INTO detect_watermark (org_id, last_arrived_at, last_event_id, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (org_id) DO UPDATE
+         SET last_arrived_at = excluded.last_arrived_at,
+             last_event_id = excluded.last_event_id,
+             updated_at = now()`,
+      [config.orgId, cursor.arrivedAt, cursor.eventId],
     );
   } finally {
     await pool.end();

@@ -4,7 +4,7 @@ import type { Config } from "../src/config.js";
 import { buildDetectConfig, listEnrolledOrgs, startDetectionDriver } from "../src/detect/driver.js";
 import { runDetectionCycle } from "../src/detect/index.js";
 import type { DetectCycleResult } from "../src/detect/types.js";
-import { enrollTestAgent, getAlerts, getWatermark, insertCgesEvent } from "./helpers/db.js";
+import { enrollTestAgent, getAlerts, getCursor, insertCgesEvent } from "./helpers/db.js";
 
 // ADR-0012 Amendment 2026-06-07 — production detection driver. CI-able
 // (testcontainers, NO ETW): synthetic cges_events drive the REAL runDetectionCycle
@@ -83,6 +83,9 @@ test("driver tick: a pass runs runDetectionCycle, persists the alert and advance
   await insertOfficeSpawn(config, orgId, agentId, 9000, 9001, 901_000, "08:00");
   await enrollTestAgent(config, agentId);
 
+  // buildDetectConfig is the production config: the ticks read nothing until the
+  // events are older than the 5000 ms settle margin (SPEC-018 §Operational §2),
+  // well inside waitUntil's 15 s.
   const driver = startDetectionDriver({
     intervalMs: 30,
     listOrgs: async () => [orgId],
@@ -98,7 +101,7 @@ test("driver tick: a pass runs runDetectionCycle, persists the alert and advance
   }
 
   // The cursor advanced off the epoch default (the read-model processed forward).
-  expect(await getWatermark(config, orgId)).not.toBeNull();
+  expect(await getCursor(config, orgId)).not.toBeNull();
   const alerts = await getAlerts(config, { agentId });
   expect(alerts).toHaveLength(1);
   expect(alerts[0]?.rule_id).toBe("rule.office_spawns_script_host");

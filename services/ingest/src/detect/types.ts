@@ -19,11 +19,35 @@ export const PARENT_LOOKBACK_SECONDS = 86_400;
  */
 export const INCIDENT_CORRELATION_WINDOW_SECONDS = 1800;
 
+/**
+ * SPEC-018 §Operational §2 settle margin (ms, NFR-018-001): the forward read takes
+ * only rows whose `arrived_at` is at least this much older than ClickHouse's
+ * `now64(3)`, so the cursor stays behind inserts still in flight. A constant, not
+ * an environment variable: the production driver always uses it.
+ */
+export const SETTLE_MARGIN_MS = 5000;
+
 /** Inputs for one detection cycle (SPEC-006 §Operational §1). */
 export interface DetectConfig {
   ingest: Config;
   orgId: string;
   rulesDir: string;
+  /**
+   * Overrides SETTLE_MARGIN_MS for tests (SPEC-018 §Operational §2). The
+   * production driver leaves it unset (driver.ts buildDetectConfig).
+   */
+  settleMarginMs?: number;
+}
+
+/**
+ * An org's detection cursor (SPEC-018 §Data contracts): the `(arrived_at,
+ * event_id)` of the last row read, both as ClickHouse prints them. ClickHouse
+ * orders and compares the pair; the service only stores and passes it back.
+ */
+export interface DetectCursor {
+  /** `arrived_at`, a DateTime64(3) string ("YYYY-MM-DD HH:MM:SS.fff", UTC). */
+  arrivedAt: string;
+  eventId: string;
 }
 
 /** A comparison modifier for a field matcher (SPEC-015 §Scope). */
@@ -92,8 +116,8 @@ export interface ScoreSignals {
 
 /** Result of one detection cycle. */
 export interface DetectCycleResult {
-  /** Watermark advanced to this max `time` (null when no events were processed). */
-  processedThrough: string | null;
+  /** The cursor the cycle advanced to: its last row read (null when the read was empty). */
+  processedThrough: DetectCursor | null;
   eventsEvaluated: number;
   alertsWritten: number;
 }
