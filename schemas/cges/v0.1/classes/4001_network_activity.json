@@ -30,6 +30,13 @@
         },
         "protocol_num": { "type": "integer", "minimum": 0, "maximum": 255 }
       }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "process": { "$ref": "../objects/process.json" }
+      }
     }
   },
   "required": ["category_uid", "class_uid", "activity_id", "src_endpoint", "dst_endpoint"]
