@@ -45,9 +45,20 @@ function currentUserSid(): string {
   return (out.stdout.trim().split(",").pop() ?? "").replace(/"/g, "");
 }
 
-/** A SID as the gate may print it: prefix and RID. */
+/** A SID as the gate may print it: authority and first sub-authority, then the RID. */
 function redactSid(sid: string): string {
-  return sid.startsWith("S-1-5-21-") ? `S-1-5-21-...-${sid.split("-").pop()}` : sid;
+  const parts = sid.split("-");
+  return parts.length <= 5 ? sid : `${parts.slice(0, 4).join("-")}-...-${parts.at(-1)}`;
+}
+
+/** Remove every connection to \\127.0.0.1 that `net use` lists. */
+function removeLoopbackConnections(): void {
+  const listing = spawnSync("net", ["use"], { encoding: "utf-8" }).stdout ?? "";
+  for (const token of listing.split(/\s+/)) {
+    if (token.toLowerCase().startsWith("\\\\127.0.0.1\\")) {
+      net(["use", token, "/delete", "/y"]);
+    }
+  }
 }
 
 /** A row as the gate may print it. */
@@ -98,7 +109,7 @@ test.skipIf(process.platform !== "win32")(
       await new Promise((resolve) => setTimeout(resolve, 5_000));
 
       const random = globalThis.crypto.randomUUID().replace(/-/g, "");
-      net(["use", SHARE, "/delete", "/y"]);
+      removeLoopbackConnections();
       const refused = net([
         "use",
         SHARE,
@@ -106,7 +117,7 @@ test.skipIf(process.platform !== "win32")(
         `/user:cg-nouser-${random.slice(0, 12)}`,
       ]);
       const accepted = net(["use", SHARE]);
-      net(["use", SHARE, "/delete", "/y"]);
+      removeLoopbackConnections();
       const sid = currentUserSid();
 
       const result = await runPromise;
