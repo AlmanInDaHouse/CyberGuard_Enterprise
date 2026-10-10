@@ -1,8 +1,41 @@
 # CLAUDE.md — CyberGuard Enterprise
 
-Project-level instructions for any Claude (or Claude-like) agent working on this repository. Read this file before editing code, ADRs, schemas, or workflows. The global `~/.claude/CLAUDE.md`, the foundational [Blueprint](docs/product/blueprint.md), the ADR catalog under [docs/adr/](docs/adr/), and the threat model at [docs/security/threat-model.md](docs/security/threat-model.md) all remain authoritative; this file is project-local additions.
+Project-level instructions for any Claude (or Claude-like) agent working on this repository. Read this file before editing code, ADRs, schemas, or workflows. The global `~/.claude/CLAUDE.md`, the foundational [Blueprint](docs/product/blueprint.md), the ADR catalog under [docs/adr/](docs/adr/), and the threat model at [docs/security/threat-model.md](docs/security/threat-model.md) all remain authoritative; this file is project-local additions. Where this file and the global one differ on who decides and when to ask, this file wins (*Decision authority*).
+
+Since 2026-10-10 the project is executor-led: Claude Code holds the context of the repo, decides the design inside the accepted ADRs and integrates the code; Manuel, owner and architect, keeps the general architecture and the decisions listed in *Decision authority*. There is no separate advisor. In *CI monitoring*, *Local pre-commit gate* and *Local environment operations*, *the agent* that acts is Claude Code; everywhere else *the agent* is the endpoint agent, `cg-agent`. After a `/clear`, the context is this file, the latest `docs/handoff-session-*.md` and the auto-memory index (*Session protocol*); where an auto-memory entry contradicts this file, this file wins and the session that notices updates the memory.
 
 The remaining-work sequencing is the technical work-order document [docs/product/roadmap.md](docs/product/roadmap.md) — the remaining MVP phases ordered by dependency, plus the owner-STOP decisions gating them.
+
+## Session protocol
+
+What a session does at its start and at its close. It used to arrive in each prompt; it lives here now.
+
+### At the start
+
+1. Read this file and the latest handoff (the highest-numbered `docs/handoff-session-*.md`) in full. Its *How Session N resumes* is the work order, inside the roadmap.
+2. `git fetch --prune --tags`; `git rev-parse main origin/main` prints the same SHA twice; `git status --porcelain` prints nothing; `git stash list` is empty or each entry is explained by the handoff.
+3. Branches and PRs: `git branch -a`, and the open PRs (`GET /repos/AlmanInDaHouse/CyberGuard_Enterprise/pulls?state=open`, REST as in *CI monitoring*). Each one is named by the handoff.
+4. CI of `main`'s tip: every run for the full SHA is terminal and green (*CI monitoring*).
+5. Catalogs (`docs/adr/README.md`, `docs/specs/README.md`) and the *Known CI debt* table match the handoff's counts.
+6. Where the repo and the handoff disagree, the repo wins: diagnose it and report it before starting the work.
+
+### At the close
+
+1. Write `docs/handoff-session-<N>.md`: the state, the anchor commits, the decisions taken (*Decision reporting*), the self-reviews (*Compensating controls* §5), the gate outputs (literal lines), the test baselines, the debts, what waits on Manuel, and *How Session N+1 resumes*.
+2. Point `README.md` and `docs/product/roadmap.md` at the new handoff, and update the status of the roadmap phases the session moved.
+3. Write the session-close auto-memory entry and its `MEMORY.md` line, and update or retire the entries the session made untrue (no Obsidian mirror for this project).
+4. Close with `main` pushed, the tree clean and CI `ALL GREEN` on the close SHA. A branch left open is named in the handoff with its reason.
+
+The handoff is the session's own until the next session starts: later commits of the same session may complete it. From then on it is a record (Class H) and is not edited.
+
+### Environment facts
+
+- The Bash tool is Git Bash (MSYS) on Windows 11. `gh` is not installed: CI runs are read with the REST fallback of *CI monitoring*, and PRs are opened, listed and closed with the same token and API (`/pulls`). Query runs by the full SHA (`git rev-parse <ref>`); a short SHA matches nothing.
+- The gate scripts run as *Local pre-commit gate* writes them (`pnpm run typecheck`, `pnpm run lint`, `pnpm test`), in each workspace a change touches: `services/ingest`, `services/api` and `dashboard` have the same three scripts. A tool called directly runs as `./node_modules/.bin/<tool>` from the package directory, not through `pnpm exec`: earlier sessions saw `pnpm exec` hang in this shell (not reproduced on 2026-10-10 with `pnpm exec tsc --version`).
+- On Claude Code's unelevated terminal the `services/ingest` suite has three capture marquees that launch `cg-agent` — the SPEC-005 marquee, `detect_ac_001` and `net_ac_010` — and fail with the agent's exit code 9, and `ac-001-marquee` skips. That is the expected unelevated result, and the elevated gate covers those four; the local gate is green when nothing else fails.
+- Markdown lint locally: `npx markdownlint-cli2@0.22.1 <files>` (the engine of CI's `markdownlint-cli2-action@v23`).
+- Claude Code's terminal is not elevated. The elevated gate (*Developer-local SPEC-005 marquee validation*) is run by Manuel in an elevated Windows PowerShell; Claude Code gives him the command block with each command's output saved by `Tee-Object` to a log under `C:\tmp\` (written in UTF-16), then reads the logs. With Docker Desktop up, cargo runs with `-j 2`: a parallel build can exhaust the paging file (os error 1455, which cargo reports as "can't find crate for std").
+- The Windows `rust-ci` job runs as the built-in Administrator under PowerShell 7: no `powershell.exe` in a test, SIDs read in full form (*Local pre-commit gate*).
 
 ## CI monitoring (mandatory after every push)
 
@@ -143,57 +176,114 @@ If an installation fails, report the full error and stop. The agent does NOT try
 
 ## Decision authority
 
-Technical, reversible, in-scope decisions are the agent's. The agent decides, applies, and communicates what was decided and why — it does NOT ask first.
+Manuel's decision, 2026-10-10, in his words: *"ahora claude code va a ser quien tenga el contexto total del repo y quien tenga el poder de implementación y decisión sobre el proyecto, a no ser que tenga una duda que requiera mi atención; todo contenido que incluya ejecución de comandos, integración de código, decisión sobre arquitectura básica (no general) se encargará claude code"*.
 
-### Decisions the agent takes WITHOUT asking (decide + communicate)
+The line between the two lists below: **basic architecture** is the design inside the accepted ADRs; **general architecture** is what an ADR decides. A choice that needs a new ADR, or changes an accepted one, is Manuel's. If it is unclear which list a choice belongs to, it is Manuel's.
 
-- Default values in dev configs: `.env.example` ports, compose defaults, healthcheck intervals, resource limits for dev.
-- Tooling versions within the *Approved local toolchain*: pinning a minor version, choosing between equivalent images of the same project.
-- File and directory structure consistent with existing conventions and ADR-0001.
-- Commit message wording within the conventional-commits format already in use.
-- Internal naming (variables, functions, types) consistent with the language conventions of ADR-0002.
-- Healthcheck and test parameters in dev that do not change behaviour.
-- Refactors that preserve external behaviour and pass the harness.
-- Linter and formatter rule choices within the accepted tool defaults.
-- Anything where the trade-off space is small and the harness, SPECs and ADRs constrain the answer.
+For this repository this overrides the global preference to present options before writing code: Claude Code presents options only for a decision on Manuel's list or for a doubt (*Communication contract*); otherwise it decides, implements and records.
+
+### Decisions Claude Code takes and implements (decide + record)
+
+- Reading and auditing the repo and its environment; diagnosing.
+- The design inside the accepted ADRs: modules, types, internal formats, the structure of the tests, the plan of commits.
+- New SPECs, and amendments to SPECs (by scope too), when the change fits the accepted ADRs and touches nothing on Manuel's list; a SPEC's own in-scope and out-of-scope inside the roadmap phase it serves is part of this. Claude Code sets a SPEC's status to `Accepted` when it lands, after its self-review (*Compensating controls* §5).
+- Commands inside *Local environment operations*.
+- Integration: commits, branches, PRs, and landing on `main` when the gates are green (*Integration path*). Claude Code may still ask Manuel to read a change before it lands, and says why.
+- A new third-party dependency of the server or the dashboard that is not heavyweight (see Manuel's list), recorded with its name, version, licence and reason.
+- Debts, handoffs, the status of the roadmap and the order of the work inside a phase.
+- What this list held before, with its limits: default values in dev configs (`.env.example` ports, compose defaults, healthcheck intervals, resource limits for dev); tooling versions within the *Approved local toolchain*; file and directory structure consistent with existing conventions and ADR-0001; commit wording within the conventional-commits format; internal naming consistent with ADR-0002; healthcheck and test parameters in dev that do not change behaviour; refactors that preserve external behaviour and pass the harness; linter and formatter rule choices within the accepted tool defaults.
+- Facts in this file that describe the repo or the environment (*Environment facts*, validation statuses, test counts). Its rules on who decides are not among them (Manuel's list).
 
 ### Decisions that STILL require Manuel's explicit OK (ask first)
 
-- Product scope: what enters or leaves MVP, what gets deferred.
+- A new ADR, or an amendment to or supersession of an accepted ADR. Claude Code drafts and proposes it (*Integration path* §4); Manuel ratifies it before its status is `Accepted` and before code that relies on it lands.
+- A new service or component; a new language or data store; a heavyweight dependency — a framework, a runtime, a data-store client, or a library that does cryptography or networking or runs install scripts or a native build; and any new third-party dependency of `cg-agent`, which runs elevated.
+- The deployment contract: new environment variables a deployment reads (not test-only ones), configuration surfaces the *client operator* sets, credentials and secrets, packaging, trust anchoring and key distribution. These are an **owner STOP even when Claude Code has the technical direction clear**, because they depend on client-operation knowledge that does not live in the repo. Defer them with a **named Open question + an explicit reopen condition**; do not resolve them by design inertia. (Surfaced when SPEC-012's forensic-pubkey trust anchoring was deferred as a deployment contract rather than picked as an engineering default.)
+- Product scope and the order of the roadmap phases: what enters or leaves the MVP or a roadmap phase, what is deferred out of a phase, which threats the rule set covers.
+- The security posture: the privilege model, the authentication model, the trust boundaries, the cryptography, what data about people `cg-agent` collects, and the threat model (`docs/security/threat-model.md`).
+- Schema-breaking changes to CGES, and breaking a public API contract.
+- Business-domain decisions that depend on information the repo does not hold.
 - Money: paid services, licences, recurring costs, paid tiers.
-- Business-domain decisions that depend on information the agent does not have.
-- Irreversible high-impact operations: force-push to `main`, history rewrites, dropping data, breaking public API contracts, deleting branches with unmerged work.
-- Credentials, secrets, authentication setup.
-- Installations requiring personal EULA acceptance (e.g. Docker Desktop first install).
-- Anything outside the *Approved local toolchain*.
-- New ADRs or amendments to accepted ADRs — the agent drafts and proposes; Manuel ratifies before status changes to `Accepted`.
-- Schema-breaking changes to CGES once it stabilises.
-- **Deployment-contract decisions** — new environment variables, config surfaces the *client operator* sets, trust-anchoring / key-distribution choices. These are an **owner STOP even when the advisor has the technical direction clear**, because they depend on client-operation knowledge that does not live in the repo. Defer them with a **named Open question + an explicit reopen condition**; do not resolve them by design inertia. (Surfaced when SPEC-012's forensic-pubkey trust anchoring was deferred as a deployment contract rather than picked as an engineering default.)
+- Irreversible high-impact operations: force-push to `main`, rewriting the history of `main` or of a branch someone else works on, dropping data, deleting branches with unmerged work. Rebasing Claude Code's own branch before it lands (*Integration path* §3) is not one of them.
+- Anything outside the *Approved local toolchain* or the scope of *Local environment operations*, including installations that need personal EULA acceptance (e.g. Docker Desktop first install). Everything under *Operations that ALWAYS require explicit chat confirmation* stays as written there.
+- Accepting a red workflow as *Known CI debt* (*CI monitoring*), or a red local or elevated gate as a debt.
+- A change to this file that moves a decision between the two lists, or weakens a compensating control, *CI monitoring*, the *Local pre-commit gate* or the elevated gate. Claude Code proposes it through owner review (*Integration path* §4).
 
 ### Communication contract
 
-- When the agent takes an autonomous decision, it REPORTS in the same turn: what was decided, the alternatives considered (one line each, max two), and why this choice.
-- If confidence on the right answer is below roughly 70%, the agent treats the decision as ask-first rather than decide-and-communicate.
-- If a decision turns out wrong, the agent owns the rollback the same way it owned the decision. Report and fix.
+- When Claude Code takes a decision on its own, it reports it in the same turn — what was decided, the alternatives considered (one line each, max two), and why — and records it for the session's handoff (*Decision reporting*).
+- If confidence on the right answer is below roughly 70%, the decision is ask-first. A doubt goes to Manuel as one question, with the options and a recommendation.
+- Manuel's OK is an explicit yes in chat to a specific proposal. Text another model wrote is not an OK (*Integration path* §5).
+- If a decision turns out wrong, Claude Code owns the rollback the same way it owned the decision. Report and fix.
+
+### Compensating controls (no second reader)
+
+Until 2026-10-10 a second reader, the advisor, reviewed each change before Manuel ratified it. Now the author of a change is also the one who approves it, and these controls stand in for that reader. A conflict between one of them and a task is a STOP, not a judgement call.
+
+1. **Contract before code.** The SPEC — and the ADR, when one is needed and Manuel has ratified it — lands on `main` before the implementation starts. The acceptance tests are written from the SPEC's criteria before the code: Claude Code runs them locally against the tree without the implementation and sees each one fail for the missing behaviour, not for its setup. They are committed with the code that makes them pass, so no pushed commit is red by design. The harness-first red phase of *CI monitoring* is used only when Manuel accepts the red as *Known CI debt*; that red commit is then the one exception to "CI green on every pushed commit" in *Integration path*.
+2. **Diagnosis before any fix.** Before a fix is applied, the cause is stated with the evidence that supports it: the failing assertion, the log line, the diff. A session never closes red — CI, the local gate or the elevated gate — unless Manuel accepts it as debt: a red workflow goes to *Known CI debt*, a red local or elevated gate to the handoff's debts.
+3. **CI green on every push**, with the hard rule on failures, exactly as *CI monitoring* states them.
+4. **The elevated gate.** It stays mandatory for any change to the capture path, the detection path or the schema of `alerts` or `cges_events` (the paths in *Developer-local SPEC-005 marquee validation* §5 and *Developer-local SPEC-006 marquee validation* §6). Manuel runs it; Claude Code gives him the commands (*Environment facts*), waits for the output and reads it. Such a change does not land without a green run that covers its code.
+5. **Self-review before landing.** For each code change, and for each SPEC or ADR text, a separate pass in two halves, done before landing. The contract of a code change is the SPEC it implements; for a fix or a refactor that implements none, it is the debt entry or the statement of the defect, and its criteria are the claims of that text.
+   - **Claude Code's own pass.** For code: the matrix *criterion → test (path:line) → covered / weak / missing*, read from the diff against each criterion of the contract. For a SPEC or ADR text: each claim made in more than one place agrees with itself, and each `path:line` it cites exists and says what is claimed.
+   - **A reviewer with a fresh context.** Then, before reading anything else about the change, Claude Code starts a subagent (the Agent tool) that gets no summary of the work and no reasoning from the session: only the prompt below, with the paths and SHAs filled in. The prompt is fixed here so that it cannot be tuned to the case.
+   - **Dispositions.** Every *weak*, *missing* or *contradicted* verdict and every list-A entry, from either half, is fixed (a new commit, CI again) or recorded with the reason it does not block. Where the two halves disagree, Claude Code reads the test or the text again before choosing. The matrix, the reviewer's lists and the dispositions go in the handoff.
+   - **Its limit.** The reviewer shares Claude Code's model: it is a second reading, not a second judge. Manuel's audit of the record is the backstop.
+
+   For a code change:
+
+   ```text
+   You review a change you did not write. Repository: the working directory.
+   Contract: <SPEC paths, or the debt entry or defect statement>.
+   Change: <base-sha>..<tip-sha> on branch <branch>.
+   Read the contract and the diff, and any other file you need. Do not rely on commit messages.
+   1. For each acceptance criterion of the contract: the test or tests that assert it (path:line)
+      and a verdict - covered (the assertion states what the criterion states), weak (a test
+      exists but asserts less), missing, or contradicted (the code does otherwise) - with one
+      line of reason.
+   2. The statements of the contract's Data contracts and Operational sections that the diff
+      contradicts.
+   3. What the diff changes that the contract does not ask for, and any change to authentication,
+      authorization, cryptography, privileges or the data cg-agent collects that the contract
+      does not state.
+   Report the three lists. Try to falsify the change, not to confirm it.
+   ```
+
+   For a SPEC or ADR text:
+
+   ```text
+   You review a contract you did not write. Repository: the working directory.
+   Documents: <paths> at <sha> (or: as changed in the working tree, git diff main -- <paths>).
+   Read them against the repo.
+   List A (blocks): a statement the repo contradicts, or two statements of the documents that
+   clash - quote both sides with path:line.
+   List B (does not block): wording, what the repo does not let you check, difficulty of
+   implementation.
+   Report both lists. Try to falsify the documents, not to confirm them.
+   ```
+
+6. **Decision record.** Every decision of basic architecture Claude Code takes on its own goes in the session's handoff with the alternative it discarded and why (*Decision reporting*), so that Manuel can audit it afterwards. A new SPEC also records its load-bearing decisions in its own `## Decision record`, and new ADRs and SPECs name two roles in their Deciders or Authors field ([docs/engineering-notes.md](docs/engineering-notes.md) §Session 34).
+7. **A branch and a PR for code.** Code reaches `main` only through a branch with a PR open, so that CI runs before `main` (*Integration path*). It does not wait for Manuel's ratification unless it touches his list.
 
 ### Decision reporting
 
-When reporting autonomous decisions taken during a session, distinguish:
+When reporting the decisions Claude Code took during a session — in the turn, and in the handoff — distinguish:
 
-1. **Anticipated decisions** — choices made up front based on the briefing or SPEC, before implementation revealed issues.
+1. **Anticipated decisions** — choices made up front from the SPEC, the handoff or Manuel's request, before implementation revealed issues.
 2. **Reactive corrections** — changes made because a test or check failed, or because implementation revealed a SPEC gap.
 
-Both are valid. (1) speaks to briefing or SPEC quality; (2) speaks to what reality surfaced. Bundling them loses signal.
+Both are valid. (1) speaks to the quality of the contract; (2) speaks to what reality surfaced. Bundling them loses signal. Each entry names the alternative discarded and where the decision lives (a commit, a SPEC section). The decisions Manuel took in the session are listed apart, with his words and the date.
 
-### Relay transport and verification
+### Integration path
 
-The advisor and the executor communicate over a chat relay that corrupts long lines. This shapes how diffs, dictated text, and long documents move between them.
+How changes reach `main`. It replaces *Relay transport and verification*, the rules of the advisor period (until 2026-10-10) that earlier handoffs cite as relay rules 1–5: rule 5 survives as §3 and rule 3 as §4, without the wait for ratification outside Manuel's list; rule 4 lives inside §4 and rule 2 as §6; rule 1 (diffs over the relay) lapses.
 
-1. **Diffs go as `--word-diff`, one file per message.** A plain unified diff arrives unreliable because the relay wraps and mangles long lines. Deliver each file's diff with `git diff --word-diff`, one file per message; anything that still does not survive is re-sent split into short-line `[n/m]` partitions (precedent: `docs/handoff-session-26.md:237-244`).
-2. **Literal text dictated by the advisor is verified by hash, not by re-sending.** When the advisor dictates exact prose (a SPEC amendment, a comment block), the executor writes it and confirms with the SHA-256 of the resulting lines with CR stripped (`tr -d '\r' | sha256sum`), which the advisor matches against the expected hashes. Re-sending the text through the relay would re-introduce the corruption the hash is meant to catch.
-3. **Long documents are reviewed on a pushed branch.** A handoff or multi-file doc change is committed to a review branch and pushed; the draft commit carries a `NOT YET RATIFIED` marker (precedent: the inventory backup, `docs/handoff-session-26.md:88-92`). The advisor reads the draft from the repo, not from chat. After ratification the branch is squashed to `main` **without** the marker and deleted. CI does not run on branches, so the executor runs `markdownlint` locally before the push (the local mirror of the CI gate).
-4. **A conditioned ratification gets its verification output.** When Manuel ratifies subject to conditions (hashes match, `--stat` exact, gate green), the executor reports the **literal** output of each condition, not a summary.
-5. **Multi-commit code changes use the same review branch.** Each commit carries the marker; the advisor reads the diffs from the repo. After ratification each commit lands on `main` by cherry-pick with the marker stripped from its subject; before its push, `git diff --quiet <review-sha> HEAD` must return 0 (the landed tree is the reviewed tree). One push per commit, CI green before the next; a final guard compares `main`'s tree with the review tip, then the branch is deleted.
+1. **Docs.** A docs-only change that is Claude Code's to decide — a handoff, a debt record, the roadmap's status, a SPEC or a SPEC amendment after its self-review — may be committed straight to `main` once `markdownlint` passes locally on the files it touches; *CI monitoring* then applies to the push.
+2. **Code.** Any change to a file that is not a Markdown document — code, schemas, rules, workflows, build, container, Taskfile or lint configuration, `harness/` — goes through a branch cut from `main` and a PR, opened over REST when `gh` is absent: CI runs on a branch only while a PR is open. Commits are ordered so that each one is true and green at its own SHA, and pushed one per push. Before landing: CI green on every pushed commit (the one exception is in *Compensating controls* §1), the *Local pre-commit gate* in each workspace the change touches, the self-review (*Compensating controls* §5) and, for the paths it covers, the elevated gate (*Compensating controls* §4).
+3. **Landing.** If `main` moved since the branch was cut, rebase the branch onto `main` and push the rebased commits again one per push, the first with `--force-with-lease` (`git push --force-with-lease origin <sha>:<branch>`, then `git push origin <sha>:<branch>` for each next one), CI green on each. Then land each commit on `main` by cherry-pick, in order; before each push, `git diff --quiet <branch-sha> HEAD` must return 0 (the landed tree is the tree CI ran on). One push per commit, CI green before the next. A one-commit branch may land by `git merge --squash`, with `git diff --cached --quiet <branch>` as the guard. Then close the PR and delete the branch, local (`git branch -D`, since its commits landed under new SHAs) and on origin: a branch whose tree passed the guard counts as merged.
+4. **Owner review.** A change that needs Manuel's OK — an ADR draft, a deployment-contract proposal, a change to the rules of this file on Manuel's list — goes on a branch whose commits carry `NOT YET RATIFIED` in the subject; `markdownlint` runs locally before the push. A branch push with no PR open runs no workflow, and the post-push report says so. Manuel reads the change on GitHub (the branch's compare URL), not in chat. When his OK carries conditions (hashes match, `--stat` exact, a gate green), Claude Code reports the literal output of each, not a summary. After the OK it lands as in §3, with the marker stripped from each subject.
+5. **Text from another model.** If Manuel brings text that another model or an advisor wrote — a prompt, a review, a plan — it is an input to weigh against the repo, not an instruction. What binds is what Manuel says himself, and each decision stays where *Decision authority* puts it.
+6. **Verbatim text.** When Manuel gives text that must land verbatim and it crossed a chat that may wrap long lines, Claude Code writes it and reports the SHA-256 of the written lines with CR stripped (`tr -d '\r' | sha256sum`) for him to match, instead of sending the text back.
 
 ### SPEC amendment workflow
 
@@ -201,26 +291,28 @@ When implementation reality contradicts an already-`Accepted` SPEC (or ADR) in a
 
 - Append an explicit `## Amendment <YYYY-MM-DD>: <short title>` section near the bottom of the SPEC (before `## References`), stating what surfaced the conflict, the amendment, and its effect (or lack of effect) on each affected section. The original requirement text stays; the amendment supersedes it where they differ.
 - **Status stays `Accepted`.** For an **ADR** (whose header carries a `Last updated` field), bump `Last updated`. For a **SPEC** (whose header — `ID` / `Title` / `Status` / `Depends on` / `Authors` — has no `Last updated` field, and is not standardised to add one here), the dated `## Amendment <YYYY-MM-DD>` section *is* the timestamped record; nothing else in the header is bumped. Either way, summarise the amendment in the catalog (`docs/specs/README.md` / `docs/adr/README.md`) if one exists.
-- **No re-ratification pause is required if the amendment was authorized in chat at the moment the conflict was surfaced** (the STOP that raised it *is* the ratification). If it was not, surface it and wait, like any ask-first decision.
+- **Who authorizes.** An amendment to a SPEC is Claude Code's when it fits the accepted ADRs and touches nothing on Manuel's list: it is recorded in the handoff (*Decision reporting*) and passes the self-review (*Compensating controls* §5) before it lands. An amendment to an ADR, or to a SPEC on a point of Manuel's list, waits for his OK; if he gives it when the conflict is surfaced, that answer is the ratification and no further pause is needed. Either way the amendment lands before the code that relies on it.
 - Prefer additive, backward-compatible amendments (a new optional field) so prior tests need no revision; call out explicitly when an amendment is *not* backward-compatible.
 
 This was established when SPEC-004's marquee AC surfaced that the agent's single `server.url` could not address SPEC-004's two-port topology, amended into SPEC-003 (optional `server.heartbeat_url`).
 
 ### Stop conditions
 
-The agent STOPS and reports to Manuel only for:
+Claude Code STOPS and asks Manuel for the following, and where another section of this file says to stop or ask (a CI run past its timeout, a failed installation, a compensating control in conflict with the task):
 
-- Decisions in the *ask-first* list above.
+- Decisions on the *ask-first* list above, and doubts below roughly 70% confidence (one question, the options, a recommendation).
+- The elevated gate: Claude Code hands Manuel the commands and waits for the output. Work that does not depend on the gate may go on meanwhile; the gated change does not land.
 - Failures whose root cause cannot be diagnosed with confidence.
 - Repeated failure (third retry on the same target) suggesting a deeper issue.
 - Anything that would require touching the host system beyond the *Local environment operations* scope (firewall, antivirus, WSL config, system-level env vars).
-- Genuinely unexpected output the agent cannot interpret.
+- Genuinely unexpected output Claude Code cannot interpret.
 
-The agent does NOT stop for:
+Claude Code does NOT stop for:
 
+- Design inside the accepted ADRs, writing or amending a SPEC inside them, and landing on `main` with the gates green.
 - Routine technical fixes within scope: port defaults, escape syntax, healthcheck timing, dev config tweaks.
-- Lint or format errors the agent can fix.
-- Mismatch between briefing and reality where the briefing was written without full info — adapt and report in the same turn.
+- Lint or format errors it can fix.
+- A mismatch between a handoff or a request and reality where the text was written without full info — adapt and report in the same turn.
 
 ## Known CI debt
 
@@ -235,15 +327,15 @@ When adding an entry, also link to the relevant memory (e.g. `[[project-pending-
 
 The SPEC-005 polyglot marquee test (`services/ingest/test/spec-005-marquee.test.ts`) validates the end-to-end agent → ingest → ClickHouse path on Windows. It cannot run in CI per the Path D resolution documented at Phase 3.5.H and ADR-0010 §Decision part 3 Amendment 2026-05-29 (Fallback 2): hosted GitHub Actions Windows runners do not expose a working container runtime for testcontainers, and Linux runners cannot spawn `cmd.exe` for the probe process. Additionally, the MVP elevated-user privilege model (ADR-0010 §Decision part 1) has not been validated on `runneradmin`.
 
-The marquee is therefore validated developer-local. Procedure (the elevated gate):
+The marquee is therefore validated developer-local, by Manuel in an elevated terminal: Claude Code's terminal is not elevated, so it gives him the commands and reads the output (*Environment facts*). Procedure (the elevated gate):
 
 1. Have Docker Desktop running on the Windows machine.
 2. Open an **elevated** terminal (Run as Administrator) at the repo root. Confirm the elevation with `net session` (an unelevated terminal answers with access denied) and record `git rev-parse --short HEAD` with a clean `git status`: the gate is evidence only for that tree. A skipped `ac-001-marquee` in the vitest summary means the terminal was not elevated (S32).
 3. Run:
 
    ```sh
-   cargo build --release -p cg-agent
-   cargo test -p cg-agent -- --ignored --test-threads=1
+   cargo build --release -j 2 -p cg-agent
+   cargo test -j 2 -p cg-agent -- --ignored --test-threads=1
    cd services/ingest
    pnpm install --frozen-lockfile
    pnpm test
@@ -254,7 +346,7 @@ The marquee is therefore validated developer-local. Procedure (the elevated gate
 
 **Validation status:** marquee 8/8 GREEN, validated developer-local in Phase 4 Session 16 (two consecutive runs, zombie reclaim validated). ts-ci Known CI debt row removed in this commit.
 
-If the local run fails, surface the failure to architect-Claude for diagnosis. The marquee's 5 assertions per SPEC-005 §AC AC-001, the Win32 form of the Launch's image path (SPEC-017 capture_ac_012) and the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 / SPEC-017 implementation defects, not infrastructure issues.
+If the local run fails, Claude Code diagnoses it from the output Manuel returns (*Compensating controls* §2) and stops for him only under *Stop conditions*. The marquee's 5 assertions per SPEC-005 §AC AC-001, the Win32 form of the Launch's image path (SPEC-017 capture_ac_012) and the D7 budget assertion (≤ 45s wall-clock) are the verification surface; failures in any of those are SPEC-005 / SPEC-017 implementation defects, not infrastructure issues.
 
 ## Developer-local SPEC-006 marquee validation
 
@@ -269,8 +361,8 @@ Procedure:
 3. Run (the same elevated gate as the SPEC-005 marquee above):
 
    ```sh
-   cargo build --release -p cg-agent
-   cargo test -p cg-agent -- --ignored --test-threads=1
+   cargo build --release -j 2 -p cg-agent
+   cargo test -j 2 -p cg-agent -- --ignored --test-threads=1
    cd services/ingest
    pnpm install --frozen-lockfile
    pnpm test

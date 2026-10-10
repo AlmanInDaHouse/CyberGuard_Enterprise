@@ -17,6 +17,10 @@ methodology: the executor decides and implements, and Manuel keeps the overall
 architecture and the questions that need the owner's attention. It lands in
 the next commit (S34-06).
 
+S34-06 landed it in `docs(claude-md): executor-led methodology`, the commit
+after `a68e085` (Anchor commits): CLAUDE.md, `docs/engineering-notes.md`
+§Session 34 and the resume steps below. Session 35 starts under it.
+
 ## Anchor commits
 
 On `main`, pushed:
@@ -24,7 +28,8 @@ On `main`, pushed:
 | SHA | What |
 |---|---|
 | `a5514c2` | `docs(spec-019)`: ADR-0018 and SPEC-019 Accepted; ADR and SPEC catalogs; roadmap §D contract. |
-| (this commit) | handoff-34; README and roadmap pointers; roadmap §D status. |
+| `a68e085` | handoff-34; README and roadmap pointers; roadmap §D status. |
+| (this commit) | `docs(claude-md)`: the executor-led methodology (S34-06). |
 
 `markdown-lint` ran on `a5514c2` and succeeded (GitHub REST API).
 
@@ -330,23 +335,47 @@ Known CI debt: ZERO rows.
 
 ## How Session 35 resumes
 
-1. Read this handoff and CLAUDE.md; confirm the two tips: `main` and
-   `origin/review/s34-d-net` (`2b0d3c9`).
-2. The branch `review/s34-d-net`. The elevated gate has run on `2b0d3c9`
-   (above): read its output against H1, H2 and H3 and against the
-   `refused_attempt_reported` line — the reading above is Claude Code's, not
-   reviewed, and leaves event 31 unmeasured. Fix what fails with new commits;
-   a commit that touches `agent/` or `services/`, the `HYPOTHESIS` comments of
-   `network.rs` included, voids this run and the gate runs again (CLAUDE.md,
-   *Developer-local SPEC-006 marquee validation*). Land by cherry-pick (relay
-   rule 5). If the gate contradicts a statement of ADR-0018, ADR-0018 is
-   amended first (its §10).
-3. Then ADR-0019 and SPEC-020 (logins). Nothing is written. The advisor reports
-   that the planned source is the Windows Security log (events 4624 and 4625),
-   which is not ETW, and that its facts are still to be gathered on Manuel's
-   machine with Windows tools: access, the shape of the fields, volume, audit
-   policy. In any report of logon data, the user appears as `<user>`, the host
-   or domain as `<host>`, and of each SID only the prefix and the RID; raw
-   files do not leave the machine.
-4. After D: **B2**, **E** and **F**. DNS is the first network follow-up and is
-   not a phase yet.
+Session 35 runs under the rules S34-06 wrote into CLAUDE.md (*Decision
+authority*, *Session protocol*): Claude Code decides and lands what is not on
+Manuel's list; Manuel runs the elevated gate and decides his list.
+
+1. Run CLAUDE.md *Session protocol*, §At the start. Besides `main`, confirm
+   `origin/review/s34-d-net` at `2b0d3c9` and draft PR #4 open.
+2. **Land `review/s34-d-net`.** Under the new rules landing it is Claude
+   Code's: the owner-STOP above, "Landing `review/s34-d-net`: its ratification
+   (relay rule 5)", lapses with relay rule 5. The branch was written before
+   the rules: SPEC-019 on `main` meets *Compensating controls* §1, and its
+   check that each test fails before the code does not apply after the fact.
+   What landing needs (CLAUDE.md *Compensating controls*, *Integration path*):
+   - The self-review against SPEC-019's acceptance criteria, both halves. It
+     reads the gate's output above against H1, H2 and H3 and the
+     `refused_attempt_reported` line — the reading above is Claude Code's and
+     leaves event 31 unmeasured — and says whether a criterion needs event 31.
+     If one does, a test and a new gate run follow.
+   - Fixes as new commits. A commit that touches `agent/` or `services/`, the
+     `HYPOTHESIS` comments of `network.rs` included, voids the run on
+     `2b0d3c9`, and Manuel runs the gate again.
+   - If the gate contradicts a statement of ADR-0018, the amendment is
+     Manuel's (an accepted ADR) and lands before the code (ADR-0018 §10).
+   - The branch is cut from `a5514c2`; `main` has two docs-only commits since.
+     Rebase it onto `main` and push the rebased commits one per push, CI on
+     each: the run on `2b0d3c9` stays valid if the non-elevated suite count is
+     unchanged (CLAUDE.md, *Developer-local SPEC-006 marquee validation*).
+     Then land by cherry-pick with the tree guard, the `NOT YET RATIFIED`
+     marker stripped from each subject; close PR #4, delete the branch, and
+     update roadmap §D and the counts in CLAUDE.md's *Developer-local*
+     sections (four real-ETW tests become six).
+3. Then ADR-0019 and SPEC-020 (logins). Nothing is written. ADR-0019 is a new
+   ADR, and both decide which logon data about people `cg-agent` collects,
+   which is on Manuel's list (CLAUDE.md *Decision authority*): Manuel ratifies
+   ADR-0019, and SPEC-020's fields need his OK too (owner review, *Integration
+   path* §4). The advisor reported that the planned source is the Windows
+   Security log (events 4624 and 4625), which is not ETW, and that its facts
+   are still to be gathered on Manuel's machine with Windows tools: access, the
+   shape of the fields, volume, audit policy. Reading the Security log and the
+   audit policy needs an elevated terminal, so Manuel runs those commands. In
+   any report of logon data, the user appears as `<user>`, the host or domain
+   as `<host>`, and of each SID only the prefix and the RID; raw files do not
+   leave the machine.
+4. After D: **B2**, **E** and **F**, in the roadmap's order, which is Manuel's.
+   DNS is the first network follow-up and is not a phase yet.
