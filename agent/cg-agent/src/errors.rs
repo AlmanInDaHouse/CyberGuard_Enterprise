@@ -188,6 +188,53 @@ impl From<crate::etw::OpenError> for EtwError {
     }
 }
 
+/// Failure to open the logon subscription (SPEC-020 §Operational §6).
+/// Terminal at startup: exit code 9 for a privilege failure (Win32 5 or
+/// 1314, as for the ETW session), 1 for any other.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum LogonError {
+    #[error("Security log subscription refused: insufficient privilege")]
+    AccessDenied,
+
+    #[error("Security log subscription failed: {code} {message}")]
+    Failed { code: u32, message: String },
+}
+
+impl LogonError {
+    /// Classify the Win32 code a subscription failed with.
+    pub fn from_win32(code: u32) -> Self {
+        match code {
+            5 | 1314 => LogonError::AccessDenied,
+            other => LogonError::Failed {
+                code: other,
+                message: crate::etw::win32_message(other),
+            },
+        }
+    }
+
+    /// Process exit code: 9 for a privilege failure (the SPEC-005 code,
+    /// amended by scope by SPEC-020), 1 otherwise.
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            LogonError::AccessDenied => 9,
+            LogonError::Failed { .. } => 1,
+        }
+    }
+
+    /// The single stderr line written before the process exits.
+    pub fn stderr_line(&self) -> String {
+        match self {
+            LogonError::AccessDenied => STDERR_LOGON_PRIVILEGE.to_string(),
+            other => format!("cg-agent: {other}"),
+        }
+    }
+}
+
+/// The stderr line for a Security log the agent may not read (SPEC-020
+/// §Operational §6).
+pub const STDERR_LOGON_PRIVILEGE: &str =
+    "cg-agent: insufficient privilege to read the Security log; run as elevated user";
+
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error(transparent)]
@@ -210,6 +257,9 @@ pub enum AgentError {
 
     #[error(transparent)]
     Etw(#[from] EtwError),
+
+    #[error(transparent)]
+    Logon(#[from] LogonError),
 }
 
 impl AgentError {
@@ -222,6 +272,7 @@ impl AgentError {
             AgentError::Enrollment(en) => en.exit_code(),
             AgentError::Config(_) => 2,
             AgentError::Etw(e) => e.exit_code(),
+            AgentError::Logon(e) => e.exit_code(),
             _ => 1,
         }
     }
