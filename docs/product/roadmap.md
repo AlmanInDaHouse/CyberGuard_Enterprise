@@ -190,7 +190,8 @@ This dependency-ordered document supersedes both for planning.
   others' events, and a single agent loses its own when its clock steps
   back.
 - Unblocks: correct detection with more than one agent per org; D, whose
-  classes share the read-model.
+  classes share `cges_events` and its arrival order (SPEC-019 stores
+  them; the read-model keeps reading class 1007).
 - Blocked by: nothing technical. Sequencing: after G, before D — advisor
   decision under the owner's delegation, S32 (2026-10-04). With one agent
   and G's in-order retries, G does not make it worse.
@@ -202,20 +203,43 @@ This dependency-ordered document supersedes both for planning.
 
 ### D — Criterion 2: new classes (4001 network + 3002 login)
 
-- Does: agent capture + end-to-end for CGES 4001 (network) AND 3002
-  (login), fused — they share the per-class projection and the widening
-  of `class_uid: z.literal(1007)` (`services/ingest/src/schemas.ts:44`)
-  to a union, so splitting them duplicates the plumbing.
+- **Status: IN PROGRESS** — the contract of the network half is
+  Accepted (S34, 2026-10-10); no code yet.
+- Does: agent capture, delivery and storage, end to end, for CGES 4001
+  (network) and 3002 (login), with a marquee for each. No detection rule
+  and no product surface in this phase.
+- Split in two, network first:
+  - Network — TCP connections opened, outbound and inbound, over IPv4
+    and IPv6, from ETW Kernel-Network in the agent's existing session.
+    Contract: ADR-0018 and SPEC-019 (Accepted). SPEC-019 also carries
+    what both classes share: the agent's event types, the widening of
+    `class_uid: z.literal(1007)`
+    (`services/ingest/src/schemas.ts:44`) to a union, and the widening
+    of `cges_events`.
+  - Login — logons, successful and failed. Contract: ADR-0019 and
+    SPEC-020, not written yet. The planned source is the Windows
+    Security log, a second capture source that is not ETW.
 - Blocked by: nothing; G, H and B1 are done.
-- Needs: successor SPEC(s) to SPEC-005 + per-class ADRs.
-- Discharges: `docs/adr/0011-cges-process-activity-v0-1.md:197` +
-  `docs/adr/0012-normalize-before-correlate-pipeline.md:240` (4001 / 3002
-  become load-bearing);
-  `docs/specs/SPEC-005-agent-process-telemetry-windows-etw.md:15`
-  (network + auth provider deferrals).
+- Gate (own): the `net_ac_*` tests (SPEC-019 §Acceptance criteria), in
+  CI and in the elevated gate.
+- Discharges, network half:
+  `docs/adr/0011-cges-process-activity-v0-1.md:197` and
+  `docs/specs/SPEC-005-agent-process-telemetry-windows-etw.md:15` (the
+  network provider's deferral);
+  `docs/adr/0012-normalize-before-correlate-pipeline.md:240` (4001 stops
+  being schema-only; its rules stay deferred).
+- Discharges, login half:
+  `docs/adr/0012-normalize-before-correlate-pipeline.md:16` (3002 is
+  schema-only). No document defers an authentication provider.
 - Schemas ready: `schemas/cges/v0.1/classes/4001_network_activity.json`,
   `schemas/cges/v0.1/classes/3002_authentication.json`, both in
   `schemas/cges/v0.1/event.json:105,106`.
+- After D, not a phase yet: DNS, the first network follow-up. It needs
+  another provider and a CGES class that does not exist (ADR-0018
+  §Alternatives considered A3).
+- Owner decisions, S34 (2026-10-10), delegated to the advisor: the scope
+  of the phase; what "basic network" covers; the vehicle (SPEC-019
+  §Ratification record).
 
 ### B2 — CommandLine + subject_user_sid capture
 

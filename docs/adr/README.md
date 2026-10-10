@@ -34,6 +34,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0015](0015-readonly-clickhouse-reader-in-api.md) | Read-only ClickHouse reader in `services/api` (forensic event-drill boundary) | Accepted |
 | [0016](0016-forensic-evidence-hash-chain.md) | Forensic evidence hash-chain — per-event SHA-256 chain + dedicated Ed25519 root signature | Accepted |
 | [0017](0017-incident-email-notification.md) | Incident email notification — generic SMTP, fire-and-forget on incident create | Accepted |
+| [0018](0018-cges-network-activity-v0-1.md) | Per-class CGES jurisprudence — Network Activity v0.1 | Accepted |
 
 ## Dependencies
 
@@ -92,3 +93,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0011 self-amendment 2026-10-04 (SPEC-017): the realized wire names (`process.image_file_name`, `process.parent_pid`, …) are the contract; `image_file_name` carries the Win32 form when the translation resolves
 - ADR-0011 self-amendment 2026-10-09 (SPEC-017): a Terminate's `image_file_name` is ETW's base name; the Win32 form applies to the path a Launch carries
 - ADR-0012 self-amendment 2026-10-09 (SPEC-018): the read-model advances by an arrival cursor `(arrived_at, event_id)` behind a settle margin; the forward read drops `FINAL`, and the `dedup_key` makes a repeated match a no-op
+- ADR-0018 → ADR-0011 (second instance of the per-class pattern of §1; reuses the dual layer of §3 and the `process.uid` recipe of §6, so a connection and the Launch of its process share one uid)
+- ADR-0018 → ADR-0008 (Kernel-Network through ferrisetw, as a second provider of the agent's existing session; no raw Win32 call) / ADR-0010 (no privilege beyond the one that session already requires)
+- ADR-0018 → ADR-0012 (class 4001 stops being schema-only; the read-model keeps selecting class 1007, and rules over 4001 stay deferred) / SPEC-019 (the production specification)
+- ADR-0018 extends decision D6 (`docs/handoff-session-10.md`) to a second class: one `cges_events` table, told apart by `class_uid`; a reader that interprets `activity_id` or class-specific columns must select by it, the forensic drill excepted on a stated condition
