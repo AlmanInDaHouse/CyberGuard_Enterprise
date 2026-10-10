@@ -30,7 +30,9 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
-use crate::cges::{render_network_activity, render_process_activity, CgesEvent};
+use crate::cges::{
+    render_authentication, render_network_activity, render_process_activity, CgesEvent,
+};
 use crate::config::HeartbeatConfig;
 use crate::crypto::AgentKeypair;
 use crate::envelope::{build_envelope, AgentBlock, HeartbeatStatus};
@@ -298,6 +300,7 @@ impl<'a> Delivery<'a> {
                 RingEvent::Network(event) => {
                     CgesEvent::Network(render_network_activity(event, self.agent_id))
                 }
+                RingEvent::Logon(event) => CgesEvent::Authentication(render_authentication(event)),
             })
             .collect();
         self.sequence += 1;

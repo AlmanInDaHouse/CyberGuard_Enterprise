@@ -1,6 +1,7 @@
-//! CGES event emission — translates `CapturedEvent` to `CgesProcessActivity`
-//! and `NetworkEvent` to `CgesNetworkActivity` (SPEC-019); the envelope
-//! carries either as a `CgesEvent`.
+//! CGES event emission — translates `CapturedEvent` to `CgesProcessActivity`,
+//! `NetworkEvent` to `CgesNetworkActivity` (SPEC-019) and `LogonEvent` to
+//! `CgesAuthentication` (SPEC-020); the envelope carries each as a
+//! `CgesEvent`.
 //!
 //! Renders the full SPEC-005 wire shape per the cges_events ClickHouse
 //! table DDL (Phase 3.5.E γ), once per event, when its batch is formed
@@ -33,17 +34,19 @@
 use serde::{Deserialize, Serialize};
 
 use crate::etw::{ActivityId, CapturedEvent, Direction, NetworkEvent};
+use crate::logon::{hex_code, LogonEvent, LogonStatus};
 use crate::paths::DevicePathMap;
 
-/// One element of the envelope's `body.events`: Process Activity (1007)
-/// or Network Activity (4001), told apart on the wire by `class_uid`
-/// (SPEC-019 §Data contracts). Untagged: each variant serializes as its
-/// own shape, with no wrapper.
+/// One element of the envelope's `body.events`: Process Activity (1007),
+/// Network Activity (4001) or Authentication (3002), told apart on the
+/// wire by `class_uid` (SPEC-019, SPEC-020 §Data contracts). Untagged:
+/// each variant serializes as its own shape, with no wrapper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CgesEvent {
     Process(CgesProcessActivity),
     Network(CgesNetworkActivity),
+    Authentication(CgesAuthentication),
 }
 
 /// CGES Process Activity event — wire shape per SPEC-005 §AC + OCSF
@@ -131,6 +134,88 @@ pub struct CgesActorProcess {
 
 const CGES_NETWORK_ACTIVITY_CLASS_UID: u32 = 4001;
 const NETWORK_ACTIVITY_OPEN: u32 = 1;
+
+/// CGES Authentication event — a logon that succeeded or failed, wire
+/// shape per SPEC-020 §Data contracts and ADR-0019 §4. Exactly these
+/// members; the optional ones are absent when empty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesAuthentication {
+    pub event_id: String,
+    pub class_uid: u32,
+    /// Always `3` (Identity & Access Management).
+    pub category_uid: u32,
+    /// Always `1` (Logon, ADR-0019 §2).
+    pub activity_id: u32,
+    /// String-encoded integer nanoseconds since Unix epoch, UTC strict.
+    pub time: String,
+    /// `1` success, `2` failure.
+    pub status_id: u32,
+    pub user: CgesLogonUser,
+    pub logon_type_id: u8,
+    pub auth_protocol: String,
+    pub auth_protocol_id: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src_endpoint: Option<CgesLogonSource>,
+    /// `Status` in lowercase hexadecimal; failures only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<String>,
+    /// `SubStatus` in lowercase hexadecimal; failures only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_detail: Option<String>,
+    /// CGES extension (ADR-0006, ADR-0019 §4); successes that carry it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cg_elevated_token: Option<bool>,
+}
+
+/// The target account: SID, and the name and domain as written, `-`, or
+/// `<withheld>` (SPEC-020 §Operational §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesLogonUser {
+    pub uid: String,
+    pub name: String,
+    pub domain: String,
+}
+
+/// The logon's source: an address in text, and the workstation name when
+/// the event gives one. No port (ADR-0019 §4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesLogonSource {
+    pub ip: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+}
+
+const CGES_AUTHENTICATION_CLASS_UID: u32 = 3002;
+const CGES_IAM_CATEGORY_UID: u32 = 3;
+const AUTHENTICATION_LOGON: u32 = 1;
+
+/// Render a logon event as the agent sends it (SPEC-020 §Data contracts).
+pub fn render_authentication(event: &LogonEvent) -> CgesAuthentication {
+    let failure = event.status == LogonStatus::Failure;
+    CgesAuthentication {
+        event_id: event.event_id.clone(),
+        class_uid: CGES_AUTHENTICATION_CLASS_UID,
+        category_uid: CGES_IAM_CATEGORY_UID,
+        activity_id: AUTHENTICATION_LOGON,
+        time: event.timestamp_nanos.to_string(),
+        status_id: if failure { 2 } else { 1 },
+        user: CgesLogonUser {
+            uid: event.user_uid.clone(),
+            name: event.user_name.clone(),
+            domain: event.user_domain.clone(),
+        },
+        logon_type_id: event.logon_type_id,
+        auth_protocol: event.auth_protocol.clone(),
+        auth_protocol_id: event.auth_protocol_id,
+        src_endpoint: event.src.as_ref().map(|src| CgesLogonSource {
+            ip: src.ip.to_string(),
+            hostname: src.hostname.clone(),
+        }),
+        status_code: failure.then(|| hex_code(event.status_code.unwrap_or(0))),
+        status_detail: failure.then(|| hex_code(event.status_detail.unwrap_or(0))),
+        cg_elevated_token: if failure { None } else { event.elevated_token },
+    }
+}
 
 /// Render a Network Activity event as the agent sends it: the uid is built
 /// from the creation time resolved at dispatch, and omitted without one.
