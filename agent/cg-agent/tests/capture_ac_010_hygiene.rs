@@ -8,7 +8,7 @@
 
 use cg_agent::etw::{
     dispatch_record, ActivityId, CreatedTimeCache, EventRing, EventsLostMonitor, LostObservation,
-    OverflowWarning, RawProcessRecord, HYGIENE_INTERVAL,
+    OverflowWarning, RawProcessRecord, RingEvent, HYGIENE_INTERVAL,
 };
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -78,7 +78,11 @@ fn capture_ac_010_event_id_is_a_uuidv7() {
     dispatch_record(launch(10), &cache, &ring);
     dispatch_record(launch(11), &cache, &ring);
 
-    let events = ring.drain_events();
+    let events: Vec<_> = ring
+        .drain_events()
+        .into_iter()
+        .filter_map(RingEvent::into_process)
+        .collect();
     for event in &events {
         let id = uuid::Uuid::parse_str(&event.event_id).expect("event_id is a UUID");
         assert_eq!(

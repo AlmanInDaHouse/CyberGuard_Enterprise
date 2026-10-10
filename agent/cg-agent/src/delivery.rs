@@ -4,9 +4,11 @@
 //! formed, when none is in flight, as soon as 1024 events are buffered,
 //! a buffered event is 5000 ms old, or a heartbeat tick is due; it
 //! carries at most 1024 events, rendered once (SPEC-017 §Data contracts),
-//! and takes the next `sequence_number`. Heartbeat ticks follow SPEC-001
-//! FR-011's absolute timeline; a tick sends a POST without events only
-//! if no batch POST was formed since the previous tick.
+//! and takes the next `sequence_number`. Events of both classes (process
+//! and network, SPEC-019) share the ring and leave it in order. Heartbeat
+//! ticks follow SPEC-001 FR-011's absolute timeline; a tick sends a POST
+//! without events only if no batch POST was formed since the previous
+//! tick.
 //!
 //! A retry is the same POST — same `sequence_number`, same events — with
 //! a fresh `nonce`, `sent_at` and signature. A transient failure (a
@@ -28,12 +30,12 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
-use crate::cges::{render_process_activity, CgesProcessActivity};
+use crate::cges::{render_network_activity, render_process_activity, CgesEvent};
 use crate::config::HeartbeatConfig;
 use crate::crypto::AgentKeypair;
 use crate::envelope::{build_envelope, AgentBlock, HeartbeatStatus};
 use crate::errors::{AgentError, SigningError, TlsError};
-use crate::etw::{EventRing, OverflowWarning};
+use crate::etw::{EventRing, OverflowWarning, RingEvent};
 use crate::paths::{DevicePathMap, UnresolvedPathLog};
 use crate::tls::{SecureSender, SendResult};
 
@@ -52,7 +54,7 @@ const HEARTBEAT_PATH: &str = "/v1/agents/heartbeat";
 /// One POST: its sequence number and its events, rendered once.
 pub(crate) struct Batch {
     sequence: u64,
-    events: Vec<CgesProcessActivity>,
+    events: Vec<CgesEvent>,
 }
 
 /// The POST in flight and its retry state.
@@ -275,8 +277,9 @@ impl<'a> Delivery<'a> {
             .is_some_and(|at| now.saturating_duration_since(at) >= MAX_BATCH_LATENCY)
     }
 
-    /// Drain up to 1024 events, render them once, and take the next
-    /// sequence number.
+    /// Drain up to 1024 events, render each once in its class's shape
+    /// (SPEC-019 §Operational §5), and take the next sequence number.
+    /// Path translation applies to process events only.
     fn form_batch(&mut self) -> Batch {
         let captured = self
             .ring
@@ -285,11 +288,16 @@ impl<'a> Delivery<'a> {
             .unwrap_or_default();
         let events = captured
             .iter()
-            .map(|event| {
-                let rendered = render_process_activity(event, self.agent_id, &self.paths);
-                self.unresolved
-                    .note(&event.image_file_name, &rendered.process.image_file_name);
-                rendered
+            .map(|event| match event {
+                RingEvent::Process(event) => {
+                    let rendered = render_process_activity(event, self.agent_id, &self.paths);
+                    self.unresolved
+                        .note(&event.image_file_name, &rendered.process.image_file_name);
+                    CgesEvent::Process(rendered)
+                }
+                RingEvent::Network(event) => {
+                    CgesEvent::Network(render_network_activity(event, self.agent_id))
+                }
             })
             .collect();
         self.sequence += 1;

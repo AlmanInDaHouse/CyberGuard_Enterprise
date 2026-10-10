@@ -7,7 +7,9 @@
 //! Drives the platform-independent dispatch logic with synthetic records.
 
 use cg_agent::cges::emit_process_activity;
-use cg_agent::etw::{dispatch_record, ActivityId, CreatedTimeCache, EventRing, RawProcessRecord};
+use cg_agent::etw::{
+    dispatch_record, ActivityId, CreatedTimeCache, EventRing, RawProcessRecord, RingEvent,
+};
 
 const AGENT_ID: &str = "01934abc-def0-7000-89ab-000000000099";
 
@@ -63,7 +65,11 @@ fn capture_ac_007_terminate_keeps_the_created_time_resolved_at_dispatch() {
         &ring,
     );
 
-    let events = ring.drain_events();
+    let events: Vec<_> = ring
+        .drain_events()
+        .into_iter()
+        .filter_map(RingEvent::into_process)
+        .collect();
     assert_eq!(events.len(), 3);
     let rendered: Vec<_> = events
         .iter()
@@ -99,7 +105,11 @@ fn capture_ac_007_terminate_without_a_launch_is_a_cache_miss() {
         &ring,
     );
 
-    let events = ring.drain_events();
+    let events: Vec<_> = ring
+        .drain_events()
+        .into_iter()
+        .filter_map(RingEvent::into_process)
+        .collect();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].created_time_nanos, None);
     let json = serde_json::to_value(emit_process_activity(&events[0], AGENT_ID)).unwrap();
@@ -115,7 +125,11 @@ fn capture_ac_007_rendering_is_byte_identical() {
         &cache,
         &ring,
     );
-    let event = ring.drain_events().remove(0);
+    let event = ring
+        .drain_events()
+        .remove(0)
+        .into_process()
+        .expect("a process event");
 
     let first = serde_json::to_vec(&emit_process_activity(&event, AGENT_ID)).unwrap();
     let second = serde_json::to_vec(&emit_process_activity(&event, AGENT_ID)).unwrap();

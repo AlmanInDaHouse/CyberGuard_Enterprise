@@ -1,8 +1,9 @@
 //! ETW capture path — Windows Kernel-Process events.
 //!
 //! Submodule organization:
-//! - `types`: in-memory captured-event shape + activity discriminants +
-//!   the session-start error.
+//! - `types`: in-memory captured-event shapes (process, network, and the
+//!   ring's `RingEvent` of both) + activity discriminants + the
+//!   session-start error.
 //! - `dispatch`: the dispatch-callback logic, platform-independent.
 //! - `ring`: bounded ring buffer with FIFO-drop + monotonic drop counter,
 //!   and the throttled overflow warning.
@@ -46,5 +47,7 @@ pub use events_lost_impl::stop_session;
 pub use hygiene::process_is_alive;
 pub use hygiene::{EventsLostMonitor, LostObservation, HYGIENE_INTERVAL};
 pub use ring::{EventRing, OverflowWarning};
-pub use types::{win32_from_os_error, ActivityId, CapturedEvent, OpenError};
+pub use types::{
+    win32_from_os_error, ActivityId, CapturedEvent, Direction, NetworkEvent, OpenError, RingEvent,
+};
 pub use uid::format_process_uid;

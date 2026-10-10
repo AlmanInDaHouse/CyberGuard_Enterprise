@@ -1,4 +1,6 @@
-//! CGES event emission — translates `CapturedEvent` to `CgesProcessActivity`.
+//! CGES event emission — translates `CapturedEvent` to `CgesProcessActivity`
+//! and `NetworkEvent` to `CgesNetworkActivity` (SPEC-019); the envelope
+//! carries either as a `CgesEvent`.
 //!
 //! Renders the full SPEC-005 wire shape per the cges_events ClickHouse
 //! table DDL (Phase 3.5.E γ), once per event, when its batch is formed
@@ -30,8 +32,19 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::etw::{ActivityId, CapturedEvent};
+use crate::etw::{ActivityId, CapturedEvent, Direction, NetworkEvent};
 use crate::paths::DevicePathMap;
+
+/// One element of the envelope's `body.events`: Process Activity (1007)
+/// or Network Activity (4001), told apart on the wire by `class_uid`
+/// (SPEC-019 §Data contracts). Untagged: each variant serializes as its
+/// own shape, with no wrapper.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CgesEvent {
+    Process(CgesProcessActivity),
+    Network(CgesNetworkActivity),
+}
 
 /// CGES Process Activity event — wire shape per SPEC-005 §AC + OCSF
 /// Process Activity (class_uid 1007). The full 15-field shape mirrors
@@ -68,6 +81,87 @@ pub struct CgesProcess {
 }
 
 const CGES_PROCESS_ACTIVITY_CLASS_UID: u32 = 1007;
+
+/// CGES Network Activity event — a TCP connection opened, wire shape per
+/// SPEC-019 §Data contracts and ADR-0018 §3. Exactly these members.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesNetworkActivity {
+    pub event_id: String,
+    pub class_uid: u32,
+    /// Always `1` (Open, ADR-0018 §2).
+    pub activity_id: u32,
+    /// String-encoded integer nanoseconds since Unix epoch, UTC strict
+    /// (ADR-0018 §6).
+    pub time: String,
+    /// The initiator (ADR-0018 §4).
+    pub src_endpoint: CgesNetworkEndpoint,
+    /// The acceptor (ADR-0018 §4).
+    pub dst_endpoint: CgesNetworkEndpoint,
+    pub connection_info: CgesConnectionInfo,
+    pub actor: CgesActor,
+}
+
+/// `ip` in text (dotted decimal, or the RFC 5952 form) and the port.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesNetworkEndpoint {
+    pub ip: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesConnectionInfo {
+    /// Always `tcp`.
+    pub protocol_name: String,
+    pub direction: Direction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesActor {
+    pub process: CgesActorProcess,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgesActorProcess {
+    pub pid: u32,
+    /// The ADR-0011 §6 uid; absent in JSON when the agent held no
+    /// creation time for the PID (ADR-0018 §5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
+}
+
+const CGES_NETWORK_ACTIVITY_CLASS_UID: u32 = 4001;
+const NETWORK_ACTIVITY_OPEN: u32 = 1;
+
+/// Render a Network Activity event as the agent sends it: the uid is built
+/// from the creation time resolved at dispatch, and omitted without one.
+pub fn render_network_activity(event: &NetworkEvent, agent_id: &str) -> CgesNetworkActivity {
+    CgesNetworkActivity {
+        event_id: event.event_id.clone(),
+        class_uid: CGES_NETWORK_ACTIVITY_CLASS_UID,
+        activity_id: NETWORK_ACTIVITY_OPEN,
+        time: event.etw_timestamp_nanos.to_string(),
+        src_endpoint: CgesNetworkEndpoint {
+            ip: event.src.ip().to_string(),
+            port: event.src.port(),
+        },
+        dst_endpoint: CgesNetworkEndpoint {
+            ip: event.dst.ip().to_string(),
+            port: event.dst.port(),
+        },
+        connection_info: CgesConnectionInfo {
+            protocol_name: "tcp".to_string(),
+            direction: event.direction,
+        },
+        actor: CgesActor {
+            process: CgesActorProcess {
+                pid: event.pid,
+                uid: event
+                    .created_time_nanos
+                    .map(|nanos| crate::etw::format_process_uid(agent_id, event.pid, nanos)),
+            },
+        },
+    }
+}
 
 /// Render a Process Activity event as the agent sends it: the creation
 /// time the dispatch resolved, and `process.image_file_name` in Win32

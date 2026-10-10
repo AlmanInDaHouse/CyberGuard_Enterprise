@@ -14,31 +14,34 @@
 //!   held (SPEC-017 §Operational §6).
 //!
 //! Storage:
-//! - `Mutex<VecDeque<(Instant, CapturedEvent)>>` for the events, each
-//!   with the instant it was enqueued (the batching latency trigger of
-//!   SPEC-017 §Operational §2 reads the oldest one).
+//! - `Mutex<VecDeque<(Instant, RingEvent)>>` for the events of both
+//!   classes (SPEC-019 §Operational §5), each with the instant it was
+//!   enqueued (the batching latency trigger of SPEC-017 §Operational §2
+//!   reads the oldest one).
 //! - `AtomicU64` for the drop counter (monotonic; no lock acquisition
 //!   needed for read, per AC-008 assertion iii).
 //!
 //! AC-006 (strict normative + log-and-drop): the empty-`image_file_name`
 //! filter lives INSIDE `enqueue_or_drop` because the AC-006 test
 //! exercises the contract by calling only `ring.enqueue_or_drop(...)`.
-//! When the captured event would render to an empty `process.name`, the
-//! method emits an error-level structured log identifying the dropped
-//! event by PID and reason (`image_file_name_empty`) and returns without
-//! enqueueing.
+//! When a captured process event would render to an empty
+//! `process.name`, the method emits an error-level structured log
+//! identifying the dropped event by PID and reason
+//! (`image_file_name_empty`) and returns without enqueueing. The rule is
+//! a Process Activity rule; a network event has no image name and is
+//! enqueued (SPEC-019 §Operational §5).
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use super::types::CapturedEvent;
+use super::types::RingEvent;
 
 /// Bounded ring buffer for captured events.
 pub struct EventRing {
     capacity: usize,
-    events: Mutex<VecDeque<(Instant, CapturedEvent)>>,
+    events: Mutex<VecDeque<(Instant, RingEvent)>>,
     dropped_total: AtomicU64,
 }
 
@@ -62,19 +65,22 @@ impl EventRing {
 
     /// AC-006 filter + FIFO-drop enqueue path.
     ///
-    /// If `event.image_file_name` is empty (would render `process.name`
-    /// empty in the envelope per ADR-0011 §5), emit an error-level log
-    /// and return without enqueueing. Otherwise enqueue at the back; on
-    /// overflow, drop the oldest event (FIFO) and increment
-    /// `events_dropped_total`.
-    pub fn enqueue_or_drop(&self, event: CapturedEvent) {
-        if event.image_file_name.is_empty() {
-            tracing::error!(
-                pid = event.pid,
-                reason = "image_file_name_empty",
-                "captured event with empty process.name dropped"
-            );
-            return;
+    /// If a process event's `image_file_name` is empty (would render
+    /// `process.name` empty in the envelope per ADR-0011 §5), emit an
+    /// error-level log and return without enqueueing. Otherwise enqueue
+    /// at the back; on overflow, drop the oldest event (FIFO) and
+    /// increment `events_dropped_total`.
+    pub fn enqueue_or_drop(&self, event: impl Into<RingEvent>) {
+        let event = event.into();
+        if let RingEvent::Process(process) = &event {
+            if process.image_file_name.is_empty() {
+                tracing::error!(
+                    pid = process.pid,
+                    reason = "image_file_name_empty",
+                    "captured event with empty process.name dropped"
+                );
+                return;
+            }
         }
 
         let now = Instant::now();
@@ -103,7 +109,7 @@ impl EventRing {
     /// Test-only accessor: returns a snapshot of currently retained
     /// events (cloned). Used by AC-008 to verify FIFO drop semantics.
     /// Production code drains instead.
-    pub fn snapshot_events(&self) -> Vec<CapturedEvent> {
+    pub fn snapshot_events(&self) -> Vec<RingEvent> {
         let events = self.events.lock().expect("ring mutex poisoned");
         events.iter().map(|(_, event)| event.clone()).collect()
     }
@@ -111,17 +117,17 @@ impl EventRing {
     /// Remove and return all currently retained events in FIFO order.
     /// The drop counter (events_dropped_total) is monotonic and is NOT
     /// reset by drain.
-    pub fn drain_events(&self) -> Vec<CapturedEvent> {
+    pub fn drain_events(&self) -> Vec<RingEvent> {
         self.drain_up_to(usize::MAX)
     }
 
     /// Remove and return up to `max` of the oldest retained events, in
     /// FIFO order. Logs after the lock is released.
-    pub fn drain_up_to(&self, max: usize) -> Vec<CapturedEvent> {
+    pub fn drain_up_to(&self, max: usize) -> Vec<RingEvent> {
         let (drained, remaining) = {
             let mut events = self.events.lock().expect("ring mutex poisoned");
             let n = max.min(events.len());
-            let drained: Vec<CapturedEvent> = events.drain(..n).map(|(_, event)| event).collect();
+            let drained: Vec<RingEvent> = events.drain(..n).map(|(_, event)| event).collect();
             (drained, events.len())
         };
         if !drained.is_empty() {

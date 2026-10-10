@@ -22,9 +22,10 @@ pub struct HeartbeatEnvelope {
     /// backward compat per SPEC-001 amendment 2026-05-23 narrowing-not-
     /// overriding semantics. SPEC-001-only deployments still produce
     /// the original 6-field wire shape; SPEC-005-active deployments
-    /// add the events array.
+    /// add the events array. Each element is Process Activity or
+    /// Network Activity (SPEC-019 §Data contracts).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub events: Vec<crate::cges::CgesProcessActivity>,
+    pub events: Vec<crate::cges::CgesEvent>,
 }
 
 /// Agent identity sub-object. Matches the four fields of
