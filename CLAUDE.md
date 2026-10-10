@@ -245,7 +245,7 @@ The marquee is therefore validated developer-local. Procedure (the elevated gate
    cargo build --release -p cg-agent
    cargo test -p cg-agent -- --ignored --test-threads=1
    cd services/ingest
-   pnpm install
+   pnpm install --frozen-lockfile
    pnpm test
    ```
 
@@ -277,7 +277,7 @@ Procedure:
    ```
 
 4. The vitest run executes the full suite including the SPEC-005 marquee AND `detect_ac_001` (both `.skipIf` gates are inactive on Windows). The evidence to report is the vitest summary (`Test Files N passed (N)` / `Tests M passed (M)`, nothing skipped; with output redirected, vitest does not list every file) and, from the cargo run, the four real-ETW tests passed.
-5. `detect_ac_001` runs the whole rule set over the capture and asserts, for the agent, exactly one Postgres alert with `rule_id = rule.office_spawns_script_host`, and on it `cg_detection_source = rule`, `final_score = 0.9`, `status = new`, a well-formed `dedup_key`, and `source_events` containing the `event_id` of the captured `powershell.exe` child (SPEC-016 §Operational §3). Alerts from other rules on background activity are logged, not asserted. The captured `image_file_name` of the probe and its child is logged and asserted in Win32 form (SPEC-017 capture_ac_012); report those two log lines with the vitest summary. The probe spawns the `winword.exe` stand-in **after** the agent's ETW session opens, so the parent is captured — a green run does NOT imply production coverage of the already-running-Office case (SPEC-006 §Operational §2 production false-negative).
+5. `detect_ac_001` runs the whole rule set over the capture and asserts, for the agent, exactly one Postgres alert with `rule_id = rule.office_spawns_script_host`, and on it `cg_detection_source = rule`, `final_score = 0.9`, `status = new`, a well-formed `dedup_key`, and `source_events` containing the `event_id` of the captured `powershell.exe` child (SPEC-016 §Operational §3). Alerts from other rules on background activity are logged, not asserted. The captured `image_file_name` of the probe and its child is logged and asserted in Win32 form (SPEC-017 capture_ac_012); report those two log lines with the vitest summary. The test runs its cycle as the production driver configures it, after waiting out the 5000 ms settle margin once the agent has exited (SPEC-018 §Operational §2). The probe spawns the `winword.exe` stand-in **after** the agent's ETW session opens, so the parent is captured — a green run does NOT imply production coverage of the already-running-Office case (SPEC-006 §Operational §2 production false-negative).
 6. Standing gate before merging changes to the detection path: `services/ingest/src/detect/`, `rules/windows/`, or the `alerts` / `cges_events` schema.
 
 **A green run stays valid over later commits** only if none of them touches a runtime input of the path it tests — `services/`, `agent/`, `dashboard/` or `rules/` — and the non-elevated suite count is identical before and after; any other change forces a re-run. This is criterion (a) of the *Detection prod-driver branch merge gate* below, extended to `rules/`: a change to a rule alone changes what the marquee evaluates.

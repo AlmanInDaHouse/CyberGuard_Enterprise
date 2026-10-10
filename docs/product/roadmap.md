@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-31.md](../handoff-session-31.md)).
+([handoff-session-33.md](../handoff-session-33.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -168,6 +168,10 @@ This dependency-ordered document supersedes both for planning.
 
 ### H — Late events in detection
 
+- **Status: DONE** — landed as `9ea6a07` and `f2d36ae`, one per push
+  (S33, 2026-10-10); elevated gate green on the reviewed tip `b7bdbe2`
+  (four real-ETW tests; 49 files / 163 tests). Details:
+  `docs/handoff-session-33.md`.
 - Contract: SPEC-018 (Accepted), amends SPEC-006 by scope, and ADR-0012
   in place.
 - Does: make the detection read-model advance by arrival instead of by
@@ -202,7 +206,7 @@ This dependency-ordered document supersedes both for planning.
   (login), fused — they share the per-class projection and the widening
   of `class_uid: z.literal(1007)` (`services/ingest/src/schemas.ts:44`)
   to a union, so splitting them duplicates the plumbing.
-- Blocked by: H (late events); G and B1 are done.
+- Blocked by: nothing; G, H and B1 are done.
 - Needs: successor SPEC(s) to SPEC-005 + per-class ADRs.
 - Discharges: `docs/adr/0011-cges-process-activity-v0-1.md:197` +
   `docs/adr/0012-normalize-before-correlate-pipeline.md:240` (4001 / 3002
