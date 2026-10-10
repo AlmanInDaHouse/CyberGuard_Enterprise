@@ -84,10 +84,69 @@ const CgesNetworkActivitySchema = z.object({
   }),
 });
 
-/** An events[] element: one of the two shapes, told apart by class_uid (SPEC-019). */
-const CgesEventSchema = z.discriminatedUnion("class_uid", [
+/** The members every Authentication (3002) element has (SPEC-020 §Data contracts). */
+const CgesAuthenticationBase = {
+  /** A UUID: the agent generates version 7; the version is not checked. */
+  event_id: z.string().uuid(),
+  class_uid: z.literal(3002),
+  category_uid: z.literal(3),
+  /** Logon, the only activity the agent emits (ADR-0019 §2). */
+  activity_id: z.literal(1),
+  /** String-encoded Unix nanoseconds UTC, as for classes 1007 and 4001 (ADR-0019 §4). */
+  time: z.string(),
+  /** `name` and `domain` are as Windows wrote them, `-`, or `<withheld>` (SPEC-020 §Operational §3). */
+  user: z.object({
+    uid: z.string().min(1),
+    name: z.string().min(1),
+    domain: z.string().min(1),
+  }),
+  logon_type_id: z.number().int().min(0).max(99),
+  auth_protocol: z.string().min(1),
+  auth_protocol_id: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(99)]),
+  /** Present only when the event has an address; no port (ADR-0019 §4). */
+  src_endpoint: z
+    .object({
+      ip: z.string().ip(),
+      hostname: z.string().min(1).optional(),
+    })
+    .optional(),
+};
+
+/** A Windows status code as lowercase hexadecimal text (SPEC-020 §Data contracts). */
+const StatusCodeSchema = z.string().regex(/^0x[0-9a-f]{1,8}$/);
+
+/**
+ * SPEC-020 Authentication, a logon that succeeded: no failure codes; the elevated
+ * token when the source carried it. `z.never().optional()` refuses a member that is
+ * present at all.
+ */
+const CgesLogonSuccessSchema = z.object({
+  ...CgesAuthenticationBase,
+  status_id: z.literal(1),
+  status_code: z.never().optional(),
+  status_detail: z.never().optional(),
+  cg_elevated_token: z.boolean().optional(),
+});
+
+/** SPEC-020 Authentication, a logon that failed: both codes; no elevated token. */
+const CgesLogonFailureSchema = z.object({
+  ...CgesAuthenticationBase,
+  status_id: z.literal(2),
+  status_code: StatusCodeSchema,
+  status_detail: StatusCodeSchema,
+  cg_elevated_token: z.never().optional(),
+});
+
+/**
+ * An events[] element: one of three classes, told apart by class_uid (SPEC-019,
+ * SPEC-020); an Authentication element is one of two shapes, told apart by
+ * status_id. Any other class is invalid.
+ */
+const CgesEventSchema = z.union([
   CgesProcessActivitySchema,
   CgesNetworkActivitySchema,
+  CgesLogonSuccessSchema,
+  CgesLogonFailureSchema,
 ]);
 export type CgesEvent = z.infer<typeof CgesEventSchema>;
 
@@ -102,7 +161,8 @@ const InnerEnvelopeSchema = z.object({
    * SPEC-005 events extension. Optional + default([]) for backward
    * compat with SPEC-001/002/003 envelopes that do not carry events
    * per SPEC-001 amendment 2026-05-23 narrowing-not-overriding semantics.
-   * Each element is Process Activity or Network Activity (SPEC-019).
+   * Each element is Process Activity, Network Activity (SPEC-019) or
+   * Authentication (SPEC-020).
    */
   events: z.array(CgesEventSchema).optional().default([]),
 });

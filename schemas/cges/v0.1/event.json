@@ -19,7 +19,7 @@
     },
     "time": {
       "type": "string",
-      "description": "occurred_at. String-encoded nanoseconds since Unix epoch, UTC strict, for CGES Process Activity (class_uid 1007) and Network Activity (class_uid 4001) events; ISO 8601 for other event classes. Per-class format is authoritative; this root schema accepts any non-empty string."
+      "description": "occurred_at. String-encoded nanoseconds since Unix epoch, UTC strict, for CGES Process Activity (class_uid 1007), Network Activity (class_uid 4001) and Authentication (class_uid 3002) events; ISO 8601 for other event classes. Per-class format is authoritative; this root schema accepts any non-empty string."
     },
     "cg_ingested_at": {
       "type": "string",

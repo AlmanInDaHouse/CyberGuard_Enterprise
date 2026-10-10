@@ -54,7 +54,8 @@ export async function bootstrapEventsTable(config: Config): Promise<void> {
       `,
     });
     // SPEC-019 §Operational §7 — the same ALTER ingest's bootstrap runs after its
-    // CREATE: the six Network Activity columns. The api reads none of them; the
+    // CREATE: the six Network Activity columns, and SPEC-020's eleven Authentication
+    // columns (§Operational §8). The api reads none of them; the
     // mirror keeps describing the table the api reads.
     await ch.command({
       query: `
@@ -64,7 +65,18 @@ export async function bootstrapEventsTable(config: Config): Promise<void> {
           ADD COLUMN IF NOT EXISTS dst_ip        String DEFAULT '',
           ADD COLUMN IF NOT EXISTS dst_port      UInt16 DEFAULT 0,
           ADD COLUMN IF NOT EXISTS net_protocol  String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS net_direction String DEFAULT ''
+          ADD COLUMN IF NOT EXISTS net_direction String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS user_uid         String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS user_name        String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS user_domain      String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS logon_type_id    UInt8 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS status_id        UInt8 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS status_code      String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS status_detail    String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS auth_protocol    String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS auth_protocol_id UInt8 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS src_hostname     String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS elevated_token   Nullable(Bool) DEFAULT NULL
       `,
     });
   } finally {

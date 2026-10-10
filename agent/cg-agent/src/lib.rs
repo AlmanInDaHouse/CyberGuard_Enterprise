@@ -20,6 +20,7 @@ pub mod envelope;
 pub mod errors;
 pub mod etw;
 pub mod identity;
+pub mod logon;
 pub mod paths;
 pub mod secure_storage;
 pub mod shutdown;
@@ -175,9 +176,10 @@ where
 pub enum Capture {
     /// The platform capture backend. On Windows, the ETW session
     /// (Kernel-Process and Kernel-Network, the agent's own connections
-    /// excluded), opened after the identity is loaded; a failed start ends
-    /// the agent (exit code 9 for privilege, 1 otherwise). Elsewhere
-    /// there is no backend: heartbeats only, and one `info` line.
+    /// excluded) and then the Security-log subscription (SPEC-020), opened
+    /// after the identity is loaded; a failed start of either ends the
+    /// agent (exit code 9 for privilege, 1 otherwise). Elsewhere there is
+    /// no backend: heartbeats only, and one `info` line.
     Platform,
     /// Events fed into this ring by the caller (the harness); no ETW.
     Ring(Arc<crate::etw::EventRing>),
@@ -211,10 +213,15 @@ where
 
     // The capture source: the identity is already loaded, so the ETW
     // session opens before anything is sent (SPEC-017 §Operational §1).
-    let (ring, mut session, paths) = match capture {
+    let PlatformCapture {
+        ring,
+        mut session,
+        mut logons,
+        paths,
+    } = match capture {
         Capture::Platform => open_platform_capture()?,
-        Capture::Ring(ring) => (Some(ring), None, crate::paths::DevicePathMap::empty()),
-        Capture::Off => (None, None, crate::paths::DevicePathMap::empty()),
+        Capture::Ring(ring) => PlatformCapture::events_only(Some(ring)),
+        Capture::Off => PlatformCapture::events_only(None),
     };
 
     // Build the TLS client config from the trust anchor + SPEC-002 identity.
@@ -252,8 +259,12 @@ where
     let in_flight = delivery.run_until(shutdown_signal.as_mut()).await?;
 
     tracing::info!(signal = "shutdown", "shutdown signal received");
-    // Stop the session and wait for its thread before the final POST, so
-    // the events it flushed on the way out ride in it.
+    // Stop the logon thread (it closes its subscription), then the session,
+    // and wait for both before the final POST, so the events they flushed
+    // on the way out ride in it (SPEC-020 §Operational §6).
+    if let Some(mut logons) = logons.take() {
+        let _ = tokio::task::spawn_blocking(move || logons.stop()).await;
+    }
     if let Some(mut session) = session.take() {
         let _ = tokio::task::spawn_blocking(move || session.stop()).await;
     }
@@ -265,17 +276,46 @@ where
     Ok(())
 }
 
-/// Open the platform capture: the ETW session on Windows, with the
-/// device-path map; on a build without a backend, nothing (one `info`).
-#[allow(clippy::type_complexity)]
-fn open_platform_capture() -> Result<
-    (
-        Option<Arc<crate::etw::EventRing>>,
-        Option<crate::etw::EtwSession>,
-        crate::paths::DevicePathMap,
-    ),
-    AgentError,
-> {
+/// What the secure path captures from: the ring, and the sources that
+/// fill it on Windows.
+struct PlatformCapture {
+    ring: Option<Arc<crate::etw::EventRing>>,
+    session: Option<crate::etw::EtwSession>,
+    logons: Option<LogonSource>,
+    paths: crate::paths::DevicePathMap,
+}
+
+#[cfg(windows)]
+type LogonSource = crate::logon::LogonSubscription;
+
+/// No logon source off Windows (ADR-0002 Rule 2): a type with no value.
+#[cfg(not(windows))]
+enum LogonSource {}
+
+#[cfg(not(windows))]
+impl LogonSource {
+    fn stop(&mut self) {
+        match *self {}
+    }
+}
+
+impl PlatformCapture {
+    /// A ring the caller fills, or none: no capture source.
+    fn events_only(ring: Option<Arc<crate::etw::EventRing>>) -> Self {
+        Self {
+            ring,
+            session: None,
+            logons: None,
+            paths: crate::paths::DevicePathMap::empty(),
+        }
+    }
+}
+
+/// Open the platform capture: on Windows the ETW session, then the
+/// Security-log subscription into the same ring (SPEC-020 §Operational
+/// §6), with the device-path map; on a build without a backend, nothing
+/// (one `info`).
+fn open_platform_capture() -> Result<PlatformCapture, AgentError> {
     use crate::etw::{EtwSession, OpenError};
 
     // The agent's own connections are not reported (SPEC-019
@@ -283,17 +323,47 @@ fn open_platform_capture() -> Result<
     match EtwSession::open_excluding(RING_CAPACITY, std::process::id()) {
         Ok(session) => {
             let ring = Arc::clone(&session.ring);
-            Ok((Some(ring), Some(session), device_path_map()))
+            let logons = open_logons(&ring, session)?;
+            Ok(PlatformCapture {
+                ring: Some(ring),
+                session: Some(logons.0),
+                logons: logons.1,
+                paths: device_path_map(),
+            })
         }
         Err(OpenError::Unsupported) => {
             tracing::info!(
                 platform = detect_platform(),
                 "process capture is not available on this platform; sending heartbeats only"
             );
-            Ok((None, None, crate::paths::DevicePathMap::empty()))
+            Ok(PlatformCapture::events_only(None))
         }
         Err(e) => Err(AgentError::Etw(e.into())),
     }
+}
+
+/// Open the logon subscription beside an open session; when it cannot
+/// open, stop the session and fail (SPEC-020 §Operational §6).
+#[cfg(windows)]
+fn open_logons(
+    ring: &Arc<crate::etw::EventRing>,
+    mut session: crate::etw::EtwSession,
+) -> Result<(crate::etw::EtwSession, Option<LogonSource>), AgentError> {
+    match crate::logon::LogonSubscription::open(Arc::clone(ring)) {
+        Ok(logons) => Ok((session, Some(logons))),
+        Err(e) => {
+            session.stop();
+            Err(AgentError::Logon(e))
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn open_logons(
+    _ring: &Arc<crate::etw::EventRing>,
+    session: crate::etw::EtwSession,
+) -> Result<(crate::etw::EtwSession, Option<LogonSource>), AgentError> {
+    Ok((session, None))
 }
 
 /// The ring capacity (SPEC-005 NFR-005-002).

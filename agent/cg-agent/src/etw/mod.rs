@@ -57,6 +57,7 @@ pub use network::{
     TCP_ACCEPT_V4, TCP_ACCEPT_V6, TCP_CONNECT_V4, TCP_CONNECT_V6,
 };
 pub use ring::{EventRing, OverflowWarning};
+pub(crate) use types::win32_message;
 pub use types::{
     win32_from_os_error, ActivityId, CapturedEvent, Direction, NetworkEvent, OpenError, RingEvent,
 };

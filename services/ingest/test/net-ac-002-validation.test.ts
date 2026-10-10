@@ -12,7 +12,7 @@ import {
 
 // SPEC-019 net_ac_002 — validation. A POST with an invalid element is answered
 // 400 invalid_request as a whole and stores nothing, its valid elements included
-// (§Operational §6): an element whose class_uid is neither 1007 nor 4001; a 4001
+// (§Operational §6): an element whose class_uid no shape accepts (SPEC-020); a 4001
 // element without dst_endpoint; with a port of 65536; with an ip that is not an
 // address; with activity_id 2; with a direction of lateral; and, since the SPEC-019
 // Amendment 2026-10-10, with an event_id that is not a UUID and with a pid of 4294967296.
@@ -88,7 +88,7 @@ async function countEvents(agentId: string): Promise<number> {
 }
 
 const INVALID: [string, (e: Record<string, unknown>) => Record<string, unknown>][] = [
-  ["a class_uid other than 1007 and 4001", (e) => ({ ...e, class_uid: 3002 })],
+  ["a class_uid no shape accepts", (e) => ({ ...e, class_uid: 1001 })],
   [
     "a 4001 element without dst_endpoint",
     (e) => {
