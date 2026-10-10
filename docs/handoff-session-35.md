@@ -124,6 +124,49 @@ the text that landed. From list B, applied: the gate rerun, the input that is
 not backward-compatible, the destination of the 1007 gap (debt #31), "0 to
 4294967295", one probe per listener, "measures".
 
+## Logon facts (for ADR-0019)
+
+After the landing the session went on to the login half of §D. Facts read on
+Manuel's machine on 2026-10-10 (Windows 11 Home 10.0.26200, workgroup). The
+elevated part came from `C:\tmp\s35-logon-facts.ps1`, which Manuel ran and
+which wrote only redacted aggregates (`C:\tmp\s35-logon-facts.txt`): user
+names as `<user>`, the host as `<host>`, SIDs as prefix and RID, any field off
+an allow-list of system codes as `<redacted>`. Claude Code read only that file.
+
+- **Manifest** (unelevated): 4624 has versions 0 to 3; version 3 has 28
+  fields, `ElevatedToken` from version 2. 4625 has one version, 21 fields,
+  with `Status`, `FailureReason`, `SubStatus`.
+- **Access**: unelevated, reading the Security log is denied
+  (`UnauthorizedAccessException`); an elevated Administrator token reads it.
+  Channel access `O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)`.
+  `SeSecurityPrivilege` present, disabled.
+- **Audit policy** (effective): Logon success and failure; Logoff success;
+  Special Logon success; Other Logon/Logoff, Credential Validation, Kerberos
+  and Process Creation not audited — yet the log holds 112 events 4688, not
+  explained (a B2 fact).
+- **The log**: circular, 20 MB, 33 444 records over 151.5 h; 5379 64 %, 4798
+  22 %, 4624 1532, 4672 1486, 4799 715, 4648 49, 4634 28, 4647 8; no 4625,
+  4800, 4801, 4778 or 4779.
+- **4624**: all version 3; 1429 of type 5 for SYSTEM, 1445 from
+  `services.exe`; the account `S-1-5-21-...-1001` (`MicrosoftAccount`) 44
+  times — type 11 by `svchost.exe` from `127.0.0.1` (30) and type 7 by
+  `lsass.exe` (14), each once with `ElevatedToken` `%%1842` and once with
+  `%%1843`; type 2 only for `DWM-<n>` and `UMFD-<n>`; 3 for `S-1-5-83-...`.
+- The ETW providers with logon in their name (Security-Auditing, Winlogon,
+  LSA, LsaSrv, AuthenticationProvider, Kerberos, NTLM) were listed, not
+  examined.
+
+### Manuel's decisions on ADR-0019 (2026-10-10, in chat)
+
+1. The 4624s reported are people's accounts; every 4625 is reported.
+2. The fields: SID, name, domain, logon type, source (workstation and
+   address), authentication package, elevated token.
+3. A failed logon keeps its name only when the account exists.
+
+The third was offered as "the SID is null"; a 4625 commonly has the null SID
+whether or not the account exists, so the draft tests the failure code
+instead, and the gate settles it (ADR-0019 §5, §10).
+
 ## Decisions taken
 
 Anticipated:
@@ -221,14 +264,14 @@ Known CI debt: ZERO rows.
 1. Run CLAUDE.md *Session protocol*, §At the start. No branch or PR should be
    open.
 2. **ADR-0019 and SPEC-020 (logins).** Both decide which logon data about
-   people `cg-agent` collects: Manuel's list. First the facts, on Manuel's
-   machine, with Windows tools and an elevated terminal that Manuel runs:
-   access to the Security log, the shape of events 4624 and 4625, their
-   volume, the audit policy. Claude Code gives the commands with output to
-   `C:\tmp\s36-*.log` and reads them. In any report of logon data the user
-   appears as `<user>`, the host or domain as `<host>`, and of each SID only
-   the prefix and the RID; raw files do not leave the machine. Then ADR-0019
-   on an owner-review branch for Manuel (CLAUDE.md *Integration path* §4),
-   and SPEC-020 once it is Accepted.
+   people `cg-agent` collects: Manuel's list. The facts are gathered and
+   Manuel took three decisions (§Logon facts). ADR-0019 is drafted as
+   Proposed on the owner-review branch `adr/s35-0019-logins`, waiting for
+   Manuel's ratification read (CLAUDE.md *Integration path* §4); the points
+   open in it are named in its §Decision record. After ratification it lands
+   on `main` with the marker stripped, then SPEC-020. In any later report of
+   logon data the user appears as `<user>`, the host or domain as `<host>`,
+   and of each SID only the prefix and the RID; raw files do not leave the
+   machine.
 3. Watch #43 in any capture run.
 4. After D: **B2**, **E** and **F**, in the roadmap's order.
