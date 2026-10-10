@@ -1,6 +1,7 @@
 //! Capture hygiene every 60 s (SPEC-017 §Operational §6): the cache
-//! sweep of SPEC-005 NFR-005-006 and the `events_lost` poll of SPEC-005
-//! §Failure modes.
+//! sweep of SPEC-005 NFR-005-006, the `events_lost` poll of SPEC-005
+//! §Failure modes, and the network-discard check of SPEC-019
+//! §Operational §1.
 //!
 //! `EventsLostMonitor` is the platform-independent decision; on Windows
 //! the session's dedicated hygiene thread (`HygieneThread`) runs the
@@ -67,6 +68,45 @@ impl EventsLostMonitor {
     }
 }
 
+/// Tracks the session's count of discarded network records across
+/// hygiene passes (SPEC-019 §Operational §1): an increase is logged at
+/// `warn` with the new total and the first discarded record.
+#[derive(Debug, Default)]
+pub struct DiscardMonitor {
+    previous: u64,
+}
+
+impl DiscardMonitor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record one pass over `discards`; returns the increase since the
+    /// previous pass (0 when none), after logging it.
+    pub fn observe(
+        &mut self,
+        discards: &super::dispatch::NetworkDiscards,
+        session_name: &str,
+    ) -> u64 {
+        let total = discards.total();
+        let delta = total.saturating_sub(self.previous);
+        self.previous = total;
+        if delta > 0 {
+            let first = discards.first();
+            tracing::warn!(
+                target: "cg_agent::etw",
+                network_records_discarded = total,
+                delta_since_last_pass = delta,
+                first_event_id = first.map(|s| s.event_id),
+                first_field_lengths = ?first.map(|s| s.field_lengths),
+                session_name,
+                "network records discarded",
+            );
+        }
+        delta
+    }
+}
+
 /// Whether a process with this PID exists. `OpenProcess` fails with
 /// `ERROR_INVALID_PARAMETER` only when no such process exists; any other
 /// failure (e.g. access denied to a protected process) means it does.
@@ -99,6 +139,7 @@ pub(super) struct HygieneThread {
 impl HygieneThread {
     pub(super) fn spawn(
         cache: std::sync::Arc<super::cache::CreatedTimeCache>,
+        discards: std::sync::Arc<super::dispatch::NetworkDiscards>,
         session_name: &'static str,
     ) -> std::io::Result<Self> {
         use std::sync::mpsc::RecvTimeoutError;
@@ -108,6 +149,7 @@ impl HygieneThread {
             .name("cg-etw-hygiene".to_string())
             .spawn(move || {
                 let mut lost = EventsLostMonitor::new();
+                let mut discarded = DiscardMonitor::new();
                 loop {
                     match stop_rx.recv_timeout(HYGIENE_INTERVAL) {
                         Err(RecvTimeoutError::Timeout) => {}
@@ -135,6 +177,7 @@ impl HygieneThread {
                             "events_lost query failed",
                         ),
                     }
+                    discarded.observe(&discards, session_name);
                 }
             })?;
         Ok(Self { stop_tx, join })

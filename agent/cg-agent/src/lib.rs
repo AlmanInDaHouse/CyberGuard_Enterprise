@@ -173,8 +173,9 @@ where
 
 /// Where the secure path's events come from (SPEC-017 §Operational §1).
 pub enum Capture {
-    /// The platform capture backend. On Windows, the ETW Kernel-Process
-    /// session, opened after the identity is loaded; a failed start ends
+    /// The platform capture backend. On Windows, the ETW session
+    /// (Kernel-Process and Kernel-Network, the agent's own connections
+    /// excluded), opened after the identity is loaded; a failed start ends
     /// the agent (exit code 9 for privilege, 1 otherwise). Elsewhere
     /// there is no backend: heartbeats only, and one `info` line.
     Platform,
@@ -277,7 +278,9 @@ fn open_platform_capture() -> Result<
 > {
     use crate::etw::{EtwSession, OpenError};
 
-    match EtwSession::open(RING_CAPACITY) {
+    // The agent's own connections are not reported (SPEC-019
+    // §Operational §4): the capture excludes this process's id.
+    match EtwSession::open_excluding(RING_CAPACITY, std::process::id()) {
         Ok(session) => {
             let ring = Arc::clone(&session.ring);
             Ok((Some(ring), Some(session), device_path_map()))

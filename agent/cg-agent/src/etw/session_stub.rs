@@ -40,6 +40,21 @@ impl EtwSession {
         Err(OpenError::Unsupported)
     }
 
+    /// Same shape as the Windows session's: no capture backend here.
+    pub fn open_excluding(_ring_capacity: usize, _excluded_pid: u32) -> Result<Self, OpenError> {
+        Err(OpenError::Unsupported)
+    }
+
+    /// No session, so no record was discarded.
+    pub fn network_records_discarded(&self) -> u64 {
+        0
+    }
+
+    /// No session, so no record was discarded.
+    pub fn first_network_discard(&self) -> Option<super::dispatch::DiscardSample> {
+        None
+    }
+
     /// No session to stop on this platform.
     pub fn stop(&mut self) {}
 }
