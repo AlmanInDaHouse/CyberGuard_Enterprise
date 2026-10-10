@@ -1,7 +1,7 @@
 import type { TLSSocket } from "node:tls";
 import type { FastifyInstance } from "fastify";
 import { verifyEnvelopeSignature } from "../jcs.js";
-import { OuterEnvelopeSchema } from "../schemas.js";
+import { type CgesEvent, OuterEnvelopeSchema } from "../schemas.js";
 import type { Services } from "../services.js";
 
 /** ±5 min skew window (SPEC-004 FR-010 step 3). */
@@ -34,6 +34,56 @@ function stringNanosToChDateTime(nanos: string): string {
   const timePart = isoMs.slice(11, 19);
   const nineDigitNanos = String(fractionalNanos).padStart(9, "0");
   return `${datePart} ${timePart}.${nineDigitNanos}`;
+}
+
+/**
+ * One `cges_events` row for one events[] element, by its class (SPEC-019 §Data
+ * contracts). A Process Activity row is written as before; its six network columns
+ * keep their defaults. A Network Activity row sets the columns every class shares,
+ * the process it belongs to (`process_uid` '' when the element has no uid, and
+ * `process_name` '') and the six network columns; the other process columns keep
+ * their defaults. Every column without a default is sent (§Operational §6).
+ */
+function cgesEventRow(agentId: string, cgesEvent: CgesEvent): Record<string, unknown> {
+  if (cgesEvent.class_uid === 4001) {
+    return {
+      agent_id: agentId,
+      org_id: "default",
+      event_id: cgesEvent.event_id,
+      class_uid: cgesEvent.class_uid,
+      activity_id: cgesEvent.activity_id,
+      process_pid: cgesEvent.actor.process.pid,
+      process_uid: cgesEvent.actor.process.uid ?? "",
+      process_name: "",
+      src_ip: cgesEvent.src_endpoint.ip,
+      src_port: cgesEvent.src_endpoint.port,
+      dst_ip: cgesEvent.dst_endpoint.ip,
+      dst_port: cgesEvent.dst_endpoint.port,
+      net_protocol: cgesEvent.connection_info.protocol_name,
+      net_direction: cgesEvent.connection_info.direction,
+      time: stringNanosToChDateTime(cgesEvent.time),
+    };
+  }
+  return {
+    agent_id: agentId,
+    org_id: "default",
+    event_id: cgesEvent.event_id,
+    class_uid: cgesEvent.class_uid,
+    activity_id: cgesEvent.activity_id,
+    process_pid: cgesEvent.process.pid,
+    process_uid: cgesEvent.process.uid,
+    process_name: cgesEvent.process.name,
+    process_created_time:
+      cgesEvent.process.created_time === null
+        ? null
+        : stringNanosToChDateTime(cgesEvent.process.created_time),
+    process_exit_code: cgesEvent.process.exit_code ?? null,
+    process_parent_pid: cgesEvent.process.parent_pid,
+    process_command_line: cgesEvent.process.command_line,
+    subject_user_sid: cgesEvent.process.subject_user_sid,
+    image_file_name: cgesEvent.process.image_file_name,
+    time: stringNanosToChDateTime(cgesEvent.time),
+  };
 }
 
 function isConnectivityError(e: unknown): boolean {
@@ -173,26 +223,7 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
         await ch.insert({
           table: "cges_events",
           format: "JSONEachRow",
-          values: env.body.events.map((cgesEvent) => ({
-            agent_id: env.agent_id,
-            org_id: "default",
-            event_id: cgesEvent.event_id,
-            class_uid: cgesEvent.class_uid,
-            activity_id: cgesEvent.activity_id,
-            process_pid: cgesEvent.process.pid,
-            process_uid: cgesEvent.process.uid,
-            process_name: cgesEvent.process.name,
-            process_created_time:
-              cgesEvent.process.created_time === null
-                ? null
-                : stringNanosToChDateTime(cgesEvent.process.created_time),
-            process_exit_code: cgesEvent.process.exit_code ?? null,
-            process_parent_pid: cgesEvent.process.parent_pid,
-            process_command_line: cgesEvent.process.command_line,
-            subject_user_sid: cgesEvent.process.subject_user_sid,
-            image_file_name: cgesEvent.process.image_file_name,
-            time: stringNanosToChDateTime(cgesEvent.time),
-          })),
+          values: env.body.events.map((cgesEvent) => cgesEventRow(env.agent_id, cgesEvent)),
         });
       } catch (e) {
         if (isConnectivityError(e)) {

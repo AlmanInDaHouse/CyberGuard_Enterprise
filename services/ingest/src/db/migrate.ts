@@ -166,6 +166,22 @@ async function bootstrapClickHouse(config: Config): Promise<void> {
         ADD INDEX IF NOT EXISTS ix_arrived_at arrived_at TYPE minmax GRANULARITY 1
       `,
     });
+
+    // SPEC-019 §Data contracts, §Operational §7 — the six Network Activity (4001)
+    // columns. An ALTER after the CREATE (which stays as it is), so a table that
+    // already exists gets them too; rows written before read the defaults, which
+    // are also what every Process Activity (1007) row carries.
+    await ch.command({
+      query: `
+        ALTER TABLE cges_events
+          ADD COLUMN IF NOT EXISTS src_ip        String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS src_port      UInt16 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS dst_ip        String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS dst_port      UInt16 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS net_protocol  String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS net_direction String DEFAULT ''
+      `,
+    });
   } finally {
     await ch.close();
   }
