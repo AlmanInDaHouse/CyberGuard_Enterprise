@@ -33,6 +33,27 @@
       "type": "integer",
       "enum": [0, 1, 2, 99],
       "description": "0=Unknown, 1=Success, 2=Failure, 99=Other."
+    },
+    "status_code": {
+      "type": "string",
+      "description": "The source's failure code as lowercase hexadecimal text with the 0x prefix (Windows Status). Present on failures (SPEC-020)."
+    },
+    "status_detail": {
+      "type": "string",
+      "description": "The source's detailed failure code, same form (Windows SubStatus). Present on failures (SPEC-020)."
+    },
+    "auth_protocol": {
+      "type": "string",
+      "description": "The authentication package as the source writes it (e.g. 'Negotiate', 'NTLM', 'Kerberos'); '-' when it has none."
+    },
+    "auth_protocol_id": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99],
+      "description": "OCSF auth_protocol_id: 0=Unknown, 1=NTLM, 2=Kerberos, 3=Digest, 4=OpenID, 5=SAML, 6=OAUTH 2.0, 7=PAP, 8=CHAP, 9=EAP, 10=RADIUS, 99=Other."
+    },
+    "cg_elevated_token": {
+      "type": "boolean",
+      "description": "CGES extension (ADR-0006, ADR-0019 §4): whether the logon's token is elevated (Windows ElevatedToken). Present on successful logons whose source carries it; OCSF 1.3 maps no field to it."
     }
   },
   "required": ["category_uid", "class_uid", "activity_id", "user"]
