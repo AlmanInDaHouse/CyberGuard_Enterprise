@@ -35,7 +35,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0016](0016-forensic-evidence-hash-chain.md) | Forensic evidence hash-chain — per-event SHA-256 chain + dedicated Ed25519 root signature | Accepted |
 | [0017](0017-incident-email-notification.md) | Incident email notification — generic SMTP, fire-and-forget on incident create | Accepted |
 | [0018](0018-cges-network-activity-v0-1.md) | Per-class CGES jurisprudence — Network Activity v0.1 | Accepted |
-| [0019](0019-cges-authentication-v0-1.md) | Per-class CGES jurisprudence — Authentication v0.1 | Accepted |
+| [0019](0019-cges-authentication-v0-1.md) | Per-class CGES jurisprudence — Authentication v0.1 — amended 2026-10-11: the gate's successful logon is an S4U network logon of the current user (measured: a `net use` to the loopback with the caller's own credentials leaves no event) | Accepted |
 
 ## Dependencies
 

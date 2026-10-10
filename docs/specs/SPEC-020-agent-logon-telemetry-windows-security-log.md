@@ -265,6 +265,43 @@ Decisions of basic architecture, taken by Claude Code under ADR-0019 (CLAUDE.md 
 9. **No database message in the server's insert-failure log**, for every class: process command lines and logon names are both data about people.
 10. **The gate's logons:** `LogonUserW` for the two failures; `net use` to the loopback for the success, in the Rust test and in the marquee alike, rather than an SSPI exchange coded in the test; and the exclusion tested on the log's own recent records, since a system logon cannot be caused without changing the host.
 
+## Amendment 2026-10-11: the end of a read, and the gate's successful logon
+
+**What surfaced it.** The elevated gate of the implementation (branch `feat/s35-spec020-logins`), run by Manuel on 2026-10-11, and the diagnostics recorded in ADR-0019's Amendment 2026-10-11 and in `docs/handoff-session-35.md`:
+
+1. At `caf2288` no logon reached the ring. The thread reads on the subscription's signal and on a wakeup every second. When `EvtNext` was called with no new record since its last read, it returned `ERROR_INVALID_OPERATION` (4317); the thread took that for a failed read, closed the subscription, and reopened it 5 s later, over and over. Measured unelevated on the `Windows PowerShell` channel:
+   - a read ends in `ERROR_NO_MORE_ITEMS` (259) when the records are exhausted, and in 4317 when it is called again with no new record;
+   - the subscription still delivers after a 4317;
+   - a read finds new records whether or not the signal is set.
+2. A first fix (`fe62edf`) read only on the signal. On it, both of auth_ac_012's failures reached the ring and auth_ac_013 stored its failure, but no success arrived. Its self-review restored the read on the one-second wakeup, with 4317 ending a read, since that read is how a dead subscription is found (§Operational §1 below). The `net use` to the loopback with the current credentials left no event in the Security log, and an S4U network logon of the current user left a 4624 of type 3 (ADR-0019 Amendment 2026-10-11).
+
+**Amendment.**
+
+- **§Operational §1.** Besides the signal, the thread wakes every second and reads on that wakeup too. It resets the signal before it reads, so that a record written during the read sets it again. A read ends, none being left, when `EvtNext` returns `ERROR_NO_MORE_ITEMS`, or `ERROR_INVALID_OPERATION` with no record. Any other error is a failed read. The read on the one-second wakeup is how a subscription that stopped working is found when no record arrives (§Risks; Decision record 8).
+- **auth_ac_012.** The second step now reads: the test makes an S4U network logon of the current user — `LsaLogonUser` with the MSV1_0 package, an S4U request and logon type 3, no password — and closes the token it returns. The ring then holds a success whose `user.uid` is the current user's SID, whose `user.name` and `user.domain` are non-empty and not `<withheld>`, whose `logon_type_id` is 3 and which carries `cg_elevated_token`. The test no longer runs `net use`.
+- **auth_ac_013.** Now reads:
+  - The test removes any connection to `\\127.0.0.1`, runs `net use \\127.0.0.1\IPC$` with a random user name and password, which fails, and removes the connection.
+  - It makes the S4U network logon of the current user through a helper script in the test tree.
+  - Among that agent's 3002 rows in `cges_events`, read with `FINAL`, there is a failure whose `user_name` is `<withheld>` and whose `status_detail` is `0xc0000064`, and a success whose `user_uid` is the current user's SID and whose `logon_type_id` is 3.
+  - Its diagnostic output is redacted (§Operational §11).
+- **§Risks.**
+  - `net use` needs the Server service for auth_ac_013's failure only.
+  - The marquee's helper runs Windows PowerShell. The marquee runs only elevated on a developer's Windows; `ts-ci` runs on Linux, so the Windows CI job never runs it.
+  - Each S4U logon leaves a 4624 and a 4634 of the current user in the host's Security log, and a 4672 when the user is an administrator. A gate run makes two.
+  - The S4U logon through MSV1_0 was measured for a local account on a host in a workgroup. On a domain-joined host the success step may fail; the criteria would then name another way to cause it.
+  - 4317 ends a read whatever caused it. A subscription that stopped working and answered 4317 would not be found. What `EvtNext` returns after the Event Log service restarts was not measured, because restarting that service changes the host.
+- **Decision record 10.** Now reads: the gate's logons are `LogonUserW` for auth_ac_012's two failures and `net use` with a random name for the marquee's failure. For the success, an S4U network logon of the current user (ADR-0019 Amendment 2026-10-11), rather than a temporary account, which ADR-0019 §10 rules out, or no caused success, which would leave a success's path through the subscription unmeasured. The exclusion is tested on the log's own recent records, since a system logon cannot be caused without changing the host.
+- **Decision record 11 (new).** auth_ac_012 calls LSA through `windows-sys`, with the feature `Win32_Security_Authentication_Identity` declared in the agent's Windows dev-dependencies. The agent's own build is unchanged, and no crate is added. The marquee's helper is a PowerShell script with the same calls in inline C#. Discarded: a binary target in the agent's crate, which the gate's `cargo build --release` does not build, so it would need a step of its own; and a Node FFI package, which would be a new dependency.
+
+**Effect.**
+
+- **What does not change:** no data contract, and no agent behaviour beyond the read of §Operational §1. The two elevated criteria cause a different success, and assert the same fields of it.
+- **The gate runs again:** the code of §Operational §1 and the tests are under `agent/` and `services/`, so the elevated gate runs again before the implementation lands.
+- **Authority:**
+  - The read loop is Claude Code's under CLAUDE.md §SPEC amendment workflow.
+  - The gate's successful logon follows the ADR-0019 amendment that Manuel ratified on 2026-10-11.
+- **Status** stays **Accepted**.
+
 ## References
 
 - [ADR-0019](../adr/0019-cges-authentication-v0-1.md) — the decisions.

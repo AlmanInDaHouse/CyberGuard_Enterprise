@@ -9,8 +9,11 @@ implementation that S34 left on `review/s34-d-net`, after a self-review that
 amended SPEC-019 (`d4f2a53`), added three commits of fixes and one of
 CLAUDE.md counts, and an elevated gate that now measures event 31. The branch
 and draft PR #4 are closed. The session then gathered the facts of the login
-half and Manuel ratified ADR-0019 (Accepted); SPEC-020 is not written.
-Catalogs: ADR 19 / SPEC 19. Known CI debt: ZERO.
+half and Manuel ratified ADR-0019 (Accepted). SPEC-020 landed Accepted
+(`71f11b7`). Its implementation is on `feat/s35-spec020-logins` (draft PR #5),
+where the elevated gate found two defects. On 2026-10-11 ADR-0019 and SPEC-020
+were amended to fix them (§SPEC-020's elevated gate and the logon
+diagnostics). Catalogs: ADR 19 / SPEC 20. Known CI debt: ZERO.
 
 ## Anchor commits
 
@@ -30,7 +33,9 @@ On `main`, pushed, one commit per push, CI green on each:
 | `8fac5c3` | `docs(claude-md)`: six real-ETW tests and `net_ac_010` in the gate. |
 | `850a3fe` | handoff-35; README and roadmap pointers; roadmap §D status. |
 | `bee5184` | handoff-35: the logon facts and Manuel's ADR-0019 decisions. |
-| (this commit) | `docs(adr-0019)`: ADR-0019 Accepted; catalog; roadmap §D; this handoff. |
+| `63d3f8d` | `docs(adr-0019)`: ADR-0019 Accepted; catalog; roadmap §D; this handoff. |
+| `71f11b7` | `docs(spec-020)`: SPEC-020 Accepted; both catalogs; roadmap §D. |
+| (this commit) | `docs(adr-0019, spec-020)`: Amendments 2026-10-11 — the end of a read, the gate's successful logon; this handoff. |
 
 The nine code commits are cherry-picks (`-x`) of the rebased branch, the
 `NOT YET RATIFIED` marker stripped from the first five; before each push
@@ -170,6 +175,82 @@ The third was offered as "the SID is null"; a 4625 commonly has the null SID
 whether or not the account exists, so the draft tests the failure code
 instead, and the gate settles it (ADR-0019 §5, §10).
 
+## SPEC-020's elevated gate and the logon diagnostics (2026-10-11)
+
+Manuel ran the elevated gate on `feat/s35-spec020-logins`; logs in
+`C:\tmp\s35-gate2-*.log` (tip `caf2288`) and `C:\tmp\s35-gate3-*.log` (tip
+`fe62edf`).
+
+- **The tree each run covered.** In the first run, `net session` answered
+  `No hay entradas en la lista.` (elevated), `git rev-parse --short HEAD`
+  printed `caf2288` and `git status --short` printed nothing. The second
+  run's paste began at `git rev-parse --short HEAD`, which printed `fe62edf`;
+  its `net session` and `git status` lines were not pasted.
+
+- **At `caf2288`: no logon delivered.** `auth_ac_012` printed
+  `ring_logons=0 recent_4624=200 excluded_targets=196 excluded_reported=0`,
+  and `auth_ac_013` printed `"logon_rows_total":0`. The agent's log in the SPEC-005
+  marquee shows `Security log subscription opened` at 22:30:37.527 and
+  `Security log subscription failed; reopening it from new events`,
+  `"operation":"read","win32_code":4317` at 22:30:38.540.
+- **Not every test ran.** The rest of the vitest suite passed in both runs
+  (59 of 60 files, 196 of 197 tests). The cargo run stopped at the failing
+  `auth_ac_012` both times, so the `--ignored` tests after it in order did
+  not run: `capture_ac_006`, `net_ac_008`, `net_ac_009`, `process_ac_004`,
+  `process_ac_007` and `process_ac_009`. The next gate runs cargo with
+  `--no-fail-fast`.
+- **Cause, measured unelevated** on the `Windows PowerShell` channel with a
+  pulled subscription:
+  - a read with no new record since returns 4317 (`ERROR_INVALID_OPERATION`),
+    and a read that exhausts the records returns 259;
+  - the subscription still delivers after a 4317;
+  - a read finds new records with or without the signal.
+
+  The thread's 1 s poll read took 4317 for a failure. The first fix,
+  `fe62edf`, read only on the signal, and the second gate ran on it. Its
+  self-review restored the read on the poll, with 4317 ending a read, and
+  the commit was amended to `9bf6230` (SPEC-020 Amendment 2026-10-11). No
+  elevated run has covered `9bf6230` yet.
+- **At `fe62edf`: the failures arrive, the success does not.** Both failures
+  were in the ring when the test first looked, 1.09 s after their timestamps.
+  That is an upper bound on the delay, set by the test's own steps:
+
+  ```text
+  auth_ac_012 withheld uid=S-1-0-0 status=0xc000006d sub_status=0xc0000064 name_withheld=true type=3 package=Negotiate source=none elevated=None delay=1.0923571s
+  auth_ac_012 kept uid=S-1-0-0 status=0xc000006d sub_status=0xc000006a name_withheld=false type=3 package=Negotiate source=none elevated=None delay=1.0910959s
+  auth_ac_012 success not found
+  auth_ac_012 ring_logons=2 recent_4624=200 excluded_targets=196 excluded_reported=0
+  ```
+
+  `auth_ac_013` stored the failure: `"status_id":2,"user_uid":"S-1-0-0","name_withheld":true,"logon_type_id":3,"status_code":"0xc000006d","status_detail":"0xc0000064","auth_protocol":"NTLM","source_present":true,"elevated_token":null`.
+  It stored no success (`"logon_rows_total":1`). The 4625 of an existing
+  account (`0xc000006a`) also carries the null SID, which is why ADR-0019 §5
+  tests the code rather than the SID.
+- **`C:\tmp\s35-netuse-facts.ps1`** (elevated, redacted) ran `net use` to the
+  machine three ways with the current credentials:
+
+  ```text
+  == net use to 127.0.0.1: exit=0 smb_client_connections before=0 during=1 server_sessions before=0 during=1 security_events=0
+  == net use to localhost: exit=0 smb_client_connections before=0 during=1 server_sessions before=1 during=2 security_events=0
+  == net use to <host>: exit=0 smb_client_connections before=0 during=1 server_sessions before=1 during=2 security_events=0
+  ```
+
+- **`C:\tmp\s35-s4u-facts.ps1`** (elevated, redacted) made one S4U network
+  logon of the current user:
+
+  ```text
+  == S4U network logon of the current user: logon status=0x00000000 sub=0x00000000 token=True security_events=4
+    4624 v3 type=3 sid=S-1-5-21-...-1001(current-user) name_ends_dollar=False domain=<host> logon_process=CgGate package=MICROSOFT_AUTHENTICATION_PACKAGE_V1_0 lm=- elevated=%%1842 impersonation=%%1832 ip='-' workstation='-' caller=powershell.exe subject=S-1-5-21-...-1001(current-user) linked=False virtual=%%1843
+    4672 subject=S-1-5-21-...-1001(current-user)
+    4634 type=3 sid=S-1-5-21-...-1001(current-user)
+    other ids: 4798x1
+  ```
+
+- **Manuel's decision, 2026-10-11, in chat.** Asked how the gate should
+  cause the successful logon, he chose "S4U of the current user"; the other
+  options were a temporary account and no caused success. That answer
+  ratifies ADR-0019's Amendment 2026-10-11.
+
 ## Decisions taken
 
 Anticipated:
@@ -275,17 +356,15 @@ Known CI debt: ZERO rows.
 
 ## How Session 36 resumes
 
-1. Run CLAUDE.md *Session protocol*, §At the start. No branch or PR should be
-   open.
-2. **SPEC-020 (logins).** ADR-0019 is Accepted; SPEC-020 implements it,
-   contract first (CLAUDE.md *Compensating controls* §1). Its accounts,
-   fields and failed-name rule are ADR-0019 §3–§5; its storage the columns
-   and the 365-day time-to-live of §7 and §9; its elevated criteria the
-   logons of §10 (the built-in Administrator, a random name, a loopback
-   network logon). SPEC-020 is Claude Code's to write and accept while it
-   stays inside ADR-0019; it touches the capture path, so the elevated gate
-   applies. In any later report of logon data the user appears as
-   `<user>`, the host or domain as `<host>`, and of each SID only the prefix
-   and the RID; raw files do not leave the machine.
+1. Run CLAUDE.md *Session protocol*, §At the start. Until SPEC-020's
+   implementation lands, `feat/s35-spec020-logins` and draft PR #5 are open.
+2. **SPEC-020 (logins).** Accepted (`71f11b7`) and amended on 2026-10-11, as
+   ADR-0019 was. The implementation is on the branch. It lands after:
+   - a green elevated gate on its tip, cargo with `--no-fail-fast`;
+   - its self-review (CLAUDE.md *Integration path* §3).
+
+   In any later report of logon data the user appears as `<user>`, the host
+   or domain as `<host>`, and of each SID only the prefix and the RID; raw
+   files do not leave the machine.
 3. Watch #43 in any capture run.
 4. After D: **B2**, **E** and **F**, in the roadmap's order.

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-10
-- Last updated: 2026-10-10
+- Last updated: 2026-10-11
 - Deciders: Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -195,6 +195,19 @@ Rejected for v0.1: the agent would hold state across records and choose between 
 - Manuel, 2026-10-10, in chat: the logons reported are people's accounts and every failure (§3); the fields are SID, name, domain, logon type, source, authentication package and elevated token (§4); a failed logon keeps its name only when the account exists (§5).
 - Manuel delegated the four points left open in the draft on 2026-10-10 ("esas 4 decídelas tú en factor de lo más beneficioso en el contexto del proyecto y de cara a que sea producto vendible a una empresa"), for a product sold to companies. Claude Code decided: the retention of 365 days from arrival (§9, against no limit and 90 days); the marker without a length (§5); ANONYMOUS LOGON reported, computer and virtual accounts not (§3); no test account on the host (§10).
 - Claude Code, under ratification: the Security log through the Event Log API (§1, against A1 and A2); live only (§8, against A6); both tokens of a linked logon (§6, against A8); the code allow-list as the test of "the account exists" (§5, against the SID, which a 4625 is not known to fill).
+
+## Amendment 2026-10-11: the gate's successful logon
+
+**What surfaced it.** The elevated gate of SPEC-020's implementation (branch `feat/s35-spec020-logins`), run by Manuel on 2026-10-11: the two failed logons reached the agent and the marquee's failure reached `cges_events`, and no successful logon arrived. Two diagnostics on his machine, which printed only redacted data (`docs/handoff-session-35.md`), then showed:
+
+- **A loopback logon with the caller's own credentials leaves no event.** `net use` to `\\127.0.0.1\IPC$`, to `\\localhost\IPC$` and to the computer's own name, with the current credentials, succeeded each time and opened a new SMB session on the server, and the Security log received no event after any of them: on that machine, a logon of the machine to itself with the caller's own credentials leaves no event.
+- **An S4U logon is.** An S4U network logon of the current user — `LsaLogonUser` with the MSV1_0 package, an `MSV1_0_S4U_LOGON` request and logon type 3, with no password — wrote a 4624 version 3 of logon type 3 with the current user's SID, the computer as domain, the package `MICROSOFT_AUTHENTICATION_PACKAGE_V1_0`, `ElevatedToken` `%%1842` and impersonation level Identification (`%%1832`); then a 4672, and a 4634 when the token was closed.
+
+§10's last point said that the gate's successful logon of a person's account "is a network logon to the loopback with the current credentials". That logon leaves no event, so the gate could not settle §10's second point with it.
+
+**Amendment.** In §10's last point, the successful logon of a person's account is an S4U network logon (logon type 3) of the current user through the MSV1_0 package. It needs no password and creates no account, and the token it returns is closed at once; at identification level, that token cannot act as the user. The failed logons are unchanged: the built-in Administrator and a random name, and the marquee may cause the random name's failure with `net use`, which Windows audits. The rest of §10 stands, "No test account" included.
+
+**Effect.** Nothing the agent collects, stores or reports changes: the gate causes a different successful logon, and SPEC-020's auth_ac_012 and auth_ac_013 are amended to match. Each S4U logon leaves a 4624 and a 4634 of the current user in the host's Security log, and a 4672 when the user is an administrator; a gate run makes two, one in each of SPEC-020's elevated criteria. Manuel ratified this amendment in chat on 2026-10-11, choosing "S4U of the current user" among three options; the other two were a temporary account created and deleted by the gate, and no caused success, the success being checked only on the log's recorded 4624s.
 
 ## References
 
