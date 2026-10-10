@@ -182,6 +182,38 @@ async function bootstrapClickHouse(config: Config): Promise<void> {
           ADD COLUMN IF NOT EXISTS net_direction String DEFAULT ''
       `,
     });
+
+    // SPEC-020 §Data contracts, §Operational §8 — the eleven Authentication (3002)
+    // columns, by the same idempotent ALTER; rows of the other classes read the
+    // defaults.
+    await ch.command({
+      query: `
+        ALTER TABLE cges_events
+          ADD COLUMN IF NOT EXISTS user_uid         String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS user_name        String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS user_domain      String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS logon_type_id    UInt8 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS status_id        UInt8 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS status_code      String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS status_detail    String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS auth_protocol    String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS auth_protocol_id UInt8 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS src_hostname     String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS elevated_token   Nullable(Bool) DEFAULT NULL
+      `,
+    });
+
+    // ADR-0019 §9, SPEC-020 §Data contracts "Retention" — a logon row is deleted
+    // once its arrival is 365 days old; no other class has a time-to-live. Set on
+    // every bootstrap without materializing it, so a rerun rewrites no part; rows
+    // of class 3002 did not exist before SPEC-020.
+    await ch.command({
+      query: `
+        ALTER TABLE cges_events
+        MODIFY TTL toDateTime(arrived_at) + toIntervalDay(365) DELETE WHERE class_uid = 3002
+      `,
+      clickhouse_settings: { materialize_ttl_after_modify: 0 },
+    });
   } finally {
     await ch.close();
   }
