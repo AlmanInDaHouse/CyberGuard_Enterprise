@@ -230,6 +230,104 @@ export async function insertNetworkEvents(
   }
 }
 
+/** A stored Authentication (3002) row, as getLogonEvents reads it (SPEC-020). */
+export interface LogonEventRow {
+  event_id: string;
+  agent_id: string;
+  user_uid: string;
+  user_name: string;
+  user_domain: string;
+  logon_type_id: number;
+  status_id: number;
+  status_code: string;
+  status_detail: string;
+  auth_protocol: string;
+  auth_protocol_id: number;
+  src_ip: string;
+  src_hostname: string;
+  elevated_token: boolean | null;
+  time: string;
+}
+
+/** An agent's Authentication rows, with FINAL, by capture time ascending. */
+export async function getLogonEvents(config: Config, agentId: string): Promise<LogonEventRow[]> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    const rs = await ch.query({
+      query: `
+        SELECT toString(event_id) AS event_id, toString(agent_id) AS agent_id, user_uid,
+               user_name, user_domain, logon_type_id, status_id, status_code, status_detail,
+               auth_protocol, auth_protocol_id, src_ip, src_hostname, elevated_token,
+               toString(time) AS time
+        FROM cges_events FINAL
+        WHERE agent_id = {agent_id:String} AND class_uid = 3002
+        ORDER BY time ASC
+      `,
+      query_params: { agent_id: agentId },
+      format: "JSONEachRow",
+    });
+    return await rs.json<LogonEventRow>();
+  } finally {
+    await ch.close();
+  }
+}
+
+/** A synthetic Authentication row to insert (SPEC-020 auth_ac_004). */
+export interface InsertLogonEventRow {
+  agentId: string;
+  orgId?: string;
+  eventId: string;
+  userUid: string;
+  userName: string;
+  statusId: 1 | 2;
+  logonTypeId: number;
+  time: string;
+}
+
+/** Insert Authentication rows directly into cges_events (bypassing the route). */
+export async function insertLogonEvents(
+  config: Config,
+  rows: InsertLogonEventRow[],
+): Promise<void> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    await ch.insert({
+      table: "cges_events",
+      values: rows.map((ev) => ({
+        agent_id: ev.agentId,
+        org_id: ev.orgId ?? "default",
+        event_id: ev.eventId,
+        class_uid: 3002,
+        activity_id: 1,
+        process_pid: 0,
+        process_uid: "",
+        process_name: "",
+        user_uid: ev.userUid,
+        user_name: ev.userName,
+        user_domain: "-",
+        logon_type_id: ev.logonTypeId,
+        status_id: ev.statusId,
+        auth_protocol: "Negotiate",
+        auth_protocol_id: 99,
+        time: ev.time,
+      })),
+      format: "JSONEachRow",
+    });
+  } finally {
+    await ch.close();
+  }
+}
+
 // SPEC-006 additions — synthetic cges_events insert + alerts/watermark helpers
 // for the Detection MVP harness. cges_events exists (migrations run in
 // startBackends), so insertCgesEvent succeeds — it is "setup-that-exists". The

@@ -45,6 +45,33 @@ function stringNanosToChDateTime(nanos: string): string {
  * their defaults. Every column without a default is sent (§Operational §6).
  */
 function cgesEventRow(agentId: string, cgesEvent: CgesEvent): Record<string, unknown> {
+  if (cgesEvent.class_uid === 3002) {
+    // SPEC-020 §Data contracts: the process columns without a default are set
+    // empty; the source's address goes to src_ip, beside SPEC-019's.
+    return {
+      agent_id: agentId,
+      org_id: "default",
+      event_id: cgesEvent.event_id,
+      class_uid: cgesEvent.class_uid,
+      activity_id: cgesEvent.activity_id,
+      process_pid: 0,
+      process_uid: "",
+      process_name: "",
+      src_ip: cgesEvent.src_endpoint?.ip ?? "",
+      user_uid: cgesEvent.user.uid,
+      user_name: cgesEvent.user.name,
+      user_domain: cgesEvent.user.domain,
+      logon_type_id: cgesEvent.logon_type_id,
+      status_id: cgesEvent.status_id,
+      status_code: cgesEvent.status_id === 2 ? cgesEvent.status_code : "",
+      status_detail: cgesEvent.status_id === 2 ? cgesEvent.status_detail : "",
+      auth_protocol: cgesEvent.auth_protocol,
+      auth_protocol_id: cgesEvent.auth_protocol_id,
+      src_hostname: cgesEvent.src_endpoint?.hostname ?? "",
+      elevated_token: cgesEvent.status_id === 1 ? (cgesEvent.cg_elevated_token ?? null) : null,
+      time: stringNanosToChDateTime(cgesEvent.time),
+    };
+  }
   if (cgesEvent.class_uid === 4001) {
     return {
       agent_id: agentId,
@@ -83,6 +110,25 @@ function cgesEventRow(agentId: string, cgesEvent: CgesEvent): Record<string, unk
     subject_user_sid: cgesEvent.process.subject_user_sid,
     image_file_name: cgesEvent.process.image_file_name,
     time: stringNanosToChDateTime(cgesEvent.time),
+  };
+}
+
+/**
+ * The fields of the insert-failure log line (SPEC-020 §Operational §7): the error's
+ * name, code and type, never its message, which ClickHouse fills with the row it
+ * could not parse — a logon's user name, a process's command line.
+ */
+export function insertFailureLogFields(e: unknown): {
+  err_name: string;
+  err_code: string | null;
+  err_type: string | null;
+} {
+  const err = (e ?? {}) as { name?: unknown; code?: unknown; type?: unknown };
+  const code = err.code;
+  return {
+    err_name: typeof err.name === "string" ? err.name : "unknown",
+    err_code: typeof code === "string" ? code : typeof code === "number" ? String(code) : null,
+    err_type: typeof err.type === "string" ? err.type : null,
   };
 }
 
@@ -232,7 +278,7 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
             error: "cges_events persistence unavailable; retry",
           });
         }
-        req.log.error({ err: e }, "cges_events insert failed");
+        req.log.error(insertFailureLogFields(e), "cges_events insert failed");
         return reply.code(500).send({
           error: "cges_events insert failed",
         });
