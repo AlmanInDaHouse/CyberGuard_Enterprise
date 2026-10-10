@@ -53,6 +53,20 @@ export async function bootstrapEventsTable(config: Config): Promise<void> {
         ORDER BY (org_id, time, event_id)
       `,
     });
+    // SPEC-019 §Operational §7 — the same ALTER ingest's bootstrap runs after its
+    // CREATE: the six Network Activity columns. The api reads none of them; the
+    // mirror keeps describing the table the api reads.
+    await ch.command({
+      query: `
+        ALTER TABLE cges_events
+          ADD COLUMN IF NOT EXISTS src_ip        String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS src_port      UInt16 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS dst_ip        String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS dst_port      UInt16 DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS net_protocol  String DEFAULT '',
+          ADD COLUMN IF NOT EXISTS net_direction String DEFAULT ''
+      `,
+    });
   } finally {
     await ch.close();
   }

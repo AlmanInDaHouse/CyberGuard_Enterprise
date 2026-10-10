@@ -75,10 +75,12 @@ export async function getHeartbeats(config: Config, agentId: string): Promise<He
 }
 
 // SPEC-005 additions — getCgesEvents helper + CgesEventRow interface.
-// Queries the cges_events ClickHouse table for rows belonging to a
-// given agent_id, ordered by capture timestamp ascending, with FINAL:
-// the agent delivers at least once, and FINAL collapses a resent event
-// (SPEC-017 §Data contracts) as the detection read-model does.
+// Queries the cges_events ClickHouse table for the Process Activity rows
+// belonging to a given agent_id, ordered by capture timestamp ascending, with
+// FINAL: the agent delivers at least once, and FINAL collapses a resent event
+// (SPEC-017 §Data contracts) as the detection read-model does. It selects
+// class_uid = 1007: the table also holds Network Activity rows, whose
+// activity_id means something else (SPEC-019 §Operational §8, ADR-0018 §9).
 
 export interface CgesEventRow {
   agent_id: string;
@@ -115,13 +117,114 @@ export async function getCgesEvents(config: Config, agentId: string): Promise<Cg
           image_file_name,
           time
         FROM cges_events FINAL
-        WHERE agent_id = {agent_id:String}
+        WHERE agent_id = {agent_id:String} AND class_uid = 1007
         ORDER BY time ASC
       `,
       query_params: { agent_id: agentId },
       format: "JSONEachRow",
     });
     return await result.json<CgesEventRow>();
+  } finally {
+    await ch.close();
+  }
+}
+
+// SPEC-019 additions — Network Activity (class 4001) rows: read an agent's, and
+// insert synthetic ones in the shape the ingest route writes (§Data contracts).
+
+export interface NetworkEventRow {
+  event_id: string;
+  agent_id: string;
+  activity_id: number;
+  process_pid: number;
+  process_uid: string;
+  src_ip: string;
+  src_port: number;
+  dst_ip: string;
+  dst_port: number;
+  net_protocol: string;
+  net_direction: string;
+  time: string;
+}
+
+/** An agent's Network Activity rows, with FINAL, by capture time ascending. */
+export async function getNetworkEvents(
+  config: Config,
+  agentId: string,
+): Promise<NetworkEventRow[]> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    const rs = await ch.query({
+      query: `
+        SELECT toString(event_id) AS event_id, toString(agent_id) AS agent_id, activity_id,
+               process_pid, process_uid, src_ip, src_port, dst_ip, dst_port, net_protocol,
+               net_direction, toString(time) AS time
+        FROM cges_events FINAL
+        WHERE agent_id = {agent_id:String} AND class_uid = 4001
+        ORDER BY time ASC
+      `,
+      query_params: { agent_id: agentId },
+      format: "JSONEachRow",
+    });
+    return await rs.json<NetworkEventRow>();
+  } finally {
+    await ch.close();
+  }
+}
+
+export interface InsertNetworkEventRow {
+  agentId: string;
+  eventId: string;
+  processPid: number;
+  processUid?: string;
+  srcIp: string;
+  srcPort: number;
+  dstIp: string;
+  dstPort: number;
+  direction: "outbound" | "inbound";
+  /** ClickHouse DateTime64(9) literal, e.g. "2026-05-31 10:00:00.000000000". */
+  time: string;
+  orgId?: string;
+}
+
+/** Insert Network Activity rows in ONE ClickHouse INSERT, as the route writes them. */
+export async function insertNetworkEvents(
+  config: Config,
+  rows: InsertNetworkEventRow[],
+): Promise<void> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    await ch.insert({
+      table: "cges_events",
+      values: rows.map((ev) => ({
+        agent_id: ev.agentId,
+        org_id: ev.orgId ?? "default",
+        event_id: ev.eventId,
+        class_uid: 4001,
+        activity_id: 1,
+        process_pid: ev.processPid,
+        process_uid: ev.processUid ?? "",
+        process_name: "",
+        src_ip: ev.srcIp,
+        src_port: ev.srcPort,
+        dst_ip: ev.dstIp,
+        dst_port: ev.dstPort,
+        net_protocol: "tcp",
+        net_direction: ev.direction,
+        time: ev.time,
+      })),
+      format: "JSONEachRow",
+    });
   } finally {
     await ch.close();
   }

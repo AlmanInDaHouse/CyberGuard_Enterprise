@@ -49,6 +49,46 @@ const CgesProcessActivitySchema = z.object({
   time: z.string(),
 });
 
+/** SPEC-019 network endpoint: a valid IP address in text and a TCP port. */
+const NetworkEndpointSchema = z.object({
+  ip: z.string().ip(),
+  port: z.number().int().min(0).max(65535),
+});
+
+/**
+ * SPEC-019 CGES Network Activity event shape (envelope.events[] element): a TCP
+ * connection opened (ADR-0018 §2–§6). `src_endpoint` is the initiator and
+ * `dst_endpoint` the acceptor (ADR-0018 §4); `actor.process.uid` is present only
+ * when the agent knew the process's creation time.
+ */
+const CgesNetworkActivitySchema = z.object({
+  event_id: z.string().min(1),
+  class_uid: z.literal(4001),
+  /** Open, the only activity the agent emits (ADR-0018 §2). */
+  activity_id: z.literal(1),
+  /** String-encoded Unix nanoseconds UTC, as for class 1007 (ADR-0018 §6). */
+  time: z.string(),
+  src_endpoint: NetworkEndpointSchema,
+  dst_endpoint: NetworkEndpointSchema,
+  connection_info: z.object({
+    protocol_name: z.literal("tcp"),
+    direction: z.enum(["outbound", "inbound"]),
+  }),
+  actor: z.object({
+    process: z.object({
+      pid: z.number().int().nonnegative(),
+      uid: z.string().min(1).optional(),
+    }),
+  }),
+});
+
+/** An events[] element: one of the two shapes, told apart by class_uid (SPEC-019). */
+const CgesEventSchema = z.discriminatedUnion("class_uid", [
+  CgesProcessActivitySchema,
+  CgesNetworkActivitySchema,
+]);
+export type CgesEvent = z.infer<typeof CgesEventSchema>;
+
 const InnerEnvelopeSchema = z.object({
   envelope_version: z.string().min(1),
   agent: AgentBlockSchema,
@@ -60,8 +100,9 @@ const InnerEnvelopeSchema = z.object({
    * SPEC-005 events extension. Optional + default([]) for backward
    * compat with SPEC-001/002/003 envelopes that do not carry events
    * per SPEC-001 amendment 2026-05-23 narrowing-not-overriding semantics.
+   * Each element is Process Activity or Network Activity (SPEC-019).
    */
-  events: z.array(CgesProcessActivitySchema).optional().default([]),
+  events: z.array(CgesEventSchema).optional().default([]),
 });
 
 /** SPEC-003 outer signed envelope (SPEC-004 FR-009). */
