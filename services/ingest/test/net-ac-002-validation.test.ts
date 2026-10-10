@@ -14,7 +14,8 @@ import {
 // 400 invalid_request as a whole and stores nothing, its valid elements included
 // (§Operational §6): an element whose class_uid is neither 1007 nor 4001; a 4001
 // element without dst_endpoint; with a port of 65536; with an ip that is not an
-// address; with activity_id 2; with a direction of lateral.
+// address; with activity_id 2; with a direction of lateral; and, since the SPEC-019
+// Amendment 2026-10-10, with an event_id that is not a UUID and with a pid of 4294967296.
 
 let config: Config;
 let server: IngestServer;
@@ -102,6 +103,9 @@ const INVALID: [string, (e: Record<string, unknown>) => Record<string, unknown>]
     "a direction of lateral",
     (e) => ({ ...e, connection_info: { protocol_name: "tcp", direction: "lateral" } }),
   ],
+  // SPEC-019 Amendment 2026-10-10.
+  ["an event_id that is not a UUID", (e) => ({ ...e, event_id: "not-a-uuid" })],
+  ["a pid of 4294967296", (e) => ({ ...e, actor: { process: { pid: 4_294_967_296 } } })],
 ];
 
 test.each(INVALID)("net_ac_002: a POST with %s is refused whole", async (_name, invalidate) => {
