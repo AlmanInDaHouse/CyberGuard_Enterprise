@@ -207,7 +207,8 @@ This dependency-ordered document supersedes both for planning.
   (Accepted, amended 2026-10-10) landed as `8fd71eb` to `8fac5c3`, one
   per push (S35, 2026-10-10); elevated gate green on the tree landed
   (`599424d`: six real-ETW tests, event 31 included; 54 files / 175
-  tests). The login half (ADR-0019, SPEC-020) is not written. Details:
+  tests). The login half's contract is Accepted (ADR-0019, SPEC-020,
+  S35); its implementation has not started. Details:
   `docs/handoff-session-35.md`.
 - Does: agent capture, delivery and storage, end to end, for CGES 4001
   (network) and 3002 (login), with a marquee for each. No detection rule
@@ -220,13 +221,14 @@ This dependency-ordered document supersedes both for planning.
     `class_uid: z.literal(1007)`
     (`services/ingest/src/schemas.ts:44`) to a union, and the widening
     of `cges_events`.
-  - Login — logons, successful and failed. Contract: ADR-0019
-    (Accepted, S35) and SPEC-020, not written yet. The source is the
-    Windows Security log, read through the Event Log API: a second
-    capture source that is not ETW.
+  - Login — logons, successful and failed. Contract: ADR-0019 and
+    SPEC-020 (Accepted, S35); implementation not started. The source
+    is the Windows Security log, read through the Event Log API: a
+    second capture source that is not ETW.
 - Blocked by: nothing; G, H and B1 are done.
-- Gate (own): the `net_ac_*` tests (SPEC-019 §Acceptance criteria), in
-  CI and in the elevated gate.
+- Gate (own): the `net_ac_*` tests (SPEC-019 §Acceptance criteria) and
+  the `auth_ac_*` tests (SPEC-020 §Acceptance criteria), in CI and in the
+  elevated gate.
 - Discharges, network half:
   `docs/adr/0011-cges-process-activity-v0-1.md:197` and
   `docs/specs/SPEC-005-agent-process-telemetry-windows-etw.md:15` (the

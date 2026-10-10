@@ -101,5 +101,5 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0019 → ADR-0011 (third instance of the per-class pattern of §1; the `time` encoding) / ADR-0018 (stores its class in `cges_events` as §Compliance asks, and keeps the reader's obligation of §9)
 - ADR-0019 → ADR-0010 (the Security log is read with the elevated token that posture already gives; no privilege added) / ADR-0008 (its rule on raw Win32 calls concerns ETW; the Event Log calls are this ADR's) / ADR-0009 (live only: no cursor on disk while the disk buffer is deferred)
 - ADR-0019 → ADR-0006 (`cg_elevated_token` is a `cg_*` extension) / ADR-0012 (class 3002 stops being schema-only once SPEC-020 lands)
-- ADR-0019 → ADR-0015 (the forensic drill reads no class 3002 while no alert cites one; access to logon data is decided by the SPEC of the first surface that shows it) / SPEC-020 (the production specification, not written)
+- ADR-0019 → ADR-0015 (the forensic drill reads no class 3002 while no alert cites one; access to logon data is decided by the SPEC of the first surface that shows it) / SPEC-020 (the production specification)
 - ADR-0019 → ADR-0016 (logon rows are deleted 365 days after arrival; the first rule that cites a logon reconciles that retention with the evidence an alert seals)
