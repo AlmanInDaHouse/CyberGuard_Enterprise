@@ -10,7 +10,11 @@
 //! (by name, not as XML), and hands the values to `dispatch_logon_record`.
 //! A failed read is logged at most once per 60 s, and the subscription is
 //! reopened 5 s later. `stop` sets the stop event, waits for the thread,
-//! which closes the subscription on its way out.
+//! then closes the subscription the thread hands back (§Operational §6).
+//!
+//! [`RenderContext`] renders one record already obtained; the agent reads
+//! no record but those its subscription delivers (ADR-0019 §8, live
+//! only).
 //!
 //! Nothing here logs a user, SID, domain, workstation or address
 //! (§Operational §11).
@@ -26,11 +30,10 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::System::EventLog::{
-    EvtClose, EvtCreateRenderContext, EvtNext, EvtQuery, EvtQueryChannelPath,
-    EvtQueryReverseDirection, EvtRender, EvtRenderContextValues, EvtRenderEventValues,
-    EvtSubscribe, EvtSubscribeToFutureEvents, EvtVarTypeByte, EvtVarTypeFileTime,
-    EvtVarTypeHexInt32, EvtVarTypeNull, EvtVarTypeSid, EvtVarTypeString, EvtVarTypeUInt16,
-    EvtVarTypeUInt32, EVT_HANDLE, EVT_VARIANT, EVT_VARIANT_TYPE_MASK,
+    EvtClose, EvtCreateRenderContext, EvtNext, EvtRender, EvtRenderContextValues,
+    EvtRenderEventValues, EvtSubscribe, EvtSubscribeToFutureEvents, EvtVarTypeByte,
+    EvtVarTypeFileTime, EvtVarTypeHexInt32, EvtVarTypeNull, EvtVarTypeSid, EvtVarTypeString,
+    EvtVarTypeUInt16, EvtVarTypeUInt32, EVT_HANDLE, EVT_VARIANT, EVT_VARIANT_TYPE_MASK,
 };
 use windows_sys::Win32::System::Threading::{
     CreateEventW, ResetEvent, SetEvent, WaitForMultipleObjects, WaitForSingleObject,
@@ -128,20 +131,34 @@ impl Drop for Event {
     }
 }
 
-/// The values context shared by the subscription and `query_recent`.
-fn render_context() -> Result<Evt, LogonError> {
-    let paths: Vec<Vec<u16>> = VALUE_PATHS.iter().map(|p| wide(p)).collect();
-    let ptrs: Vec<*const u16> = paths.iter().map(|p| p.as_ptr()).collect();
-    // SAFETY: `ptrs` points into `paths`, alive for the call.
-    let handle =
-        unsafe { EvtCreateRenderContext(ptrs.len() as u32, ptrs.as_ptr(), EvtRenderContextValues) };
-    if handle == 0 {
-        return Err(LogonError::from_win32(last_error()));
+/// The values context of SPEC-020 §Operational §1: the 13 values the
+/// agent renders from a record, by name.
+pub struct RenderContext(Evt);
+
+impl RenderContext {
+    pub fn new() -> Result<Self, LogonError> {
+        let paths: Vec<Vec<u16>> = VALUE_PATHS.iter().map(|p| wide(p)).collect();
+        let ptrs: Vec<*const u16> = paths.iter().map(|p| p.as_ptr()).collect();
+        // SAFETY: `ptrs` points into `paths`, alive for the call.
+        let handle = unsafe {
+            EvtCreateRenderContext(ptrs.len() as u32, ptrs.as_ptr(), EvtRenderContextValues)
+        };
+        if handle == 0 {
+            return Err(LogonError::from_win32(last_error()));
+        }
+        Ok(Self(Evt(handle)))
     }
-    Ok(Evt(handle))
+
+    /// Render the values of one record whose handle the caller holds.
+    /// `Err` holds the Win32 code of a failed render, or `None` when the
+    /// record lacks the values the agent needs.
+    pub fn render(&self, event: EVT_HANDLE) -> Result<RawLogonRecord, Option<u32>> {
+        render(self.0 .0, event)
+    }
 }
 
-fn subscribe(signal: &Event) -> Result<Evt, LogonError> {
+/// Subscribe to the channel's future events; `Err` with the Win32 code.
+fn subscribe(signal: &Event) -> Result<Evt, u32> {
     let channel = wide(CHANNEL);
     let query = wide(QUERY);
     // SAFETY: the strings live for the call; no bookmark, no callback.
@@ -158,7 +175,7 @@ fn subscribe(signal: &Event) -> Result<Evt, LogonError> {
         )
     };
     if handle == 0 {
-        return Err(LogonError::from_win32(last_error()));
+        return Err(last_error());
     }
     Ok(Evt(handle))
 }
@@ -216,8 +233,9 @@ unsafe fn u32_of(v: &EVT_VARIANT) -> Option<u32> {
 }
 
 /// Render one record's values (SPEC-020 §Operational §1). `Err` holds the
-/// Win32 code of a render that failed.
-pub(crate) fn render(context: EVT_HANDLE, event: EVT_HANDLE) -> Result<RawLogonRecord, u32> {
+/// Win32 code of a render that failed, or `None` when the record lacks
+/// the values the agent needs.
+fn render(context: EVT_HANDLE, event: EVT_HANDLE) -> Result<RawLogonRecord, Option<u32>> {
     let mut used = 0u32;
     let mut count = 0u32;
     // SAFETY: a size query with no buffer.
@@ -235,7 +253,7 @@ pub(crate) fn render(context: EVT_HANDLE, event: EVT_HANDLE) -> Result<RawLogonR
     if ok == 0 {
         let code = last_error();
         if code != ERROR_INSUFFICIENT_BUFFER {
-            return Err(code);
+            return Err(Some(code));
         }
     }
     // u64 words keep the variants aligned.
@@ -253,10 +271,10 @@ pub(crate) fn render(context: EVT_HANDLE, event: EVT_HANDLE) -> Result<RawLogonR
         )
     };
     if ok == 0 {
-        return Err(last_error());
+        return Err(Some(last_error()));
     }
     if (count as usize) < VALUE_PATHS.len() {
-        return Err(0);
+        return Err(None);
     }
     // SAFETY: EvtRender wrote `count` variants at the start of the buffer.
     let values = unsafe {
@@ -268,7 +286,7 @@ pub(crate) fn render(context: EVT_HANDLE, event: EVT_HANDLE) -> Result<RawLogonR
         let filetime = if values[2].Type & EVT_VARIANT_TYPE_MASK == EvtVarTypeFileTime as u32 {
             values[2].Anonymous.FileTimeVal as i64
         } else {
-            return Err(0);
+            return Err(None);
         };
         Ok(RawLogonRecord {
             event_id: u32_of(&values[0]).unwrap_or(0) as u16,
@@ -331,7 +349,7 @@ fn drain(
                     Ok(raw) => more = each(raw),
                     Err(code) => counters.record_unusable(UnusableSample {
                         event_id: None,
-                        win32_code: Some(code),
+                        win32_code: code,
                     }),
                 }
             }
@@ -345,7 +363,9 @@ fn drain(
 /// The subscription and its thread (SPEC-020 §Operational §1, §6).
 pub struct LogonSubscription {
     stop: Arc<Event>,
-    thread: Option<JoinHandle<()>>,
+    /// The thread hands the subscription back when it ends, for `stop` to
+    /// close it.
+    thread: Option<JoinHandle<Option<Evt>>>,
     counters: Arc<LogonCounters>,
 }
 
@@ -354,10 +374,10 @@ impl LogonSubscription {
     /// Returns only once the subscription is open, or with the Win32
     /// failure to open it.
     pub fn open(ring: Arc<EventRing>) -> Result<Self, LogonError> {
-        let context = render_context()?;
+        let context = RenderContext::new()?;
         // Manual reset, initially signaled: the thread reads first.
         let signal = Event::new(true, true)?;
-        let subscription = subscribe(&signal)?;
+        let subscription = subscribe(&signal).map_err(LogonError::from_win32)?;
         let stop = Arc::new(Event::new(true, false)?);
         let counters = Arc::new(LogonCounters::new());
 
@@ -373,7 +393,7 @@ impl LogonSubscription {
                     &thread_stop,
                     &ring,
                     &thread_counters,
-                );
+                )
             })
             .map_err(|e| LogonError::Failed {
                 code: 0,
@@ -396,13 +416,14 @@ impl LogonSubscription {
         &self.counters
     }
 
-    /// Stop the thread and wait for it; the thread closes the subscription
-    /// on its way out (SPEC-020 §Operational §6). Idempotent.
+    /// Signal the thread to stop, wait for it, then close the subscription
+    /// it hands back (SPEC-020 §Operational §6). Idempotent.
     pub fn stop(&mut self) {
         if let Some(thread) = self.thread.take() {
             // SAFETY: the event is alive while `self.stop` is.
             unsafe { SetEvent(self.stop.0) };
-            let _ = thread.join();
+            let subscription = thread.join().ok().flatten();
+            drop(subscription);
         }
     }
 }
@@ -415,13 +436,13 @@ impl Drop for LogonSubscription {
 
 /// The logon thread.
 fn run(
-    context: Evt,
+    context: RenderContext,
     signal: Event,
     subscription: Evt,
     stop: &Event,
     ring: &EventRing,
     counters: &LogonCounters,
-) {
+) -> Option<Evt> {
     let mut subscription = Some(subscription);
     let mut monitor = UnusableMonitor::new();
     let mut last_failure_log: Option<Instant> = None;
@@ -437,7 +458,7 @@ fn run(
             subscription = reopen(&signal, stop, &mut last_failure_log);
             continue;
         };
-        match drain(current.0, context.0, counters, |raw| {
+        match drain(current.0, context.0 .0, counters, |raw| {
             dispatch_logon_record(&raw, ring, counters);
             true
         }) {
@@ -456,7 +477,7 @@ fn run(
         }
         monitor.observe(counters, Instant::now());
     }
-    drop(subscription);
+    subscription
 }
 
 /// Wait `delay`, or less when the stop event fires; true when it did.
@@ -468,11 +489,7 @@ fn wait_or_stop(stop: &Event, delay: Duration) -> bool {
 fn reopen(signal: &Event, stop: &Event, last_log: &mut Option<Instant>) -> Option<Evt> {
     match subscribe(signal) {
         Ok(subscription) => Some(subscription),
-        Err(e) => {
-            let code = match e {
-                LogonError::AccessDenied => 5,
-                LogonError::Failed { code, .. } => code,
-            };
+        Err(code) => {
             log_failure(last_log, "reopen", code);
             let _ = wait_or_stop(stop, REOPEN_DELAY);
             None
@@ -491,34 +508,4 @@ fn log_failure(last_log: &mut Option<Instant>, what: &str, code: u32) {
         );
         *last_log = Some(now);
     }
-}
-
-/// The last `max` records 4624 of the Security log, newest first, rendered
-/// as the subscription renders them — a one-off query for the elevated
-/// gate (SPEC-020 auth_ac_012).
-pub fn query_recent(max: usize) -> Result<Vec<RawLogonRecord>, LogonError> {
-    let context = render_context()?;
-    let channel = wide(CHANNEL);
-    let query = wide("*[System[(EventID=4624)]]");
-    // SAFETY: the strings live for the call.
-    let results = unsafe {
-        EvtQuery(
-            0,
-            channel.as_ptr(),
-            query.as_ptr(),
-            EvtQueryChannelPath | EvtQueryReverseDirection,
-        )
-    };
-    if results == 0 {
-        return Err(LogonError::from_win32(last_error()));
-    }
-    let results = Evt(results);
-    let counters = LogonCounters::new();
-    let mut records = Vec::new();
-    drain(results.0, context.0, &counters, |raw| {
-        records.push(raw);
-        records.len() < max
-    })
-    .map_err(LogonError::from_win32)?;
-    Ok(records)
 }
