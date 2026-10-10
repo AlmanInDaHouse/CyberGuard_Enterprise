@@ -20,6 +20,7 @@ pub mod envelope;
 pub mod errors;
 pub mod etw;
 pub mod identity;
+pub mod logon;
 pub mod paths;
 pub mod secure_storage;
 pub mod shutdown;
