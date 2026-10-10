@@ -36,6 +36,7 @@ fn auth_ac_008_auth_protocol_table() {
     assert_eq!(auth_protocol_id("NTLM"), 1);
     assert_eq!(auth_protocol_id("ntlm"), 1);
     assert_eq!(auth_protocol_id("Kerberos"), 2);
+    assert_eq!(auth_protocol_id("kerberos"), 2);
     assert_eq!(auth_protocol_id("-"), 0);
     assert_eq!(auth_protocol_id("Negotiate"), 99);
     assert_eq!(auth_protocol_id("CloudAP"), 99);

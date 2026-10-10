@@ -22,7 +22,7 @@ use crate::etw::{filetime_to_unix_nanos, EventRing};
 #[cfg(windows)]
 mod subscription;
 #[cfg(windows)]
-pub use subscription::{query_recent, LogonSubscription};
+pub use subscription::{LogonSubscription, RenderContext};
 
 /// An account successfully logged on.
 pub const EVENT_LOGON_SUCCESS: u16 = 4624;
