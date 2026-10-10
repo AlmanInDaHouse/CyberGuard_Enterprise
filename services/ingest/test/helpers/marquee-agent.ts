@@ -44,6 +44,8 @@ export interface AgentRunResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+  /** The agent process's PID (SPEC-019 net_ac_010: its own connections are not reported). */
+  pid: number | undefined;
 }
 
 export interface MarqueeAgent {
@@ -130,7 +132,7 @@ export function prepareAgent(args: {
         });
         child.on("exit", (code) => {
           clearTimeout(timer);
-          resolveRun({ exitCode: code, stdout, stderr });
+          resolveRun({ exitCode: code, stdout, stderr, pid: child.pid });
         });
       });
     },
