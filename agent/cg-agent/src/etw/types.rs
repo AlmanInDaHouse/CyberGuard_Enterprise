@@ -1,14 +1,17 @@
-//! In-memory captured-event shape + activity discriminants + raw ETW
+//! In-memory captured-event shapes + activity discriminants + raw ETW
 //! open-error variants.
 //!
 //! `CapturedEvent` is the post-capture pre-emission representation of a
-//! Kernel-Process Launch or Terminate event. It is produced by the
-//! dispatch logic (`dispatch.rs`, fed by session.rs on Windows),
-//! traverses the bounded ring buffer (ring.rs), and is rendered to CGES
-//! JSON once, when its batch is formed (cges/emit.rs).
+//! Kernel-Process Launch or Terminate event; `NetworkEvent` is that of a
+//! Kernel-Network TCP connection opened (SPEC-019). Both are produced by
+//! the dispatch logic (`dispatch.rs`, fed by session.rs on Windows),
+//! traverse the bounded ring buffer (ring.rs) as a `RingEvent`, and are
+//! rendered to CGES JSON once, when their batch is formed (cges/emit.rs).
 //!
-//! The struct is `Clone` because the ring buffer's snapshot_events
+//! The structs are `Clone` because the ring buffer's snapshot_events
 //! accessor (test API) needs to return owned copies.
+
+use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 
@@ -81,6 +84,90 @@ pub struct CapturedEvent {
     pub etw_timestamp_nanos: u64,
     pub created_time_nanos: Option<u64>,
     pub exit_status: Option<i32>,
+}
+
+/// The host's point of view on a TCP connection (ADR-0018 §4): it opened
+/// it (`outbound`) or accepted it (`inbound`). Serialized as the CGES
+/// `connection_info.direction` value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    Outbound,
+    Inbound,
+}
+
+/// Post-capture in-memory representation of a TCP connection opened,
+/// reported by Kernel-Network (SPEC-019, ADR-0018 §2–§5).
+///
+/// Fields:
+/// - `event_id`: agent-generated UUIDv7, generated at capture (ADR-0009 §1).
+/// - `pid`: the provider's `PID`, the local process the connection
+///   belongs to (ADR-0018 §5).
+/// - `direction`: outbound (the host connected) or inbound (it accepted).
+/// - `src` / `dst`: the initiator's and the acceptor's address and port
+///   (ADR-0018 §4); an IPv4-mapped IPv6 address is already its IPv4.
+/// - `etw_timestamp_nanos`: the event's ETW timestamp in UTC nanoseconds
+///   (SPEC-005 §Operational §1).
+/// - `created_time_nanos`: the creation time the agent held for `pid` at
+///   dispatch, from which `actor.process.uid` is built; `None` when it
+///   held none, and the event then carries no uid (SPEC-019 §Operational
+///   §3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkEvent {
+    pub event_id: String,
+    pub pid: u32,
+    pub direction: Direction,
+    pub src: SocketAddr,
+    pub dst: SocketAddr,
+    pub etw_timestamp_nanos: u64,
+    pub created_time_nanos: Option<u64>,
+}
+
+/// One event in the ring: a process event or a network event (SPEC-019
+/// §Operational §5). Events of both classes share one ring and leave it
+/// in the order they entered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RingEvent {
+    Process(CapturedEvent),
+    Network(NetworkEvent),
+}
+
+impl RingEvent {
+    /// The process event, if this is one.
+    pub fn as_process(&self) -> Option<&CapturedEvent> {
+        match self {
+            RingEvent::Process(event) => Some(event),
+            RingEvent::Network(_) => None,
+        }
+    }
+
+    /// The process event, if this is one.
+    pub fn into_process(self) -> Option<CapturedEvent> {
+        match self {
+            RingEvent::Process(event) => Some(event),
+            RingEvent::Network(_) => None,
+        }
+    }
+
+    /// The network event, if this is one.
+    pub fn as_network(&self) -> Option<&NetworkEvent> {
+        match self {
+            RingEvent::Network(event) => Some(event),
+            RingEvent::Process(_) => None,
+        }
+    }
+}
+
+impl From<CapturedEvent> for RingEvent {
+    fn from(event: CapturedEvent) -> Self {
+        RingEvent::Process(event)
+    }
+}
+
+impl From<NetworkEvent> for RingEvent {
+    fn from(event: NetworkEvent) -> Self {
+        RingEvent::Network(event)
+    }
 }
 
 /// Why an ETW session did not start (SPEC-017 §Operational §1, ADR-0010

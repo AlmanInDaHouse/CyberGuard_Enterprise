@@ -21,7 +21,7 @@
 //! exercises the defensive contract under sustained backpressure, not
 //! a routine operating condition.
 
-use cg_agent::etw::{ActivityId, CapturedEvent, EventRing};
+use cg_agent::etw::{ActivityId, CapturedEvent, EventRing, RingEvent};
 
 const RING_SIZE: usize = 8;
 const FIRST_BATCH_OVERFLOW: usize = 3;
@@ -74,7 +74,11 @@ fn ac_008_overflow_drops_oldest_in_fifo_order() {
         ring.enqueue_or_drop(synthetic_event(seq));
     }
 
-    let retained = ring.snapshot_events();
+    let retained: Vec<_> = ring
+        .snapshot_events()
+        .into_iter()
+        .filter_map(RingEvent::into_process)
+        .collect();
     assert_eq!(
         retained.len(),
         RING_SIZE,
