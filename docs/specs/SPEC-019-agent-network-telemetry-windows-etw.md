@@ -230,6 +230,28 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the three owner decis
 11. **No spike.** The facts an elevated spike would have measured are acceptance criteria of the elevated gate instead (net_ac_008 to net_ac_010).
 12. **Doc-only gate first.** The code is the next gate (a review branch, relay rule 5) and includes the elevated gate.
 
+## Amendment 2026-10-10: event 31 at the gate, the server's checks, four statements
+
+**What surfaced it.** The self-review of the implementation (`review/s34-d-net`, tip `2b0d3c9`) before it lands, which read this SPEC against the diff and against the elevated gate's output of 2026-10-10 (`docs/handoff-session-34.md`).
+
+1. No criterion measures event 31 on real ETW. net_ac_008 connects outbound over both families, and the IPv6 accept it causes is excluded by the agent's PID; net_ac_009 and net_ac_010 accept over IPv4 only. ADR-0018 §4 and §5 state the endpoints and the `PID` of an accepted connection, and its §10 settles them by outcome at the gate; for an accepted IPv6 connection nothing measured them.
+2. The route checks a 4001 element's `event_id` only as a non-empty string: a value that is not a UUID passes validation, fails the `INSERT` and is answered 500, not 400. `actor.process.pid` has no upper bound: 4294967296 is answered 200 and stored as `process_pid` 0, the `UInt32` column wrapping it.
+3. Four statements do not describe what the code does, and the code is right:
+   - §Operational §3 and NFR-019-001 say the callback does no I/O and takes no lock beyond the cache's and the ring's. It also takes locks inside the crates it calls — ferrisetw's schema lookup and parser caches, which call TDH, and the uuid crate's version-7 generator — as the process path does; and it writes the `error` line of a dropped pre-1970 record (§2), as the process path does.
+   - §Operational §4 says a record with the agent's `PID` is not counted with the discards of §1. A record of another event id is counted before its `PID` is read, whichever process wrote it. That count exists to show that ETW does not honour the filter by event id (§1, §Open questions 1), and such a record shows it whoever wrote it.
+   - §Operational §2 counts as a discard a record whose fields cannot be parsed. A connection record whose `PID` reads as the agent's own is dropped before its other fields are parsed, uncounted.
+   - §Operational §6 says validation accepts the two shapes "and nothing else". As for class 1007, a member that a shape does not list is ignored, not refused.
+
+**Amendment.**
+
+- **net_ac_009** now reads: the test opens the capture session itself, with no PID excluded, and holds two listeners, one on IPv4 loopback and one on IPv6 loopback; a probe process connects to each listener, one probe per listener, and exchanges data. The ring then holds, for each connection, one inbound event with the test process's PID, the listener's address and port as destination and the peer the listener saw as source, and one outbound event with that probe's PID and the same endpoints. The session's count of discarded network records stays at 0. On failure the test prints the network events in the ring and the endpoints it expected. Events 28 and 31 are now measured as 12 and 15 are.
+- **net_ac_002** gains two POSTs, each answered 400 `invalid_request` and storing nothing: a 4001 element whose `event_id` is not a UUID, and one whose `actor.process.pid` is 4294967296.
+- **§Operational §6:** for a 4001 element the server checks that `event_id` is a UUID (the agent generates version 7; the server does not check the version) and that `actor.process.pid` is between 0 and 4294967295. A member that a shape does not list is ignored, as for class 1007: "nothing else" means no class other than 1007 and 4001.
+- **§Operational §3 and NFR-019-001:** the callback adds no lock of its own beyond the cache's and the ring's, and no I/O beyond the `error` line of a dropped pre-1970 record; the locks inside ferrisetw and the uuid crate are those the process path takes. SPEC-017 §Operational §6 makes the same statement for the process path; this amendment does not change it.
+- **§Operational §4:** the exclusion applies to the four connection events. A record of event 12, 15, 28 or 31 whose `PID` reads as the agent's own is not an event: it is dropped before its other fields are parsed, counted neither as dropped nor as a discard, and not logged. Here §4 prevails over §2. A record of any other event id is a discard of §1, whatever its `PID`; so is a connection record whose `PID` cannot be read (§2).
+
+**Effect.** net_ac_002 and net_ac_009 assert more, and the set of valid 4001 elements narrows; the wire shape is unchanged. Not backward-compatible for one input: a 4001 element whose `pid` exceeds 4294967295, answered 200 and stored wrapped before, is answered 400. No agent sends one: the agent's PIDs are 32-bit and its event ids UUIDv7. The new net_ac_009 and the server's checks are code under `agent/` and `services/`, so the elevated gate runs again before the implementation lands. The 1007 shape keeps its checks (its `event_id` non-empty, its `pid` and `parent_pid` unbounded); destination: debt #31 (`docs/handoff-session-33.md`), widened from `time` to these members. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it fits ADR-0018 and touches nothing on Manuel's list. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0018](../adr/0018-cges-network-activity-v0-1.md) — the per-class decisions.
