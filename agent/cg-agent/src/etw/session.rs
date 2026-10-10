@@ -1,10 +1,17 @@
-//! Windows-only ETW Kernel-Process session.
+//! Windows-only ETW capture session: Kernel-Process and Kernel-Network.
 //!
 //! Opens the Microsoft-Windows-Kernel-Process provider via ferrisetw and
 //! dispatches Launch + Terminate events to the dispatch callback, which
 //! parses the EventRecord and hands the fields to `dispatch_record`
 //! (timestamp, UUIDv7 event_id, cache insert or consult-and-purge,
 //! enqueue to the EventRing).
+//!
+//! The same session enables Microsoft-Windows-Kernel-Network (SPEC-019
+//! §Operational §1) with a filter by event id for the TCP connections
+//! opened (12, 15, 28, 31); its callback reads the raw bytes of the
+//! connection's properties and hands them to `dispatch_network_record`
+//! (decode, exclusion of the agent's own PID, cache lookup, enqueue).
+//! Records the callback cannot use are counted in `NetworkDiscards`.
 //!
 //! Per ADR-0009 §Decision part 1: the dispatch path is constrained to
 //! parse-and-enqueue; no I/O, no synchronization beyond the ring's
@@ -24,7 +31,7 @@
 
 use ferrisetw::native::EvntraceNativeError;
 use ferrisetw::parser::Parser;
-use ferrisetw::provider::Provider;
+use ferrisetw::provider::{EventFilter, Provider};
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::trace::{TraceError, TraceTrait, UserTrace};
 use ferrisetw::EventRecord;
@@ -34,8 +41,12 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::cache::CreatedTimeCache;
-use super::dispatch::{dispatch_record, RawProcessRecord};
+use super::dispatch::{
+    dispatch_network_record, dispatch_record, DiscardSample, NetworkDiscards, RawNetworkRecord,
+    RawProcessRecord,
+};
 use super::hygiene::HygieneThread;
+use super::network::{connection_direction, CONNECTION_EVENT_IDS};
 use super::ring::EventRing;
 use super::types::{win32_from_os_error, ActivityId, OpenError};
 use super::SESSION_NAME;
@@ -52,28 +63,62 @@ const KERNEL_PROCESS_GUID: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
 /// ProcessStart/ProcessStop events across Windows builds.
 const WINEVENT_KEYWORD_PROCESS: u64 = 0x10;
 
+/// Microsoft-Windows-Kernel-Network (SPEC-019 §Operational §1).
+const KERNEL_NETWORK_GUID: &str = "7dd42a49-5329-4832-8dfd-43d979153a88";
+
+/// `KERNEL_NETWORK_KEYWORD_IPV4` (0x10) | `KERNEL_NETWORK_KEYWORD_IPV6`
+/// (0x20), per the provider's metadata.
+const KERNEL_NETWORK_KEYWORDS: u64 = 0x10 | 0x20;
+
 /// How long `stop` waits for the pump thread after stopping the session.
 const PUMP_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// ETW Kernel-Process capture session.
+/// ETW capture session (Kernel-Process and Kernel-Network).
 ///
 /// Owns the dispatch-side handles on the shared EventRing and
-/// CreatedTimeCache, the pump thread that holds the `UserTrace`, and the
-/// hygiene thread (cache sweep + `events_lost` poll every 60 s).
+/// CreatedTimeCache, the count of discarded network records, the pump
+/// thread that holds the `UserTrace`, and the hygiene thread (cache
+/// sweep, `events_lost` poll and discard check every 60 s).
 pub struct EtwSession {
     pub ring: Arc<EventRing>,
     pub cache: Arc<CreatedTimeCache>,
+    discards: Arc<NetworkDiscards>,
     pump: Option<JoinHandle<()>>,
     hygiene: Option<HygieneThread>,
 }
 
 impl EtwSession {
-    /// Open the Kernel-Process ETW session.
+    /// Open the capture session, reporting the connections of every
+    /// process (no PID excluded).
     ///
     /// Returns only when the session has started (`Ok`) or its start has
     /// failed (`Err`, with the Win32 code). On success the pump thread
-    /// delivers events to the dispatch callback until `stop`.
+    /// delivers events to the dispatch callbacks until `stop`.
     pub fn open(ring_capacity: usize) -> Result<Self, OpenError> {
+        Self::start(ring_capacity, None)
+    }
+
+    /// Open the capture session, discarding the network records of
+    /// `excluded_pid` — the agent passes its own process id (SPEC-019
+    /// §Operational §4, ADR-0018 §8).
+    pub fn open_excluding(ring_capacity: usize, excluded_pid: u32) -> Result<Self, OpenError> {
+        Self::start(ring_capacity, Some(excluded_pid))
+    }
+
+    /// The number of network records discarded so far: an event id
+    /// outside 12, 15, 28 and 31, or fields that could not be decoded
+    /// (SPEC-019 §Operational §1 and §2).
+    pub fn network_records_discarded(&self) -> u64 {
+        self.discards.total()
+    }
+
+    /// The first discarded network record, if any: its event id and the
+    /// byte length of each property read.
+    pub fn first_network_discard(&self) -> Option<DiscardSample> {
+        self.discards.first()
+    }
+
+    fn start(ring_capacity: usize, excluded_pid: Option<u32>) -> Result<Self, OpenError> {
         tracing::info!(target: "cg_agent::etw", "EtwSession::open invoked");
 
         // Reclaim any zombie ETW session with our name left by a prior
@@ -106,6 +151,7 @@ impl EtwSession {
 
         let ring = Arc::new(EventRing::new(ring_capacity));
         let cache = Arc::new(CreatedTimeCache::new());
+        let discards = Arc::new(NetworkDiscards::new());
 
         let ring_for_callback = Arc::clone(&ring);
         let cache_for_callback = Arc::clone(&cache);
@@ -129,9 +175,30 @@ impl EtwSession {
             )
             .build();
 
+        let ring_for_network = Arc::clone(&ring);
+        let cache_for_network = Arc::clone(&cache);
+        let discards_for_network = Arc::clone(&discards);
+        let network_provider = Provider::by_guid(KERNEL_NETWORK_GUID)
+            .any(KERNEL_NETWORK_KEYWORDS)
+            .add_filter(EventFilter::ByEventIds(CONNECTION_EVENT_IDS.to_vec()))
+            .add_callback(
+                move |record: &EventRecord, schema_locator: &SchemaLocator| {
+                    network_callback(
+                        record,
+                        schema_locator,
+                        excluded_pid,
+                        &ring_for_network,
+                        &cache_for_network,
+                        &discards_for_network,
+                    );
+                },
+            )
+            .build();
+
         let trace = UserTrace::new()
             .named(String::from(SESSION_NAME))
-            .enable(provider);
+            .enable(provider)
+            .enable(network_provider);
 
         // The pump thread reports the start result once, then blocks in
         // process_from_handle until the session is stopped.
@@ -177,9 +244,15 @@ impl EtwSession {
                     target: "cg_agent::etw",
                     session_name = SESSION_NAME,
                     provider_guid = KERNEL_PROCESS_GUID,
+                    network_provider_guid = KERNEL_NETWORK_GUID,
+                    excluded_pid,
                     "ETW session opened",
                 );
-                let hygiene = match HygieneThread::spawn(Arc::clone(&cache), SESSION_NAME) {
+                let hygiene = match HygieneThread::spawn(
+                    Arc::clone(&cache),
+                    Arc::clone(&discards),
+                    SESSION_NAME,
+                ) {
                     Ok(thread) => Some(thread),
                     Err(e) => {
                         tracing::warn!(
@@ -193,6 +266,7 @@ impl EtwSession {
                 Ok(Self {
                     ring,
                     cache,
+                    discards,
                     pump: Some(pump),
                     hygiene,
                 })
@@ -322,4 +396,41 @@ fn dispatch_callback(
     };
 
     dispatch_record(raw, cache, ring);
+}
+
+/// The Kernel-Network callback. The event id is checked here too (the
+/// filter by id is asked of ETW, not assumed): a record of another id, or
+/// one without a schema, is counted as discarded. Otherwise the raw bytes
+/// of the five properties go to `dispatch_network_record`.
+fn network_callback(
+    record: &EventRecord,
+    schema_locator: &SchemaLocator,
+    excluded_pid: Option<u32>,
+    ring: &EventRing,
+    cache: &CreatedTimeCache,
+    discards: &NetworkDiscards,
+) {
+    let event_id = record.event_id();
+    if connection_direction(event_id).is_none() {
+        discards.record(event_id, [0; 5]);
+        return;
+    }
+    let Ok(schema) = schema_locator.event_schema(record) else {
+        discards.record(event_id, [0; 5]);
+        return;
+    };
+    let parser = Parser::create(record, &schema);
+    // Each property's bytes exactly as the payload carries them; empty when
+    // the property cannot be read, which the decoding then refuses.
+    let field = |name: &str| parser.try_parse::<Vec<u8>>(name).unwrap_or_default();
+    let raw = RawNetworkRecord {
+        event_id,
+        pid: field("PID"),
+        saddr: field("saddr"),
+        daddr: field("daddr"),
+        sport: field("sport"),
+        dport: field("dport"),
+        filetime_100ns: record.raw_timestamp(),
+    };
+    dispatch_network_record(raw, excluded_pid, cache, ring, discards);
 }

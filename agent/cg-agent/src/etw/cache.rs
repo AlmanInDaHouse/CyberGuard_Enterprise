@@ -4,6 +4,8 @@
 //! - Populated at Launch dispatch (PID → etw_timestamp_nanos).
 //! - Consulted-and-purged at Terminate dispatch (returns Option<u64>;
 //!   removes entry on hit; None on miss).
+//! - Looked up, without purging, at network-record dispatch (SPEC-019
+//!   §Operational §3).
 //! - The miss path is the AC-004 cache-miss defensive contract — the
 //!   Terminate event is emitted with `process.created_time = null`
 //!   rather than a fabricated value.
@@ -43,6 +45,15 @@ impl CreatedTimeCache {
     pub fn consult_and_purge(&self, pid: u32) -> Option<u64> {
         let mut entries = self.entries.lock().expect("cache mutex poisoned");
         entries.remove(&pid)
+    }
+
+    /// The creation time held for `pid`, leaving the entry in place: the
+    /// lookup a network record makes at dispatch to attribute its
+    /// connection to the process (SPEC-019 §Operational §3), so a later
+    /// Terminate of that PID still finds it.
+    pub fn created_time(&self, pid: u32) -> Option<u64> {
+        let entries = self.entries.lock().expect("cache mutex poisoned");
+        entries.get(&pid).copied()
     }
 
     /// Evict the entries whose process is gone (SPEC-005 §Operational §2,
