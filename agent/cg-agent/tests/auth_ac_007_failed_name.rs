@@ -10,11 +10,25 @@
 mod logon_records;
 
 use cg_agent::cges::render_authentication;
-use cg_agent::logon::{RawLogonRecord, ACCOUNT_EXISTS_CODES, WITHHELD};
+use cg_agent::logon::{RawLogonRecord, WITHHELD};
 use logon_records::{failure, reported};
 use std::collections::BTreeSet;
 
 const SUBMITTED: &str = "Pa55w0rd-typed-as-a-name!";
+
+/// The codes of SPEC-020 §Operational §3, written here from the SPEC, not
+/// taken from the implementation.
+const SPEC_ACCOUNT_EXISTS: [u32; 9] = [
+    0xC000_006A,
+    0xC000_0234,
+    0xC000_0072,
+    0xC000_006F,
+    0xC000_0070,
+    0xC000_0193,
+    0xC000_0071,
+    0xC000_0224,
+    0xC000_015B,
+];
 
 fn failed(status: Option<u32>, sub_status: Option<u32>) -> RawLogonRecord {
     RawLogonRecord {
@@ -27,7 +41,7 @@ fn failed(status: Option<u32>, sub_status: Option<u32>) -> RawLogonRecord {
 
 #[test]
 fn auth_ac_007_codes_that_name_an_account_keep_the_name() {
-    for code in ACCOUNT_EXISTS_CODES {
+    for code in SPEC_ACCOUNT_EXISTS {
         let event = reported(&failed(Some(0xC000_006D), Some(code)));
         assert_eq!(event.user_name, SUBMITTED, "{code:#x} keeps the name");
         assert_eq!(event.user_domain, "WS-0042", "{code:#x} keeps the domain");
@@ -58,7 +72,8 @@ fn auth_ac_007_status_is_tested_when_substatus_is_zero_or_absent() {
 
 #[test]
 fn auth_ac_007_no_such_user_and_unknown_codes_withhold_name_and_domain() {
-    for sub_status in [0xC000_0064, 0xC000_0133, 0x1234_5678] {
+    // 0xC000006D is the usual Status of a 4625; alone it names no account.
+    for sub_status in [0xC000_0064, 0xC000_0133, 0xC000_006D, 0x1234_5678] {
         let event = reported(&failed(Some(0xC000_006D), Some(sub_status)));
         assert_eq!(event.user_name, WITHHELD);
         assert_eq!(event.user_domain, WITHHELD);
