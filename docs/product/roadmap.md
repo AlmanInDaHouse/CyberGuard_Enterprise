@@ -220,9 +220,10 @@ This dependency-ordered document supersedes both for planning.
     `class_uid: z.literal(1007)`
     (`services/ingest/src/schemas.ts:44`) to a union, and the widening
     of `cges_events`.
-  - Login — logons, successful and failed. Contract: ADR-0019 and
-    SPEC-020, not written yet. The planned source is the Windows
-    Security log, a second capture source that is not ETW.
+  - Login — logons, successful and failed. Contract: ADR-0019
+    (Accepted, S35) and SPEC-020, not written yet. The source is the
+    Windows Security log, read through the Event Log API: a second
+    capture source that is not ETW.
 - Blocked by: nothing; G, H and B1 are done.
 - Gate (own): the `net_ac_*` tests (SPEC-019 §Acceptance criteria), in
   CI and in the elevated gate.
@@ -244,6 +245,9 @@ This dependency-ordered document supersedes both for planning.
 - Owner decisions, S34 (2026-10-10), delegated to the advisor: the scope
   of the phase; what "basic network" covers; the vehicle (SPEC-019
   §Ratification record).
+- Owner decisions, S35 (2026-10-10): which logon data the agent collects
+  (ADR-0019 §3–§5); the four points the draft left open, delegated to
+  Claude Code (ADR-0019 §Decision record); ADR-0019 ratified.
 
 ### B2 — CommandLine + subject_user_sid capture
 

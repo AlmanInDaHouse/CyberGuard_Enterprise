@@ -8,8 +8,9 @@ Session 35 is the first under the executor-led rules of CLAUDE.md (S34-06,
 implementation that S34 left on `review/s34-d-net`, after a self-review that
 amended SPEC-019 (`d4f2a53`), added three commits of fixes and one of
 CLAUDE.md counts, and an elevated gate that now measures event 31. The branch
-and draft PR #4 are closed. The login half (ADR-0019, SPEC-020) is not
-written. Catalogs: ADR 18 / SPEC 19. Known CI debt: ZERO.
+and draft PR #4 are closed. The session then gathered the facts of the login
+half and Manuel ratified ADR-0019 (Accepted); SPEC-020 is not written.
+Catalogs: ADR 19 / SPEC 19. Known CI debt: ZERO.
 
 ## Anchor commits
 
@@ -27,7 +28,9 @@ On `main`, pushed, one commit per push, CI green on each:
 | `2901169` | `test(agent)`: `net_ac_009` over IPv6 too; full failure reports. |
 | `b24574b` | `test(ingest)`: `net_ac_010` logs its time on every run; 1007 readers. |
 | `8fac5c3` | `docs(claude-md)`: six real-ETW tests and `net_ac_010` in the gate. |
-| (this commit) | handoff-35; README and roadmap pointers; roadmap §D status. |
+| `850a3fe` | handoff-35; README and roadmap pointers; roadmap §D status. |
+| `bee5184` | handoff-35: the logon facts and Manuel's ADR-0019 decisions. |
+| (this commit) | `docs(adr-0019)`: ADR-0019 Accepted; catalog; roadmap §D; this handoff. |
 
 The nine code commits are cherry-picks (`-x`) of the rebased branch, the
 `NOT YET RATIFIED` marker stripped from the first five; before each push
@@ -196,8 +199,16 @@ Reactive:
 4. CLAUDE.md *Environment facts* (`c14b89c`) named `net_ac_010` before it was
    on `main`; it is true from `240dc52`.
 
-Manuel's decision this session: re-run only the `services/api` gate after the
-memory stop (2026-10-10).
+Manuel's decisions this session (2026-10-10): re-run only the `services/api`
+gate after the memory stop; on ADR-0019, the three of §Logon facts; then he
+delegated the four points the draft left open ("esas 4 decídelas tú en factor
+de lo más beneficioso en el contexto del proyecto y de cara a que sea producto
+vendible a una empresa"), which Claude Code decided as ADR-0019 §Decision
+record states — retention of 365 days from arrival, the marker without a
+length, ANONYMOUS LOGON reported, no test account; and he ratified ADR-0019
+("si"). It landed from the owner-review branch `adr/s35-0019-logins`, squashed
+without the marker; its self-review (a fresh-context reviewer, list A of six)
+is in the branch's first commit message.
 
 ## Test baselines
 
@@ -220,9 +231,9 @@ Unchanged from handoff-34, minus "Landing `review/s34-d-net`" (done, under the
 new rules): ADR-0002 Go→TS reconciliation; the criterion-7 deployment
 contract; forensic trust anchoring; B2 capture source; the compose basename
 collision #12; amending SPEC-004 with `INGEST_DETECT_*` (#17); the optional
-items of handoff-29; ADR-0019 (logins, a new ADR on what data about people
-the agent collects); and, if a run ever reports a refused attempt, what an
-outbound Open asserts (SPEC-019 §Open questions 4, ADR-0018 §2).
+items of handoff-29; and, if a run ever reports a refused attempt, what an
+outbound Open asserts (SPEC-019 §Open questions 4, ADR-0018 §2). ADR-0019 is
+ratified.
 
 ## Debts
 
@@ -256,6 +267,9 @@ outbound Open asserts (SPEC-019 §Open questions 4, ADR-0018 §2).
   only for its tree; the SPEC-006 section and the prod-driver gate let it
   stand over later doc-only commits, and that gate's own known case touched
   comments under `services/`.
+- **#47 — No retention for the classes other than 3002.** ADR-0019 §9 gives
+  logon rows a time-to-live of 365 days; `cges_events` keeps every other
+  class without limit, and ADR-0003's retention table is not implemented.
 
 Known CI debt: ZERO rows.
 
@@ -263,15 +277,15 @@ Known CI debt: ZERO rows.
 
 1. Run CLAUDE.md *Session protocol*, §At the start. No branch or PR should be
    open.
-2. **ADR-0019 and SPEC-020 (logins).** Both decide which logon data about
-   people `cg-agent` collects: Manuel's list. The facts are gathered and
-   Manuel took three decisions (§Logon facts). ADR-0019 is drafted as
-   Proposed on the owner-review branch `adr/s35-0019-logins`, waiting for
-   Manuel's ratification read (CLAUDE.md *Integration path* §4); the points
-   open in it are named in its §Decision record. After ratification it lands
-   on `main` with the marker stripped, then SPEC-020. In any later report of
-   logon data the user appears as `<user>`, the host or domain as `<host>`,
-   and of each SID only the prefix and the RID; raw files do not leave the
-   machine.
+2. **SPEC-020 (logins).** ADR-0019 is Accepted; SPEC-020 implements it,
+   contract first (CLAUDE.md *Compensating controls* §1). Its accounts,
+   fields and failed-name rule are ADR-0019 §3–§5; its storage the columns
+   and the 365-day time-to-live of §7 and §9; its elevated criteria the
+   logons of §10 (the built-in Administrator, a random name, a loopback
+   network logon). SPEC-020 is Claude Code's to write and accept while it
+   stays inside ADR-0019; it touches the capture path, so the elevated gate
+   applies. In any later report of logon data the user appears as
+   `<user>`, the host or domain as `<host>`, and of each SID only the prefix
+   and the RID; raw files do not leave the machine.
 3. Watch #43 in any capture run.
 4. After D: **B2**, **E** and **F**, in the roadmap's order.

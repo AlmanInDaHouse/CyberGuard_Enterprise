@@ -35,6 +35,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0016](0016-forensic-evidence-hash-chain.md) | Forensic evidence hash-chain — per-event SHA-256 chain + dedicated Ed25519 root signature | Accepted |
 | [0017](0017-incident-email-notification.md) | Incident email notification — generic SMTP, fire-and-forget on incident create | Accepted |
 | [0018](0018-cges-network-activity-v0-1.md) | Per-class CGES jurisprudence — Network Activity v0.1 | Accepted |
+| [0019](0019-cges-authentication-v0-1.md) | Per-class CGES jurisprudence — Authentication v0.1 | Accepted |
 
 ## Dependencies
 
@@ -97,3 +98,8 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0018 → ADR-0008 (Kernel-Network through ferrisetw, as a second provider of the agent's existing session; no raw Win32 call) / ADR-0010 (no privilege beyond the one that session already requires)
 - ADR-0018 → ADR-0012 (class 4001 stops being schema-only; the read-model keeps selecting class 1007, and rules over 4001 stay deferred) / SPEC-019 (the production specification)
 - ADR-0018 extends decision D6 (`docs/handoff-session-10.md`) to a second class: one `cges_events` table, told apart by `class_uid`; a reader that interprets `activity_id` or class-specific columns must select by it, the forensic drill excepted on a stated condition
+- ADR-0019 → ADR-0011 (third instance of the per-class pattern of §1; the `time` encoding) / ADR-0018 (stores its class in `cges_events` as §Compliance asks, and keeps the reader's obligation of §9)
+- ADR-0019 → ADR-0010 (the Security log is read with the elevated token that posture already gives; no privilege added) / ADR-0008 (its rule on raw Win32 calls concerns ETW; the Event Log calls are this ADR's) / ADR-0009 (live only: no cursor on disk while the disk buffer is deferred)
+- ADR-0019 → ADR-0006 (`cg_elevated_token` is a `cg_*` extension) / ADR-0012 (class 3002 stops being schema-only once SPEC-020 lands)
+- ADR-0019 → ADR-0015 (the forensic drill reads no class 3002 while no alert cites one; access to logon data is decided by the SPEC of the first surface that shows it) / SPEC-020 (the production specification, not written)
+- ADR-0019 → ADR-0016 (logon rows are deleted 365 days after arrival; the first rule that cites a logon reconciles that retention with the evidence an alert seals)
