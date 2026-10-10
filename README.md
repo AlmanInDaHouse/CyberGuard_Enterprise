@@ -21,11 +21,11 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 | 4 | Gmail/SMTP notification | **Delivered** (SPEC-014). |
 | 5 | Incident PDF export | **Delivered** (SPEC-013). |
 | 1 | 10 detection rules | **Delivered** (SPEC-016): ten rules, each with a wired fixture and a CI scenario, evaluated over the events a deployed agent captures (SPEC-017). |
-| 2 | Windows agent: processes / network / logins | **Partial 1/3** — processes only (SPEC-005), captured on the agent's normal run path (SPEC-017). |
+| 2 | Windows agent: processes / network / logins | **Partial 2/3** — processes (SPEC-005) and TCP connections opened (SPEC-019), captured on the agent's normal run path (SPEC-017); logins pending. |
 | 6 | 1 SOAR playbook | **Pending** — unblocked by the prod-driver seam. |
 | 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
 
-On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07), over events read in arrival order (SPEC-018); on the agent side, process capture runs on the agent's normal secure path (SPEC-017). The latest session handoff, [`docs/handoff-session-34.md`](docs/handoff-session-34.md), is the canonical current state.
+On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07), over events read in arrival order (SPEC-018); on the agent side, process capture runs on the agent's normal secure path (SPEC-017). The latest session handoff, [`docs/handoff-session-35.md`](docs/handoff-session-35.md), is the canonical current state.
 
 The remaining MVP work — phases ordered by technical dependency, plus the owner-STOP decisions gating them — is the work order in [`docs/product/roadmap.md`](docs/product/roadmap.md).
 

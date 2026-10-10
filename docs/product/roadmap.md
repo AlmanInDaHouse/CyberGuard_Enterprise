@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-34.md](../handoff-session-34.md)).
+([handoff-session-35.md](../handoff-session-35.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -203,12 +203,12 @@ This dependency-ordered document supersedes both for planning.
 
 ### D — Criterion 2: new classes (4001 network + 3002 login)
 
-- **Status: IN PROGRESS** — the contract of the network half is
-  Accepted (S34, 2026-10-10). Its implementation is on the review branch
-  `review/s34-d-net` (tip `2b0d3c9`, draft PR #4), not on `main`; the
-  elevated gate passed on `2b0d3c9` (Manuel, 2026-10-10: six real-ETW
-  tests; 54 files / 173 tests). The branch is not ratified and has not
-  landed. Details: `docs/handoff-session-34.md`.
+- **Status: IN PROGRESS** — the network half is DONE: SPEC-019
+  (Accepted, amended 2026-10-10) landed as `8fd71eb` to `8fac5c3`, one
+  per push (S35, 2026-10-10); elevated gate green on the tree landed
+  (`599424d`: six real-ETW tests, event 31 included; 54 files / 175
+  tests). The login half (ADR-0019, SPEC-020) is not written. Details:
+  `docs/handoff-session-35.md`.
 - Does: agent capture, delivery and storage, end to end, for CGES 4001
   (network) and 3002 (login), with a marquee for each. No detection rule
   and no product surface in this phase.
