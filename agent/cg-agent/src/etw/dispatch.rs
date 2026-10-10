@@ -10,8 +10,10 @@
 //! SPEC-005 NFR-005-001 by scope): it converts the timestamp, generates
 //! the UUIDv7 `event_id` (ADR-0009 §1), inserts into the cache on Launch
 //! or consults and purges it on Terminate (SPEC-005 §Operational §2),
-//! and enqueues. No I/O and no lock beyond the cache's and the ring's;
-//! the one exception is the `error` line of a dropped anomaly.
+//! and enqueues. No I/O and no lock of its own beyond the cache's and the
+//! ring's (the locks inside ferrisetw and the uuid crate are taken on both
+//! paths alike, SPEC-019 Amendment 2026-10-10); the one exception is the
+//! `error` line of a dropped anomaly.
 //!
 //! Keeping this platform-independent lets the harness drive it with
 //! synthetic records on every platform (capture_ac_007).
@@ -163,16 +165,18 @@ impl NetworkDiscards {
 ///
 /// - A record of an event id other than 12, 15, 28 or 31, or whose fields
 ///   cannot be decoded, is dropped and counted in `discards`.
-/// - A record whose `PID` is `excluded_pid` (the agent's own) is dropped
-///   and not counted anywhere (ADR-0018 §8).
+/// - A connection record whose `PID` is `excluded_pid` (the agent's own)
+///   is dropped before its other fields are decoded, counted nowhere and
+///   not logged (ADR-0018 §8; SPEC-019 §Operational §4 as amended). A
+///   record of another event id is a discard whatever its `PID`.
 /// - A pre-1970 timestamp is logged at `error` and dropped, as for a
 ///   process record.
 /// - The creation time of the record's process is looked up in the cache
 ///   now, without removing it, so a PID reused before the batch is formed
 ///   cannot change the uid (§Operational §3).
 ///
-/// No I/O and no lock beyond the cache's and the ring's; the one
-/// exception is the `error` line of a dropped anomaly.
+/// No I/O and no lock of its own beyond the cache's and the ring's; the
+/// one exception is the `error` line of a dropped anomaly.
 pub fn dispatch_network_record(
     raw: RawNetworkRecord,
     excluded_pid: Option<u32>,

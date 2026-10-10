@@ -14,9 +14,11 @@
 //! Records the callback cannot use are counted in `NetworkDiscards`.
 //!
 //! Per ADR-0009 §Decision part 1: the dispatch path is constrained to
-//! parse-and-enqueue; no I/O, no synchronization beyond the ring's
-//! Mutex + AtomicU64 + the cache's Mutex<HashMap>. The ring drain
-//! (POST loop) runs on the agent's async task.
+//! parse-and-enqueue; no I/O, no synchronization of its own beyond the
+//! ring's Mutex + AtomicU64 + the cache's Mutex<HashMap>. ferrisetw's
+//! schema and parser caches and the uuid crate's v7 generator lock
+//! internally, on both providers' paths alike (SPEC-019 Amendment
+//! 2026-10-10). The ring drain (POST loop) runs on the agent's async task.
 //!
 //! Threading (SPEC-017 §Operational §1 and §4): `open` spawns one
 //! dedicated pump thread that runs `trace.start()` and then

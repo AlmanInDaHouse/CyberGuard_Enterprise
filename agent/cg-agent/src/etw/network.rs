@@ -7,12 +7,13 @@
 //! direction and endpoints (ADR-0018 §4). It is a pure function, so the
 //! harness tests it on every platform (net_ac_005).
 //!
-//! Three readings of the provider's payload are HYPOTHESES, not measured
-//! facts: no run on real ETW preceded this code (ADR-0018 §Context 7).
-//! Each lives in exactly one function below, marked HYPOTHESIS H1, H2 or
-//! H3; the elevated gate (SPEC-019 net_ac_008 and net_ac_009) confirms or
-//! refutes them, and correcting one is changing that function and its
-//! test vectors.
+//! Three readings of the provider's payload were hypotheses when this
+//! code was written: no run on real ETW preceded it (ADR-0018 §Context 7).
+//! Each lives in exactly one function below, marked H1, H2 or H3. The
+//! elevated gate checks them by outcome: net_ac_008 to net_ac_010 compare
+//! the decoded endpoints with those of real connections, over IPv4 and
+//! IPv6, in both directions (ADR-0018 §10). Correcting one is changing
+//! that function and its test vectors.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
@@ -88,18 +89,18 @@ pub fn decode_connection(
     })
 }
 
-/// HYPOTHESIS H1 — pending the elevated gate (SPEC-019 net_ac_008 and
-/// net_ac_009): `sport` and `dport` hold the port in network byte order
-/// (big-endian), not in the payload's native order.
+/// H1, checked by the elevated gate (SPEC-019 net_ac_008 to net_ac_010):
+/// `sport` and `dport` hold the port in network byte order (big-endian),
+/// not in the payload's native order.
 fn port(bytes: &[u8]) -> Option<u16> {
     Some(u16::from_be_bytes(bytes.try_into().ok()?))
 }
 
-/// HYPOTHESIS H2 — pending the elevated gate (SPEC-019 net_ac_008 and
-/// net_ac_009): `saddr` and `daddr` hold the address's bytes in network
-/// order, 4 for IPv4 (declared `win:UInt32`) and 16 for IPv6
-/// (`win:Binary`). An IPv4-mapped IPv6 address becomes its IPv4 address
-/// (ADR-0018 §4); that is the contract, not part of the hypothesis.
+/// H2, checked by the elevated gate (SPEC-019 net_ac_008 to net_ac_010):
+/// `saddr` and `daddr` hold the address's bytes in network order, 4 for
+/// IPv4 (declared `win:UInt32`) and 16 for IPv6 (`win:Binary`). An
+/// IPv4-mapped IPv6 address becomes its IPv4 address (ADR-0018 §4); that
+/// is the contract, not part of the reading.
 fn address(bytes: &[u8]) -> Option<IpAddr> {
     match bytes.len() {
         4 => Some(IpAddr::V4(Ipv4Addr::from(<[u8; 4]>::try_from(bytes).ok()?))),
@@ -114,10 +115,11 @@ fn address(bytes: &[u8]) -> Option<IpAddr> {
     }
 }
 
-/// HYPOTHESIS H3 — pending the elevated gate (SPEC-019 net_ac_008 and
-/// net_ac_009): in all four events `saddr`/`sport` is the host's local
-/// endpoint and `daddr`/`dport` the remote one. Takes (saddr, sport) and
-/// (daddr, dport); returns (local, remote).
+/// H3, checked by the elevated gate (SPEC-019 net_ac_008 to net_ac_010;
+/// event 31 by net_ac_009 since the Amendment 2026-10-10): in all four
+/// events `saddr`/`sport` is the host's local endpoint and `daddr`/`dport`
+/// the remote one. Takes (saddr, sport) and (daddr, dport); returns
+/// (local, remote).
 fn local_and_remote(s: SocketAddr, d: SocketAddr) -> (SocketAddr, SocketAddr) {
     (s, d)
 }

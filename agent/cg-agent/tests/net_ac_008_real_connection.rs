@@ -118,6 +118,13 @@ async fn net_ac_008_a_real_connection_is_reported_with_its_probe() {
                     && s.dst == listener.addr
             })
             .collect();
+        // The probe makes one connection: every element of its PID is that one.
+        let of_probe = seen.iter().filter(|s| s.pid == probe.pid).count();
+        if of_probe != 1 {
+            failures.push(format!(
+                "{label}: {of_probe} elements carry the probe's pid, expected 1"
+            ));
+        }
         if matching.len() != 1 {
             failures.push(format!(
                 "{label}: {} matching outbound elements, expected 1",
