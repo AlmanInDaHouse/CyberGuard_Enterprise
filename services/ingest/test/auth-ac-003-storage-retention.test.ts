@@ -136,12 +136,17 @@ test("auth_ac_003: the bootstrap adds the eleven columns and the class-3002 time
   await bootstrap(THROWAWAY_DB);
   expect(await logonColumns(THROWAWAY_DB)).toEqual(EXPECTED_COLUMNS);
 
-  // A table without them, holding a row written then.
+  // A table as it was before SPEC-020: without the columns and without a
+  // time-to-live, holding a row written then — the upgrade the bootstrap meets.
+  await withClient(THROWAWAY_DB, (ch) =>
+    ch.command({ query: "ALTER TABLE cges_events REMOVE TTL" }),
+  );
   await withClient(THROWAWAY_DB, (ch) =>
     ch.command({
       query: `ALTER TABLE cges_events ${LOGON_COLUMNS.map((c) => `DROP COLUMN ${c}`).join(", ")}`,
     }),
   );
+  expect(await showCreate(THROWAWAY_DB)).not.toMatch(TTL_CLAUSE);
   expect(await logonColumns(THROWAWAY_DB)).toEqual([]);
   const old = row(1007, 0);
   await withClient(THROWAWAY_DB, (ch) =>
@@ -150,6 +155,7 @@ test("auth_ac_003: the bootstrap adds the eleven columns and the class-3002 time
 
   await bootstrap(THROWAWAY_DB);
   expect(await logonColumns(THROWAWAY_DB)).toEqual(EXPECTED_COLUMNS);
+  expect(await showCreate(THROWAWAY_DB)).toMatch(TTL_CLAUSE);
   const read = await withClient(THROWAWAY_DB, async (ch) => {
     const rs = await ch.query({
       query: `SELECT ${LOGON_COLUMNS.join(", ")} FROM cges_events WHERE event_id = {id:UUID}`,
