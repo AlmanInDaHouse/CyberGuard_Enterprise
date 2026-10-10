@@ -2,12 +2,13 @@
 //! net_ac_009): a one-shot loopback listener, the curl.exe probe, and the
 //! report a failure prints.
 //!
-//! The report lists every network event that could belong to the
-//! connections the test made: by PID, or by a port in either byte order.
-//! For each it prints the event as decoded and the readings that would be
-//! true if a hypothesis of `etw/network.rs` were wrong: the ports in the
-//! other byte order (H1), the IPv4 octets reversed (H2); a wrong H3 shows
-//! as `src` and `dst` swapped against the expected endpoints.
+//! The report lists every network event the test saw: first those that
+//! could belong to the connections the test made (by PID, or by a port in
+//! either byte order), then all the others. For each it prints the event
+//! as decoded and the readings that would be true if a reading of
+//! `etw/network.rs` were wrong: the ports in the other byte order (H1),
+//! the IPv4 octets reversed (H2); a wrong H3 shows as `src` and `dst`
+//! swapped against the expected endpoints.
 
 #![allow(dead_code)]
 
@@ -177,8 +178,8 @@ pub fn describe(seen: &Seen) -> String {
     )
 }
 
-/// The report a failing test prints: what it expected, how many network
-/// events it saw, and every one that touches `pids` or `ports`.
+/// The report a failing test prints: what it expected, then every
+/// network event it saw, those that touch `pids` or `ports` first.
 pub fn report(all: &[Seen], pids: &[u32], ports: &[u16], expected: &[String]) -> String {
     let mut out = String::from("expected:\n");
     for line in expected {
@@ -191,6 +192,11 @@ pub fn report(all: &[Seen], pids: &[u32], ports: &[u16], expected: &[String]) ->
         relevant.len()
     ));
     for seen in relevant {
+        out.push_str(&format!("  {}\n", describe(seen)));
+    }
+    let others: Vec<&Seen> = all.iter().filter(|s| !s.touches(pids, ports)).collect();
+    out.push_str(&format!("the other {} network events:\n", others.len()));
+    for seen in others {
         out.push_str(&format!("  {}\n", describe(seen)));
     }
     out
