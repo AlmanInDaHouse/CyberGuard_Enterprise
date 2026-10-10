@@ -37,7 +37,7 @@ async function distinctArrivedAt(orgId: string): Promise<number> {
   try {
     const rs = await ch.query({
       query:
-        "SELECT toUInt32(uniqExact(arrived_at)) AS n FROM cges_events WHERE org_id = {org:String}",
+        "SELECT toUInt32(uniqExact(arrived_at)) AS n FROM cges_events WHERE org_id = {org:String} AND class_uid = 1007",
       query_params: { org: orgId },
       format: "JSONEachRow",
     });
