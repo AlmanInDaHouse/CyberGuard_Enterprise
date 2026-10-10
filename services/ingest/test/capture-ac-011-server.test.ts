@@ -57,7 +57,7 @@ async function countEvents(agentId: string, final: boolean): Promise<number> {
   });
   try {
     const rs = await ch.query({
-      query: `SELECT count() AS n FROM cges_events ${final ? "FINAL" : ""} WHERE agent_id = {id:String}`,
+      query: `SELECT count() AS n FROM cges_events ${final ? "FINAL" : ""} WHERE agent_id = {id:String} AND class_uid = 1007`,
       query_params: { id: agentId },
       format: "JSONEachRow",
     });
