@@ -241,7 +241,7 @@ pub fn win32_from_os_error(raw: i32) -> u32 {
 
 /// The system message for a Win32 code, without the `(os error N)`
 /// suffix the standard library appends.
-fn win32_message(code: u32) -> String {
+pub(crate) fn win32_message(code: u32) -> String {
     let text = std::io::Error::from_raw_os_error(code as i32).to_string();
     let suffix = format!(" (os error {code})");
     text.strip_suffix(&suffix).unwrap_or(&text).to_string()

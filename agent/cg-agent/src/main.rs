@@ -121,6 +121,12 @@ fn report_agent_error(err: &AgentError) {
             tracing::error!(exit_code = etw.exit_code(), "{line}");
             eprintln!("{line}");
         }
+        // SPEC-020 §Operational §6: the same, for the logon subscription.
+        AgentError::Logon(logon) => {
+            let line = logon.stderr_line();
+            tracing::error!(exit_code = logon.exit_code(), "{line}");
+            eprintln!("{line}");
+        }
         other => eprintln!("cg-agent: {other}"),
     }
 }

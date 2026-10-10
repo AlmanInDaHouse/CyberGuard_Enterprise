@@ -6,6 +6,7 @@
 //! a [`LogonEvent`] or drops them (SPEC-020 §Operational §2–§4), the
 //! dispatch into the shared ring, and the counting of records the agent
 //! cannot use (§Operational §1). The harness drives it on every platform.
+//! On Windows, `subscription` produces the records.
 //!
 //! Nothing here logs a user, SID, domain, workstation or address
 //! (§Operational §11): only event ids, Win32 codes and counts.
@@ -17,6 +18,11 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::etw::{filetime_to_unix_nanos, EventRing};
+
+#[cfg(windows)]
+mod subscription;
+#[cfg(windows)]
+pub use subscription::{query_recent, LogonSubscription};
 
 /// An account successfully logged on.
 pub const EVENT_LOGON_SUCCESS: u16 = 4624;
