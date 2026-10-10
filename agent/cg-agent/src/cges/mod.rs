@@ -9,7 +9,8 @@
 mod emit;
 
 pub use emit::{
-    emit_process_activity, emit_process_activity_with_cache, render_network_activity,
-    render_process_activity, CgesActor, CgesActorProcess, CgesConnectionInfo, CgesEvent,
+    emit_process_activity, emit_process_activity_with_cache, render_authentication,
+    render_network_activity, render_process_activity, CgesActor, CgesActorProcess,
+    CgesAuthentication, CgesConnectionInfo, CgesEvent, CgesLogonSource, CgesLogonUser,
     CgesNetworkActivity, CgesNetworkEndpoint, CgesProcess, CgesProcessActivity,
 };

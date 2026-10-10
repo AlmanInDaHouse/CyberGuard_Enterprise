@@ -123,13 +123,14 @@ pub struct NetworkEvent {
     pub created_time_nanos: Option<u64>,
 }
 
-/// One event in the ring: a process event or a network event (SPEC-019
-/// §Operational §5). Events of both classes share one ring and leave it
-/// in the order they entered.
+/// One event in the ring: a process, network or logon event (SPEC-019
+/// §Operational §5, SPEC-020 §Operational §5). Events of the three classes
+/// share one ring and leave it in the order they entered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RingEvent {
     Process(CapturedEvent),
     Network(NetworkEvent),
+    Logon(crate::logon::LogonEvent),
 }
 
 impl RingEvent {
@@ -137,7 +138,7 @@ impl RingEvent {
     pub fn as_process(&self) -> Option<&CapturedEvent> {
         match self {
             RingEvent::Process(event) => Some(event),
-            RingEvent::Network(_) => None,
+            _ => None,
         }
     }
 
@@ -145,7 +146,7 @@ impl RingEvent {
     pub fn into_process(self) -> Option<CapturedEvent> {
         match self {
             RingEvent::Process(event) => Some(event),
-            RingEvent::Network(_) => None,
+            _ => None,
         }
     }
 
@@ -153,7 +154,15 @@ impl RingEvent {
     pub fn as_network(&self) -> Option<&NetworkEvent> {
         match self {
             RingEvent::Network(event) => Some(event),
-            RingEvent::Process(_) => None,
+            _ => None,
+        }
+    }
+
+    /// The logon event, if this is one.
+    pub fn as_logon(&self) -> Option<&crate::logon::LogonEvent> {
+        match self {
+            RingEvent::Logon(event) => Some(event),
+            _ => None,
         }
     }
 }
@@ -167,6 +176,12 @@ impl From<CapturedEvent> for RingEvent {
 impl From<NetworkEvent> for RingEvent {
     fn from(event: NetworkEvent) -> Self {
         RingEvent::Network(event)
+    }
+}
+
+impl From<crate::logon::LogonEvent> for RingEvent {
+    fn from(event: crate::logon::LogonEvent) -> Self {
+        RingEvent::Logon(event)
     }
 }
 
