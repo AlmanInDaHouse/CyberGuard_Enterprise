@@ -62,7 +62,8 @@ const NetworkEndpointSchema = z.object({
  * when the agent knew the process's creation time.
  */
 const CgesNetworkActivitySchema = z.object({
-  event_id: z.string().min(1),
+  /** A UUID: the agent generates version 7; the version is not checked (SPEC-019 §Operational §6). */
+  event_id: z.string().uuid(),
   class_uid: z.literal(4001),
   /** Open, the only activity the agent emits (ADR-0018 §2). */
   activity_id: z.literal(1),
@@ -76,7 +77,8 @@ const CgesNetworkActivitySchema = z.object({
   }),
   actor: z.object({
     process: z.object({
-      pid: z.number().int().nonnegative(),
+      /** Fits the UInt32 `process_pid` column (SPEC-019 Amendment 2026-10-10). */
+      pid: z.number().int().min(0).max(4_294_967_295),
       uid: z.string().min(1).optional(),
     }),
   }),
