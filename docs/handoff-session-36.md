@@ -28,7 +28,8 @@ Anchor commits on `main`, one per push, CI green on each:
 | `cb82b39` | This record: B2 decision 1 corrected and accepted; the measured figures. |
 | `7a85212` | This record: two measured figures ADR-0020 cites. |
 | `dbb93b9` | ADR-0012's ratification sentence and this record quote Manuel literally. |
-| (this commit) | Roadmap §B3 and Part (b) §8–§9; SPEC-015 and SPEC-016 Amendments 2026-10-12, the destination of rules over the command line and the user; this record. |
+| `bdd1d74` | Roadmap §B3 and Part (b) §8–§9; SPEC-015 and SPEC-016 Amendments 2026-10-12, the destination of rules over the command line and the user; this record. |
+| (this commit) | This record: the reviews of ADR-0020's branch after the threat-model entry; debts #55 and #56. |
 
 Manuel's decisions this session, in chat:
 
@@ -184,6 +185,52 @@ Debt record changes so far:
   - B7, the stale `read-model.ts` anchors in §B2 are corrected; the
     pointers to handoff-35 move at the close.
   - B8, the catalog's wording: clarified.
+- **ADR-0020's branch after the threat-model entry** (`adr/s36-0020-cmdline-user`,
+  NOT YET RATIFIED). Before it, seven passes on ADR-0020 and its co-located
+  amendments gave list A 9, 9, 7, 6, 5, 5 and 2, all resolved. Three more,
+  each the fixed prompt over the threat model and the six ADR files:
+  - At `bf1b251`, list A 4. The threat model said a rule could key on
+    three markers that detection did not read, so all three are now
+    projected. The amendment claimed it changed nothing else while adding
+    references, and said the data was "not among" §8's assets, though §8
+    covers every event. Its new api entry clashed with §8's per-service
+    users, which it now names. List B 12, dispositioned: kernel and
+    complete memory dumps added; `raw_data` bounded; older Terminates read
+    the marker's default; the resent copy's arrival; ADR-0012's
+    half-resolved item; ADR-0009's wording; the threat-model reference
+    wording. Left to SPEC-021: the truncation unit, the slot's lifetime,
+    the exit-9 message, the column time-to-live's materialization. Left as
+    is: the amendment dates (below), the stated limits of the evidence.
+  - At `e7ba5f7`, list A 1: "a rule that keys on them matches nothing on an
+    empty value" is false for a filter, which suppresses nothing (ADR-0012's
+    amendment now says both). List B 16, dispositioned: the absent-field
+    pattern of ADR-0011 §5 weighed (ADR-0020 A12); timestamp conversion
+    named; "kept small", not "bounded", for the cache; the slot leaves at
+    render; SPEC-016's section named; the api's shared ClickHouse user,
+    which can write, stated; argument spoofing added; the markers usable
+    once §B3 admits them; the rename named a breaking change and kept at
+    0.1.0; the alternatives Manuel did not choose named so. The two left to
+    SPEC-021 are SPEC-017 capture_ac_002 and the time-to-live's
+    materialization.
+  - At `fec2ee4`, list A 2. ADR-0006 §Compliance asks for a major version
+    on a breaking change and was not amended: amended co-located, for 0.x
+    with no outside consumer. ADR-0012's amendment called the `event_id`
+    v4-or-v7 question open, though the code generates v7: reworded, and the
+    stale schema description is debt #56. List B 15, dispositioned: §5's
+    "no resolution flag" noted in ADR-0011's amendment; §8's query-log
+    filtering named as not configured yet; the argument-spoofing citation
+    corrected; "a row can still hold either empty"; `regex` is transitive;
+    why the rundown does not close the startup gap; ADR-0003's future cold
+    tier; the callback fills slots. Left to SPEC-021: the exit-9 message,
+    LocalSystem, the races at the join bound, the time-to-live's
+    materialization. Predating this change: the cache without its sweep if
+    the hygiene thread fails.
+
+  Manuel stopped the run at `fec2ee4` while it was working, and its report
+  arrived after. The changes from `fec2ee4` to `b751bdc` have had no
+  fresh-context pass. At landing, the co-located amendments carry the date
+  of Manuel's ratification, as ADR-0011's Amendment 2026-10-04 carries
+  SPEC-017's ratification date rather than its landing.
 
 ## Debts
 
@@ -216,6 +263,17 @@ New this session:
   ADR-0007, writing to ClickHouse with no NATS, ADR-0012 §2). It has no entry for the
   data about people the agent sends since roadmap §D: the logons of ADR-0019
   (account names, SIDs, source addresses, 365 days) and the connections of
-  ADR-0018 (addresses and ports, by process). The threat model is Manuel's.
+  ADR-0018 (addresses and ports, by process). §8's "per-service database
+  users with scoped privileges" are not the repository's state: the ingest
+  service and the api share one ClickHouse user
+  (`infra/dev/docker-compose.dev.yml:134`, `:207`); and its "query-log
+  filtering of PII fields" is not configured. The threat model is Manuel's.
   Destination: an owner-review amendment after ADR-0020 lands; ADR-0020's
   branch adds only its own asset.
+- **#56 — `alert.json` says the agent's `event_id`s are UUIDv4.** The
+  description of `source_events` (`schemas/cges/v0.1/classes/alert.json:46`)
+  reads "UUIDv4 today (Uuid::new_v4)"; the agent generates UUIDv7
+  (`agent/cg-agent/src/etw/dispatch.rs:76`, `:224`;
+  `agent/cg-agent/src/logon/mod.rs:168`; SPEC-017 §Data contracts). The
+  pattern's re-narrowing stays open (SPEC-006 §Operational §5).
+  Destination: B2's implementation branch, which changes the CGES schemas.
