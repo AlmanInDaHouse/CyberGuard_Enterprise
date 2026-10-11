@@ -4,10 +4,16 @@
 //! `LogonSubscription::open` subscribes to the `Security` channel for
 //! events 4624 and 4625, written from now on, with no bookmark, and starts
 //! the agent's own logon thread. The thread waits on the subscription's
-//! signal and on a stop event — and wakes every second regardless, so a
-//! signal raised while it was reading is not lost — then reads the
-//! available records in batches, renders each through one values context
-//! (by name, not as XML), and hands the values to `dispatch_logon_record`.
+//! signal and on a stop event, and wakes every second regardless. On each
+//! wakeup it resets the signal and then reads the available records in
+//! batches, so a record written while it reads sets the signal again; it
+//! renders each through one values context (by name, not as XML) and
+//! hands the values to `dispatch_logon_record`. A read ends on
+//! `ERROR_NO_MORE_ITEMS`, or on `ERROR_INVALID_OPERATION`, which `EvtNext`
+//! returns when called again with no new record since
+//! ([`super::read_is_exhausted`]); the read of the wakeup with no signal
+//! is how a subscription that stopped working is found within a second,
+//! unless it answers `ERROR_INVALID_OPERATION` (SPEC-020 §Risks).
 //! A failed read is logged at most once per 60 s, and the subscription is
 //! reopened 5 s later. `stop` sets the stop event, waits for the thread,
 //! then closes the subscription the thread hands back (§Operational §6).
@@ -25,8 +31,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GetLastError, LocalFree, ERROR_INSUFFICIENT_BUFFER, ERROR_NO_MORE_ITEMS, HANDLE,
-    WAIT_OBJECT_0,
+    CloseHandle, GetLastError, LocalFree, ERROR_INSUFFICIENT_BUFFER, HANDLE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::System::EventLog::{
@@ -40,8 +45,8 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use super::{
-    dispatch_logon_record, LogonCounters, RawLogonRecord, UnusableMonitor, UnusableSample,
-    LOG_INTERVAL,
+    dispatch_logon_record, read_is_exhausted, LogonCounters, RawLogonRecord, UnusableMonitor,
+    UnusableSample, LOG_INTERVAL,
 };
 use crate::errors::LogonError;
 use crate::etw::EventRing;
@@ -69,7 +74,8 @@ const VALUE_PATHS: [&str; 13] = [
 
 /// Records read per `EvtNext` call.
 const BATCH: usize = 32;
-/// The thread's wakeup when no signal comes.
+/// The thread's wakeup when no signal comes. It reads too, so a failed
+/// subscription is found even when no record arrives.
 const POLL: Duration = Duration::from_secs(1);
 /// The wait before a failed subscription is reopened.
 const REOPEN_DELAY: Duration = Duration::from_secs(5);
@@ -335,7 +341,7 @@ fn drain(
         };
         if ok == 0 {
             let code = last_error();
-            return if code == ERROR_NO_MORE_ITEMS {
+            return if returned == 0 && read_is_exhausted(code) {
                 Ok(())
             } else {
                 Err(code)
@@ -458,22 +464,20 @@ fn run(
             subscription = reopen(&signal, stop, &mut last_failure_log);
             continue;
         };
-        match drain(current.0, context.0 .0, counters, |raw| {
+        // Reset before reading: a record written while the thread reads
+        // sets the signal again.
+        // SAFETY: the event is alive for the call.
+        unsafe { ResetEvent(signal.0) };
+        if let Err(code) = drain(current.0, context.0 .0, counters, |raw| {
             dispatch_logon_record(&raw, ring, counters);
             true
         }) {
-            Ok(()) => {
-                // SAFETY: the event is alive; the next signal sets it again.
-                unsafe { ResetEvent(signal.0) };
+            log_failure(&mut last_failure_log, "read", code);
+            subscription = None;
+            if wait_or_stop(stop, REOPEN_DELAY) {
+                break;
             }
-            Err(code) => {
-                log_failure(&mut last_failure_log, "read", code);
-                subscription = None;
-                if wait_or_stop(stop, REOPEN_DELAY) {
-                    break;
-                }
-                subscription = reopen(&signal, stop, &mut last_failure_log);
-            }
+            subscription = reopen(&signal, stop, &mut last_failure_log);
         }
         monitor.observe(counters, Instant::now());
     }
@@ -507,5 +511,52 @@ fn log_failure(last_log: &mut Option<Instant>, what: &str, code: u32) {
             "Security log subscription failed; reopening it from new events"
         );
         *last_log = Some(now);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SPEC-020 §Operational §1 (Amendment 2026-10-11): on a pulled
+    /// subscription a read with no new record ends the read, and is not a
+    /// failed read. The `Application` channel, which any user may read,
+    /// with a query no record matches: the first read returns
+    /// `ERROR_NO_MORE_ITEMS`, the next ones `ERROR_INVALID_OPERATION`.
+    #[test]
+    fn a_read_with_no_new_record_ends_the_read() {
+        let channel = wide("Application");
+        let query = wide("*[System[(EventID=65535)]]");
+        let signal = Event::new(true, true).expect("the signal");
+        // SAFETY: the strings live for the call; no bookmark, no callback.
+        let handle = unsafe {
+            EvtSubscribe(
+                0,
+                signal.0,
+                channel.as_ptr(),
+                query.as_ptr(),
+                0,
+                std::ptr::null(),
+                None,
+                EvtSubscribeToFutureEvents,
+            )
+        };
+        assert_ne!(
+            handle,
+            0,
+            "subscribe to Application: Win32 {}",
+            last_error()
+        );
+        let subscription = Evt(handle);
+        let context = RenderContext::new().expect("the values context");
+        let counters = LogonCounters::new();
+        for read in 0..3 {
+            assert_eq!(
+                drain(subscription.0, context.0 .0, &counters, |_| true),
+                Ok(()),
+                "read {read}"
+            );
+        }
+        assert_eq!(counters.unusable(), 0);
     }
 }

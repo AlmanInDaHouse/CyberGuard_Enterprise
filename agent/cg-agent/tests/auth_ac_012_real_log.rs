@@ -8,10 +8,12 @@
 //!   name and domain are `<withheld>` and whose `SubStatus` is
 //!   `0xc0000064`, and a failure whose name is kept and whose code is in
 //!   the list of §Operational §3;
-//! - removes any connection to `\\127.0.0.1`, runs `net use
-//!   \\127.0.0.1\IPC$` with the current credentials and removes it. The
-//!   ring then holds a success of the current user's SID, with a name and
-//!   a domain that are not withheld, logon type 3 and the elevated token;
+//! - makes an S4U network logon of the current user (`LsaLogonUser`,
+//!   MSV1_0, logon type 3, no password) and closes the token. The ring
+//!   then holds a success of the current user's SID, with a name and a
+//!   domain that are not withheld, logon type 3 and the elevated token
+//!   (SPEC-020 Amendment 2026-10-11: a `net use` to the loopback with the
+//!   current credentials leaves no event);
 //! - reads the last 200 records 4624 of the log with its own one-off query
 //!   through the agent's rendering, and decodes them: none whose target
 //!   SPEC-020 §Operational §2 excludes — judged here from the SPEC's list,
@@ -118,14 +120,10 @@ fn auth_ac_012_logons_on_the_real_log() {
         "a logon with a random password must fail"
     );
 
-    // The successful network logon to the loopback.
-    windows::remove_loopback_connections();
-    let accepted = windows::net(&["use", r"\\127.0.0.1\IPC$"]);
-    windows::remove_loopback_connections();
-    assert!(
-        accepted,
-        "net use \\\\127.0.0.1\\IPC$ must succeed (is the Server service running?)"
-    );
+    // The successful network logon: S4U of the current user.
+    if let Err(status) = windows::s4u_logon_current_user() {
+        panic!("the S4U logon of the current user failed: NTSTATUS {status:#010x}");
+    }
     let current_sid = windows::current_user_sid();
 
     let withheld = |e: &LogonEvent| {
@@ -240,13 +238,18 @@ fn auth_ac_012_logons_on_the_real_log() {
 #[cfg(windows)]
 mod windows {
     use cg_agent::logon::{RawLogonRecord, RenderContext};
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, HANDLE, LUID};
+    use windows_sys::Win32::Security::Authentication::Identity::{
+        LsaConnectUntrusted, LsaDeregisterLogonProcess, LsaFreeReturnBuffer, LsaLogonUser,
+        LsaLookupAuthenticationPackage, MsV1_0S4ULogon, LSA_STRING, LSA_UNICODE_STRING,
+        MSV1_0_PACKAGE_NAME, MSV1_0_S4U_LOGON, SECURITY_LOGON_TYPE,
+    };
     use windows_sys::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSidToSidW,
     };
     use windows_sys::Win32::Security::{
         LogonUserW, LookupAccountNameW, LookupAccountSidW, LOGON32_LOGON_NETWORK,
-        LOGON32_PROVIDER_DEFAULT, SID_NAME_USE,
+        LOGON32_PROVIDER_DEFAULT, QUOTA_LIMITS, SID_NAME_USE, TOKEN_SOURCE,
     };
     use windows_sys::Win32::System::EventLog::{
         EvtClose, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryReverseDirection,
@@ -256,29 +259,130 @@ mod windows {
         text.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// Run net.exe silently; whether it succeeded. Its output, which may
-    /// name the user, is discarded.
-    pub fn net(args: &[&str]) -> bool {
-        std::process::Command::new("net")
-            .args(args)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
+    /// An S4U network logon of the current user through MSV1_0: no
+    /// password, logon type 3. The token it returns, at identification
+    /// level, is closed at once. `Err` with the NTSTATUS of a refused call.
+    pub fn s4u_logon_current_user() -> Result<(), i32> {
+        let user: Vec<u16> = std::env::var("USERNAME")
+            .expect("USERNAME")
+            .encode_utf16()
+            .collect();
+        let domain: Vec<u16> = std::env::var("COMPUTERNAME")
+            .expect("COMPUTERNAME")
+            .encode_utf16()
+            .collect();
 
-    /// Remove every connection to `\\127.0.0.1`, as `net use` lists them.
-    pub fn remove_loopback_connections() {
-        let Ok(out) = std::process::Command::new("net").arg("use").output() else {
-            return;
-        };
-        let listing = String::from_utf8_lossy(&out.stdout);
-        for token in listing.split_whitespace() {
-            if token.to_ascii_lowercase().starts_with(r"\\127.0.0.1\") {
-                net(&["use", token, "/delete", "/y"]);
-            }
+        // The request: the MSV1_0_S4U_LOGON header, then the two strings
+        // its members point to, in one buffer (u64 words keep it aligned).
+        let header = std::mem::size_of::<MSV1_0_S4U_LOGON>();
+        let total = header + 2 * (user.len() + domain.len());
+        let mut request = vec![0u64; total.div_ceil(8)];
+        let base = request.as_mut_ptr() as *mut u8;
+        // SAFETY: the buffer holds the header and both strings; the
+        // members point inside it, as LsaLogonUser requires.
+        unsafe {
+            let user_ptr = base.add(header) as *mut u16;
+            std::ptr::copy_nonoverlapping(user.as_ptr(), user_ptr, user.len());
+            let domain_ptr = user_ptr.add(user.len());
+            std::ptr::copy_nonoverlapping(domain.as_ptr(), domain_ptr, domain.len());
+            base.cast::<MSV1_0_S4U_LOGON>().write(MSV1_0_S4U_LOGON {
+                MessageType: MsV1_0S4ULogon,
+                Flags: 0,
+                UserPrincipalName: LSA_UNICODE_STRING {
+                    Length: (2 * user.len()) as u16,
+                    MaximumLength: (2 * user.len()) as u16,
+                    Buffer: user_ptr,
+                },
+                DomainName: LSA_UNICODE_STRING {
+                    Length: (2 * domain.len()) as u16,
+                    MaximumLength: (2 * domain.len()) as u16,
+                    Buffer: domain_ptr,
+                },
+            });
         }
+
+        let mut lsa: HANDLE = std::ptr::null_mut();
+        // SAFETY: `lsa` receives the handle.
+        let status = unsafe { LsaConnectUntrusted(&mut lsa) };
+        if status != 0 {
+            return Err(status);
+        }
+        // SAFETY: MSV1_0_PACKAGE_NAME is a NUL-terminated ANSI constant.
+        let package_name = unsafe { std::ffi::CStr::from_ptr(MSV1_0_PACKAGE_NAME.cast()) };
+        let package_name = LSA_STRING {
+            Length: package_name.to_bytes().len() as u16,
+            MaximumLength: package_name.to_bytes_with_nul().len() as u16,
+            Buffer: MSV1_0_PACKAGE_NAME as *mut u8,
+        };
+        let mut package = 0u32;
+        // SAFETY: the name lives for the call.
+        let status = unsafe { LsaLookupAuthenticationPackage(lsa, &package_name, &mut package) };
+        if status != 0 {
+            // SAFETY: the handle came from LsaConnectUntrusted.
+            unsafe { LsaDeregisterLogonProcess(lsa) };
+            return Err(status);
+        }
+
+        let origin_name = b"CgGate";
+        let origin = LSA_STRING {
+            Length: origin_name.len() as u16,
+            MaximumLength: origin_name.len() as u16,
+            Buffer: origin_name.as_ptr() as *mut u8,
+        };
+        let mut source = TOKEN_SOURCE {
+            SourceName: [0; 8],
+            SourceIdentifier: LUID {
+                LowPart: 0,
+                HighPart: 0,
+            },
+        };
+        for (slot, byte) in source.SourceName.iter_mut().zip(origin_name) {
+            *slot = *byte as i8;
+        }
+        let mut profile: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut profile_len = 0u32;
+        let mut logon_id = LUID {
+            LowPart: 0,
+            HighPart: 0,
+        };
+        let mut token: HANDLE = std::ptr::null_mut();
+        // SAFETY: plain integers; LsaLogonUser fills it.
+        let mut quotas: QUOTA_LIMITS = unsafe { std::mem::zeroed() };
+        let mut sub_status = 0i32;
+        // SAFETY: every pointer is alive for the call; the outputs are
+        // freed or closed below.
+        let status = unsafe {
+            LsaLogonUser(
+                lsa,
+                &origin,
+                SECURITY_LOGON_TYPE::Network,
+                package,
+                request.as_ptr().cast(),
+                total as u32,
+                std::ptr::null(),
+                &source,
+                &mut profile,
+                &mut profile_len,
+                &mut logon_id,
+                &mut token,
+                &mut quotas,
+                &mut sub_status,
+            )
+        };
+        // SAFETY: each was returned by LsaLogonUser, or is null.
+        unsafe {
+            if !profile.is_null() {
+                LsaFreeReturnBuffer(profile);
+            }
+            if !token.is_null() {
+                CloseHandle(token);
+            }
+            LsaDeregisterLogonProcess(lsa);
+        }
+        if status != 0 {
+            return Err(status);
+        }
+        Ok(())
     }
 
     /// A network logon of `user` on this machine; `Err` with the Win32

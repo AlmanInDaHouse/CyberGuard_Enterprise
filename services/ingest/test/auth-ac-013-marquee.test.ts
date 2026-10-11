@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 import { type IngestServer, startIngest } from "../src/server.js";
@@ -10,9 +11,11 @@ import { prepareAgent } from "./helpers/marquee-agent.js";
 // SPEC-020 auth_ac_013 — the logon marquee, end to end. The real cg-agent binary
 // on its normal path against the real stack (testcontainers + the in-process
 // ingest server). The test removes any connection to \\127.0.0.1, runs
-// `net use \\127.0.0.1\IPC$` once with a random user name and password, which
-// fails, and once with the current credentials, which succeeds, and removes the
-// connection. Among that agent's 3002 rows in cges_events, read with FINAL, there
+// `net use \\127.0.0.1\IPC$` with a random user name and password, which
+// fails, removes the connection, and makes an S4U network logon of the current
+// user through helpers/s4u-logon.ps1, which succeeds (SPEC-020 Amendment
+// 2026-10-11: a `net use` to the loopback with the current credentials leaves
+// no event). Among that agent's 3002 rows in cges_events, read with FINAL, there
 // is a failure whose user_name is <withheld> and whose status_detail is
 // 0xc0000064, and a success whose user_uid is the current user's SID and whose
 // logon_type_id is 3. The diagnostic output is redacted (SPEC-020 §Operational
@@ -33,10 +36,20 @@ afterAll(async () => {
 });
 
 const SHARE = "\\\\127.0.0.1\\IPC$";
+const S4U_LOGON = join(dirname(fileURLToPath(import.meta.url)), "helpers", "s4u-logon.ps1");
 
 /** Run net.exe; its exit status, never its output (which may name the user). */
 function net(args: string[]): number | null {
   return spawnSync("net", args, { stdio: "ignore", windowsHide: true }).status;
+}
+
+/** The S4U network logon of the current user; the helper's exit status. */
+function s4uLogon(): number | null {
+  return spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", S4U_LOGON],
+    { stdio: "ignore", windowsHide: true },
+  ).status;
 }
 
 /** The current user's SID, from `whoami /user`. */
@@ -116,8 +129,8 @@ test.skipIf(process.platform !== "win32")(
         `Cg-${random}!`,
         `/user:cg-nouser-${random.slice(0, 12)}`,
       ]);
-      const accepted = net(["use", SHARE]);
       removeLoopbackConnections();
+      const accepted = s4uLogon();
       const sid = currentUserSid();
 
       const result = await runPromise;
@@ -126,7 +139,7 @@ test.skipIf(process.platform !== "win32")(
           diag_event: "auth_ac_013_agent",
           exit_code: result.exitCode,
           net_refused_status: refused,
-          net_accepted_status: accepted,
+          s4u_logon_status: accepted,
         }),
       );
 
@@ -147,12 +160,15 @@ test.skipIf(process.platform !== "win32")(
       );
 
       expect(refused, "the logon with a random name must be refused").not.toBe(0);
-      expect(accepted, "net use with the current credentials must succeed").toBe(0);
+      expect(accepted, "the S4U logon of the current user must succeed").toBe(0);
       const failure = rows.find(
         (r) =>
           r.status_id === 2 && r.user_name === "<withheld>" && r.status_detail === "0xc0000064",
       );
-      expect(failure, "a withheld failure with 0xc0000064").toBeDefined();
+      expect(
+        failure,
+        "a withheld failure with 0xc0000064 (net use needs the Server service)",
+      ).toBeDefined();
       expect(failure?.user_domain).toBe("<withheld>");
       const success = rows.find(
         (r) => r.status_id === 1 && r.user_uid === sid && r.logon_type_id === 3,

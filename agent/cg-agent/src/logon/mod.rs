@@ -283,6 +283,20 @@ pub fn hex_code(code: u32) -> String {
     format!("{code:#x}")
 }
 
+/// Whether an `EvtNext` call on the subscription that failed with `code`
+/// means that none is left (SPEC-020 §Operational §1) rather than a failed
+/// read: `ERROR_NO_MORE_ITEMS` when the records are exhausted, and
+/// `ERROR_INVALID_OPERATION` when the call is made again with no new
+/// record since (measured on 2026-10-11).
+pub fn read_is_exhausted(code: u32) -> bool {
+    code == ERROR_NO_MORE_ITEMS || code == ERROR_INVALID_OPERATION
+}
+
+/// `EvtNext`: the records are exhausted.
+const ERROR_NO_MORE_ITEMS: u32 = 259;
+/// `EvtNext`: called again after `ERROR_NO_MORE_ITEMS` with no new record.
+const ERROR_INVALID_OPERATION: u32 = 4317;
+
 /// One unusable record kept for the log: its event id when it is known,
 /// the Win32 code when there is one. Nothing else of the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
