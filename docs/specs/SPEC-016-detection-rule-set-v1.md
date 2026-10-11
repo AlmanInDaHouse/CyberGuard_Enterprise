@@ -460,6 +460,14 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the choice explicitly
 9. **The scenario runner is a vitest suite in `services/ingest`**, and `ts-ci` triggers on `rules/**` and `harness/**`.
 10. **Doc-only gate first.** The code is the next gate (a review branch, relay rule 5) and includes the elevated marquee.
 
+## Amendment 2026-10-11: the destination of rules over non-process classes
+
+**What surfaced it.** ADR-0012's Amendment 2026-10-11. §Out of scope (`:43`) sends rules over network, authentication, registry and file classes to "[D and later SPECs]". Roadmap §D landed capture, delivery and storage of classes 4001 and 3002, and no rule.
+
+**Amendment.** The destination of that item is the detection SPEC that makes such a class load-bearing (ADR-0012 §Out of scope, as amended 2026-10-11); for file and registry activity, after the per-class ADR and SPEC that make the class flow.
+
+**Effect.** No change to the rule set, its fixtures or its scenarios. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows an amendment Manuel ratified on 2026-10-11 and decides nothing of its own. Status stays **Accepted**.
+
 ## References
 
 - [SPEC-006](SPEC-006-detection-mvp.md) — the MVP rule, SC001 / SC010, the parent self-join amended here by scope, and the "Full detection bar" realised here.

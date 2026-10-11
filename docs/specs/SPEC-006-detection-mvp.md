@@ -263,6 +263,14 @@ Load-bearing decisions surfaced and ratified in chat (Session 17). Recommended-d
 
 5. **Two operational debts carried, not re-decided.** Empty `process_command_line` / `subject_user_sid` (ADR-0011 §4 domain — rules key on lineage); `event_id` UUIDv4 vs `alert.json` v7 pattern (relaxed to version-agnostic as a temporary MVP unblock per §Operational §5; the v4-vs-v7 decision is ADR-0009/0011 domain). Neither is decided by this SPEC.
 
+## Amendment 2026-10-11: rules over the classes that now flow
+
+**What surfaced it.** ADR-0012's Amendment 2026-10-11 restated the fifth item of its §Out of scope. §Out of scope here takes its items from that list (`:34`), and its item "Network / registry / file rules. Their classes are schema-only and do not flow end-to-end" no longer holds for Network Activity 4001, which flows end to end into `cges_events` since SPEC-019, as Authentication 3002 does since SPEC-020. The item never named authentication rules; ADR-0012 now does.
+
+**Amendment.** The item reads as ADR-0012 §Out of scope states it since that amendment. Network, authentication, registry and file rules are deferred. Classes 4001 and 3002 flow end to end and the read-model does not read them; rules over either wait for the detection SPEC that makes the class load-bearing, which first settles what ADR-0018 §9 and ADR-0019 §7 and §9 require of it: the drill's row carries `class_uid`, and, for logons, the access to the data and its retention against the evidence an alert seals. File System Activity 1001 is schema-only and registry activity has no CGES class; rules over them wait for the per-class ADR and SPEC that make the class flow (ADR-0011 §1), then for that detection SPEC.
+
+**Effect.** No change to the detection slice, its rules or its tests. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows an amendment Manuel ratified on 2026-10-11 and decides nothing of its own. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) — the contract this SPEC realises (event source, normalize, scoring renorm, dedup, alert storage, the Go-vs-TS seam, the two flagged contradictions). SPEC-006 re-decides none of it.

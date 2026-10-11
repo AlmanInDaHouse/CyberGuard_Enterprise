@@ -93,6 +93,14 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 8. **Fail-closed at load, fail-loud at boot** — unchanged from SPEC-006.
 9. **Doc-only this gate** — the code is the next gate (review branch, relay rule 5) and includes the elevated marquee.
 
+## Amendment 2026-10-11: the destination of other logsource categories
+
+**What surfaced it.** ADR-0012's Amendment 2026-10-11. §Scope's logsource dispatch (`:25`) says "roadmap §D adds the others", and §Out of scope (`:37`, `:38`) sends other `logsource` categories to [D] and the widening of the read-model to [B2 / D]. Roadmap §D landed capture, delivery and storage of classes 4001 and 3002 and no rule; the read-model still selects class 1007.
+
+**Amendment.** Other `logsource` categories, and the widening of the read-model to classes other than 1007, go to the detection SPEC that makes such a class load-bearing (ADR-0012 §Out of scope, as amended 2026-10-11). Widening the read-model and the normalized record to the command line and the user of a process event stays with roadmap §B2.
+
+**Effect.** No change to the evaluator, its rules or its tests. §Context (`:16`), which says criterion 2 (roadmap §D) needs the logsource unpinned, gives the reason this SPEC had when it was written and is not changed: criterion 2 was delivered as capture and storage, and the unpinning goes with the rules that need it. In §References (`:110`), §D is the phase that made the classes flow; the unpinning is this amendment's destination. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows an amendment Manuel ratified on 2026-10-11 and decides nothing of its own. Status stays **Accepted**.
+
 ## References
 
 - [SPEC-006](SPEC-006-detection-mvp.md) — the evaluator this amends by scope (§In scope `:26`, §Data contracts `:134`); its MVP rule and `detect_ac_*` ACs are unchanged.

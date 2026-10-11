@@ -95,13 +95,17 @@ This dependency-ordered document supersedes both for planning.
 - Does: relax the strict-reject validator
   (`services/ingest/src/detect/engine.ts:32-51` at `1fbb035`) to admit more Sigma
   fields and the `contains` operator; no read-model change (SPEC-015
-  §Scope; widening belongs to B2 / D). No new capture, no agent
+  §Scope; widening belongs to B2, and for other classes to the detection
+  SPEC that makes each load-bearing, SPEC-015 Amendment 2026-10-11). No new capture, no agent
   decision.
 - Blocked by: A. Cheap.
-- Prerequisite of C AND D: network and login rules also need to leave the
-  logsource pinned to `process_creation`
+- As planned, a prerequisite of C and D: network and login rules also need
+  to leave the logsource pinned to `process_creation`
   (`services/ingest/src/detect/engine.ts:51` at `1fbb035`). This is the piece that
-  must NOT travel inside the capture work.
+  must NOT travel inside the capture work. D, when it landed, delivered
+  capture, delivery and storage, and no rule: network and login rules are
+  deferred to the detection SPEC that makes each class load-bearing
+  (ADR-0012 Amendment 2026-10-11).
 
 ### C — Criterion 1: the 10 rules
 

@@ -22,45 +22,111 @@ Anchor commits on `main`, one per push, CI green on each:
 |---|---|
 | `cf54945` | `docs(spec-017)`: Amendment 2026-10-11 — the dispatch callback's locks and output (debt #44); this handoff started, debts #52 and #53. |
 | `a293c27` | `docs(claude-md)`: the local TypeScript gate runs ts-ci's build steps (debt #45). |
-| (this commit) | `.github/workflows/README.md` describes the four workflows (debt #28); this progress record. |
+| `f37b243` | `.github/workflows/README.md` describes the four workflows (debt #28). |
+| `be69547` | `docs(adr-0012)`: Amendment 2026-10-11 — classes 4001 and 3002 flow end to end (debt #48), from the owner-review branch `adr/s36-0012-classes-flow`, ratified by Manuel. Its tree equals the reviewed tip `3d88b5c` rebased (`f2fc6c6`) plus one sentence, the ratification record. |
+| (this commit) | SPEC-006, SPEC-015 and SPEC-016 Amendments 2026-10-11, which follow ADR-0012's; roadmap §B1; this progress record. |
 
-Waiting on Manuel:
+Manuel's decisions this session, in chat:
 
-- **Owner review, branch `adr/s36-0012-classes-flow`** (`3d88b5c`, pushed,
-  no PR): ADR-0012 Amendment 2026-10-11 (debt #48), its subject marked `NOT
-  YET RATIFIED`. Self-reviewed: own pass, then the fixed contract prompt on
-  `f185bf9`, whose list A (§7's "the only class flowing in v0.1") the
-  branch's text resolves. After the ratification, the same staleness goes:
-  `SPEC-006:40` (a SPEC-006 amendment), and the destinations "roadmap §D"
-  for rules over other classes in `services/ingest/src/detect/engine.ts:30`
-  and `:351`, `SPEC-018:56` and `roadmap.md:101` (debt #54).
-- **Debt #49 — no defect found.** The agent's resolved `windows-sys`
-  features gained one, `Win32_System_EventLog`: `Win32_Security` was already
-  on through `Win32_Security_Authorization` and `Win32_Security_Cryptography`
-  (`windows-sys-0.59.0/Cargo.toml:146,148`), so the line `f191a1b` added
-  names a feature already enabled. ADR-0019:24 ("the feature that exposes
-  them") and :150 ("a feature") are true. Proposed: close #49 with no ADR
-  change.
-- **B2 diagnostics** (elevated, redacted): `C:\tmp\s36-b2-4688.ps1`,
-  `s36-b2-peb.ps1`, `s36-b2-etw.ps1`, each writing a `.txt` of aggregates.
-- **The modified `1001_filesystem_activity.json`** in the working tree: restore
-  it with `git checkout --` once Manuel confirms it is not his.
+- 2026-10-11, asked whether to ratify ADR-0012's amendment and to close
+  debt #49 without amending ADR-0019: "1-2 elige tú en base al proyecto".
+  Claude Code chose to land the amendment and to close #49; Manuel then
+  ratified the amendment ("si").
+- 2026-10-11: the reformatted `1001_filesystem_activity.json` in the working
+  tree was not his work to keep ("restaura"); Claude Code restored it with
+  `git checkout --`.
+- 2026-10-11, B2 decision 1, the capture source: option 1, the kernel's
+  process events as the single source of process events ("creo que lo mejor
+  ligado a lo que es cyberguard y destinado a ser vendido a empresas … es la
+  primera opción").
+- 2026-10-11, B2 decision 2, what is kept of the command line: option B, the
+  text as the source delivers it (at most 1024 characters), with secret
+  values replaced on the agent by a closed list of patterns before it leaves
+  the host, visible markers for "redacted" and "possibly truncated", and a
+  retention of 365 days from arrival for the command line ("opcion B si es
+  la recomendacion, vamos a intentar llegar a la perfeccion total en el
+  proyecto").
+- 2026-10-11, B2 decision 3, the user: "1 + i" — the SID of the process's
+  own user only, no name; the wire field renamed `process.user_sid` and the
+  column `process_user_sid` before it carries data, the old always-empty
+  column left in place.
+- Decision 1 waits on a correction: the third probe (below) showed that the
+  kernel's process event carries no image path, so it cannot be the single
+  source. Proposed to Manuel as option 1′: Kernel-Process stays the source of
+  process events and their path; the kernel's process events add the command
+  line, the user SID and the rundown, joined on the agent's drain path by PID
+  and event timestamp.
+
+B2, the facts measured on Manuel's machine (Windows 11 Home 10.0.26200,
+workgroup), each from a script or probe that wrote only redacted
+aggregates (`C:\tmp\s36-b2-*.txt`):
+
+- **Security 4688.** Process Creation is not audited and
+  `ProcessCreationIncludeCmdLine_Enabled` is absent. The log held 112 records
+  4688, from 2026-10-06 to 2026-10-11, in 14 per boot over 8 boots: the boot
+  processes (`smss.exe`, `csrss.exe`, `wininit.exe`, `lsass.exe`, …), all
+  `S-1-5-18`, none with a command line. The log is circular and its window
+  has moved since S35, so these are not the same 112 records S35 counted;
+  they are of the kind that explains them.
+- **Reading a process's command line from outside it**
+  (`NtQueryInformationProcess`, class 60). Elevated, 347 of 354 running
+  processes were read, at about 32 µs each. A `cmd /d /c rem` probe was read
+  at 0 and 10 ms after its start and could not be read from 50 ms on
+  (`0xC000010A`).
+- **Kernel-Process** (the agent's provider). ProcessStart v4 carries no
+  command line and no user SID. With the SID enable property, no header SID
+  was seen in two runs.
+- **Process lifetimes.** Of the processes that started and ended in a 90 s
+  window, 42 of 53 lived under 50 ms, median 35 ms.
+- **The kernel's process events through ferrisetw 1.2's `KernelTrace`**, a
+  session of its own name, opened while another tool held the "NT Kernel
+  Logger":
+  - `CommandLine`, `UserSID`, `ImageFileName` and `ParentId` were read in
+    every record (404 of 404), with no schema error;
+  - all 20 probes were seen at Start with their marker;
+  - the session's rundown (DCStart) listed the 357 processes running when it
+    opened;
+  - the command line is cut at 1024 characters in Start, End and DCStart
+    alike (probes of 3000, 6000 and 8000 characters all arrived with 1024);
+  - `UserSID` is the process's own user, not its creator's: in 72 records it
+    differs from the parent's (services of `S-1-5-19` and `S-1-5-20`, and the
+    user's processes, under `S-1-5-18` parents);
+  - delivery latency: p50 about 0.73 s, p90 about 1.0 s, the session's flush
+    timer.
+- **The kernel's `ImageFileName` against Kernel-Process's `ImageName`** (third
+  probe, both sessions at once for 40 s): the kernel's holds the base name
+  only — no backslash in 81 of 81 — and does not truncate it (a 52-character
+  file name arrived whole); Kernel-Process's holds the device path in 80 of
+  80. Matched by PID, the base names agree in 79 of 79, and the two event
+  timestamps differ by at most 0.01 ms. Their arrival at the callbacks differs
+  by a median of 0.14 ms, but the kernel's arrived up to about 0.8 s earlier
+  (p10 −794 ms).
 
 Debt record changes so far:
 
-- **#44 — CLOSED** (`cf54945`). **#45 — CLOSED** (`a293c27`).
+- **#44 — CLOSED** (`cf54945`). **#45 — CLOSED** (`a293c27`). **#28 —
+  CLOSED** (`f37b243`). **#48 — CLOSED** (`be69547`).
+- **#49 — CLOSED, no defect.** The agent's resolved `windows-sys` features
+  gained one, `Win32_System_EventLog`: `Win32_Security` was already on
+  through `Win32_Security_Authorization` and `Win32_Security_Cryptography`
+  (`windows-sys-0.59.0/Cargo.toml:146,148`), so the line `f191a1b` added names
+  a feature already enabled. ADR-0019:24 and :150 are true. Delegated by
+  Manuel, decided by Claude Code: no ADR change.
 - **#2 — CLOSED, no skew.** `markdownlint-cli2-action@v23` resolves to 23.2.0,
   whose `markdownlint-cli2` is 0.22.1, the version CLAUDE.md pins locally.
   The tag floats within v23; a later v23 release could move it.
 - **#14 — CLOSED.** handoff-27 recorded that no live instance remained; the
   one left is Class H-inline.
-- **#28 — CLOSED** (this commit).
 - **#54 — Stale destinations "roadmap §D" for rules over other classes.**
-  Phase D delivered capture and storage, no rule (`roadmap.md:217`);
-  `engine.ts:30`, `:351`, `SPEC-018:56` and `roadmap.md:101` still send
-  network and login rules to §D. Destination: after ADR-0012's Amendment
-  2026-10-11 is ratified, the docs in a docs commit and `engine.ts` with the
-  next change under `services/ingest/src/detect/`.
+  Phase D delivered capture, delivery and storage, and no rule. This commit
+  amends SPEC-006 (`:40`), SPEC-015 (`:25`, `:37`, `:38`; `:16` and `:110`
+  stated) and SPEC-016 (`:43`) and restates `roadmap.md` §B1; `SPEC-018:56` is not stale (SPEC-019 `:10` moved it by
+  scope). Still stale: `services/ingest/src/detect/engine.ts:30` and `:351`
+  ("roadmap §D") and `rules/windows/README.md:5` ("rules over other event
+  classes wait for roadmap §D"). Destination: B2's implementation branch,
+  which runs the elevated gate; a change under `rules/` alone would void a
+  green `detect_ac_001` run (CLAUDE.md *Developer-local SPEC-006 marquee
+  validation*).
 
 ## Debts
 
