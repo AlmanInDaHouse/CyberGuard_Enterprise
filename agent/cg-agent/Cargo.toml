@@ -208,6 +208,11 @@ testcontainers = "0.27"
 # cross-checks must not attempt to fetch or compile it.
 [target.'cfg(windows)'.dev-dependencies]
 ferrisetw = "1.2"
+# The LSA bindings for auth_ac_012's S4U logon (SPEC-020 Amendment
+# 2026-10-11, Decision record 11). The same crate as the agent's
+# dependency; declared here, the feature is enabled only when test
+# targets are built, and `cargo build --release` does not see it.
+windows-sys = { version = "0.59", features = ["Win32_Security_Authentication_Identity"] }
 
 # --- Lint configuration ---
 #
