@@ -88,7 +88,8 @@ aggregates (`C:\tmp\s36-b2-*.txt`):
   session of its own name, opened while another tool held the "NT Kernel
   Logger":
   - `CommandLine`, `UserSID`, `ImageFileName` and `ParentId` were read in
-    every record (404 of 404), with no schema error;
+    every record (404 of 404), with no schema error, and the SIDs decoded to
+    their string form;
   - all 20 probes were seen at Start with their marker;
   - the session's rundown (DCStart) listed the 357 processes running when it
     opened;
@@ -108,8 +109,9 @@ aggregates (`C:\tmp\s36-b2-*.txt`):
   80. Matched by PID, the base names agree in 79 of 79, and the two event
   timestamps differ by at most 0.01 ms. Their arrival at the callbacks differs
   by a median of 0.14 ms; at the 10th percentile the kernel's arrived 794 ms
-  earlier, so in a tenth of the pairs about 0.8 s earlier or more. The
-  longest lead was not measured.
+  earlier, so in a tenth of the pairs about 0.8 s earlier or more; at the
+  90th percentile the Kernel-Process event arrived 0.02 ms earlier. Neither
+  longest lead was measured.
 
 Debt record changes so far:
 
