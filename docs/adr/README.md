@@ -28,7 +28,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 | [0009](0009-event-delivery-and-buffer.md) | Event delivery semantics and agent buffer model | Accepted |
 | [0010](0010-agent-privilege-model-mvp.md) | Agent privilege model and installation posture for the MVP | Accepted |
 | [0011](0011-cges-process-activity-v0-1.md) | Per-class CGES jurisprudence — Process Activity v0.1 | Accepted |
-| [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) — amended 2026-06-07: production detection driver = in-process TypeScript scheduler in `services/ingest` (the Go `services/pipeline/` firehose is decoupled from the prod-caller role and still deferred); amended 2026-10-09: the read-model advances by an arrival cursor (SPEC-018) | Accepted |
+| [0012](0012-normalize-before-correlate-pipeline.md) | Normalize-before-correlate pipeline (Detection MVP) — amended 2026-06-07: production detection driver = in-process TypeScript scheduler in `services/ingest` (the Go `services/pipeline/` firehose is decoupled from the prod-caller role and still deferred); amended 2026-10-09: the read-model advances by an arrival cursor (SPEC-018); amended 2026-10-11: classes 4001 and 3002 flow end to end into `cges_events`, and their detection rules stay deferred | Accepted |
 | [0013](0013-incident-correlation-windowing.md) | Incident correlation windowing — event-time basis | Accepted |
 | [0014](0014-human-authentication-model.md) | Human authentication model — local self-hosted, password + TOTP | Accepted |
 | [0015](0015-readonly-clickhouse-reader-in-api.md) | Read-only ClickHouse reader in `services/api` (forensic event-drill boundary) | Accepted |
@@ -94,6 +94,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 - ADR-0011 self-amendment 2026-10-04 (SPEC-017): the realized wire names (`process.image_file_name`, `process.parent_pid`, …) are the contract; `image_file_name` carries the Win32 form when the translation resolves
 - ADR-0011 self-amendment 2026-10-09 (SPEC-017): a Terminate's `image_file_name` is ETW's base name; the Win32 form applies to the path a Launch carries
 - ADR-0012 self-amendment 2026-10-09 (SPEC-018): the read-model advances by an arrival cursor `(arrived_at, event_id)` behind a settle margin; the forward read drops `FINAL`, and the `dedup_key` makes a repeated match a no-op
+- ADR-0012 self-amendment 2026-10-11: §Out of scope's deferral of network, authentication, registry and file rules restated — classes 4001 (SPEC-019) and 3002 (SPEC-020) flow end to end and the read-model does not read them; 1001 stays schema-only
 - ADR-0018 → ADR-0011 (second instance of the per-class pattern of §1; reuses the dual layer of §3 and the `process.uid` recipe of §6, so a connection and the Launch of its process share one uid)
 - ADR-0018 → ADR-0008 (Kernel-Network through ferrisetw, as a second provider of the agent's existing session; no raw Win32 call) / ADR-0010 (no privilege beyond the one that session already requires)
 - ADR-0018 → ADR-0012 (class 4001 stops being schema-only; the read-model keeps selecting class 1007, and rules over 4001 stay deferred) / SPEC-019 (the production specification)

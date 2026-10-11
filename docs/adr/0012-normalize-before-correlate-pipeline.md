@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-30
-- Last updated: 2026-10-09
+- Last updated: 2026-10-11
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -307,6 +307,17 @@ MVP is single-instance. Multi-instance / HA execution (serializing cycles across
 - **§8 and the Amendment 2026-05-31.** Unchanged: dedup and incident windows stay on event time (ADR-0013 §1).
 - **Amendment 2026-06-07.** Unchanged: `detect_watermark` remains the sole cursor; what it stores changes.
 - **§Out of scope.** The event firehose would replace both the poll and the settle margin with a commit-ordered log; it stays deferred.
+
+## Amendment 2026-10-11: classes 4001 and 3002 flow end to end
+
+**What surfaced it.** Debt #48 (`docs/handoff-session-35.md`). The fifth item of §Out of scope says that the network, registry and file detection rules are deferred because "Their CGES classes (4001 / — / 1001) are schema-only and do not flow end-to-end". The implementation of SPEC-019 landed on 2026-10-10: the agent captures Network Activity 4001 and the server stores it in `cges_events`. The implementation of SPEC-020 landed on 2026-10-11, and the same holds for Authentication 3002. The read-model does not read either class: it selects `class_uid = 1007` (`services/ingest/src/detect/read-model.ts`), as SPEC-019 §Operational §8 and SPEC-020 §Operational §9 state. No rule reads them. §7's query gives the same filter the reason "the only class flowing in v0.1", which no longer holds.
+
+**Amendment.**
+
+- **§Out of scope**, the fifth item, reads: network, authentication, registry and file detection rules are deferred. Network Activity 4001 (ADR-0018, SPEC-019) and Authentication 3002 (ADR-0019, SPEC-020) flow end to end into `cges_events`, and the read-model does not read them; rules over either class wait for the detection SPEC that makes it load-bearing, which first settles what ADR-0018 §9 and ADR-0019 §7 and §9 require of it (the drill's row carries `class_uid`; for logons, the access to the data and its retention against the evidence an alert seals). File System Activity 1001 is schema-only and registry activity has no CGES class; rules over them wait for the per-class ADR and SPEC that make the class flow (ADR-0011 §1), then for that detection SPEC.
+- **§7**, the class filter of the query: the read-model selects class 1007 because the detection MVP reads Process Activity only, not because no other class flows. The filter itself is unchanged; it is the one SPEC-018 §Operational §1 keeps in the forward read.
+
+**Effect.** No change to the pipeline, the read-model or any rule; the deferral stands, with its reason restated, and the item now names authentication rules, which it did not. §Context's "No other event class flows end-to-end yet (filesystem 1001, authentication 3002, network 4001 are schema-only)" is not changed: it states the situation this ADR was decided in, on 2026-05-30, as the reason for detecting on process telemetry only, and correcting it would misstate that reason. ADR-0012 remains `Accepted`. Manuel ratified this amendment in chat on 2026-10-11 ("si"), after delegating the choice to Claude Code ("elige tú en base al proyecto"), who chose to land it.
 
 ## References
 
