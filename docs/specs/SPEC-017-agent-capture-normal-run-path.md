@@ -168,6 +168,20 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the four owner decisi
 
 **Effect.** No change to the agent's behaviour or to the wire; the agent always emitted this. Rules evaluate Launch events only (SPEC-016), so detection is unaffected. Carrying the Launch's path to the Terminate is recorded as debt #29 (`docs/handoff-session-32.md`).
 
+## Amendment 2026-10-11: the dispatch callback's locks and output
+
+**What surfaced it.** Debt #44 (`docs/handoff-session-35.md`). SPEC-019's Amendment 2026-10-10 restated what its network callback locks and writes, and noted that §Operational §6 here makes the same statement for the process path without changing it. Read against `agent/cg-agent/src/etw/session.rs`, `dispatch.rs` and `ring.rs` at `cbd3742`, the first bullet of §6 says the callback "does no I/O and takes no lock beyond the cache's and the ring's". For a process record, the code also:
+
+- takes the locks inside the crates it calls: ferrisetw's schema lookup and parser caches, which call TDH, and the uuid crate's version-7 generator. ferrisetw also takes locks of its own around each callback it makes. These are the locks the network path takes (SPEC-019 Amendment 2026-10-10);
+- writes an `error` line, through the logger, for the two kinds of record it drops with a line: a timestamp before 1970 (SPEC-005 §Operational §1, the conversion being in the callback by §6), and an empty `image_file_name` (SPEC-005 AC-006, checked in the ring's enqueue before the ring's lock is taken). Both are anomalies, not the path of every record. The other records it drops, an event id other than 1 and 2 or a record without a schema, it drops without a line;
+- writes a `trace` line for every record the process provider delivers, when the configured log level (`log.level`) enables `trace` for the agent's ETW target. At the default level, `info`, that line is not written.
+
+The first two are work that SPEC-005 and this SPEC already require, and §6 is restated to include them. The third is not restated: ADR-0009 allows the callback only the enqueue and the `event_id` (§Consequences, §Compliance), and a line per record is the per-event work SPEC-005 NFR-005-001 keeps off it. It is a defect of the code, recorded as debt #52 (`docs/handoff-session-36.md`), whatever the level that turns it on.
+
+**Amendment.** The first bullet of §Operational §6 reads: the dispatch callback parses the record, converts the timestamp, generates the `event_id`, inserts into the cache on Launch or consults and purges it on Terminate (SPEC-005 §Operational §2), and enqueues. It takes no lock of its own beyond the cache's and the ring's; the locks inside ferrisetw and the uuid crate, and those ferrisetw takes around the callback, are those the network path takes. Its only output is the `error` line of a record it drops for a pre-1970 timestamp or an empty `image_file_name`; writing a line takes the logger's locks. The ring does not log while it holds its lock. The other bullets of §6 are unchanged.
+
+**Effect.** No change to the agent's behaviour, to the wire or to any test. SPEC-005 NFR-005-001 holds as §6, so amended, amends it by scope, and SPEC-019 NFR-019-001 keeps its reference to §6. The `trace` line contradicts the amended bullet until debt #52 is closed. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it states what ratified text already requires and adds no work to the callback, so it touches nothing on Manuel's list. Status stays **Accepted**.
+
 ## References
 
 - [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) — the capture specification this SPEC realises and amends by scope.
