@@ -29,7 +29,7 @@ Anchor commits on `main`, one per push, CI green on each:
 Manuel's decisions this session, in chat:
 
 - 2026-10-11, asked whether to ratify ADR-0012's amendment and to close
-  debt #49 without amending ADR-0019: "1-2 elige tú en base al proyecto".
+  debt #49 without amending ADR-0019: "1-2 elije tu en base al proyecto".
   Claude Code chose to land the amendment and to close #49; Manuel then
   ratified the amendment ("si").
 - 2026-10-11: the reformatted `1001_filesystem_activity.json` in the working
@@ -38,13 +38,13 @@ Manuel's decisions this session, in chat:
 - 2026-10-11, B2 decision 1, the capture source: option 1, the kernel's
   process events as the single source of process events ("creo que lo mejor
   ligado a lo que es cyberguard y destinado a ser vendido a empresas … es la
-  primera opción").
+  primera opcion").
 - 2026-10-11, B2 decision 2, what is kept of the command line: option B, the
   text as the source delivers it (at most 1024 characters), with secret
   values replaced on the agent by a closed list of patterns before it leaves
   the host, visible markers for "redacted" and "possibly truncated", and a
   retention of 365 days from arrival for the command line ("opcion B si es
-  la recomendacion, vamos a intentar llegar a la perfeccion total en el
+  la recomendacion, vamos a intentar lllegar a la perfeccion total en el
   proyecto").
 - 2026-10-11, B2 decision 3, the user: "1 + i" — the SID of the process's
   own user only, no name; the wire field renamed `process.user_sid` and the
