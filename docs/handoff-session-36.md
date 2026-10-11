@@ -50,12 +50,18 @@ Manuel's decisions this session, in chat:
   own user only, no name; the wire field renamed `process.user_sid` and the
   column `process_user_sid` before it carries data, the old always-empty
   column left in place.
-- Decision 1 waits on a correction: the third probe (below) showed that the
-  kernel's process event carries no image path, so it cannot be the single
-  source. Proposed to Manuel as option 1′: Kernel-Process stays the source of
-  process events and their path; the kernel's process events add the command
-  line, the user SID and the rundown, joined on the agent's drain path by PID
-  and event timestamp.
+- 2026-10-11, B2 decision 1 corrected: the third probe (below) showed that
+  the kernel's process event carries no image path, so it cannot be the
+  single source. Proposed to Manuel as option 1′ — Kernel-Process stays the
+  source of process events and their path, the kernel's process events add
+  the command line and the user SID, joined on the agent by PID and event
+  timestamp — he accepted it: "sigo tu recomendacion sobre esa decision".
+- ADR-0020 is drafted on the owner-review branch `adr/s36-0020-cmdline-user`,
+  waiting for his "sí". Its review changed two things he had decided the
+  shape of, both stated in its Decision record: the renamed field is
+  `process.user.uid` (the OCSF path the newer classes use on the wire)
+  rather than the `process.user_sid` proposed to him, and the parent at the
+  edge is its own contract inside §B2, after SPEC-021.
 
 B2, the facts measured on Manuel's machine (Windows 11 Home 10.0.26200,
 workgroup), each from a script or probe that wrote only redacted
@@ -71,8 +77,8 @@ aggregates (`C:\tmp\s36-b2-*.txt`):
 - **Reading a process's command line from outside it**
   (`NtQueryInformationProcess`, class 60). Elevated, 347 of 354 running
   processes were read, at about 32 µs each. A `cmd /d /c rem` probe was read
-  at 0 and 10 ms after its start and could not be read from 50 ms on
-  (`0xC000010A`).
+  0 and 10 ms after `Start-Process` returned and could not be read from 50 ms
+  on (`0xC000010A`).
 - **Kernel-Process** (the agent's provider). ProcessStart v4 carries no
   command line and no user SID. With the SID enable property, no header SID
   was seen in two runs.
@@ -91,16 +97,19 @@ aggregates (`C:\tmp\s36-b2-*.txt`):
   - `UserSID` is the process's own user, not its creator's: in 72 records it
     differs from the parent's (services of `S-1-5-19` and `S-1-5-20`, and the
     user's processes, under `S-1-5-18` parents);
-  - delivery latency: p50 about 0.73 s, p90 about 1.0 s, the session's flush
-    timer.
+  - delivery latency: p50 about 0.73 s, p90 and p99 about 1.0 s, the
+    session's flush timer;
+  - of the rundown's 352 non-empty command lines, 2 contained the word
+    "token" and none matched a password pattern (counts only).
 - **The kernel's `ImageFileName` against Kernel-Process's `ImageName`** (third
   probe, both sessions at once for 40 s): the kernel's holds the base name
   only — no backslash in 81 of 81 — and does not truncate it (a 52-character
   file name arrived whole); Kernel-Process's holds the device path in 80 of
   80. Matched by PID, the base names agree in 79 of 79, and the two event
   timestamps differ by at most 0.01 ms. Their arrival at the callbacks differs
-  by a median of 0.14 ms, but the kernel's arrived up to about 0.8 s earlier
-  (p10 −794 ms).
+  by a median of 0.14 ms; at the 10th percentile the kernel's arrived 794 ms
+  earlier, so in a tenth of the pairs about 0.8 s earlier or more. The
+  longest lead was not measured.
 
 Debt record changes so far:
 
