@@ -9,11 +9,14 @@ implementation that S34 left on `review/s34-d-net`, after a self-review that
 amended SPEC-019 (`d4f2a53`), added three commits of fixes and one of
 CLAUDE.md counts, and an elevated gate that now measures event 31. The branch
 and draft PR #4 are closed. The session then gathered the facts of the login
-half and Manuel ratified ADR-0019 (Accepted). SPEC-020 landed Accepted
-(`71f11b7`). Its implementation is on `feat/s35-spec020-logins` (draft PR #5),
-where the elevated gate found two defects. On 2026-10-11 ADR-0019 and SPEC-020
-were amended to fix them (§SPEC-020's elevated gate and the logon
-diagnostics). Catalogs: ADR 19 / SPEC 20. Known CI debt: ZERO.
+half, and Manuel ratified ADR-0019 (Accepted). SPEC-020 landed Accepted
+(`71f11b7`). The elevated gate on its implementation found two defects, and
+on 2026-10-11 ADR-0019 and SPEC-020 were amended to fix them. The
+implementation then landed as `89db206` to `45e7fb7`, after a green gate on
+the tree that landed (§SPEC-020's elevated gate and the logon diagnostics).
+PR #5 is closed. Roadmap **Phase D is DONE**: MVP criterion 2 is delivered
+(processes, network, logins). Catalogs: ADR 19 / SPEC 20. Known CI debt:
+ZERO.
 
 ## Anchor commits
 
@@ -35,12 +38,28 @@ On `main`, pushed, one commit per push, CI green on each:
 | `bee5184` | handoff-35: the logon facts and Manuel's ADR-0019 decisions. |
 | `63d3f8d` | `docs(adr-0019)`: ADR-0019 Accepted; catalog; roadmap §D; this handoff. |
 | `71f11b7` | `docs(spec-020)`: SPEC-020 Accepted; both catalogs; roadmap §D. |
-| (this commit) | `docs(adr-0019, spec-020)`: Amendments 2026-10-11 — the end of a read, the gate's successful logon; this handoff. |
+| `1f54b30` | `docs(adr-0019, spec-020)`: Amendments 2026-10-11 — the end of a read, the gate's successful logon; this handoff. |
+| `89db206` | `feat(cges)`: Authentication 3002 properties and time. |
+| `775e194` | `feat(ingest)`: the route accepts and stores 3002; eleven columns and the 365-day time-to-live. |
+| `53387e4` | `feat(agent)`: decode logons; a third class in the ring. |
+| `f191a1b` | `feat(agent)`: subscribe to the Security log. |
+| `1cee990` | `test(ingest)`: the logon marquee `auth_ac_013`. |
+| `c40694a` | `docs(claude-md)`: the logon tests in the elevated gate. |
+| `0f8e73f` | `fix(agent)`: no past-log reader in the library; shutdown order. |
+| `16767c0` | `test(ingest)`: the real TTL upgrade; a redacted, loopback-clean marquee. |
+| `45e7fb7` | `fix(agent)`: a read ends on 4317; the gate's success is an S4U logon. |
+| (this commit) | Session close: this handoff; README criterion 2; roadmap §D DONE; CLAUDE.md `--no-fail-fast` and `CARGO_INCREMENTAL=0`. |
 
 The nine code commits are cherry-picks (`-x`) of the rebased branch, the
 `NOT YET RATIFIED` marker stripped from the first five; before each push
 `git diff --quiet <branch-sha> HEAD` returned 0, and `main`'s tree after the
 ninth equals the branch tip `599424d` that CI and the elevated gate ran on.
+
+SPEC-020's nine commits landed the same way. They are cherry-picks (`-x`) of
+`feat/s35-spec020-logins` rebased onto `1f54b30` (`79d2894` to `0d03697`). CI
+was green on each, on the branch and on `main`, and `git diff --quiet
+<branch-sha> HEAD` returned 0 before each push. `main`'s tree after `45e7fb7`
+equals `0d03697`, the tree the last elevated gate ran on.
 
 ## How the branch landed
 
@@ -132,6 +151,116 @@ the text that landed. From list B, applied: the gate rerun, the input that is
 not backward-compatible, the destination of the 1007 gap (debt #31), "0 to
 4294967295", one probe per listener, "measures".
 
+### SPEC-020 and its implementation
+
+**The SPEC text.** Claude Code's own pass, then the fixed contract prompt.
+List A had seven entries, all resolved before `71f11b7` landed (its commit
+message), among them:
+
+- a departure from ADR-0019's "as written" (now `-`);
+- SPEC-005's reservation of exit 9 (now amended by scope);
+- an exclusion check that could pass vacuously (now run on the log's own
+  recent records).
+
+**The code, first pass** (fixed code prompt, `71f11b7..81d347c`). The
+reviewer found auth_ac_001, 002, 004–006, 008, 010 and 011 covered, and
+auth_ac_013 covered with the same reservations as auth_ac_012.
+
+- **Weak:**
+  - auth_ac_007 took the codes from the implementation's constant;
+  - auth_ac_012's exclusion check used the agent's own predicate, so it
+    could not fail; it printed no per-event delay and removed only `IPC$`;
+  - auth_ac_003 simulated the upgrade on a table that already had the
+    time-to-live;
+  - auth_ac_009 compares byte identity as value equality.
+- **Contradicted:**
+  - §6, the subscription closed by the thread before the join;
+  - §11, an Entra ID SID (`S-1-12-1-…`) printed whole.
+- **Beyond the contract:** `query_recent`, a reader of past logons in the
+  library, which ADR-0019 §8 (live only) does not allow.
+
+Dispositions:
+
+- **Fixed in `153986b`** (on the branch):
+  - `query_recent` removed; the test renders through the public
+    `RenderContext`;
+  - the shutdown order;
+  - the codes taken from the SPEC;
+  - the exclusion judged with the SPEC's list;
+  - the per-event delay;
+  - every `\\127.0.0.1` connection removed;
+  - every SID form redacted.
+- **Fixed in `1bc43aa`:** auth_ac_003 runs the real upgrade.
+- **Not blocking — auth_ac_009,** for the reason given for net_ac_007 above.
+- **Not blocking — auth_ac_014:** it is the gate itself.
+- **The decoding was written before its tests:** six deliberate mutations of
+  it, each caught (`7d4fbdd`), stand in for the red-first run.
+
+**The code, second pass** (`caf2288..fe62edf`, contract: SPEC-020 and the
+defect statement of the first gate). It found that the signal-only loop of
+`fe62edf` gave up the poll read, and with it the finding of a dead
+subscription (SPEC-020 §Risks, Decision record 8). It also found that the
+new test checked only a two-entry table, and that two of the comments' claims
+rested on one observation. Disposition: the loop reads on the poll again,
+and 4317 ends a read (`9bf6230`, then SPEC-020 Amendment 2026-10-11). The
+claims not measured were removed.
+
+**The amendments' text** (fixed contract prompt, the working tree before
+`1f54b30`). List A had five entries, all fixed before `1f54b30` landed:
+
+1. the handoff said every other test had passed, when cargo had stopped at
+   `auth_ac_012`;
+2. "fixed at `9bf6230`, first as `fe62edf`" joined two opposite loops;
+3. the 1.09 s delay was read as the arrival time, but it is an upper bound,
+   set by when the test first looked;
+4. the ADR's heading "The loopback is not audited" clashed with its own
+   audited loopback 4625;
+5. the handoff's opening and resume steps were stale.
+
+From list B, applied:
+
+- a gate run makes two S4U logons, and a 4672 only for an administrator;
+- S4U was measured in a workgroup;
+- 4317 from a dead subscription would go unseen (now in SPEC-020 §Risks);
+- Decision record 11's discarded binary;
+- the gate's tree evidence.
+
+Not applied:
+
+- ADR-0019:24 says `windows-sys` gains "the feature", and the agent gained
+  two, `Win32_System_EventLog` and `Win32_Security`. No crate was added
+  either way (debt #49);
+- `docs/product/roadmap.md:225`, fixed in this close.
+
+**The code, third pass** (`1bc43aa..6a32b38`, contract: SPEC-020 and
+ADR-0019 with their amendments). Nothing in the data contracts was
+contradicted.
+
+- **Weak:** nothing tested that `drain` ends a read on 4317. Reverting it to
+  259 alone left `logon_read_end.rs` green.
+- **Missing:** a test of the poll read and of the reset before the read.
+- **Near-misses:**
+  - the module comment promised a dead subscription found "within a second"
+    without the 4317 limit;
+  - "4317 with no record" was not checked;
+  - the marquee's failure message did not name the Server service;
+  - `11972b6` was not true at its own SHA for the elevated criteria.
+- **Beyond the contract:** `read_is_exhausted` public; the Cargo comment
+  imprecise; the helper's `-ExecutionPolicy Bypass` and `Add-Type`.
+
+Dispositions, all in `0d03697`, which folds the two fix commits into one:
+
+- `subscription.rs`'s unit test drains a real subscription to the
+  `Application` channel, unelevated. Seen red with `drain` ending on 259
+  alone (`left: Err(4317)` on the second read), green with the fix.
+- `drain` checks `returned == 0`.
+- The comment states the limit, and the marquee names the Server service.
+- The Cargo comment is exact.
+- The reset before the read has no test, since a race cannot be shown. The
+  gate shows the loop end to end.
+- The public function, `Bypass`, `Add-Type` and `CgGate`: not blocking. They
+  change no host setting, and the ADR amendment states the logon.
+
 ## Logon facts (for ADR-0019)
 
 After the landing the session went on to the login half of §D. Facts read on
@@ -209,8 +338,8 @@ Manuel ran the elevated gate on `feat/s35-spec020-logins`; logs in
   The thread's 1 s poll read took 4317 for a failure. The first fix,
   `fe62edf`, read only on the signal, and the second gate ran on it. Its
   self-review restored the read on the poll, with 4317 ending a read, and
-  the commit was amended to `9bf6230` (SPEC-020 Amendment 2026-10-11). No
-  elevated run has covered `9bf6230` yet.
+  the commit was amended to `9bf6230`, which was later folded into
+  `0d03697` (SPEC-020 Amendment 2026-10-11).
 - **At `fe62edf`: the failures arrive, the success does not.** Both failures
   were in the ring when the test first looked, 1.09 s after their timestamps.
   That is an upper bound on the delay, set by the test's own steps:
@@ -246,6 +375,43 @@ Manuel ran the elevated gate on `feat/s35-spec020-logins`; logs in
     other ids: 4798x1
   ```
 
+- **At `0d03697`, the tree that landed: green.** After the amendments,
+  the branch was rebased onto `1f54b30`. The two fix commits were folded
+  into one with the second review's fixes, as `0d03697`. Manuel ran the
+  gate again; logs in `C:\tmp\s35-gate4-*.log`, cargo with
+  `--no-fail-fast` and `CARGO_INCREMENTAL=0`.
+  - **The tree:** `net session` answered `No hay entradas en la lista.`,
+    `git rev-parse --short HEAD` printed `0d03697`, and `git status --short`
+    printed nothing.
+  - **cargo `--ignored`:** all seven passed: `auth_ac_012`,
+    `capture_ac_006`, `net_ac_008`, `net_ac_009`, `process_ac_004`,
+    `process_ac_007`, `process_ac_009`. `net_ac_008` printed
+    `refused_attempt_reported=false`. `auth_ac_012` printed:
+
+    ```text
+    auth_ac_012 withheld uid=S-1-0-0 status=0xc000006d sub_status=0xc0000064 name_withheld=true type=3 package=Negotiate source=none elevated=None delay=1.029353s
+    auth_ac_012 kept uid=S-1-0-0 status=0xc000006d sub_status=0xc000006a name_withheld=false type=3 package=Negotiate source=none elevated=None delay=1.0271076s
+    auth_ac_012 success uid=S-1-5-21-...-1001 status=0x0 sub_status=0x0 name_withheld=false type=3 package=MICROSOFT_AUTHENTICATION_PACKAGE_V1_0 source=none elevated=Some(true) delay=1.0254449s
+    auth_ac_012 ring_logons=3 recent_4624=200 excluded_targets=197 excluded_reported=0
+    ```
+
+  - **vitest `services/ingest`:** `Test Files  60 passed (60)`,
+    `Tests  197 passed (197)`, nothing skipped.
+    - `detect_ac_001` printed the probe as `...\winword.exe` and the child as
+      `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`.
+    - The SPEC-005 marquee took 40.047 s and `net_ac_010` 25.097 s.
+    - `auth_ac_013` took 25.062 s and printed two rows: the failure, as at
+      `fe62edf`, and
+      `{"status_id":1,"user_uid":"S-1-5-21-...-1001","name_withheld":false,"logon_type_id":3,"status_code":"","status_detail":"","auth_protocol":"MICROSOFT_AUTHENTICATION_PACKAGE_V1_0","source_present":false,"elevated_token":true}`.
+- **What it settles.**
+  - **ADR-0019 §10.** The codes §5 relies on, and the name withheld for a
+    missing account and kept for an existing one, are shown on the real log.
+    A 4625 carries the null SID in both cases. A person's successful logon is
+    reported with its SID, name, domain and type, and the log's own recent
+    system logons are not: 197 excluded, none reported.
+  - **SPEC-020 Open question 1** stays closed: every event was in the ring
+    when the test first looked, 1.03 s after its timestamp. That figure is an
+    upper bound, under the reopen condition of 5 s.
 - **Manuel's decision, 2026-10-11, in chat.** Asked how the gate should
   cause the successful logon, he chose "S4U of the current user"; the other
   options were a temporary account and no caused success. That answer
@@ -291,7 +457,79 @@ length, ANONYMOUS LOGON reported, no test account; and he ratified ADR-0019
 without the marker; its self-review (a fresh-context reviewer, list A of six)
 is in the branch's first commit message.
 
+### SPEC-020 and its implementation (2026-10-10 to 2026-10-11)
+
+Anticipated:
+
+1. **A pulled subscription on the agent's own thread, values rendered by
+   name.** The other decisions taken when SPEC-020 was written are in its
+   `## Decision record`, items 1 to 10.
+2. **Stand-in for red-first on the decoding.** The decoding was written
+   before its tests, so six deliberate mutations, each caught, stand in for
+   the red-first run (`7d4fbdd`). The alternative was to delete and rewrite
+   it test-first.
+3. **One commit for the read fix and the S4U tests.** `0d03697` folds them,
+   with the third review's fixes, because both implement one amendment and
+   neither was true alone against it. The alternative kept two commits, the
+   first false at its own SHA for the elevated criteria.
+4. **A pure function plus a real subscription in the unit test.**
+   `read_is_exhausted` is a pure function on every platform, tested alone.
+   `drain` is tested on a real subscription to `Application`, unelevated
+   and with no logon. The discarded alternative was a test seam for the
+   channel in the library.
+5. **The marquee's S4U helper is a PowerShell script with inline C#**
+   (SPEC-020 Decision record 11). Discarded: a binary in the crate, which
+   needs a gate step of its own, and a Node FFI package, a new dependency.
+
+Reactive:
+
+1. **The poll read (gate on `caf2288`).** No logon was delivered. The probe
+   on the `Windows PowerShell` channel showed `EvtNext`'s 4317 after 259,
+   which the 1 s poll read hit. The first fix (`fe62edf`) read only on the
+   signal. The second review showed that gave up finding a dead subscription,
+   so the poll read came back with 4317 ending a read (SPEC-020 Amendment
+   2026-10-11).
+2. **The loopback logon (gate on `fe62edf`).** The success never arrived.
+   Two redacted diagnostics showed that a loopback `net use` with the
+   caller's credentials leaves no event and that an S4U logon leaves a 4624
+   of type 3. ADR-0019 §10 was amended on Manuel's choice.
+3. **Disk full.** `C:` reached 0 bytes free while a worktree build relinked
+   every test binary. Claude Code freed the cargo debug cache
+   (`target/debug/incremental`, 18.2 GB, then `cargo clean --profile dev`,
+   34.8 GB). Builds now run with `CARGO_INCREMENTAL=0`, and the worktree was
+   dropped.
+4. **Docker engine hung after the disk filled.** `docker desktop restart`
+   timed out. With Manuel's OK, Claude Code stopped the Docker Desktop
+   processes and started it again; it was up in about 20 s.
+5. **`--no-fail-fast`.** Cargo stopped at the failing `auth_ac_012` in two
+   gate runs, so six elevated tests never ran. The gate now runs cargo with
+   `--no-fail-fast` (CLAUDE.md, this close).
+
+Manuel's decisions, 2026-10-11, in chat:
+
+- "S4U of the current user", as the gate's successful logon. This ratifies
+  ADR-0019's Amendment 2026-10-11; the other options were a temporary
+  account and no caused success.
+- "Restart it yourself", for the hung Docker engine.
+
 ## Test baselines
+
+At `45e7fb7` (= `0d03697`'s tree), on Windows:
+
+- **Elevated** (Manuel, §SPEC-020's elevated gate): cargo `--ignored`, run with
+  `--no-fail-fast`, 7 passed. Vitest `services/ingest`: 60 files / 197 tests,
+  nothing skipped.
+- **Unelevated** (Claude Code):
+  - `cargo fmt --check` clean, and `cargo clippy --all-targets
+    --all-features -D warnings` clean.
+  - `cargo test --all`: 125 passed, 0 failed, 7 ignored.
+  - Vitest `services/ingest`: 60 files — 55 passed, 1 skipped, 4 failed; 197
+    tests — 192 passed, 1 skipped, 4 failed. The four failures are the
+    capture marquees, on the agent's exit code 9 (`detect_ac_001` as 0
+    alerts), as CLAUDE.md *Environment facts* expects.
+  - Vitest `services/api`: 31 files / 62 tests passed.
+  - `task validate-schemas`: valid.
+- **CI**: green on every commit, on the branch and on `main`.
 
 At `8fac5c3` (= `599424d`'s tree), on Windows:
 
@@ -314,7 +552,9 @@ contract; forensic trust anchoring; B2 capture source; the compose basename
 collision #12; amending SPEC-004 with `INGEST_DETECT_*` (#17); the optional
 items of handoff-29; and, if a run ever reports a refused attempt, what an
 outbound Open asserts (SPEC-019 §Open questions 4, ADR-0018 §2). ADR-0019 is
-ratified.
+ratified, and so is its Amendment 2026-10-11. New: the corrections of the
+debts #48 (ADR-0012:240) and #49 (ADR-0019:24, :150), both amendments of
+accepted ADRs.
 
 ## Debts
 
@@ -352,19 +592,34 @@ ratified.
   logon rows a time-to-live of 365 days; `cges_events` keeps every other
   class without limit, and ADR-0003's retention table is not implemented.
 
+- **#48 — ADR-0012:240 says 4001 and 3002 are schema-only.** Both flow end
+  to end since SPEC-019 and SPEC-020 landed; their detection rules stay
+  deferred, as that line says. The correction is an amendment of an accepted
+  ADR: Manuel's.
+- **#49 — ADR-0019:24 and :150 say `windows-sys` gains "the feature" / "a
+  feature".** The agent gained two, `Win32_System_EventLog` and
+  `Win32_Security`, and no crate, as both lines state. The tests' feature
+  `Win32_Security_Authentication_Identity` is a dev-dependency's. The wording
+  rides the next ADR-0019 amendment.
+- **#50 — A dead subscription that answered 4317 would not be found**
+  (SPEC-020 §Risks). What `EvtNext` returns after the Event Log service
+  restarts was not measured; measuring it restarts a service of the host.
+- **#51 — The S4U success was measured on a local account in a
+  workgroup.** On a domain-joined or Entra-joined developer machine,
+  auth_ac_012 and auth_ac_013 may fail on the success step and need another
+  way to cause it (SPEC-020 §Risks).
+
 Known CI debt: ZERO rows.
 
 ## How Session 36 resumes
 
-1. Run CLAUDE.md *Session protocol*, §At the start. Until SPEC-020's
-   implementation lands, `feat/s35-spec020-logins` and draft PR #5 are open.
-2. **SPEC-020 (logins).** Accepted (`71f11b7`) and amended on 2026-10-11, as
-   ADR-0019 was. The implementation is on the branch. It lands after:
-   - a green elevated gate on its tip, cargo with `--no-fail-fast`;
-   - its self-review (CLAUDE.md *Integration path* §3).
+1. Run CLAUDE.md *Session protocol*, §At the start. No branch or PR should be
+   open.
+2. **Phase D is DONE.** Next, in the roadmap's order: **B2**, the capture of
+   CommandLine and subject_user_sid. It needs its own ADR, and its capture
+   source is an owner STOP. Then **E** and **F**.
 
-   In any later report of logon data the user appears as `<user>`, the host
-   or domain as `<host>`, and of each SID only the prefix and the RID; raw
-   files do not leave the machine.
-3. Watch #43 in any capture run.
-4. After D: **B2**, **E** and **F**, in the roadmap's order.
+   In any later report of logon data, the user appears as `<user>`, the host
+   or domain as `<host>`, and each SID as its prefix and RID only. Raw files
+   do not leave the machine.
+3. Watch #43 in any capture run, and #51 on any other developer machine.

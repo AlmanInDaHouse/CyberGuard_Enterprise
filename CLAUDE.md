@@ -34,7 +34,8 @@ The handoff is the session's own until the next session starts: later commits of
 - The gate scripts run as *Local pre-commit gate* writes them (`pnpm run typecheck`, `pnpm run lint`, `pnpm test`), in each workspace a change touches: `services/ingest`, `services/api` and `dashboard` have the same three scripts. A tool called directly runs as `./node_modules/.bin/<tool>` from the package directory, not through `pnpm exec`: earlier sessions saw `pnpm exec` hang in this shell (not reproduced on 2026-10-10 with `pnpm exec tsc --version`).
 - On Claude Code's unelevated terminal the `services/ingest` suite has four capture marquees that launch `cg-agent` — the SPEC-005 marquee, `detect_ac_001`, `net_ac_010` and `auth_ac_013` — and fail with the agent's exit code 9, and `ac-001-marquee` skips. That is the expected unelevated result, and the elevated gate covers those five; the local gate is green when nothing else fails.
 - Markdown lint locally: `npx markdownlint-cli2@0.22.1 <files>` (the engine of CI's `markdownlint-cli2-action@v23`).
-- Claude Code's terminal is not elevated. The elevated gate (*Developer-local SPEC-005 marquee validation*) is run by Manuel in an elevated Windows PowerShell; Claude Code gives him the command block with each command's output saved by `Tee-Object` to a log under `C:\tmp\` (written in UTF-16), then reads the logs. With Docker Desktop up, cargo runs with `-j 2`: a parallel build can exhaust the paging file (os error 1455, which cargo reports as "can't find crate for std").
+- Claude Code's terminal is not elevated. The elevated gate (*Developer-local SPEC-005 marquee validation*) is run by Manuel in an elevated Windows PowerShell; Claude Code gives him the command block with each command's output saved by `Tee-Object` to a log under `C:\tmp\` (written in UTF-16), then reads the logs. With Docker Desktop up, cargo runs with `-j 2`: a parallel build can exhaust the paging file (os error 1455, which cargo reports as "can't find crate for std"). In the gate, cargo runs with `--no-fail-fast`. Without it, cargo stops at the first failing test binary, and the elevated tests after it do not run. That happened twice in S35.
+- Rust builds on this machine run with `CARGO_INCREMENTAL=0`. `target/debug` keeps every set of test binaries it has linked, and by S35 it held about 48 GB. On 2026-10-11 that filled `C:`, with 0 bytes free, and the Docker engine hung. `cargo clean --profile dev` frees it; the next test build relinks once.
 - The Windows `rust-ci` job runs as the built-in Administrator under PowerShell 7: no `powershell.exe` in a test, SIDs read in full form (*Local pre-commit gate*).
 
 ## CI monitoring (mandatory after every push)
@@ -335,7 +336,7 @@ The marquee is therefore validated developer-local, by Manuel in an elevated ter
 
    ```sh
    cargo build --release -j 2 -p cg-agent
-   cargo test -j 2 -p cg-agent -- --ignored --test-threads=1
+   cargo test -j 2 -p cg-agent --no-fail-fast -- --ignored --test-threads=1
    cd services/ingest
    pnpm install --frozen-lockfile
    pnpm test
@@ -362,7 +363,7 @@ Procedure:
 
    ```sh
    cargo build --release -j 2 -p cg-agent
-   cargo test -j 2 -p cg-agent -- --ignored --test-threads=1
+   cargo test -j 2 -p cg-agent --no-fail-fast -- --ignored --test-threads=1
    cd services/ingest
    pnpm install --frozen-lockfile
    pnpm test

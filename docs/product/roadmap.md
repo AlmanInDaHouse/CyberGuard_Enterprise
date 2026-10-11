@@ -203,13 +203,16 @@ This dependency-ordered document supersedes both for planning.
 
 ### D — Criterion 2: new classes (4001 network + 3002 login)
 
-- **Status: IN PROGRESS** — the network half is DONE: SPEC-019
-  (Accepted, amended 2026-10-10) landed as `8fd71eb` to `8fac5c3`, one
-  per push (S35, 2026-10-10); elevated gate green on the tree landed
-  (`599424d`: six real-ETW tests, event 31 included; 54 files / 175
-  tests). The login half's contract is Accepted (ADR-0019, SPEC-020,
-  S35); its implementation has not started. Details:
-  `docs/handoff-session-35.md`.
+- **Status: DONE** (S35). Both halves landed one commit per push, and
+  the elevated gate was green on the tree each one landed.
+  - **Network:** SPEC-019 (Accepted, amended 2026-10-10), landed as
+    `8fd71eb` to `8fac5c3` on 2026-10-10. The gate on `599424d` ran six
+    real-ETW tests, event 31 included; 54 files / 175 tests.
+  - **Login:** ADR-0019 and SPEC-020 (Accepted, both amended 2026-10-11),
+    landed as `89db206` to `45e7fb7` on 2026-10-11. The gate on `0d03697`
+    ran seven elevated tests; 60 files / 197 tests.
+
+  Details: `docs/handoff-session-35.md`.
 - Does: agent capture, delivery and storage, end to end, for CGES 4001
   (network) and 3002 (login), with a marquee for each. No detection rule
   and no product surface in this phase.
@@ -222,9 +225,9 @@ This dependency-ordered document supersedes both for planning.
     (`services/ingest/src/schemas.ts:44`) to a union, and the widening
     of `cges_events`.
   - Login — logons, successful and failed. Contract: ADR-0019 and
-    SPEC-020 (Accepted, S35); implementation not started. The source
-    is the Windows Security log, read through the Event Log API: a
-    second capture source that is not ETW.
+    SPEC-020 (Accepted, S35); landed. The source is the Windows Security
+    log, read through the Event Log API: a second capture source that is
+    not ETW.
 - Blocked by: nothing; G, H and B1 are done.
 - Gate (own): the `net_ac_*` tests (SPEC-019 §Acceptance criteria) and
   the `auth_ac_*` tests (SPEC-020 §Acceptance criteria), in CI and in the
@@ -249,7 +252,9 @@ This dependency-ordered document supersedes both for planning.
   §Ratification record).
 - Owner decisions, S35 (2026-10-10): which logon data the agent collects
   (ADR-0019 §3–§5); the four points the draft left open, delegated to
-  Claude Code (ADR-0019 §Decision record); ADR-0019 ratified.
+  Claude Code (ADR-0019 §Decision record); ADR-0019 ratified. On
+  2026-10-11: the gate's successful logon is an S4U logon of the current
+  user (ADR-0019 Amendment 2026-10-11).
 
 ### B2 — CommandLine + subject_user_sid capture
 
