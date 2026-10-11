@@ -99,7 +99,15 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 **Amendment.** Other `logsource` categories, and the widening of the read-model to classes other than 1007, go to the detection SPEC that makes such a class load-bearing (ADR-0012 §Out of scope, as amended 2026-10-11). Widening the read-model and the normalized record to the command line and the user of a process event stays with roadmap §B2.
 
-**Effect.** No change to the evaluator, its rules or its tests. §Context (`:16`), which says criterion 2 (roadmap §D) needs the logsource unpinned, gives the reason this SPEC had when it was written and is not changed: criterion 2 was delivered as capture and storage, and the unpinning goes with the rules that need it. In §References (`:110`), §D is the phase that made the classes flow; the unpinning is this amendment's destination. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows an amendment Manuel ratified on 2026-10-11 and decides nothing of its own. Status stays **Accepted**.
+**Effect.** No change to the evaluator, its rules or its tests. §Context (`:16`), which says criterion 2 (roadmap §D) needs the logsource unpinned, gives the reason this SPEC had when it was written and is not changed: criterion 2 was delivered as capture and storage, and the unpinning goes with the rules that need it. In §References (`:118`), §D is the phase that made the classes flow; the unpinning is this amendment's destination. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows an amendment Manuel ratified on 2026-10-11 and decides nothing of its own. Status stays **Accepted**.
+
+## Amendment 2026-10-12: the destination of `CommandLine` and `User`
+
+**What surfaced it.** Manuel's decision of 2026-10-12 (roadmap Part (b) §8): the rules over a process's command line and user are a phase of their own, roadmap §B3, right after §B2. §Out of scope (`:32`) sends `CommandLine` and `User` to [B2].
+
+**Amendment.** The destination of `CommandLine` and `User` is roadmap §B3: the evaluator keeps refusing them until the SPEC of that phase admits them. §B2 still carries the two fields to the read-model and the normalized record, as the Amendment 2026-10-11 states.
+
+**Effect.** No change to what the evaluator accepts or refuses. Its refusal message (`services/ingest/src/detect/engine.ts:257`) and the comment at `engine.ts:22-23` still name §B2, and `eval_ac_003` asserts the pointer (`services/ingest/test/eval-ac-003-fail-closed.test.ts:12-18`): stale text, recorded as debt #54 (`docs/handoff-session-36.md`), corrected where §B2 corrects that message. §Ratification record (`:87`) records what was decided at ratification and is not changed. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows a phase decision of Manuel's and decides nothing of its own. Status stays **Accepted**.
 
 ## References
 
@@ -107,5 +115,5 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 - [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) — §1 the transitory TypeScript detect slice; the Go exit condition is untouched.
 - [ADR-0005](../adr/0005-detection-rules-and-ml-in-parallel.md) — the §Harness obligation; the Sigma-to-Go engine stays a `services/pipeline/` SPEC.
 - [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) — the populated process fields the evaluator keys on.
-- [roadmap](../product/roadmap.md) — §B1 (this SPEC's phase), §C (the ten rules), §D (new classes / logsource unpinning).
+- [roadmap](../product/roadmap.md) — §B1 (this SPEC's phase), §C (the ten rules), §D (new classes / logsource unpinning), §B3 (the rules over the command line and the user).
 - `services/ingest/src/detect/engine.ts`, `services/ingest/src/detect/read-model.ts` — the evaluator and read-model this SPEC governs.

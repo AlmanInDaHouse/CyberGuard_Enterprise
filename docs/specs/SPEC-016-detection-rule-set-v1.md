@@ -9,7 +9,7 @@
   - SPEC-007 — the reopen condition of its Open question 2 (`:213` at `8a0ed9f`, "when the rule count grows") is met here; the decision is recorded in §Open questions.
   - ADR-0005 — §Harness obligation: every rule has a paired scenario, run in CI.
   - ADR-0012 — §Compliance: every rule declares `cg_detection_source: "rule"` (`:225`), and no Go toolchain before the firehose ADR (`:229`), so the scenario runner is a TypeScript test.
-  - `docs/product/roadmap.md` — §C, the phase this SPEC is the contract for; §G and §B2, destinations named below.
+  - `docs/product/roadmap.md` — §C, the phase this SPEC is the contract for; §G, §B2 and §B3, destinations named below.
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -468,6 +468,14 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the choice explicitly
 
 **Effect.** No change to the rule set, its fixtures or its scenarios. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows an amendment Manuel ratified on 2026-10-11 and decides nothing of its own. Status stays **Accepted**.
 
+## Amendment 2026-10-12: the destination of rules over the command line and the user
+
+**What surfaced it.** Manuel's decision of 2026-10-12 (roadmap Part (b) §8): the rules over a process's command line and user are a phase of their own, roadmap §B3, right after §B2. §Out of scope (`:42`) sends them to [B2].
+
+**Amendment.** The destination of that item is roadmap §B3. §B2 gives the two fields a source and carries them to detection; §B3 adds the rules over them, under its own SPEC. The other §B2 destinations (`:44`, `:45`, `:381`, `:435`), all on a process's parent or ancestry, are unchanged.
+
+**Effect.** No change to the rule set, its fixtures or its scenarios. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows a phase decision of Manuel's and decides nothing of its own. Status stays **Accepted**.
+
 ## References
 
 - [SPEC-006](SPEC-006-detection-mvp.md) — the MVP rule, SC001 / SC010, the parent self-join amended here by scope, and the "Full detection bar" realised here.
@@ -478,7 +486,7 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the choice explicitly
 - [ADR-0011](../adr/0011-cges-process-activity-v0-1.md) — §5, the parent name the agent may emit; §6, `process_uid`.
 - [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) — §4 scoring, §8 the 300 s window, §Compliance.
 - [ADR-0002](../adr/0002-language-per-component.md) — Rule 3, the deferred Go runner.
-- [roadmap](../product/roadmap.md) — §C (this SPEC), §G, §B2, §E, §F.
+- [roadmap](../product/roadmap.md) — §C (this SPEC), §G, §B2, §B3, §E, §F.
 - `schemas/cges/v0.1/common/cg_mitre.json`, `schemas/cges/v0.1/common/ocsf_severity.json` — the MITRE and severity shapes the loader checks.
 - [MITRE ATT&CK Enterprise tactics](https://attack.mitre.org/tactics/enterprise/) — the tactic vocabulary and the techniques cited.
 - [Sigma specification](https://github.com/SigmaHQ/sigma-specification) — value escaping (`\\`).

@@ -122,9 +122,9 @@ This dependency-ordered document supersedes both for planning.
   lineage — WITHOUT touching the agent. Multi-hop lineage stays out of
   the MVP (SPEC-016); instead, the parent is resolved per child, with its
   own 24 h look-back.
-- Only rules that inspect the COMMAND LINE stay out until B2 lands;
-  everything expressible over process image / path / lineage is in scope
-  here.
+- Only rules that inspect the COMMAND LINE or the USER stay out: B2
+  carries the fields and B3 adds the rules over them; everything
+  expressible over process image / path / lineage is in scope here.
 - Quality bar: ten rules, each with a WIRED test. At `8a0ed9f`
   `rules/tests/` held a JSON fixture that no `.ts` loaded (and whose format
   had drifted from `rules/tests/README.md`); fixed here: `rules_ac_002`
@@ -264,8 +264,10 @@ This dependency-ordered document supersedes both for planning.
 
 - Does: give the agent a real capture source for `command_line` and
   `subject_user_sid`, then carry them end-to-end (agent → wire schema →
-  `services/ingest/src/detect/read-model.ts:60`). An agent decision with
+  `services/ingest/src/detect/read-model.ts:114-115`). An agent decision with
   its OWN ADR.
+- No rule reads the two fields in this phase: the rules over the command
+  line and the user are §B3 (owner decision, S36, 2026-10-12).
 - Also carries the parent at the edge (SPEC-016 §Scope): the agent stamps
   the parent's image from its own process table (ADR-0011 §5 already lets
   it emit `parent_process.name`; the CGES schema models `parent_process`),
@@ -280,7 +282,7 @@ This dependency-ordered document supersedes both for planning.
   but the manifest carries neither property, so both resolve to EMPTY —
   absent, not present-but-empty (documented:
   `rules/windows/office_spawns_script_host.yml:8-9`;
-  `read-model.ts:59-60`; SPEC-006 §Operational §4).
+  `read-model.ts:114-115`; SPEC-006 §Operational §4).
 - Capture options (own ADR; NOT resolved here):
   - (1) NT Kernel Logger process events (Process_TypeGroup1) — carry
     CommandLine + ImageFileName; kernel-trace session.
@@ -290,6 +292,26 @@ This dependency-ordered document supersedes both for planning.
   - (3) Out-of-band PEB read (NtQueryInformationProcess) — racy for
     short-lived processes; privilege concern.
 - Sequencing: after D — owner decision, S27 (2026-09-19).
+
+### B3 — Rules over the command line and the user
+
+- Does: the detection rules that read a process's command line or its
+  user, once B2 carries both fields to the detection read-model. The
+  evaluator admits the command line and the user, which SPEC-015
+  refuses today, and each rule lands with a wired test, as C's ten did.
+  B2 carries the user as a SID, not the account name Sigma's `User`
+  holds, so B3's SPEC states what a user selection matches.
+- Unblocks: detection of what only the command line or the user shows.
+  The blueprint's suspicious-PowerShell case was re-planted on process
+  lineage because the command line was empty (SPEC-006 §Operational §4).
+- Owner-STOP before its SPEC is accepted: which rules, that is which
+  threats they cover (Part (b) §9).
+- Blocked by: B2.
+- Sequencing: right after B2, as a phase of its own — owner decision,
+  S36 (2026-10-12). B2 delivers the fields and no rule, as D delivered
+  its classes and no rule.
+- Gate (own): the rules' tests in CI, and the elevated gate with
+  `detect_ac_001`, since the rule set it evaluates changes.
 
 ### E — SOAR (criterion 6)
 
@@ -365,6 +387,15 @@ This dependency-ordered document supersedes both for planning.
    for a "<30-min self-deploy" product.
 7. RESOLVED (S32, 2026-10-04) — an unelevated agent on the normal run
    path exits with code 9 (SPEC-017 §Operational §1). Owner decision.
+8. RESOLVED (S36, 2026-10-12) — the rules over the command line and the
+   user are a phase of their own right after B2 (§B3), not part of B2.
+   Owner decision.
+9. B3's rule set: which threats the rules over the command line and the
+   user cover. Owner decision before B3's SPEC is accepted; Claude Code
+   proposes the candidates in its draft.
 
-§1–§4 and §6 remain owner-STOP; §5 and §7 are resolved (above). Part (a) phase F
+§1–§4, §6 and §9 remain owner-STOP; §5, §7 and §8 are resolved (above).
+§6 is answered by Manuel's choice of B2's source (S36, 2026-10-11: the
+kernel's process events joined to Kernel-Process, no audit policy) and
+closes when the ADR that records it is Accepted. Part (a) phase F
 resolves §2 + §3 + §4 (and B2 option (2), per §6).

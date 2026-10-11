@@ -24,7 +24,11 @@ Anchor commits on `main`, one per push, CI green on each:
 | `a293c27` | `docs(claude-md)`: the local TypeScript gate runs ts-ci's build steps (debt #45). |
 | `f37b243` | `.github/workflows/README.md` describes the four workflows (debt #28). |
 | `be69547` | `docs(adr-0012)`: Amendment 2026-10-11 — classes 4001 and 3002 flow end to end (debt #48), from the owner-review branch `adr/s36-0012-classes-flow`, ratified by Manuel. Its tree equals the reviewed tip `3d88b5c` rebased (`f2fc6c6`) plus one sentence, the ratification record. |
-| (this commit) | SPEC-006, SPEC-015 and SPEC-016 Amendments 2026-10-11, which follow ADR-0012's; roadmap §B1; this progress record. |
+| `3b21b5f` | SPEC-006, SPEC-015 and SPEC-016 Amendments 2026-10-11, which follow ADR-0012's; roadmap §B1; this progress record. |
+| `cb82b39` | This record: B2 decision 1 corrected and accepted; the measured figures. |
+| `7a85212` | This record: two measured figures ADR-0020 cites. |
+| `dbb93b9` | ADR-0012's ratification sentence and this record quote Manuel literally. |
+| (this commit) | Roadmap §B3 and Part (b) §8–§9; SPEC-015 and SPEC-016 Amendments 2026-10-12, the destination of rules over the command line and the user; this record. |
 
 Manuel's decisions this session, in chat:
 
@@ -62,6 +66,15 @@ Manuel's decisions this session, in chat:
   `process.user.uid` (the OCSF path the newer classes use on the wire)
   rather than the `process.user_sid` proposed to him, and the parent at the
   edge is its own contract inside §B2, after SPEC-021.
+- 2026-10-12, in answer to a message with three points — his "sí" to
+  ADR-0020; whether to add the new asset to the threat model (recommended:
+  yes, on ADR-0020's branch); and where the rules over the command line and
+  the user go (recommended: a phase of their own right after B2) — Manuel
+  wrote: "sigo tu recomendacion sobre esa decision". Claude Code read it as
+  accepting the two recommendations: the threat-model entry is drafted on
+  the owner-review branch, and the rules are roadmap §B3 (Part (b) §8). It
+  is not read as the "sí" to ADR-0020, which the message asked for as a
+  separate explicit answer and which stays pending.
 
 B2, the facts measured on Manuel's machine (Windows 11 Home 10.0.26200,
 workgroup), each from a script or probe that wrote only redacted
@@ -134,10 +147,43 @@ Debt record changes so far:
   stated) and SPEC-016 (`:43`) and restates `roadmap.md` §B1; `SPEC-018:56` is not stale (SPEC-019 `:10` moved it by
   scope). Still stale: `services/ingest/src/detect/engine.ts:30` and `:351`
   ("roadmap §D") and `rules/windows/README.md:5` ("rules over other event
-  classes wait for roadmap §D"). Destination: B2's implementation branch,
-  which runs the elevated gate; a change under `rules/` alone would void a
+  classes wait for roadmap §D"). Widened by the Amendments 2026-10-12 of
+  SPEC-015 and SPEC-016 (rules over the command line and the user go to
+  §B3): `engine.ts:22-23` and the refusal message at `:257` ("deferred to
+  B2"), `eval-ac-003-fail-closed.test.ts:12-18`, which asserts `/B2/`, and
+  `rules/windows/README.md:5` ("Rules over the command line or the user
+  wait for B2"). Destination: B2's implementation branch, which corrects
+  the refusal message anyway and runs the elevated gate; a change under `rules/` alone would void a
   green `detect_ac_001` run (CLAUDE.md *Developer-local SPEC-006 marquee
   validation*).
+
+## Self-reviews (in session)
+
+- **Roadmap §B3 and the SPEC-015 and SPEC-016 Amendments 2026-10-12.**
+  Claude Code's pass: §B3 is the destination in roadmap §B3, Part (b) §8,
+  both amendments and the catalog alike; the cited lines (`SPEC-015:32`,
+  `:87`; `SPEC-016:42`, `:44`, `:45`, `:381`, `:435`) say what is claimed.
+  The fresh-context reviewer (the fixed prompt), list A, 5 entries:
+  - A1, the refusal message and `eval_ac_003` still name B2: stated in
+    SPEC-015's amendment and recorded in #54.
+  - A2, `rules/windows/README.md:5`: recorded in #54.
+  - A3, the insertion shifted `SPEC-015:102`'s `:110`: corrected to `:118`.
+  - A4, §C named the command line only: the user is added.
+  - A5, ADR-0020 §Out of scope still sends the rules to §B2: corrected on
+    its branch.
+
+  List B, 8 entries:
+  - B1, the reading of Manuel's answer: stated above and to him.
+  - B2, §6's status: it closes with the ADR that answers it.
+  - B3, "before its SPEC": now "before its SPEC is accepted".
+  - B4, the user is a SID, not the account name of Sigma's `User`: stated
+    in §B3.
+  - B5, purpose limitation between B2 and B3: ADR-0020 §Consequences, on
+    the branch.
+  - B6, §B3's "Unblocks" and the references: added.
+  - B7, the stale `read-model.ts` anchors in §B2 are corrected; the
+    pointers to handoff-35 move at the close.
+  - B8, the catalog's wording: clarified.
 
 ## Debts
 
@@ -160,3 +206,16 @@ New this session:
   `event_id` and the reason; `agent/cg-agent/src/etw/ring.rs` writes `pid`
   and `reason` only, and `process_ac_006_name_log_and_drop.rs` asserts those
   two. Destination: the same change as #52.
+- **#55 — The threat model describes the Phase-0 plan, not the system.**
+  `docs/security/threat-model.md` (Accepted 2026-05-20, never amended) names
+  assets and mitigations that the ADRs since changed: the agent's buffered
+  events "encrypted at rest with a key derived from DPAPI" (the ring is in
+  memory and ephemeral, ADR-0009 §3); an agent run as "a dedicated service
+  account" (an elevated user in the MVP, ADR-0010 §1); `cg-ingest`
+  publishing to NATS and protected by "Go strict typing" (TypeScript,
+  ADR-0007, writing to ClickHouse with no NATS, ADR-0012 §2). It has no entry for the
+  data about people the agent sends since roadmap §D: the logons of ADR-0019
+  (account names, SIDs, source addresses, 365 days) and the connections of
+  ADR-0018 (addresses and ports, by process). The threat model is Manuel's.
+  Destination: an owner-review amendment after ADR-0020 lands; ADR-0020's
+  branch adds only its own asset.
