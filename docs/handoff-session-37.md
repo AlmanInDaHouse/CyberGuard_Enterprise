@@ -17,6 +17,14 @@ the close.
 
 ## Progress
 
+Anchor commits on `main`, one per push, CI green on each:
+
+| SHA | What |
+|---|---|
+| `798e750` | This record started: the measurement of ADR-0020 Open questions 5, the first fresh-context pass and its dispositions, debts #58 and #59. |
+| `71a5930` | ADR-0020 Accepted with its six co-located amendments: the squash of the owner-review branch `adr/s36-0020-cmdline-user` at `7b65337`. |
+| (this commit) | This record: the second pass, the ratification and the landing. Roadmap §B2 states the decided source and its status, Part (b) §6 is resolved, and §F no longer waits on B2 option (2). |
+
 Manuel's decisions this session, in chat:
 
 - 2026-10-12, the fresh-context pass over `fec2ee4..b751bdc`: "Sí, lánzala
@@ -26,6 +34,42 @@ Manuel's decisions this session, in chat:
 - 2026-10-12, after the measurement below, on the builds the agent runs on:
   "Incluir Win10 y Server 2019 (Recomendado)" — the agent covers Windows 10
   and Windows Server 2019, so ADR-0020 keeps the second session (its A13).
+- 2026-10-13, ADR-0020 and its co-located amendments: "sí a ADR-0020 y a
+  sus seis enmiendas". It answered a message that asked for the "sí" in
+  seven numbered points — ADR-0020, then the amendments to ADR-0006 (named
+  as a standing rule of versioning while CGES is 0.x), ADR-0009, ADR-0011,
+  ADR-0012, ADR-0019 and the threat model — and said that a one-phrase
+  answer would not be read as a ratification. His answer names the ADR and
+  the six amendments of that list, so Claude Code read it as the
+  ratification of all seven points.
+
+The landing of ADR-0020 (handoff-36, *How Session 37 resumes* step 3):
+
+- No rebase: the branch's merge base was `main`'s tip `798e750`, so the
+  push with `--force-with-lease` was not needed.
+- The ratification commit on the branch, `7b65337`, pushed with no PR open
+  (no workflow runs on a branch without one): ADR-0020's Status
+  `Accepted` and `Last updated` 2026-10-13; the first entry of its Decision
+  record, Manuel's words above; its catalog row `Accepted`; the five
+  amendments headed "(ADR-0020)" and the threat model's take the date
+  2026-10-13 in their headings, in each reference to them (ADR-0012's
+  amendment where it cites ADR-0011's; ADR-0020 §1, §Consequences and
+  §Decision record; the threat model's References, the two CGES READMEs, the
+  catalog's rows) and in `Last updated` of ADR-0006, 0011, 0012 and 0019.
+  ADR-0009 and the threat model have no `Last updated` and get none.
+  ADR-0012's and ADR-0019's Amendments 2026-10-11 and SPEC-017's keep their
+  dates.
+- `git merge --squash` onto `main`, guard `git diff --cached --quiet
+  adr/s36-0020-cmdline-user` → `guard exit: 0`; committed as `71a5930`,
+  without the marker. CI of `71a5930`:
+
+  ```text
+  schema-validation -> success
+  markdown-lint -> success
+  ```
+
+- The branch deleted, local (`git branch -D`, it was `7b65337`) and on
+  origin. No branch or PR is open.
 
 ADR-0020 Open questions 5, measured on Manuel's machine (Windows 11 Home
 10.0.26200), elevated (`net session` answered "No hay entradas en la
@@ -123,16 +167,94 @@ reserved for the NT Kernel Logger and the Circular Kernel Context Logger.
   downloaded crates into the cargo registry cache under `~/.cargo`, outside
   the repository.
 
+- **ADR-0020's branch at `06cc8a7`**, a second pass with the same prompt and
+  documents, after the fixes above (the reviewer was told to run cargo
+  with `--offline`). List A 1, fixed by the branch's commit "fifth review
+  fixes" (`aff7416`):
+  - A1, `schemas/cges/README.md:14` said "Producers tag events with
+    `schema_version`. Consumers must reject events with unsupported
+    `schema_version`.", against ADR-0006's amendment ("The wire carries no
+    `schema_version`") and the repo (no `schema_version` under `agent/` or
+    `services/`), in the section the amendment says it restates. The line
+    now says the schemas require the field and the wire carries none yet.
+    Debt #58 is narrowed to match (below).
+
+  List B 19, dispositioned:
+  - fixed in `aff7416`: B1, §1's claim that a session of the kernel's
+    flags opens on Windows 10 cites §Context 10, not only A13; B2, §2
+    states that every record of the kernel session passes through the
+    agent's memory, the rundown included (357 and 356 records on the
+    measured machine); B3, ADR-0006's amendment names SPEC-019's and
+    SPEC-020's change of `time` for 4001 and 3002 from ISO 8601 to
+    string-encoded nanoseconds; B4, both READMEs add "the server is
+    upgraded before the agents", and `v0.1/README.md:66` no longer opens
+    with the unconditional rule; B5, ADR-0009's amendment says "capacity";
+    B8, §2's 1024 is "characters for ASCII text, §Context 4", the unit for
+    other text SPEC-021's; B9's first item, "a backup included" in
+    §Compliance and threat-model §8's mitigation; B10, the threat model's
+    §1 asset adds a kernel or complete memory dump of the host; B12, the
+    probes' SID is that of the program that started them (§Context 10,
+    §6); B15, A13 records the alternative of one session of the kernel's
+    flags beside the manifest providers, put to Manuel and not chosen, and
+    that ferrisetw 1.2 opens none without a raw `EnableTraceEx2` call
+    (ADR-0008 §Compliance); B17, §2's attribution names the matching with
+    the standard library and the replacement on the drain path;
+  - for SPEC-021: B6, two session names against ADR-0008 §Compliance's
+    "Constant-define the session name in one place", and whether a stop or
+    query by name works on a system-logger kernel session (`ControlTraceW`,
+    already listed); B7, the stderr line when the kernel session fails for
+    privilege (SPEC-005 AC-002's line names Kernel-Process) and the stop of
+    the first session when the second fails to open; B9's second item, the
+    column time-to-live's mechanics (`MODIFY COLUMN … TTL` rewrites every
+    part unless `materialize_ttl_after_modify` is 0, as
+    `services/ingest/src/db/migrate.ts:215` sets for the table's) and the
+    merge cadence that bounds "until a merge runs"; B16, the markers'
+    scope, since `objects/process.json` also reaches `parent_process` and
+    4001's `actor.process` through `$ref`;
+  - recorded here: B13, which source arrived first at the median is not in
+    the repo. `C:\tmp\s36-b2-probe3.txt`, line 9: "arrival at the callback,
+    kernel minus Kernel-Process: p10=-794.30 p50=-0.14 p90=0.02 ms" — the
+    kernel's record first by 0.14 ms at the median, as ADR-0020 §Context 5
+    says;
+  - no change: B11, the threat model's "encrypted at rest" for buffered
+    events is debt #55, deferred by the amendment's Effect; B14, ADR-0018
+    §9 excepts the forensic drill, which does not project the marker;
+    B18, settled or not under review — ADR-0009's missing `Last updated`
+    (first pass B7); `docs/product/blueprint.md:367` ("breaking changes
+    bump major"), the founding text whose CGES rules ADR-0006 and its
+    amendments supersede (its timestamps rule differs too); ADR-0011 A4,
+    H-inline; B19, external claims the repo cannot check (Microsoft Learn,
+    OCSF, PCI DSS, GDPR) — the two Microsoft Learn statements are quoted
+    above from the pages ADR-0020 cites.
+
+  The first pass's items at the "sí" are done: B6, Manuel's answer named
+  the six amendments after the request named ADR-0006's as a standing
+  rule; B7, the dates at the landing (above).
+
+Decisions Claude Code took at the landing (anticipated):
+
+- The five Status lines of the co-located amendments, "Co-located with
+  ADR-0020; lands when ADR-0020 is Accepted", read "Accepted with it on
+  2026-10-13", and the catalog's edges "co-located, landed with ADR-0020".
+  Alternative: keep the future tense, which is false once the change is on
+  `main`. Where: `71a5930`.
+- The ratification as the first entry of ADR-0020's Decision record, as
+  ADR-0019 records its own. Where: `71a5930`.
+
 ## Debts
 
 New this session:
 
-- **#58 — CGES's README says producers tag events with `schema_version`.**
-  `schemas/cges/README.md:12`: "Producers tag events with `schema_version`.
-  Consumers must reject events with unsupported `schema_version`." The wire
-  carries none: no `schema_version` in `agent/cg-agent/src`,
-  `services/ingest/src` or `services/api/src`, while
-  `schemas/cges/v0.1/event.json:82` requires it. Destination: B2's
+- **#58 — The schemas require `schema_version`; the wire carries none.**
+  `schemas/cges/v0.1/event.json:82` requires a top-level `schema_version`,
+  and no `schema_version` appears in `agent/cg-agent/src`,
+  `services/ingest/src` or `services/api/src`. As first recorded, the entry
+  cited `schemas/cges/README.md:12`, "Producers tag events with
+  `schema_version`. Consumers must reject events with unsupported
+  `schema_version`."; that sentence was at `:14` on ADR-0020's branch and
+  `71a5930` replaced it with what is true ("The wire between the agent and
+  the ingest service carries none yet, and no consumer checks it"). What
+  remains is the gap between the schema and the wire. Destination: B2's
   implementation branch, which changes the CGES schemas.
 - **#59 — No environment runs the agent on the builds it covers.** Manuel
   decided on 2026-10-12 that the agent runs on Windows 10 and Windows

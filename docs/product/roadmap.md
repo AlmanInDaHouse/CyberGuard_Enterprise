@@ -262,13 +262,17 @@ This dependency-ordered document supersedes both for planning.
 
 ### B2 — CommandLine + subject_user_sid capture
 
-- **Status: IN PROGRESS** (S36). Source measured and decided by Manuel
-  (2026-10-11); ADR-0020 drafted on the owner-review branch
-  `adr/s36-0020-cmdline-user`, waiting for his ratification
-  (`docs/handoff-session-36.md`). Then SPEC-021 and the implementation.
+- **Status: IN PROGRESS** (S36–S37). Source measured and decided by Manuel
+  (2026-10-11) and recorded in ADR-0020, Accepted on 2026-10-13 with its
+  six co-located amendments: the kernel's process events, in a second
+  session of the agent's, joined to Kernel-Process's Launch by PID and
+  timestamp; secrets replaced on the agent; the user on the wire as
+  `process.user.uid`; Windows 10 and Windows Server 2019 covered
+  (`docs/handoff-session-37.md`). Next SPEC-021, then the implementation.
 - Does: give the agent a real capture source for `command_line` and
-  `subject_user_sid`, then carry them end-to-end (agent → wire schema →
-  `services/ingest/src/detect/read-model.ts:114-115`). An agent decision with
+  `subject_user_sid` (on the wire `process.command_line` and
+  `process.user.uid`, ADR-0020), then carry them end-to-end (agent → wire
+  schema → `services/ingest/src/detect/read-model.ts:114-115`). An agent decision with
   its OWN ADR.
 - No rule reads the two fields in this phase: the rules over the command
   line and the user are §B3 (owner decision, S36, 2026-10-12).
@@ -287,7 +291,9 @@ This dependency-ordered document supersedes both for planning.
   absent, not present-but-empty (documented:
   `rules/windows/office_spawns_script_host.yml:8-9`;
   `read-model.ts:114-115`; SPEC-006 §Operational §4).
-- Capture options (own ADR; NOT resolved here):
+- Capture options, as listed before ADR-0020 decided between them: (1), in
+  a second session joined to Kernel-Process, because the kernel's events
+  carry no path (ADR-0020 §Context 5); (2) and (3) are its A2 and A3:
   - (1) NT Kernel Logger process events (Process_TypeGroup1) — carry
     CommandLine + ImageFileName; kernel-trace session.
   - (2) Security-Auditing 4688 + "include command line in process
@@ -342,8 +348,8 @@ This dependency-ordered document supersedes both for planning.
   READMEs.
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
 - Blocked by: owner-STOP deployment-contract decisions (Part b): compose
-  location (#12), forensic trust anchoring — and it is here that B2
-  option (2)'s audit-policy dependency resolves.
+  location (#12), forensic trust anchoring. (B2 option (2)'s audit-policy
+  dependency no longer waits here: ADR-0020 ruled the option out.)
 - Needs: an infra/deploy SPEC (`SPEC-XXX-infra-docker`).
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
@@ -381,14 +387,11 @@ This dependency-ordered document supersedes both for planning.
    ADR-0001 is owner-STOP.
 5. RESOLVED (S27, 2026-09-19) — relative order of B2 vs D: D first.
    Owner decision.
-6. B2 capture source vs the deployment contract. With B2 sequenced after
-   D, option (2) (Security-Auditing 4688 + audit policy) depends on the
-   phase-F deployment contract, which resolves later. Either B2 lands
-   between D and F with option (2) ruled out — leaving (1) NT Kernel
-   Logger and (3) PEB read — or B2 moves after F with all three live.
-   Architect's recommendation: the former, via option (1); keeping audit
-   policy out of the deployment contract is worth something on its own
-   for a "<30-min self-deploy" product.
+6. RESOLVED (S37, 2026-10-13) — B2 capture source vs the deployment
+   contract: B2 lands between D and F with option (2) (Security-Auditing
+   4688 + audit policy) ruled out, through option (1), the kernel's
+   process events joined to Kernel-Process. Owner decision (S36,
+   2026-10-11), recorded in ADR-0020, Accepted on 2026-10-13.
 7. RESOLVED (S32, 2026-10-04) — an unelevated agent on the normal run
    path exits with code 9 (SPEC-017 §Operational §1). Owner decision.
 8. RESOLVED (S36, 2026-10-12) — the rules over the command line and the
@@ -398,8 +401,5 @@ This dependency-ordered document supersedes both for planning.
    user cover. Owner decision before B3's SPEC is accepted; Claude Code
    proposes the candidates in its draft.
 
-§1–§4, §6 and §9 remain owner-STOP; §5, §7 and §8 are resolved (above).
-§6 is answered by Manuel's choice of B2's source (S36, 2026-10-11: the
-kernel's process events joined to Kernel-Process, no audit policy) and
-closes when the ADR that records it is Accepted. Part (a) phase F
-resolves §2 + §3 + §4 (and B2 option (2), per §6).
+§1–§4 and §9 remain owner-STOP; §5–§8 are resolved (above). Part (a)
+phase F resolves §2 + §3 + §4.
