@@ -23,7 +23,8 @@ Anchor commits on `main`, one per push, CI green on each:
 |---|---|
 | `798e750` | This record started: the measurement of ADR-0020 Open questions 5, the first fresh-context pass and its dispositions, debts #58 and #59. |
 | `71a5930` | ADR-0020 Accepted with its six co-located amendments: the squash of the owner-review branch `adr/s36-0020-cmdline-user` at `7b65337`. |
-| (this commit) | This record: the second pass, the ratification and the landing. Roadmap §B2 states the decided source and its status, Part (b) §6 is resolved, and §F no longer waits on B2 option (2). |
+| `f3b9b05` | This record: the second pass, the ratification and the landing. Roadmap §B2 states the decided source and its status, Part (b) §6 is resolved, and §F no longer waits on B2 option (2). |
+| (this commit) | This record: gate 2, the measurement for SPEC-021; side effects; debts #60 and #61; #43 closed. |
 
 Manuel's decisions this session, in chat:
 
@@ -115,6 +116,78 @@ from the individual system providers". *Configuring and Starting a
 SystemTraceProvider Session*: from Windows 8 and Windows Server 2012 the
 kernel's events go to at most eight logger sessions, the first two slots
 reserved for the NT Kernel Logger and the Circular Kernel Context Logger.
+
+Gate 2, the measurement for SPEC-021, on Manuel's machine, on 2026-10-13.
+The probe `C:\tmp\s36-b2-probe\src\bin\s37-spec021-probe5.rs` (ferrisetw
+`=1.2.0` and, for `ControlTraceW`, `windows-sys` 0.59 as the agent uses it;
+built into the repo's `target/release`) opens ADR-0020's two sessions in its
+order — `CgS37P5User`, a `UserTrace` with ferrisetw's default properties
+holding Kernel-Process (0x10) and Kernel-Network (0x30), then
+`CgS37P5Kernel`, a `KernelTrace` with the process flag — and writes only
+aggregates to `C:\tmp\s37-spec021-probe5.txt`. Logs
+`C:\tmp\s37-gate2-*.log`: `net session` → "No hay entradas en la lista.";
+`git rev-parse --short HEAD` → `f3b9b05`; the probe → "written
+C:\tmp\s37-spec021-probe5.txt". The pasted block ran in reverse order, so
+the two `logman query` lines ran before the probe: `CgS37P5User` was
+running (a side effect of Claude Code's, below) and `CgS37P5Kernel` was
+not found. After the run, `logman query -ets`, which lists every session
+unelevated, showed no `CgS37*` session.
+
+- The side channel by name (ADR-0008's helper, ADR-0020 §1): `QUERY` by
+  name returned 0 on both sessions; the kernel session's `LogFileMode`
+  `0x12400100` (system logger), `EnableFlags` `0x00000001`; the user
+  session's `0x10400100`. `STOP` of the kernel session by name returned 0
+  and a `QUERY` after it 4201; ferrisetw's own stop after that failed with
+  the same instance-not-found error. A second open of the kernel session's
+  name while it ran: `EtwNativeError(AlreadyExist)`.
+- Lost: `EventsLost`, `RealTimeBuffersLost` and `LogBuffersLost` 0 on both
+  sessions before the stop, after two bursts of 200 processes, each spawned
+  in about 1.36 s.
+- The join: 425 kernel starts and 425 Launches, all 425 matched by PID and
+  timestamp, none unmatched. Timestamps equal (kernel minus Launch: max
+  0.01 ms). Arrival, kernel minus Launch: min −357.92, p50 −35.64, p90
+  703.38, max 965.33 ms; a bound of 0.5 s would separate 101 pairs, of 1 s
+  none. In a replay of the two arrival streams, at most 62 kernel starts and
+  52 Launches waited at once. 28 PIDs were seen at more than one kernel
+  start within the run.
+- The limit's unit is the UTF-16 code unit: 3016 ASCII characters arrived
+  as 1024; 1517 'é' as 1024 characters (1990 UTF-8 bytes); 816 characters
+  of U+1F600 as 541 characters, 1024 UTF-16 units, ending in U+FFFD — the
+  cut split a surrogate pair, and ferrisetw's string conversion replaced
+  the half.
+- Order within each session: 0 of 1986 records of the kernel session, and
+  0 of 1349 of the user session (0 of 849 Kernel-Process), arrived after a
+  record of the same session with a later timestamp.
+- The kernel session by opcode: 1 425, 2 424, 3 352 (the rundown at the
+  open), 4 353 (the rundown at the stop), 11 424, 39 8.
+- Starts' command lines: p50 61 characters, 68 bytes once JSON-escaped;
+  the most, 1998 bytes (the U+1F600 probe).
+
+Microsoft Learn, *Logging Mode Constants*, on
+`EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING` (0x10000000, in both sessions'
+`LogFileMode`): "Writes events that were logged on different processors to
+a common buffer. Using this mode can eliminate the issue of events
+appearing out of order …", and "If you expect a high volume of events (for
+example, more than 1,000 events per second), you should not use this mode."
+Neither session sets `EVENT_TRACE_ADDTO_TRIAGE_DUMP` (0x80000000), "adds
+ETW buffers to triage dumps".
+
+Side effects of Claude Code's, outside the repository:
+
+- Before handing gate 2 over, Claude Code ran the probe unelevated to check
+  that it fails cleanly (it printed "Acceso denegado."). It left
+  `CgS37P5User` running, with no provider, until the elevated run's first
+  `ControlTraceW` `STOP` ended it. Reproduced with `logman`, unelevated:
+  `logman start CgS37UnelevTest -ets -rt` succeeded, `logman update … -p
+  {22fb2cd6-…} 0x10 -ets` answered "Acceso denegado.", `logman stop`
+  succeeded. ferrisetw 1.2's `TraceBuilder::start` returns at the failed
+  `EnableTraceEx2` without stopping the session it started.
+- To check the agent for the same, Claude Code ran the test binary
+  `capture_ac_001_startup_failure-53e7d88ef5f60ced.exe` (built 2026-10-11
+  02:32; `agent/cg-agent/src/etw/session.rs` unchanged since, `types.rs`
+  changed) with `capture_ac_001_open_returns_the_start_result`, unelevated:
+  it passed, and `CGAgent-KernelProcess` was left running. Stopped with
+  `logman stop CGAgent-KernelProcess -ets`; debt #60.
 
 ## Self-reviews
 
@@ -263,3 +336,40 @@ New this session:
   agent on Windows 10 or Windows Server 2019. Destination: Manuel — a
   machine or virtual machine of each (Windows 11 Home has no Hyper-V; a
   virtualization tool is outside the approved toolchain).
+- **#60 — An unelevated agent leaves its ETW session behind.** Unelevated,
+  `StartTraceW` succeeds and `EnableTraceEx2` of Kernel-Process fails with
+  access denied; ferrisetw 1.2 returns without stopping the session, and
+  `EtwSession::start` stops it only when the failure is not a privilege one
+  (`agent/cg-agent/src/etw/session.rs:276-281`, whose comment says "a
+  privilege failure creates none"). So every exit 9 — and every unelevated
+  run of `capture_ac_001_open_returns_the_start_result` and of the four
+  marquees — leaves `CGAgent-KernelProcess` running with no provider until
+  an elevated start reclaims it or the host restarts (gate 2, side effects,
+  above). No contract states otherwise: SPEC-017 capture_ac_006 asks for no
+  leftover session only elevated. `logman stop` ended it unelevated, so the
+  agent can stop it itself. Destination: B2's implementation branch, which
+  changes the open path for the second session: stop each session by name
+  after any failed open, and a test that asserts no session of the agent's
+  names is left after an unelevated open.
+- **#61 — The agent's sessions buffer in the mode Microsoft advises against
+  at high rates.** Both sessions run with
+  `EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING` (ferrisetw 1.2's default), which
+  orders delivery (#43, closed below) and which *Logging Mode Constants*
+  advises against above about 1,000 events per second. The user session
+  carries Kernel-Network's connections, whose rate on a busy server is not
+  measured; gate 2 lost nothing at 400 process starts in about 3 s.
+  Destination: a load measurement before roadmap §F; the lost counters
+  (`events_lost`) are where a loss would show.
+
+Closed this session:
+
+- **#43 — Launch and connect may reach the callback out of order**
+  (handoff-35). Its premise, "A real-time ETW session does not order events
+  across CPUs", does not hold for the agent's session: it runs with
+  `EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING` (`LogFileMode` `0x10400100`,
+  gate 2), which writes the events of all processors to a common buffer
+  (Microsoft Learn, above), and gate 2 measured 0 of 1349 records of that
+  session, Kernel-Process and Kernel-Network together, out of timestamp
+  order (gate 1: 0 of 1997 in one session). A process's connections are
+  logged after its start, so its Launch is dispatched first. The cost of
+  the mode is #61.
