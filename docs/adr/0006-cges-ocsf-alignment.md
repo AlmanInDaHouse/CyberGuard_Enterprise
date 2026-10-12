@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-20
-- Last updated: 2026-05-23
+- Last updated: 2026-10-13
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -132,6 +132,16 @@ Subsequent ADRs, SPECs and schema files must respect the inheritance and diverge
 - New CGES fields with no OCSF equivalent must be namespaced under `cg_*` and documented in the schema file that introduces them.
 - Any breaking change to CGES bumps the major version, opens a migration SPEC for ClickHouse, and updates `ocsf_version` if the trigger is OCSF evolution.
 - Future contract-generation tooling, if introduced by a separate ADR, will consume the JSON Schemas under `schemas/cges/` as its source of truth; manual translation between languages is forbidden.
+
+## Amendment 2026-10-13 (ADR-0020): changes while CGES is 0.x
+
+**Status.** Co-located with ADR-0020; Accepted with it on 2026-10-13. It narrows §Decision's versioning bullet ("Breaking changes bump the major version …") and the matching line of §Compliance. ADR-0006 remains `Accepted`.
+
+**Context.** ADR-0011's Amendment 2026-05-28 changed the wire encoding of two fields, not backward-compatibly, and ADR-0020 §3 renames `process.subject_user_sid`, which a server older than that change requires, and changes what `process.user.uid` maps from (the process's own user, not its creator). None bumps the version, which §Compliance asks for; nor did SPEC-019 and SPEC-020, which added optional properties, a minor bump under the semver of §Decision, and changed the format of `time` for classes 4001 and 3002, whose schemas existed before them, from ISO 8601 to string-encoded nanoseconds (`schemas/cges/v0.1/event.json`, the description of `time`). The wire carries no `schema_version` (neither the agent nor the ingest service's schema sets one); the version is that of the schemas under `schemas/cges/`.
+
+**Amendment.** While CGES's `schema_version` is 0.x and no consumer outside the repository reads CGES, a change to CGES keeps the version, whether it adds (an optional field, a relaxed constraint) or breaks (a field removed or renamed, a type changed, a constraint tightened, or the meaning of a field changed). A breaking change lands with its ClickHouse migration in the change that makes it, the ADR or SPEC that makes it states it, and the server is upgraded before the agents. §Decision's and §Compliance's rule applies from the first consumer outside the repository, or from 1.0, whichever comes first.
+
+**Effect on other sections.** None on `ocsf_version`, the `cg_*` rule or the OCSF naming rule. The versioning rules of `schemas/cges/README.md` (§Versioning) and `schemas/cges/v0.1/README.md` (§Adding a new schema artifact) state §Decision's rule and are restated with this amendment, in the same change.
 
 ## References
 

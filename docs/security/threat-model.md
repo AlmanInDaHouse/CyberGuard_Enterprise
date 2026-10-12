@@ -219,6 +219,31 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 - **At-rest encryption at the storage layer.** Configuration of Postgres TDE, ClickHouse disk encryption, and MinIO server-side encryption is operational and is documented separately.
 - **Insider threat at server-administrator level.** Assumed trusted in MVP; future enterprise concern requiring auditable admin actions and break-glass procedures.
 
+## Amendment 2026-10-13 (ADR-0020): the command lines and users of processes
+
+**Status.** Co-located with ADR-0020; Accepted with it on 2026-10-13. It adds to §1, to §8, to *Threats explicitly accepted in MVP* and to *References*, and restates nothing. The threat model remains `Accepted`.
+
+**Context.** ADR-0020 gives each process start the agent reports the command line the process was started with and the SID of the user it runs as. A command line can hold secrets — a password after `net use`, `psexec -p`, `cmdkey /pass:` or `schtasks /rp`, a connection string's `Password=`, a token or key passed as an argument, credentials inside a URL — and personal data: user names inside paths, document names, addresses (ADR-0020 §Context 7). A SID identifies an account, and through it a person. Neither is named among the assets of §1 or §8.
+
+**Amendment.**
+
+- **§1 CyberGuard Agent, assets at risk**, add: the command lines of the processes the agent observes, before and after their secrets are replaced, and the SIDs of their users. On the endpoint they live in the buffers of the agent's kernel ETW session, in the agent's memory for the times ADR-0020 §2 states, and in what Windows keeps of that memory: the paging file, a crash dump of the agent, and a kernel or complete memory dump of the host.
+- **§1, Tampering**, add: *a process shapes its own command line against detection.* A payload placed where a pattern marks a secret reaches detection as `<redacted>`; text placed past the source's 1024 characters does not reach it; a burst of process starts larger than the join table's capacity sends Launches without their command line and user (ADR-0020 §1). Partly mitigated: the key before a replaced value stays, and the markers `cg_cmd_line_redacted`, `cg_cmd_line_possibly_truncated` and `cg_kernel_record_unavailable` mark each case on the event and reach detection (ADR-0020 §2, §4), so a rule can key on them once the SPEC of roadmap §B3 admits them. Not mitigated: a parent that creates a child suspended and rewrites its arguments before it runs leaves a decoy in the start event (argument spoofing); the command line is the one the process was created with (ADR-0020 §Consequences).
+- **§1, Information Disclosure**, add:
+  - *A secret leaves the endpoint inside a command line.* Mitigated by the agent: before an event is serialized, each value that the closed list of SPEC-021 marks as a secret is replaced with `<redacted>` (ADR-0020 §2). A format the list does not name is not mitigated (accepted below).
+  - *An unredacted command line reaches disk.* The agent writes none to disk or to its own output (ADR-0020 §2, §Compliance). Windows may page its memory out, or keep a crash dump of the agent and send it through Windows Error Reporting, and a kernel or complete memory dump of the host holds the kernel session's buffers; whether a deployment turns those off is the deployment contract's (ADR-0020 Open questions 4).
+  - *Another elevated process reads the kernel's process events.* It can consume the agent's kernel session by its name, or open a session of its own; either way it gets what elevation already gives it. Not mitigated by the agent (accepted below).
+- **§8 Storage layer, assets at risk**, add: the columns `process_command_line` and `process_user_uid` of `cges_events` in ClickHouse.
+- **§8, Information Disclosure**, add:
+  - *Command lines and SIDs kept longer than needed.* Mitigated by a column time-to-live of 365 days from arrival on both columns, and by no copy that outlives it, a backup included (ADR-0020 §Compliance): neither enters an alert's `dedup_key` or an incident's `grouping_key`, which Postgres keeps without retention (ADR-0020 §2–§4). A row can hold its values past the 365 days until ClickHouse runs a time-to-live merge.
+  - *Row data in a log.* Neither the agent nor the server writes a command line or a SID to its own output (ADR-0020 §Compliance). The ClickHouse settings that keep row data out of its own logs and system tables are SPEC-021's for those the ingest service sends with its queries, and the deployment contract's for the server's own (ADR-0020 §4): the query-log filtering of PII fields this section names.
+  - *A compromised api reads them, and more.* The api's ClickHouse reader is read-only in use (ADR-0015 §Compliance), and no ClickHouse grant enforces that or limits its columns: in the dev stack it logs in as the ingest's user (`infra/dev/docker-compose.dev.yml:134`, `:207`), which can also write and alter tables: with those credentials an attacker could copy the rows or remove the time-to-live. Not mitigated in the MVP; users with scoped grants are the deployment contract's (roadmap §F). No surface shows the fields yet; the first that does states its access rules in its SPEC (ADR-0020 §4).
+- **Threats explicitly accepted in MVP**, add:
+  - **A secret in a form the closed list does not name leaves the endpoint.** A positional password, or a token after a flag the list does not know, travels as typed and is kept for 365 days. The list is ratified with SPEC-021 and grows by amendment.
+  - **An elevated process on the endpoint reads command lines from the kernel.** The kernel's process events belong to the endpoint, not to the agent; as with the root-level compromise above, an attacker elevated on the endpoint sees what the agent sees.
+
+**Effect on other sections.** None is restated. §8's per-service database users with scoped privileges (Spoofing, Tampering) describe the plan, not the repository: the ingest service and the api share one ClickHouse user (`infra/dev/docker-compose.dev.yml:134`, `:207`), as the api entry above states. Its query-log filtering of PII fields is not configured yet: SPEC-021 and the deployment contract set it (ADR-0020 §4). Those statements, with the others of this document that later ADRs changed, wait for their own amendment (`docs/handoff-session-36.md`, debt #55).
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
@@ -226,4 +251,6 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 - [ADR-0003](../adr/0003-polyglot-storage.md) — Polyglot storage (retention table for logs, MinIO immutability, Redis ephemeral with anti-replay nonces)
 - [ADR-0004](../adr/0004-agent-server-protocol.md) — Agent-Server secure protocol (mitigates many agent and ingest threats)
 - [ADR-0005](../adr/0005-detection-rules-and-ml-in-parallel.md) — Detection rules and ML in parallel (reversibility classes mitigate Tampering and Elevation via SOAR)
+- [ADR-0015](../adr/0015-readonly-clickhouse-reader-in-api.md) — The api's ClickHouse reader, read-only in use (cited by the Amendment 2026-10-13)
+- [ADR-0020](../adr/0020-process-command-line-and-user.md) — Process command line and user (the assets and mitigations of the Amendment 2026-10-13)
 - [Foundational Blueprint](../product/blueprint.md) — §7 (protocol), §10 (RBAC roles), §17 (non-goals)

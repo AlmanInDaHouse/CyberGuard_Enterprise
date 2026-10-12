@@ -63,7 +63,7 @@ schemas/cges/v0.1/
 | New CGES-specific class | `classes/name.json` | Same as above. Use a `category_uid` and `class_uid` in the CyberGuard custom range (≥ 10000) and document the assignment inline. |
 | New example payload | `examples/NN_name.json` | The example must validate end-to-end against `event.json` with all `$refs` resolved. CI blocks merges otherwise. |
 
-When adding new fields to an existing schema, never change the meaning of an existing field. Field-level changes that alter semantics require bumping `schema_version`.
+A change that alters the meaning of an existing field, when adding new fields or otherwise, is a breaking change and requires bumping `schema_version`, except while CGES is 0.x and no consumer outside the repository reads it: then the change keeps the version, lands with its ClickHouse migration, the ADR or SPEC that makes it states it, and the server is upgraded before the agents ([ADR-0006](../../../docs/adr/0006-cges-ocsf-alignment.md), Amendment 2026-10-13).
 
 ## Validation
 

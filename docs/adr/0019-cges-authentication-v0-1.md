@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-10
-- Last updated: 2026-10-11
+- Last updated: 2026-10-13
 - Deciders: Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -208,6 +208,16 @@ Rejected for v0.1: the agent would hold state across records and choose between 
 **Amendment.** In §10's last point, the successful logon of a person's account is an S4U network logon (logon type 3) of the current user through the MSV1_0 package. It needs no password and creates no account, and the token it returns is closed at once; at identification level, that token cannot act as the user. The failed logons are unchanged: the built-in Administrator and a random name, and the marquee may cause the random name's failure with `net use`, which Windows audits. The rest of §10 stands, "No test account" included.
 
 **Effect.** Nothing the agent collects, stores or reports changes: the gate causes a different successful logon, and SPEC-020's auth_ac_012 and auth_ac_013 are amended to match. Each S4U logon leaves a 4624 and a 4634 of the current user in the host's Security log, and a 4672 when the user is an administrator; a gate run makes two, one in each of SPEC-020's elevated criteria. Manuel ratified this amendment in chat on 2026-10-11, choosing "S4U of the current user" among three options; the other two were a temporary account created and deleted by the gate, and no caused success, the success being checked only on the log's recorded 4624s.
+
+## Amendment 2026-10-13 (ADR-0020): the other classes' time-to-live
+
+**Status.** Co-located with ADR-0020; Accepted with it on 2026-10-13. It narrows two statements. ADR-0019 remains `Accepted`.
+
+**Context.** §9 says "The other classes keep no time-to-live", and §Consequences, Negative, that "the other classes keep no limit at all". ADR-0020 §2 and §3 give two columns of class 1007, `process_command_line` and `process_user_uid`, a time-to-live of 365 days from arrival.
+
+**Amendment.** Both statements read: the rows of the other classes keep no time-to-live, and ADR-0020 sets one on those two columns of class 1007; ADR-0003's retention table is still not implemented (debt #47).
+
+**Effect on other sections.** None: class 3002's time-to-live of §9 is unchanged.
 
 ## References
 

@@ -135,6 +135,16 @@ Chosen.
 - Persistent disk-backed buffering is reserved for a dedicated future SPEC. SPEC-005 and immediate successors do NOT introduce on-disk event state. Any change that introduces on-disk event state requires either that future SPEC or a new ADR superseding this one.
 - The dispatch callback (ETW path per ADR-0008, future event sources of the same telemetry family) does nothing but enqueue to the ring and generate the `event_id`. Per-event work (canonicalization, signing, network I/O) lives on the worker draining the ring.
 
+## Amendment 2026-10-13 (ADR-0020): what a dispatch callback may do
+
+**Status.** Co-located with ADR-0020; Accepted with it on 2026-10-13. It restates the callback sentences of §Consequences (the Positive bullet on the dispatch path and the Neutral bullet on `event_id`) and of §Compliance. §Context's account of the spike stays as the reason it gave. ADR-0009 remains `Accepted`.
+
+**Context.** Those sentences say the dispatch callback does nothing but enqueue to the ring and generate the `event_id`. SPEC-017 §Operational §6 already has the process callback parse its record, convert the timestamp and insert into or consult the creation-time cache, amending SPEC-005 by scope; ADR-0020 §1 adds a callback that puts its record into a join table, or into the slot a Launch carries, and enqueues nothing.
+
+**Amendment.** A dispatch callback parses its record, converts its timestamp, and may generate the `event_id`, enqueue to the ring, update the session's counters (such as SPEC-019's count of discarded records), and insert into, consult or remove from another structure of the agent's that is kept small: the creation-time cache, which a sweep on its own thread keeps small (SPEC-005 NFR-005-006), and the join table of ADR-0020, which its capacity keeps small; and fill the slots that table hands to Launches. It does no I/O beyond the anomaly lines its SPEC names, and takes no lock of its own beyond those structures'; the locks inside the crates it calls are those every callback takes (SPEC-017 Amendment 2026-10-11). It does not wait for another event. Per-event work — canonicalization, signing, path translation, the replacement of secrets, network I/O — stays on the worker that drains the ring.
+
+**Effect on other sections.** None on at-least-once delivery (§1) or deduplication (§2). §3's ring and its flush triggers stay; a Launch's wait for its kernel record can delay its batch by at most the join's bound, and how it fits the triggers is SPEC-021's (ADR-0020 §1).
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout.

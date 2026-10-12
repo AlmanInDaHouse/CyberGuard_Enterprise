@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-30
-- Last updated: 2026-10-11
+- Last updated: 2026-10-13
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -318,6 +318,22 @@ MVP is single-instance. Multi-instance / HA execution (serializing cycles across
 - **§7**, the class filter of the query: the read-model selects class 1007 because the detection MVP reads Process Activity only, not because no other class flows. The filter itself is unchanged; it is the one SPEC-018 §Operational §1 keeps in the forward read.
 
 **Effect.** No change to the pipeline, the read-model or any rule; the deferral stands, with its reason restated, and the item now names authentication rules, which it did not. §Context's "No other event class flows end-to-end yet (filesystem 1001, authentication 3002, network 4001 are schema-only)" is not changed: it states the situation this ADR was decided in, on 2026-05-30, as the reason for detecting on process telemetry only, and correcting it would misstate that reason. ADR-0012 remains `Accepted`. Manuel ratified this amendment in chat on 2026-10-11 ("si"), after delegating the choice to Claude Code ("elije tu en base al proyecto"), who chose to land it.
+
+## Amendment 2026-10-13 (ADR-0020): the command line and the user reach detection
+
+**Status.** Co-located with ADR-0020; Accepted with it on 2026-10-13. It supersedes §3's name for the user SID's column, its finding that two columns are always empty and its list of the fields rules may key on, extends the forward read's projection, resolves the first of the two flags in one item of §Out of scope, and replaces §5's forward path on the user SID with a later one. ADR-0012 remains `Accepted`.
+
+**Context.** §3 reads `subject_user_sid` from the wire's `process.subject_user_sid`, and finds it and `process_command_line` "structurally always empty", so that rules MUST key only on populated fields. §5 leaves the user out of the `dedup_key` because it was empty, and plans that "when user-SID capture lands … `subject` is added as a `dedup_key` component and this v0.1 omission is revisited". ADR-0020 lands that capture.
+
+**Amendment.**
+
+- **§3, names.** The user SID's column is `process_user_uid`, from the wire's `process.user.uid`; `subject_user_sid` is not read. The marker `cg_kernel_record_unavailable` is the column `process_kernel_record_unavailable`.
+- **§3, population.** On a Launch from an agent that implements ADR-0020, `process_command_line` and `process_user_uid` are populated as ADR-0020 §2 and §3 define them. A row can still hold either empty: on a Terminate; on a row from an older agent; when `process_kernel_record_unavailable` is true; after its 365 days; and the command line also when the process had none. §3's rule that v0.1 rules key only on populated fields stands, and these two are populated fields from now on, on those Launches. On an empty value, a selection keyed on them matches nothing and a filter keyed on them suppresses nothing, as with an unknown parent (SPEC-015): a missing kernel record can turn the first into a false negative and the second into a false positive, so the SPEC of such a rule says how it reads `process_kernel_record_unavailable`; the evaluator admits such rules only when a SPEC lets it (SPEC-015).
+- **The forward read** (SPEC-018 §Operational §1, which superseded §7's query) projects `process_command_line`, `process_user_uid` and the three markers, `process_cmd_line_redacted`, `process_cmd_line_possibly_truncated` and `process_kernel_record_unavailable`, for class 1007 (ADR-0020 §4).
+- **§Out of scope, the ADR-0011 §4 mapping correction**: resolved for the command line and the user by ADR-0011's Amendment 2026-10-13. The same item's `event_id` question is not this amendment's: the agent generates UUIDv7 (SPEC-017 §Data contracts), and what remains open is the re-narrowing of `alert.json`'s `source_events` pattern (SPEC-006 §Operational §5).
+- **§5, revisited.** The user SID does not join the `dedup_key`. The key is stored in `alerts`, which keep no retention, and a SID in it would outlive the 365 days ADR-0020 §3 gives it. It joins the key when alerts have a retention a user identifier can live under (ADR-0020 Open questions 3).
+
+**Effect on other sections.** None on the parent resolution, the bucket, the windows, the scorer or the alert storage.
 
 ## References
 

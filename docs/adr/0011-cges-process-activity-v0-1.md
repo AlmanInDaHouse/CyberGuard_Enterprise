@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-23
-- Last updated: 2026-10-09
+- Last updated: 2026-10-13
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -263,6 +263,22 @@ The byte-level reproducibility argument from the 2026-05-23 amendment part (a) i
 **Amendment.** The Win32-or-device-form rule of the Amendment 2026-10-04 applies to the path a Launch carries. A Terminate's `process.image_file_name` is ETW's base name, unchanged; `process.name` (§4 row 2) is the same value.
 
 **Effect on other sections.** None: no field, encoding or activity changes (SPEC-017 Amendment 2026-10-09).
+
+## Amendment 2026-10-13 (ADR-0020): the command line and the user of a process
+
+**Status.** Co-located with ADR-0020; Accepted with it on 2026-10-13. It supersedes the §4 rows for `process.cmd_line` and `process.user.uid`, the wire name `process.subject_user_sid` of the Amendment 2026-10-04, the first and third items of §Out of scope and the second bullet of §Consequences, Neutral, and it qualifies §2: the agent sends no `raw_data` today, and what it may carry is bounded. ADR-0011 remains `Accepted`.
+
+**Context.** §4 maps `process.cmd_line ← CommandLine` and `process.user.uid ← SubjectUserSid` as fields of Kernel-Process's events. The provider has neither (ADR-0012 §3 flagged it; ADR-0020 §Context 3 measured it), so the agent has always sent both empty. §Out of scope and §Consequences defer the handling of the personal data in a command line to ADR-0006's umbrella.
+
+**Amendment.**
+
+- **`process.cmd_line`**: the `CommandLine` of the kernel's process start event, joined to the Kernel-Process Launch by PID and timestamp; as the source delivers it, at most 1024 characters, with the values a closed list marks as secrets replaced on the agent (which can lengthen it); with the markers `cg_cmd_line_redacted`, `cg_cmd_line_possibly_truncated` and `cg_kernel_record_unavailable` (ADR-0020 §1, §2). On the wire: `process.command_line`, as today. A Terminate carries it empty.
+- **`process.user.uid`**: the `UserSID` of the same kernel event, the SID of the process's own user (ADR-0020 §3). On the wire: `process.user.uid`, the OCSF path, which replaces `process.subject_user_sid`; the `user` object carries no `name`, and `objects/user.json` is relaxed to require a non-empty `name` or a non-empty `uid` (ADR-0020 §3). A Terminate carries no `user`.
+- **§Out of scope, first item, and §Consequences, Neutral, second bullet**: the replacement of secrets in a command line is decided by ADR-0020 §2. Field-level encryption stays deferred (ADR-0006 §Out of scope), and user names inside paths travel as before.
+- **§Out of scope, third item**: the kernel's process events join Kernel-Process for these two fields only, by ADR-0020; they add no class, and no field beyond these two and ADR-0020's three markers.
+- **§2, `raw_data`**: §2's policy (raw content inline, never `cg_raw_ref`) stands for when the agent sends `raw_data`, which it does not today; a `raw_data` it sends carries the command line only as ADR-0020 §2 leaves it, its secrets replaced.
+
+**Effect on other sections.** None on §3 (activities), §5 (the parent), §6 (`process.uid`) or the other rows of §4: they keep coming from Kernel-Process, and the creation-time cache keeps its role. §5's "no resolution flag" stays for the parent's name; for the command line and the user, ADR-0020 adds the marker `cg_kernel_record_unavailable`, for the reason its A12 gives.
 
 ## References
 
