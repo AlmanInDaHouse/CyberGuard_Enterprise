@@ -1,8 +1,30 @@
-# Handoff — Session 36 (in progress)
+# Handoff — Session 36
 
-Session 36 is open. This file is completed at the session's close (CLAUDE.md
-*Session protocol*, §At the close); until then it holds the debts the
-session's commits cite, so that each citation resolves at its own SHA.
+Session 36 closed on 2026-10-12 at Manuel's request ("vamos a arar aqui y
+lo dejamos pendeinte para mañana"), with ADR-0020 drafted and waiting for
+his ratification. Its work order for Session 37 is *How Session 37 resumes*
+at the end.
+
+## State at close
+
+- `main` = `origin/main` = the commit that adds this section (CI ALL
+  GREEN, *CI monitoring*); tree clean; no stash.
+- Catalogs: ADR 19 / SPEC 20 on `main` (ADR-0020 exists only on its
+  branch). Known CI debt: zero.
+- One branch open, by design: `adr/s36-0020-cmdline-user` at `b751bdc`,
+  owner review, no PR (no workflow runs on it). Five commits, each
+  `NOT YET RATIFIED`: ADR-0020 (Proposed) and its co-located amendments to
+  ADR-0006, ADR-0009, ADR-0011, ADR-0012, ADR-0019 and the threat model.
+  It was cut from `bdd1d74`; `main` has moved since (handoff-only
+  commits), so it is rebased at landing. Compare URL:
+  <https://github.com/AlmanInDaHouse/CyberGuard_Enterprise/compare/main...adr/s36-0020-cmdline-user>.
+- No code changed this session: no file outside `docs/`, `CLAUDE.md`
+  and `.github/workflows/README.md`. No elevated gate ran, and none was
+  needed.
+- Outside the repository, kept for SPEC-021's measurement (Open
+  questions 5 of ADR-0020): the probe crate `C:\tmp\s36-b2-probe`
+  (ferrisetw `=1.2.0`, built into the repo's `target/release` as
+  `s36-b2-probe*.exe`) and the redacted outputs `C:\tmp\s36-b2-*.txt`.
 
 ## Start
 
@@ -14,7 +36,7 @@ session's commits cite, so that each citation resolves at its own SHA.
   formatting only (the JSON expanded, the final newline removed) and the
   parsed content equals `HEAD`'s. No commit of this session includes it.
 
-## Progress (in session)
+## Progress
 
 Anchor commits on `main`, one per push, CI green on each:
 
@@ -29,7 +51,8 @@ Anchor commits on `main`, one per push, CI green on each:
 | `7a85212` | This record: two measured figures ADR-0020 cites. |
 | `dbb93b9` | ADR-0012's ratification sentence and this record quote Manuel literally. |
 | `bdd1d74` | Roadmap §B3 and Part (b) §8–§9; SPEC-015 and SPEC-016 Amendments 2026-10-12, the destination of rules over the command line and the user; this record. |
-| (this commit) | This record: the reviews of ADR-0020's branch after the threat-model entry; debts #55 and #56. |
+| `2b4532e` | This record: the reviews of ADR-0020's branch after the threat-model entry; debts #55 and #56. |
+| (this commit) | The session's close: this record completed; README and roadmap point at it; roadmap §B2's status. |
 
 Manuel's decisions this session, in chat:
 
@@ -158,7 +181,34 @@ Debt record changes so far:
   green `detect_ac_001` run (CLAUDE.md *Developer-local SPEC-006 marquee
   validation*).
 
-## Self-reviews (in session)
+## Self-reviews
+
+Each SPEC or ADR text had Claude Code's pass (claims made twice agree;
+each `path:line` says what is claimed) and the fresh-context reviewer
+with the fixed prompt. Every list-A entry was fixed before landing.
+
+- **SPEC-017 Amendment 2026-10-11, the catalog edge, CLAUDE.md's gate**
+  (`cf54945`, `a293c27`). List A 4. A1, the amendment admitted the
+  callback's per-record `trace` line, which ADR-0009 and SPEC-005
+  NFR-005-001 forbid: it is not restated, and it became debt #52. The
+  other three were one-line fixes.
+- **ADR-0012 Amendment 2026-10-11** (`be69547`). List A 1: §7's comment
+  "the only class flowing in v0.1" (`:163`) was not dealt with; the
+  amendment now classifies it.
+- **SPEC-006, SPEC-015 and SPEC-016 Amendments 2026-10-11, roadmap §B1,
+  this record** (`3b21b5f`), two passes. List A 5, then 3: this record
+  still showed ADR-0012's amendment as unratified, its "(this commit)"
+  markers, and the sweep of #54 missed sites (`SPEC-016:43`;
+  `SPEC-015:16` and `:110`). SPEC-016 gained its amendment and the
+  others were fixed.
+- **ADR-0020 draft**, seven passes before the threat-model entry: list A
+  9, 9, 7, 6, 5, 5 and 2, all resolved. Among them:
+  - the parent at the edge broke `process.uid`, so it is split out (§5);
+  - a SID in the `dedup_key` would outlive the 365 days, so it is left out;
+  - ADR-0010's privilege detection: Kernel-Process opens first;
+  - the join bound against batching: the slot design;
+  - the read-model projects the fields;
+  - Manuel's words are quoted literally (`dbb93b9` on `main`).
 
 - **Roadmap §B3 and the SPEC-015 and SPEC-016 Amendments 2026-10-12.**
   Claude Code's pass: §B3 is the destination in roadmap §B3, Part (b) §8,
@@ -277,3 +327,137 @@ New this session:
   `agent/cg-agent/src/logon/mod.rs:168`; SPEC-017 §Data contracts). The
   pattern's re-narrowing stays open (SPEC-006 §Operational §5).
   Destination: B2's implementation branch, which changes the CGES schemas.
+- **#57 — CLAUDE.md says a SPEC header has no `Last updated`.** *SPEC
+  amendment workflow* describes a SPEC's header as `ID` / `Title` /
+  `Status` / `Depends on` / `Authors`, with no `Last updated` field.
+  SPEC-001 to SPEC-009 carry one (`docs/specs/SPEC-001-agent-heartbeat.md:9`
+  and the next eight). The rule still holds for the later SPECs.
+  Destination: a CLAUDE.md fact correction, Claude Code's (*Decision
+  authority*), with the next CLAUDE.md change.
+- **Note on #43** (handoff-35: events are not ordered across CPUs). Its
+  premise is in doubt. ferrisetw 1.2's default `log_file_mode` includes
+  `EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING`
+  (`ferrisetw-1.2.0/src/native/etw_types.rs:243`), so a session may
+  deliver in one buffer's order. To verify with SPEC-021's measurement.
+
+Debts #1–#51 keep their live record in `docs/handoff-session-35.md` §Debts,
+with this session's changes recorded above. Closed in this session:
+debts #2, #14, #28, #44, #45, #48 and #49. New: #52 to #57.
+
+## Decisions
+
+Manuel's decisions this session are listed with his words under
+*Progress* (2026-10-11: the ADR-0012 amendment, #49, the 1001 file, B2's
+three decisions and 1′; 2026-10-12: the threat-model entry and §B3).
+
+Claude Code's, **anticipated**:
+
+- #44 closed by amending SPEC-017 §Operational §6 to what the code does,
+  and not the code (`cf54945`). The alternative, changing the callback,
+  was not needed: it fits ADR-0009 except for the `trace` line (#52).
+- #45: the local gate lists each ts-ci job's steps (`a293c27`). The
+  alternative, `task` targets, does not exist yet.
+- #49 closed without amending ADR-0019 (delegated by Manuel). The
+  alternative, an amendment, would have corrected a statement that is true.
+- B2's sources measured with redacted scripts and a probe crate outside the
+  repo (`C:\tmp`), before any contract. The alternative, tests in the repo,
+  would have committed code for a question still open.
+- The threat-model entry goes on ADR-0020's branch as its own commit
+  (`bf1b251`), not on a branch of its own, so that one ratification covers
+  the asset and the decision that creates it.
+- The rules over the two fields go in roadmap §B3, with its owner-STOP
+  §9 (`bdd1d74`); SPEC-015 and SPEC-016 are amended by scope, and the
+  code's "B2" pointer goes to #54. The alternative, editing the code now,
+  would need a branch and the elevated gate for a message.
+- ADR-0020's design under its ratification: listed in its §Decision
+  record (the join through a slot, the bounds, the markers, the 365 days
+  of the SID, no user in the keys, the parent at the edge apart, no major
+  version).
+
+Claude Code's, **reactive**:
+
+- The single kernel source (B2 decision 1) became 1′ after the third
+  probe showed the kernel's event carries no image path (`cb82b39`).
+- The field became `process.user.uid`, not `process.user_sid`: the newer
+  classes use OCSF paths on the wire (review, A8).
+- The parent at the edge was split out of ADR-0020 (review).
+- Kernel-Process opens first, so that ADR-0010's privilege report stays
+  its own (review).
+- The read-model projects the fields, then all three markers, so that
+  the threat model's mitigation holds (reviews).
+- ADR-0006 amended for breaking changes while CGES is 0.x (review).
+- Manuel's words re-quoted literally on `main` and on the branch
+  (`dbb93b9`).
+
+## Gate outputs and baselines
+
+No code changed and no gate ran this session; the baselines are S35's
+(`docs/handoff-session-35.md` §Test baselines): elevated, cargo
+`--ignored` 7 passed and vitest `services/ingest` 60 files / 197 tests;
+`services/api` 31 files / 62 tests. CI on every push to `main` was
+`markdown-lint → success`, the other workflows not triggered by
+documentation.
+
+## What waits on Manuel
+
+1. The fresh-context pass over `fec2ee4..b751bdc` (he stopped the run at
+   `fec2ee4`): run it before landing, or say why not. Recommended: run it.
+2. His "sí" to ADR-0020 and its co-located amendments: ADR-0006 (a breaking
+   change keeps the version while CGES is 0.x with no outside consumer),
+   ADR-0009, ADR-0011, ADR-0012, ADR-0019 and the threat model.
+3. With SPEC-021: the closed list of secret patterns (ADR-0020 §2).
+4. Roadmap Part (b) §9: which threats §B3's rules cover, before its SPEC is
+   accepted.
+5. #55: the threat model brought in line with the system.
+6. Unchanged: Part (b) §1–§4, and §6 until ADR-0020 is Accepted.
+
+## How Session 37 resumes
+
+1. *Session protocol* §At the start. Expected: `main` = `origin/main` at
+   this file's last commit; tree clean; no stash; one branch,
+   `adr/s36-0020-cmdline-user` at `b751bdc`, no PR; catalogs ADR 19 / SPEC
+   20; Known CI debt zero.
+2. Ask Manuel the first two points of *What waits on Manuel*. For the
+   pass, use the fixed SPEC/ADR prompt over `docs/security/threat-model.md`
+   and `docs/adr/0006`, `0009`, `0011`, `0012`, `0019`, `0020` and
+   `README.md` at the branch tip, and fix every list-A entry on the branch
+   (marker kept) before landing. Offer him also to measure ADR-0020 Open
+   questions 5 (step 4) before his "sí": one elevated probe run, and a
+   positive result would remove the second session and the join from §1,
+   which is better changed before ratification than amended after.
+3. After his explicit "sí", land ADR-0020 (*Integration path* §3, §4):
+   - rebase the branch onto `main` and push it with `--force-with-lease`;
+   - squash it into one commit without the marker, with `git diff --cached
+     --quiet <branch>` as the guard;
+   - ADR-0020's Status becomes `Accepted`, with his words and the date in
+     its §Decision record, and its catalog row `Accepted`;
+   - `Last updated` in ADR-0020 and in each amended ADR gets the
+     ratification date;
+   - the headings of the co-located amendments that name ADR-0020 (and the
+     threat model's) get the ratification date, together with every
+     reference to them. ADR-0012's "Amendment 2026-10-11: classes 4001 and
+     3002 …" and SPEC-017's Amendment 2026-10-11 are other amendments and
+     keep their dates;
+   - delete the branch, local and on origin;
+   - CI on the pushed SHA.
+
+   Then, on `main`: roadmap §B2 states the decided source and its status;
+   Part (b) §6 is marked resolved.
+4. SPEC-021, the contract of §B2's capture:
+   - first, ADR-0020 Open questions 5: whether one session (a `UserTrace` in
+     system-logger mode, with the kernel's process provider by GUID)
+     delivers `CommandLine` and `UserSID`. Measure it with the probe crate,
+     elevated, through Manuel; if it does, it is an amendment to ADR-0020
+     before SPEC-021;
+   - the closed list of secret patterns, for Manuel to ratify;
+   - its amendments by scope (ADR-0020 §Consequences, Neutral);
+   - #43's premise (note above) and the truncation unit.
+5. Then the implementation, on a branch with a PR:
+   - acceptance tests failing first;
+   - CI on every push;
+   - the elevated gate through Manuel;
+   - the self-review;
+   - landing by cherry-pick.
+
+   It carries #52, #53, #54, #56 and #31.
+6. Then roadmap §B3, after Part (b) §9.

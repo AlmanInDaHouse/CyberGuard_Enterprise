@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-35.md](../handoff-session-35.md)).
+([handoff-session-36.md](../handoff-session-36.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -262,6 +262,10 @@ This dependency-ordered document supersedes both for planning.
 
 ### B2 — CommandLine + subject_user_sid capture
 
+- **Status: IN PROGRESS** (S36). Source measured and decided by Manuel
+  (2026-10-11); ADR-0020 drafted on the owner-review branch
+  `adr/s36-0020-cmdline-user`, waiting for his ratification
+  (`docs/handoff-session-36.md`). Then SPEC-021 and the implementation.
 - Does: give the agent a real capture source for `command_line` and
   `subject_user_sid`, then carry them end-to-end (agent → wire schema →
   `services/ingest/src/detect/read-model.ts:114-115`). An agent decision with
