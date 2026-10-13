@@ -203,7 +203,7 @@ export function prepareAgent(args: {
     identityDir: dir,
     agentTomlPath: tomlPath,
     run(runMs = 4000): Promise<AgentRunResult> {
-      return new Promise<AgentRunResult>((resolveRun, rejectRun) => {
+      const running = new Promise<AgentRunResult>((resolveRun, rejectRun) => {
         const child = spawn(agentBinaryPath(), ["--config", tomlPath], {
           stdio: ["ignore", "pipe", "pipe"],
         });
@@ -249,6 +249,10 @@ export function prepareAgent(args: {
           resolveRun({ exitCode: code, stdout, stderr, pid: child.pid });
         });
       });
+      // A marquee awaits the run seconds after it starts; a rejection that
+      // comes first must reach that await, not count as unhandled.
+      running.catch(() => {});
+      return running;
     },
   };
 }

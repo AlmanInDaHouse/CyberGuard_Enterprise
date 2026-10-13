@@ -17,8 +17,18 @@
 
 #![cfg(windows)]
 
-use cg_agent::etw::{events_lost, EtwSession, SESSION_NAME};
+use cg_agent::etw::{EtwSession, SESSION_NAME};
 use std::process::Command;
+
+/// Whether a session of the agent's name runs, asked of `logman`, not of
+/// the agent's own helper that the reclaim uses.
+fn session_running() -> bool {
+    Command::new("logman")
+        .args(["query", SESSION_NAME, "-ets"])
+        .status()
+        .expect("run logman")
+        .success()
+}
 
 #[test]
 fn open_reclaims_a_leftover_session_of_the_agents_name() {
@@ -31,7 +41,7 @@ fn open_reclaims_a_leftover_session_of_the_agents_name() {
         "logman start {SESSION_NAME} -ets -rt: {started:?}"
     );
     assert!(
-        events_lost(SESSION_NAME).is_ok(),
+        session_running(),
         "the leftover session must be running before the open"
     );
 
@@ -43,9 +53,5 @@ fn open_reclaims_a_leftover_session_of_the_agents_name() {
              (unelevated), got {e:?}"
         ),
     }
-    assert_eq!(
-        events_lost(SESSION_NAME),
-        Err(4201),
-        "no session of the agent's name is left"
-    );
+    assert!(!session_running(), "no session of the agent's name is left");
 }

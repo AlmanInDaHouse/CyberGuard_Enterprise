@@ -24,15 +24,27 @@ function sessionRunning(name: string): boolean {
   return spawnSync("logman", ["query", name, "-ets"], { stdio: "ignore" }).status === 0;
 }
 
-/** A `logman` that answers each verb with a fixed status and records its calls. */
-function fakeLogman(answers: { query: number | null; stop: number | null }): {
+/**
+ * A `logman` that answers each verb with a fixed status, a query after a
+ * stop with `queryAfterStop` when given, and records its calls.
+ */
+function fakeLogman(answers: {
+  query: number | null;
+  stop: number | null;
+  queryAfterStop?: number | null;
+}): {
   logman: Logman;
   calls: string[][];
 } {
   const calls: string[][] = [];
+  let stopped = false;
   const logman: Logman = (args) => {
     calls.push([...args]);
-    return args[0] === "stop" ? answers.stop : answers.query;
+    if (args[0] === "stop") {
+      stopped = true;
+      return answers.stop;
+    }
+    return stopped && answers.queryAfterStop !== undefined ? answers.queryAfterStop : answers.query;
   };
   return { logman, calls };
 }
@@ -90,10 +102,20 @@ describe("stopSessionsAfterExit", () => {
     expect(calls).toEqual([]);
   });
 
-  test("otherwise the agent's sessions are stopped", () => {
-    const { logman, calls } = fakeLogman({ query: PLA_E_DCS_NOT_FOUND, stop: 0 });
+  test("otherwise each running session of the agent's is stopped", () => {
+    const { logman, calls } = fakeLogman({
+      query: 0,
+      stop: 0,
+      queryAfterStop: PLA_E_DCS_NOT_FOUND,
+    });
     expect(stopSessionsAfterExit(false, logman)).toEqual([]);
-    expect(calls).toEqual(AGENT_ETW_SESSIONS.map((name) => ["query", name, "-ets"]));
+    expect(calls).toEqual(
+      AGENT_ETW_SESSIONS.flatMap((name) => [
+        ["query", name, "-ets"],
+        ["stop", name, "-ets"],
+        ["query", name, "-ets"],
+      ]),
+    );
   });
 });
 
