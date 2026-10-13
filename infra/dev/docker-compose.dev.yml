@@ -149,7 +149,7 @@ services:
       # in ms (0 = driver DISABLED, the kill-switch); rules dir = the image-bundled
       # path (Dockerfile COPY rules ./rules). Both have safe code defaults; set
       # here as the explicit operator surface.
-      INGEST_DETECT_INTERVAL_MS: ${CG_INGEST_DETECT_INTERVAL_MS:-10000}
+      INGEST_DETECT_INTERVAL_MS: ${CG_INGEST_DETECT_INTERVAL_MS:-5000}
       INGEST_DETECT_RULES_DIR: ${CG_INGEST_DETECT_RULES_DIR:-/app/rules/windows}
       # SPEC-014 / ADR-0017 — incident email notify (notify-only, on CREATE). OPTIONAL
       # and all-or-nothing: empty defaults ⇒ notify DISABLED cleanly in dev (no relay,

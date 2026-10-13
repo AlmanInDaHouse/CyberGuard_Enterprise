@@ -71,7 +71,7 @@ const EnvSchema = z
     // kill-switch, and what the detect-ac-001 marquee sets so its explicit
     // runDetectionCycle is the sole producer. INGEST_DETECT_RULES_DIR is the
     // Sigma rules directory the driver loads (fail-loud at boot if it is empty).
-    INGEST_DETECT_INTERVAL_MS: z.coerce.number().int().nonnegative().default(10000),
+    INGEST_DETECT_INTERVAL_MS: z.coerce.number().int().nonnegative().default(5000),
     INGEST_DETECT_RULES_DIR: z.string().min(1).default(defaultDetectRulesDir()),
     // SPEC-014 / ADR-0017 — incident email notification (notify-only). This SMTP
     // block is OPTIONAL and all-or-nothing: when unset, notification is disabled
