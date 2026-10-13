@@ -39,7 +39,8 @@ fn open_reclaims_a_leftover_session_of_the_agents_name() {
         Ok(mut session) => session.stop(),
         Err(e) => assert!(
             e.is_privilege(),
-            "unelevated: after the reclaim the start must fail for privilege, got {e:?}"
+            "after the reclaim the start must open (elevated) or fail for privilege \
+             (unelevated), got {e:?}"
         ),
     }
     assert_eq!(

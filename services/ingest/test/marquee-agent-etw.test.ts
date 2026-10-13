@@ -3,7 +3,12 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
-import { AGENT_ETW_SESSIONS, type Logman, stopEtwSessions } from "./helpers/marquee-agent.js";
+import {
+  AGENT_ETW_SESSIONS,
+  type Logman,
+  stopEtwSessions,
+  stopSessionsAfterExit,
+} from "./helpers/marquee-agent.js";
 
 // Debt #63 (docs/handoff-session-37.md): on Windows Node ends the marquee's
 // agent with a forced termination, so the agent's shutdown never stops its
@@ -34,6 +39,8 @@ function fakeLogman(answers: { query: number | null; stop: number | null }): {
 
 describe("the harness's list of the agent's ETW sessions", () => {
   test("names every session constant in the agent's source", () => {
+    // A tripwire, not a proof: a `&str` constant whose name says SESSION or
+    // LOGGER, or whose value starts with the agent's prefix.
     const src = join(REPO_ROOT, "agent", "cg-agent", "src");
     const names = new Set<string>();
     for (const file of readdirSync(src, { recursive: true, encoding: "utf8" })) {
@@ -41,8 +48,11 @@ describe("the harness's list of the agent's ETW sessions", () => {
         continue;
       }
       const source = readFileSync(join(src, file), "utf8");
-      for (const m of source.matchAll(/const \w*SESSION\w*: &str = "([^"]+)";/g)) {
-        names.add(m[1] as string);
+      for (const m of source.matchAll(/const (\w+): &str = "([^"]+)";/g)) {
+        const [, constName, value] = m as unknown as [string, string, string];
+        if (/SESSION|LOGGER/.test(constName) || value.startsWith("CGAgent")) {
+          names.add(value);
+        }
       }
     }
     expect(names.size, "a session constant found in the agent's source").toBeGreaterThan(0);
@@ -70,6 +80,20 @@ describe("stopEtwSessions, against a logman that answers as told", () => {
     expect(() => stopEtwSessions(["X"], fakeLogman({ query: null, stop: 0 }).logman)).toThrow(
       "logman query X -ets failed: it did not run",
     );
+  });
+});
+
+describe("stopSessionsAfterExit", () => {
+  test("while another marquee agent runs, nothing is stopped", () => {
+    const { logman, calls } = fakeLogman({ query: 0, stop: 0 });
+    expect(stopSessionsAfterExit(true, logman)).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test("otherwise the agent's sessions are stopped", () => {
+    const { logman, calls } = fakeLogman({ query: PLA_E_DCS_NOT_FOUND, stop: 0 });
+    expect(stopSessionsAfterExit(false, logman)).toEqual([]);
+    expect(calls).toEqual(AGENT_ETW_SESSIONS.map((name) => ["query", name, "-ets"]));
   });
 });
 
