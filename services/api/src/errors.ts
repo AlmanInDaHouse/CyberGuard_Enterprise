@@ -29,3 +29,20 @@ export class ForbiddenError extends Error {
     this.name = "ForbiddenError";
   }
 }
+
+/** A malformed request parameter — mapped to 400 (SPEC-009 Amendment 2026-10-14 §2). */
+export class BadRequestError extends Error {
+  constructor(message = "bad request") {
+    super(message);
+    this.name = "BadRequestError";
+  }
+}
+
+/** A store that could not answer — mapped to 503 (SPEC-009 Amendment 2026-10-14 §3).
+ *  The store client's error is the `cause`, logged and never sent. */
+export class StoreUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("store unavailable", { cause });
+    this.name = "StoreUnavailableError";
+  }
+}

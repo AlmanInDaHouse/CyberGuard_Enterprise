@@ -28,8 +28,19 @@ export interface Services {
   close(): Promise<void>;
 }
 
+/** How long the pool waits for a connection, whether Postgres has not established it
+ *  or a busy pool has none free, before the query fails: a read then answers 503
+ *  (SPEC-009 Amendment 2026-10-14 §3). An open connection whose peer goes silent is
+ *  not bounded here (debt #71). */
+const PG_CONNECTION_TIMEOUT_MS = 5000;
+
+/** The api's Postgres pool. */
+export function createPgPool(connectionString: string): pg.Pool {
+  return new pg.Pool({ connectionString, connectionTimeoutMillis: PG_CONNECTION_TIMEOUT_MS });
+}
+
 export async function buildServices(config: Config): Promise<Services> {
-  const pool = new pg.Pool({ connectionString: config.API_PG_URL });
+  const pool = createPgPool(config.API_PG_URL);
   const redis = new Redis(config.API_REDIS_URL, { maxRetriesPerRequest: null });
   const ch = createClient({
     url: config.API_CH_URL,

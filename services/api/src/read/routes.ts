@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { makeRequireSession } from "../auth/prehandlers.js";
 import { buildForensicExport } from "../forensic/export.js";
 import { buildReport } from "../forensic/report.js";
@@ -6,9 +6,16 @@ import type { Services } from "../services.js";
 import {
   getIncidentDetail,
   getIncidentEventTimeline,
+  isUuid,
   listAlerts,
   listIncidents,
 } from "./queries.js";
+
+/** The `:id` of an incident route, lower-cased, or null when it is not a canonical UUID. */
+function incidentId(req: FastifyRequest): string | null {
+  const { id } = req.params as { id: string };
+  return isUuid(id) ? id.toLowerCase() : null;
+}
 
 /**
  * SPEC-009 §Operational §1/§2 — the read-API surface. Every read sits behind
@@ -19,6 +26,10 @@ import {
  * (§Operational §2) — RBAC of reads is session + org-scope, with the role ×
  * read-capability matrix deferred (no role-restricted read exists in the MVP); so
  * no `makeRequireRole` gate restricts these routes.
+ *
+ * Errors (SPEC-009 Amendment 2026-10-14): a malformed `:id` is a 404 decided before any
+ * store is read; a malformed list parameter (400) and a store that cannot answer (503)
+ * reach the app's error handler.
  */
 export function registerReadRoutes(app: FastifyInstance, services: Services): void {
   const requireSession = makeRequireSession(services);
@@ -43,14 +54,9 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   app.get("/v1/incidents/:id", { preHandler: requireSession }, async (req, reply) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
-    const { id } = req.params as { id: string };
-    let detail: Awaited<ReturnType<typeof getIncidentDetail>>;
-    try {
-      detail = await getIncidentDetail(services.pg, session.org_id, id);
-    } catch {
-      // Malformed id (e.g. not a UUID) → generic 404, no internal detail.
-      return reply.code(404).send({ error: "not_found" });
-    }
+    const id = incidentId(req);
+    if (!id) return reply.code(404).send({ error: "not_found" });
+    const detail = await getIncidentDetail(services.pg, session.org_id, id);
     if (!detail) return reply.code(404).send({ error: "not_found" });
     return detail;
   });
@@ -63,14 +69,9 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   app.get("/v1/incidents/:id/events", { preHandler: requireSession }, async (req, reply) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
-    const { id } = req.params as { id: string };
-    let timeline: Awaited<ReturnType<typeof getIncidentEventTimeline>>;
-    try {
-      timeline = await getIncidentEventTimeline(services.pg, services.ch, session.org_id, id);
-    } catch {
-      // Malformed id (e.g. not a UUID) → generic 404, no internal detail.
-      return reply.code(404).send({ error: "not_found" });
-    }
+    const id = incidentId(req);
+    if (!id) return reply.code(404).send({ error: "not_found" });
+    const timeline = await getIncidentEventTimeline(services.pg, services.ch, session.org_id, id);
     if (!timeline) return reply.code(404).send({ error: "not_found" });
     return timeline;
   });
@@ -89,14 +90,9 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
     async (req, reply) => {
       const session = req.authSession;
       if (!session) throw new Error("unreachable: requireSession populates authSession");
-      const { id } = req.params as { id: string };
-      let exportDoc: Awaited<ReturnType<typeof buildForensicExport>>;
-      try {
-        exportDoc = await buildForensicExport(services, session.org_id, id);
-      } catch {
-        // Malformed id (e.g. not a UUID) → generic 404, no internal detail.
-        return reply.code(404).send({ error: "not_found" });
-      }
+      const id = incidentId(req);
+      if (!id) return reply.code(404).send({ error: "not_found" });
+      const exportDoc = await buildForensicExport(services, session.org_id, id);
       if (!exportDoc) return reply.code(404).send({ error: "not_found" });
       return exportDoc;
     },
@@ -112,14 +108,9 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   app.get("/v1/incidents/:id/report", { preHandler: requireSession }, async (req, reply) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
-    const { id } = req.params as { id: string };
-    let pdf: Awaited<ReturnType<typeof buildReport>>;
-    try {
-      pdf = await buildReport(services, session.org_id, id);
-    } catch {
-      // Malformed id (e.g. not a UUID) → generic 404, no internal detail.
-      return reply.code(404).send({ error: "not_found" });
-    }
+    const id = incidentId(req);
+    if (!id) return reply.code(404).send({ error: "not_found" });
+    const pdf = await buildReport(services, session.org_id, id);
     if (!pdf) return reply.code(404).send({ error: "not_found" });
     return reply.type("application/pdf").send(pdf);
   });

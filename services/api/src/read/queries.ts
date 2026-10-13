@@ -1,5 +1,6 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import type { Pool } from "pg";
+import { BadRequestError, StoreUnavailableError } from "../errors.js";
 import type {
   AlertListItem,
   EventTimeline,
@@ -16,10 +17,30 @@ import type {
  * single-org; SPEC-009 §Security considerations). Lists are keyset-paginated with
  * a hard cap (NFR-009-001). Timestamps are returned as ISO strings; numeric scores
  * as numbers.
+ *
+ * SPEC-009 Amendment 2026-10-14: a parameter is checked before any store is read
+ * (a malformed list parameter is a BadRequestError), and every store call goes
+ * through `fromStore`, so a store that cannot answer is a StoreUnavailableError.
  */
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
+
+/** A UUID in canonical text form, either case (SPEC-009 Amendment 2026-10-14 §1). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(s: string): boolean {
+  return UUID.test(s);
+}
+
+/** Run one store call; its failure is the store's, whatever the client threw. */
+async function fromStore<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    throw new StoreUnavailableError(err);
+  }
+}
 
 function clampLimit(raw: string | undefined): number {
   const n = Number(raw);
@@ -33,12 +54,48 @@ interface Cursor {
 function encodeCursor(c: Cursor): string {
   return Buffer.from(JSON.stringify(c)).toString("base64url");
 }
-function decodeCursor(raw: string): Cursor | null {
+
+/** A timestamp as `toISOString()` writes it for a year from 1 to 9999. Wider years
+ *  round-trip in JavaScript and are refused by Postgres. */
+const CURSOR_TIME = /^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** The cursor a list issued: a timestamp (`CURSOR_TIME`) and a UUID. Anything else is
+ *  a BadRequestError, never a value handed to Postgres. */
+function decodeCursor(raw: string): Cursor {
+  let c: unknown;
   try {
-    const c = JSON.parse(Buffer.from(raw, "base64url").toString()) as Cursor;
-    return typeof c.t === "string" && typeof c.id === "string" ? c : null;
+    c = JSON.parse(Buffer.from(raw, "base64url").toString());
   } catch {
-    return null;
+    throw new BadRequestError("cursor does not decode");
+  }
+  const { t, id } = (c ?? {}) as Partial<Cursor>;
+  if (typeof t !== "string" || typeof id !== "string" || !isUuid(id)) {
+    throw new BadRequestError("malformed cursor");
+  }
+  const time = new Date(t);
+  if (!CURSOR_TIME.test(t) || Number.isNaN(time.getTime()) || time.toISOString() !== t) {
+    throw new BadRequestError("malformed cursor time");
+  }
+  return { t, id: id.toLowerCase() };
+}
+
+/** The list filters, checked before any store is read (Amendment 2026-10-14 §2): the
+ *  values Postgres would refuse. An empty parameter is absent, as the filters below
+ *  read it; `severity_id` is read as a number, as before. */
+function checkListParams(p: ListParams): void {
+  if (p.agentId && !isUuid(p.agentId)) {
+    throw new BadRequestError("malformed agent_id");
+  }
+  if (p.severityId) {
+    const n = Number(p.severityId);
+    if (!Number.isInteger(n) || n < 0 || n > 6) {
+      throw new BadRequestError("malformed severity_id");
+    }
+  }
+  // A repeated `status` arrives as an array, which Postgres reads as one text value.
+  const statuses: unknown[] = Array.isArray(p.status) ? p.status : [p.status];
+  if (statuses.some((s) => typeof s === "string" && s.includes("\u0000"))) {
+    throw new BadRequestError("malformed status");
   }
 }
 
@@ -67,6 +124,7 @@ export async function listIncidents(
   orgId: string,
   p: ListParams,
 ): Promise<Page<IncidentListItem>> {
+  checkListParams(p);
   const limit = clampLimit(p.limit);
   const where: string[] = ["org_id = $1"];
   const args: unknown[] = [orgId];
@@ -86,12 +144,14 @@ export async function listIncidents(
     );
   }
   args.push(limit + 1);
-  const r = await pool.query<IncidentRow>(
-    `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre,
+  const r = await fromStore(() =>
+    pool.query<IncidentRow>(
+      `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre,
             cardinality(alert_ids) AS alert_count, window_start, updated_at
      FROM incidents WHERE ${where.join(" AND ")}
      ORDER BY updated_at DESC, incident_id DESC LIMIT $${args.length}`,
-    args,
+      args,
+    ),
   );
   const hasMore = r.rows.length > limit;
   const page = r.rows.slice(0, limit);
@@ -163,19 +223,23 @@ export async function getIncidentDetail(
   orgId: string,
   id: string,
 ): Promise<IncidentDetail | null> {
-  const ir = await pool.query<IncidentDetailRow>(
-    `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre, window_start,
+  const ir = await fromStore(() =>
+    pool.query<IncidentDetailRow>(
+      `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre, window_start,
             assigned_to, created_at, updated_at, alert_ids
      FROM incidents WHERE incident_id = $1 AND org_id = $2`,
-    [id, orgId],
+      [id, orgId],
+    ),
   );
   const inc = ir.rows[0];
   if (!inc) return null;
-  const ar = await pool.query<AlertRow>(
-    `SELECT ${ALERT_COLS} FROM alerts
+  const ar = await fromStore(() =>
+    pool.query<AlertRow>(
+      `SELECT ${ALERT_COLS} FROM alerts
      WHERE alert_id = ANY($1::uuid[]) AND org_id = $2
      ORDER BY event_time DESC, alert_id DESC`,
-    [inc.alert_ids, orgId],
+      [inc.alert_ids, orgId],
+    ),
   );
   return {
     incident_id: inc.incident_id,
@@ -227,8 +291,8 @@ function mapTimelineEvent(r: TimelineRow): TimelineEvent {
  * = ANY(alerts.source_events)` (ADR-0015). Org-scoped on BOTH stores. Returns null
  * when the incident does not exist or is cross-org (the route → 404, no existence
  * oracle); an existing incident that resolves to no source_events returns
- * `{ events: [] }` (200), never 404. A malformed (non-UUID) `:id` throws on the pg
- * cast and is caught by the route → 404, mirroring getIncidentDetail.
+ * `{ events: [] }` (200), never 404. The route answers a malformed `:id` with 404
+ * before calling this (SPEC-009 Amendment 2026-10-14 §1).
  */
 export async function getIncidentEventTimeline(
   pool: Pool,
@@ -236,23 +300,28 @@ export async function getIncidentEventTimeline(
   orgId: string,
   id: string,
 ): Promise<EventTimeline | null> {
-  const ir = await pool.query<{ alert_ids: string[] }>(
-    "SELECT alert_ids FROM incidents WHERE incident_id = $1 AND org_id = $2",
-    [id, orgId],
+  const ir = await fromStore(() =>
+    pool.query<{ alert_ids: string[] }>(
+      "SELECT alert_ids FROM incidents WHERE incident_id = $1 AND org_id = $2",
+      [id, orgId],
+    ),
   );
   const inc = ir.rows[0];
   if (!inc) return null;
 
-  const ar = await pool.query<AlertRow>(
-    `SELECT ${ALERT_COLS} FROM alerts
+  const ar = await fromStore(() =>
+    pool.query<AlertRow>(
+      `SELECT ${ALERT_COLS} FROM alerts
      WHERE alert_id = ANY($1::uuid[]) AND org_id = $2`,
-    [inc.alert_ids, orgId],
+      [inc.alert_ids, orgId],
+    ),
   );
   const eventIds = [...new Set(ar.rows.flatMap((a) => a.source_events))];
   if (eventIds.length === 0) return { incident_id: id, events: [] };
 
-  const rs = await ch.query({
-    query: `
+  const rs = await fromStore(() =>
+    ch.query({
+      query: `
       SELECT toString(event_id) AS event_id, toString(agent_id) AS agent_id, activity_id,
              process_pid, process_uid, process_name, image_file_name,
              process_parent_pid, toString(time) AS event_time
@@ -261,10 +330,11 @@ export async function getIncidentEventTimeline(
         AND toString(event_id) IN ({ids:Array(String)})
       ORDER BY time ASC, event_id ASC
     `,
-    query_params: { org: orgId, ids: eventIds },
-    format: "JSONEachRow",
-  });
-  const rows = await rs.json<TimelineRow>();
+      query_params: { org: orgId, ids: eventIds },
+      format: "JSONEachRow",
+    }),
+  );
+  const rows = await fromStore(() => rs.json<TimelineRow>());
   return { incident_id: id, events: rows.map(mapTimelineEvent) };
 }
 
@@ -273,6 +343,7 @@ export async function listAlerts(
   orgId: string,
   p: ListParams,
 ): Promise<Page<AlertListItem>> {
+  checkListParams(p);
   const limit = clampLimit(p.limit);
   const where: string[] = ["org_id = $1"];
   const args: unknown[] = [orgId];
@@ -296,10 +367,12 @@ export async function listAlerts(
     );
   }
   args.push(limit + 1);
-  const r = await pool.query<AlertRow>(
-    `SELECT ${ALERT_COLS} FROM alerts WHERE ${where.join(" AND ")}
+  const r = await fromStore(() =>
+    pool.query<AlertRow>(
+      `SELECT ${ALERT_COLS} FROM alerts WHERE ${where.join(" AND ")}
      ORDER BY event_time DESC, alert_id DESC LIMIT $${args.length}`,
-    args,
+      args,
+    ),
   );
   const hasMore = r.rows.length > limit;
   const page = r.rows.slice(0, limit);
