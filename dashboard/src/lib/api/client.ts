@@ -11,6 +11,12 @@ export interface ApiClient {
   get(path: string, cookieHeader: string | undefined): Promise<ApiResponse>;
 }
 
+/** The read-API's base URL: `API_BASE_URL` when set, else the api's own default
+ *  listener (`API_BIND_HOST` 127.0.0.1 and `API_PORT` 8081, services/api/src/config.ts). */
+export function apiBaseUrl(env: Record<string, string | undefined> = process.env): string {
+  return env.API_BASE_URL ?? "http://127.0.0.1:8081";
+}
+
 /** The production client: forwards the server-side `cgsess` cookie to the read-API
  *  over HTTP, never caching (every read reflects current auth + data). */
 export function httpApiClient(baseUrl: string): ApiClient {
