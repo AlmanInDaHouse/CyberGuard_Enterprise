@@ -1,5 +1,5 @@
 import { IncidentsTable } from "@/components/incidents-table";
-import { httpApiClient } from "@/lib/api/client";
+import { apiBaseUrl, httpApiClient } from "@/lib/api/client";
 import { getIncidents } from "@/lib/api/incidents";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -8,13 +8,11 @@ import { redirect } from "next/navigation";
 // statically prerendered (so `next build` compiles without executing the read).
 export const dynamic = "force-dynamic";
 
-const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:8080";
-
 /** Incidents list (SPEC-009 §Operational §3). Server-side: forward `cgsess` to the
  *  read-API; an unauthenticated result redirects to login. */
 export default async function IncidentsPage() {
   const cookieStore = await cookies();
-  const result = await getIncidents(httpApiClient(API_BASE_URL), cookieStore.toString());
+  const result = await getIncidents(httpApiClient(apiBaseUrl()), cookieStore.toString());
   if (!result.ok) redirect("/login");
 
   return (
