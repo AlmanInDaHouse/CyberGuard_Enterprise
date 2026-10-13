@@ -33,6 +33,8 @@ export async function startIngest(config: Config): Promise<IngestServer> {
   }
 
   const services = await buildServices(config);
+  // The apps built so far, so a failure after a listen closes what was bound.
+  const built: { close(): Promise<unknown> }[] = [];
 
   try {
     const bindHost = config.INGEST_BIND_HOST;
@@ -44,6 +46,7 @@ export async function startIngest(config: Config): Promise<IngestServer> {
 
     const logger = { level: config.INGEST_LOG_LEVEL };
     const enrollApp = buildEnrollApp(services, logger);
+    built.push(enrollApp);
     const heartbeatApp = buildHeartbeatApp(
       services,
       {
@@ -59,6 +62,7 @@ export async function startIngest(config: Config): Promise<IngestServer> {
       },
       logger,
     );
+    built.push(heartbeatApp);
 
     await enrollApp.listen({ host: bindHost, port: config.INGEST_ENROLL_PORT });
     await heartbeatApp.listen({ host: bindHost, port: config.INGEST_HEARTBEAT_PORT });
@@ -97,6 +101,8 @@ export async function startIngest(config: Config): Promise<IngestServer> {
       },
     };
   } catch (err) {
+    // Close whatever listener was bound before the failure (debt #19), then the services.
+    await Promise.allSettled(built.map((app) => app.close()));
     await services.close();
     throw err;
   }
