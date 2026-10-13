@@ -29,7 +29,7 @@ services:
       start_period: 10s
 
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8
+    image: clickhouse/clickhouse-server:24.8.14.39
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:

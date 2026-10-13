@@ -41,7 +41,7 @@ export async function startBackends(): Promise<Backends> {
       .start();
     started.push(redis);
 
-    const ch = await new GenericContainer("clickhouse/clickhouse-server:24.8")
+    const ch = await new GenericContainer("clickhouse/clickhouse-server:24.8.14.39")
       .withEnvironment({
         CLICKHOUSE_USER: "cyberguard",
         CLICKHOUSE_PASSWORD: "cyberguard_dev",
