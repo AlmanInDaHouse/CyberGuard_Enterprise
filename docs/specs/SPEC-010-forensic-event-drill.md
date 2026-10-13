@@ -147,6 +147,24 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 **Status.** SPEC-010 stays **Accepted** (per CLAUDE.md §SPEC amendment workflow). The change is additive at the response-shape level — only the same-`time` row order is newly pinned; no consumer that already relied on `time ASC` breaks.
 
+## Amendment 2026-10-14: a store failure answers `503` (Open question 3 resolved)
+
+**What surfaced it.** Debt #10 and this SPEC's Open question 3: a ClickHouse failure on the drill answers `404`, which conflates evidence that is out of reach with evidence that is absent. SPEC-009's Amendment 2026-10-14 sets the read API's error semantics for every route, this one included.
+
+**The amendment.** A document change; the code follows in the implementing commits of the same sweep (debt #10, handoff-38).
+
+- §Operational's "Errors" bullet and step 1 (`:62`, `:68`): a malformed `:id` still answers `404 { error: "not_found" }`. It is decided before the query, against the canonical UUID form, and not by catching the failed cast.
+- A Postgres or ClickHouse failure answers `503 { error: "unavailable" }`, and its cause is logged on the server.
+- Open question 3 is resolved: `503`.
+- No existence oracle: the org-scoped Postgres lookup of step 1 still decides `404` before ClickHouse is read, so only an incident of the session's org can reach a ClickHouse failure.
+
+**Effect.**
+
+- drill_ac_001 to drill_ac_003 are unchanged.
+- The `503` cases are SPEC-009's read_ac_007.
+- This realises ADR-0015 §Out of scope's item on the `503`-vs-`404` distinction, whose destination was this Open question. The ADR's text stays as written, as its PDF item did when SPEC-013 delivered the report.
+- Status stays **Accepted**.
+
 ## References
 
 - [ADR-0015](../adr/0015-readonly-clickhouse-reader-in-api.md) — the boundary decision this SPEC implements.

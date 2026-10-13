@@ -200,6 +200,18 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the three owner decis
 
 Alternatives considered: a `time` watermark per agent (it does not survive a clock that steps back, and it relies on each agent delivering in `time` order); re-reading an overlap instead of waiting out a margin (every event evaluated several times, and the overlap competes with new rows for the batch limit).
 
+## Amendment 2026-10-14: the driver's default interval is 5000 ms
+
+**What surfaced it.** Debt #33, which §Out of scope (`:53`) sends to the S33 handoff. The driver's default interval is 10 000 ms against the 5000 ms of NFR-006-001: in the default of `INGEST_DETECT_INTERVAL_MS` (`services/ingest/src/config.ts`), and in the dev stack's `CG_INGEST_DETECT_INTERVAL_MS` (the dev compose and `infra/dev/.env.example`).
+
+**The amendment.** The default is 5000 ms, NFR-006-001's value, in all three places, which resolves that §Out of scope item. It is a document change: the code, the compose and `.env.example` follow in the implementing commit of the same sweep (handoff-38), and until it lands they keep 10 000 ms. NFR-018-003 is restated: the agent's 5000 ms batch (SPEC-017 §Operational §2), the driver's default interval of 5000 ms and the 5000 ms margin put an event's evaluation within about 15 s of its capture, plus processing. That is still inside the 30 seconds of the Blueprint's MVP statement. A deployment that sets the variable keeps its value.
+
+**Effect.**
+
+- No acceptance criterion changes: the cursor, the margin and the batch size are unchanged, and detect_ac_001 runs its cycle with the driver off.
+- The decision was put to Manuel because it changes the default of a variable a deployment reads. He delegated it on 2026-10-14 ("lo que este pendiente de mi decidelo tu en base al beneficio del proyecto"), and Claude Code decided it.
+- Status stays **Accepted**.
+
 ## References
 
 - [SPEC-006](SPEC-006-detection-mvp.md) — the detection MVP this SPEC amends by scope.

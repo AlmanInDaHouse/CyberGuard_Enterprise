@@ -268,6 +268,18 @@ Load-bearing decisions surfaced and ratified in chat during the Phase 3.3 audit-
 
 Each entry will record the recommended-default-and-rationale pattern established by SPEC-003 §Ratification record.
 
+## Amendment 2026-10-14: the zombie reclaim is logged at `warn`
+
+**What surfaced it.** Debt #64 (`docs/handoff-session-38.md`), from a review in Session 38. §Observability's row "ETW session closed (zombie reclaimed)" (`:230`) asks for `info` with `session_name` and `reclaim_path` (`"helper.stop_zombie"`). The agent logs the reclaim at `warn` with `session_name` only (`agent/cg-agent/src/etw/session.rs:131-136`).
+
+**The amendment.** The row's level is `warn`, and its required field is `session_name`; `reclaim_path` is dropped. A reclaimed session means an earlier agent ended without stopping its session (a crash or a forced kill). That is an abnormal event, which `warn` marks, and a collector that keeps only warnings and errors still receives it; `info` is for the routine lines of a run. `reclaim_path` named the helper that does the stop, which the log line's target (`cg_agent::etw`) already locates. The other rows are unchanged.
+
+**Effect.**
+
+- No acceptance criterion asserts the row.
+- ADR-0008 §Decision part 2 names the helper `stop_zombie(session_name) -> Result<StopOutcome, u32>`, while the code has `reclaim_zombie(session_name) -> Result<bool, u32>` (`agent/cg-agent/src/etw/events_lost_impl.rs:127`). That is the other half of #64. The ADR stays as written: the code takes its names at the next change to `agent/cg-agent/src/etw/` that runs the elevated gate.
+- Status stays **Accepted**.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout. Places `agent/cg-agent/`, `services/ingest/`, `schemas/cges/v0.1/`, `docs/specs/`, `docs/adr/`, `docs/spikes/`.

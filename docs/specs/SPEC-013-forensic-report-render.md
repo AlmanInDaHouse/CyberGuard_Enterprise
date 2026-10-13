@@ -119,6 +119,14 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 7. **Doc-only this gate** — the dependency edit, the render module, the route, and the test dep are the implementation gate (a later commit).
 8. **Visible limitation note in the PDF** (§Data contracts §5) — the provisional mitigation for the deferred out-of-band anchoring; makes integrity-not-authenticity auditable in the artifact (report_ac_005), **not** a resolution of SPEC-012 §Open questions 1.
 
+## Amendment 2026-10-14: the report route's errors follow the read API's
+
+**What surfaced it.** Debt #10, which SPEC-009's Amendment 2026-10-14 resolves for every read route. §Scope 3 (`:28`) says the report route's `404` mirrors the drill and the forensic export, which until then answered `404` to any error.
+
+**The amendment.** A document change; the code follows in the implementing commits of the same sweep (debt #10, handoff-38). The `404` of §Scope 3 and report_ac_003 is for an incident that does not exist, belongs to another org, or has a malformed `:id`; a malformed `:id` is decided before any read. A Postgres or ClickHouse failure answers `503 { error: "unavailable" }`, as SPEC-009's Amendment 2026-10-14 states.
+
+**Effect.** report_ac_001 to report_ac_005 are unchanged; the `503` case is SPEC-009's read_ac_007. Status stays **Accepted**.
+
 ## References
 
 - [Blueprint](../product/blueprint.md) — `:750` (the MVP *"Incident PDF export"* promise this SPEC fulfils), `:33` (the *"exportable forensic report"* title promise), `:393` (the `report` pipeline stage — note the **realized stack is TS + `@react-pdf/renderer` in `services/api`**, NOT the aspirational *"Go + headless Chromium or WeasyPrint"* the blueprint names; superseded by ADR-0007 + ratification).

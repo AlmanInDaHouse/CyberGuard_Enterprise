@@ -188,6 +188,42 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 **Effect.** **Additive and AC-neutral for this SPEC:** SPEC-009's read-models (`IncidentDetail`, `ResolvedAlert`) are **untouched** — SPEC-010 adds `source_events` only to the internal `AlertRow`/`ALERT_COLS`, never to the SPEC-009 response contracts the dashboard depends on. The five read-AC tests are not revised. Status stays **Accepted**.
 
+## Amendment 2026-10-14: read errors — malformed input and a store that cannot answer
+
+**What surfaced it.** Debt #10 (`docs/handoff-session-26.md:173`): the event drill answers `404` while ClickHouse is down. Session 38 found it wider:
+
+- The four `:id` routes (`/v1/incidents/:id` and its `/events`, `/forensic-export` and `/report`) catch every error and answer `404`. A Postgres or ClickHouse failure therefore reads as "not found": an analyst is told an incident does not exist when its evidence is only out of reach.
+- The lists pass `agent_id` (both lists), `severity_id` (`/v1/alerts`) and the fields of a cursor to Postgres unchecked. A value Postgres cannot cast fails in the store and answers `500`, not the `400` of NFR-009-003.
+- read_ac_006 has no test.
+
+**The amendment.** It applies to every route of the read API: the three of this SPEC, SPEC-010's drill, SPEC-012's forensic export and SPEC-013's report. It is a document change; the code follows in the implementing commits of the same sweep (debt #10, handoff-38), and until they land the routes behave as *What surfaced it* says.
+
+1. An `:id` that is not a UUID in canonical text form (8-4-4-4-12 hexadecimal digits, either case) → `404 { error: "not_found" }`, decided before any store is read. Postgres accepts other spellings of a UUID (braces, no hyphens); the read API does not. An `:id` in upper case is read, and answered, in lower case.
+2. On the lists: an `agent_id` that is not a UUID in that form, a `severity_id` that is not an integer from 0 to 6, or a `cursor` that does not decode to the form the API issues (a timestamp and a UUID) → `400 { error: "bad_request" }`, decided before any store is read. `status` and `limit` are unchanged: an unknown `status` matches no row, and `limit` is clamped (NFR-009-001).
+3. A store that cannot answer → `503 { error: "unavailable" }`. The store is Postgres for any read, and ClickHouse for the drill, the export and the report whenever they read it; an incident whose alerts carry no source event is answered from Postgres alone (SPEC-010 §Data contracts, "Empty"). "Cannot answer" means its client returns an error. The connection may be refused or dropped, may not be established within the client's timeout (5 s for the api's Postgres pool; the ClickHouse client's own request timeout), or the store may answer with an error. The cause is logged on the server at `error` level and never sent (NFR-009-003).
+4. Any other failure → `500 { error: "internal" }`, also logged on the server at `error` level. An error that Fastify itself raises with its own status (a body it cannot parse, say) keeps that status, as before.
+5. No existence oracle (§Security considerations): an `:id` read resolves the incident in Postgres, scoped to the session's org, before anything else is read. A Postgres failure answers `503` whatever the well-formed `:id`, and ClickHouse is read only for an incident of the session's org, so a `503` tells the caller nothing about another org's incidents.
+6. Not changed here: the session store (Redis) inside SPEC-008's session preHandler. A Redis error reply still answers `500`. A Redis that cannot be reached holds the request until it returns, since the api's client queues commands without a limit (`services/api/src/services.ts:33`); that is debt #69 (handoff-38), on SPEC-008's surface.
+
+**Effect.**
+
+- §Data contracts: the `404` of §2 is unchanged. The query parameters of §1 and §3 (`agent_id`, `severity_id`, `cursor`) gain the `400` of item 2.
+- NFR-009-003: its generic statuses become `400`/`401`/`404`/`500`/`503`.
+- read_ac_006 is restated: a malformed `:id` → `404` on each `:id` route, and a malformed `agent_id`, `severity_id` or `cursor` → `400` on the list that takes it. Each body carries only `error`.
+- New **read_ac_007 (store failure).**
+  - With Postgres refusing or dropping connections, each read route answers `503 { error: "unavailable" }`, and a malformed `:id` still `404`.
+  - With ClickHouse doing the same, the drill, the export and the report of an incident with source events answer `503`, the detail and the lists answer `200`, and another org's incident `404`.
+  - CI-able.
+- Not backward-compatible for four kinds of client:
+  - One that read a `404` as an outage. On an outage the dashboard's detail page now shows Next.js's default error page instead of "not found", since the dashboard maps any status other than `200`, `401` and `404` to an error (`dashboard/src/lib/api/incidents.ts:20-33`).
+  - One that sent a cursor that does not decode and relied on getting the first page back.
+  - One that spelled a UUID in a form other than the canonical one. It got the incident (`200`), or the filtered list, and now gets `404` on an `:id` and `400` on `agent_id`.
+  - One that sent a `severity_id` outside 0–6, which matched no row (`200`, an empty page) and is now `400`.
+- ADR-0015 §Compliance (`docs/adr/0015-readonly-clickhouse-reader-in-api.md:70`) says a ClickHouse outage fails "only the drill route". It has said less than the system does since SPEC-012 and SPEC-013 added two more routes that read ClickHouse, and item 3 states all three. The ADR's text is Manuel's to change: debt #70 (handoff-38).
+- The decision is on Manuel's list (a public API contract). It was delegated by Manuel on 2026-10-14 ("lo que este pendiente de mi decidelo tu en base al beneficio del proyecto") and decided by Claude Code.
+- SPEC-010 and SPEC-013 record the effect on their routes in their own amendments of the same date. SPEC-012 states no error semantics for its route (its §Data contracts leaves the endpoint surface to the implementation), so it is not amended.
+- Status stays **Accepted**.
+
 ## References
 
 - [SPEC-008](SPEC-008-auth-core.md) — the auth-core this slice sits behind; `:40`/`:275` defer the reads + their RBAC matrix to here; the `makeRequireSession`/`makeRequireRole` preHandler factories (`services/api/src/auth/prehandlers.ts`, realised at SPEC-008's GREEN gate), `cgsess` cookie, `POST /v1/auth/login`, and Fastify+Zod scaffold this SPEC reuses.
