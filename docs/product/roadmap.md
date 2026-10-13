@@ -262,14 +262,23 @@ This dependency-ordered document supersedes both for planning.
 
 ### B2 — CommandLine + subject_user_sid capture
 
-- **Status: IN PROGRESS** (S36–S37). Source measured and decided by Manuel
-  (2026-10-11) and recorded in ADR-0020, Accepted on 2026-10-13 with its
-  six co-located amendments: the kernel's process events, in a second
-  session of the agent's, joined to Kernel-Process's Launch by PID and
-  timestamp; secrets replaced on the agent; the user on the wire as
+- **Status: PARKED** (S38, 2026-10-14). Source measured and decided by
+  Manuel (2026-10-11) and recorded in ADR-0020, Accepted on 2026-10-13
+  with its six co-located amendments: the kernel's process events, in a
+  second session of the agent's, joined to Kernel-Process's Launch by PID
+  and timestamp; secrets replaced on the agent; the user on the wire as
   `process.user.uid`; Windows 10 and Windows Server 2019 covered
-  (`docs/handoff-session-37.md`). Next SPEC-021, whose text waits on Manuel
-  (handoff-37 §SPEC-021), then the implementation.
+  (`docs/handoff-session-37.md`). Its SPEC, SPEC-021, cannot be written by
+  either party. The platform's safety classifier stopped Claude Code's
+  drafting twice in S37, with the instruction not to produce that content
+  again (handoff-37 §SPEC-021). Manuel no longer holds what it was to say
+  ("no me acuerdo de que va ahi asique es imposible volver a hacerlo",
+  2026-10-14). B2 is not one of the seven MVP criteria. Manuel delegated
+  the pending decisions on 2026-10-14, and Claude Code parked B2 and §B3.
+  **Reopen when** a SPEC-021 text reaches the repository from outside
+  Claude Code, for instance another model given ADR-0020 and handoff-37
+  §SPEC-021. Claude Code then lands it verbatim, reviews it against the
+  repository and implements it.
 - Does: give the agent a real capture source for `command_line` and
   `subject_user_sid` (on the wire `process.command_line` and
   `process.user.uid`, ADR-0020), then carry them end-to-end (agent → wire
@@ -317,6 +326,7 @@ This dependency-ordered document supersedes both for planning.
   lineage because the command line was empty (SPEC-006 §Operational §4).
 - Owner-STOP before its SPEC is accepted: which rules, that is which
   threats they cover (Part (b) §9).
+- **Status: PARKED with B2** (S38, 2026-10-14).
 - Blocked by: B2.
 - Sequencing: right after B2, as a phase of its own — owner decision,
   S36 (2026-10-12). B2 delivers the fields and no rule, as D delivered
@@ -326,6 +336,8 @@ This dependency-ordered document supersedes both for planning.
 
 ### E — SOAR (criterion 6)
 
+- **Status: NEXT** (S38, 2026-10-14). With B2 and §B3 parked, E and F are
+  the two MVP criteria left. E comes first, F is last by dependency.
 - Does: one playbook executor on the incident-create seam. The seam
   exists: a create-only branch fires in `runDetectionCycle`
   (`services/ingest/src/detect/index.ts:69`) beside
@@ -348,9 +360,11 @@ This dependency-ordered document supersedes both for planning.
   production"); root `docker-compose.yml` is `services: {}`; `deploy/` is
   READMEs.
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
-- Blocked by: owner-STOP deployment-contract decisions (Part b): compose
-  location (#12), forensic trust anchoring. (B2 option (2)'s audit-policy
-  dependency no longer waits here: ADR-0020 ruled the option out.)
+- Blocked by: the deployment-contract decisions of Part (b): compose
+  location (#12) and forensic trust anchoring. Manuel delegated them on
+  2026-10-14, so they are decided in F's SPEC; the ADR amendments they need
+  wait for his explicit "sí". (B2 option (2)'s audit-policy dependency no
+  longer waits here: ADR-0020 ruled the option out.)
 - Needs: an infra/deploy SPEC (`SPEC-XXX-infra-docker`).
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
@@ -400,7 +414,18 @@ This dependency-ordered document supersedes both for planning.
    Owner decision.
 9. B3's rule set: which threats the rules over the command line and the
    user cover. Owner decision before B3's SPEC is accepted; Claude Code
-   proposes the candidates in its draft.
+   proposes the candidates in its draft. Parked with §B3 (S38,
+   2026-10-14).
 
-§1–§4 and §9 remain owner-STOP; §5–§8 are resolved (above). Part (a)
-phase F resolves §2 + §3 + §4.
+Manuel delegated §1–§4 to Claude Code on 2026-10-14 ("lo que este
+pendiente de mi decidelo tu en base al beneficio del proyecto"). They are
+decided for an enterprise buyer: a security lead and a data-protection
+officer.
+
+- §1 is an amendment to ADR-0002 that names the server side TypeScript,
+  with the Go firehose kept behind its exit.
+- §2–§4 are decided in phase F's SPEC.
+- The ADR amendments they need (ADR-0002; ADR-0001 for §4; ADR-0016 for
+  §3) still wait for Manuel's explicit "sí" before they are Accepted.
+
+§5–§8 are resolved (above), and §9 is parked.
