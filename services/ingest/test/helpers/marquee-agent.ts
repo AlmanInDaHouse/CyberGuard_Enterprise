@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -40,6 +40,46 @@ export function isElevatedWindows(): boolean {
   }
 }
 
+/** The ETW sessions the agent opens, by name (`SESSION_NAME`, agent/cg-agent/src/etw/mod.rs). */
+export const AGENT_ETW_SESSIONS: readonly string[] = ["CGAgent-KernelProcess"];
+
+/** `logman`'s exit status when no session of the name exists (PLA_E_DCS_NOT_FOUND). */
+const PLA_E_DCS_NOT_FOUND = 0x80300002;
+
+function etwSessionRunning(name: string): boolean {
+  const query = spawnSync("logman", ["query", name, "-ets"], { stdio: "ignore" });
+  if (query.status === 0) {
+    return true;
+  }
+  if (query.status === PLA_E_DCS_NOT_FOUND) {
+    return false;
+  }
+  throw new Error(
+    `logman query ${name} -ets failed: ${query.error?.message ?? `exit status 0x${(query.status ?? 0).toString(16)}`}`,
+  );
+}
+
+/**
+ * Stop each named ETW session that is running (Windows). Returns the names
+ * still running afterwards: an unelevated process cannot stop a session an
+ * elevated agent started (debt #63, docs/handoff-session-37.md).
+ */
+export function stopEtwSessions(names: readonly string[]): string[] {
+  const left: string[] = [];
+  for (const name of names) {
+    if (!etwSessionRunning(name)) {
+      continue;
+    }
+    spawnSync("logman", ["stop", name, "-ets"], { stdio: "ignore" });
+    if (etwSessionRunning(name)) {
+      left.push(name);
+    } else {
+      console.log(JSON.stringify({ event: "marquee_agent_etw_session_stopped", session: name }));
+    }
+  }
+  return left;
+}
+
 export interface AgentRunResult {
   exitCode: number | null;
   stdout: string;
@@ -51,7 +91,11 @@ export interface AgentRunResult {
 export interface MarqueeAgent {
   identityDir: string;
   agentTomlPath: string;
-  /** Run the agent (enroll + heartbeat), then SIGINT after `runMs`. */
+  /**
+   * Run the agent (enroll + heartbeat), then SIGINT after `runMs`. On
+   * Windows it then stops the agent's ETW sessions, and rejects if one is
+   * still running.
+   */
   run(runMs?: number): Promise<AgentRunResult>;
 }
 
@@ -132,6 +176,23 @@ export function prepareAgent(args: {
         });
         child.on("exit", (code) => {
           clearTimeout(timer);
+          // On Windows `kill("SIGINT")` is a forced termination: the agent's
+          // shutdown, which stops its ETW session, does not run (debt #63).
+          let left: string[];
+          try {
+            left = process.platform === "win32" ? stopEtwSessions(AGENT_ETW_SESSIONS) : [];
+          } catch (e) {
+            rejectRun(e);
+            return;
+          }
+          if (left.length > 0) {
+            rejectRun(
+              new Error(
+                `the agent's ETW session ${left.join(", ")} is still running after the run and could not be stopped; a session an elevated agent started stops only elevated (logman stop <name> -ets)`,
+              ),
+            );
+            return;
+          }
           resolveRun({ exitCode: code, stdout, stderr, pid: child.pid });
         });
       });
