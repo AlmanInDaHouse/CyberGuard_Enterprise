@@ -13,7 +13,7 @@ services:
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
-      - "${CG_PG_PORT:-5432}:5432"
+      - "127.0.0.1:${CG_PG_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${CG_PG_USER:-cyberguard}
       POSTGRES_PASSWORD: ${CG_PG_PASSWORD:-cyberguard_dev}
@@ -33,8 +33,8 @@ services:
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
-      - "${CG_CH_HTTP_PORT:-8123}:8123"
-      - "${CG_CH_TCP_PORT:-9000}:9000"
+      - "127.0.0.1:${CG_CH_HTTP_PORT:-8123}:8123"
+      - "127.0.0.1:${CG_CH_TCP_PORT:-9000}:9000"
     environment:
       CLICKHOUSE_USER: ${CG_CH_USER:-cyberguard}
       CLICKHOUSE_PASSWORD: ${CG_CH_PASSWORD:-cyberguard_dev}
@@ -57,7 +57,7 @@ services:
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
-      - "${CG_REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${CG_REDIS_PORT:-6379}:6379"
     environment:
       CG_REDIS_PASSWORD: ${CG_REDIS_PASSWORD:-cyberguard_dev}
     # Wrapped in sh -c so $CG_REDIS_PASSWORD is expanded by the container shell.
@@ -79,8 +79,8 @@ services:
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
-      - "${CG_NATS_CLIENT_PORT:-4222}:4222"
-      - "${CG_NATS_MONITOR_PORT:-8222}:8222"
+      - "127.0.0.1:${CG_NATS_CLIENT_PORT:-4222}:4222"
+      - "127.0.0.1:${CG_NATS_MONITOR_PORT:-8222}:8222"
     command: ["-js", "-sd", "/data", "-m", "8222"]
     volumes:
       - cg_nats_data:/data
@@ -97,8 +97,8 @@ services:
     networks: [cyberguard-dev]
     ports:
       # Host 9001/9002 to avoid clash with ClickHouse TCP 9000.
-      - "${CG_MINIO_API_PORT:-9001}:9000"
-      - "${CG_MINIO_CONSOLE_PORT:-9002}:9001"
+      - "127.0.0.1:${CG_MINIO_API_PORT:-9001}:9000"
+      - "127.0.0.1:${CG_MINIO_CONSOLE_PORT:-9002}:9001"
     environment:
       MINIO_ROOT_USER: ${CG_MINIO_ROOT_USER:-cyberguard}
       MINIO_ROOT_PASSWORD: ${CG_MINIO_ROOT_PASSWORD:-cyberguard_dev_minio_root}
@@ -126,8 +126,8 @@ services:
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
-      - "${CG_INGEST_ENROLL_PORT:-8080}:8080"
-      - "${CG_INGEST_HEARTBEAT_PORT:-8443}:8443"
+      - "127.0.0.1:${CG_INGEST_ENROLL_PORT:-8080}:8080"
+      - "127.0.0.1:${CG_INGEST_HEARTBEAT_PORT:-8443}:8443"
     environment:
       INGEST_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}
       INGEST_CH_URL: http://clickhouse:8123
@@ -195,7 +195,7 @@ services:
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
-      - "${CG_API_PORT:-8081}:8081"
+      - "127.0.0.1:${CG_API_PORT:-8081}:8081"
     environment:
       API_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}
       API_REDIS_URL: redis://:${CG_REDIS_PASSWORD:-cyberguard_dev}@redis:6379

@@ -36,19 +36,19 @@ task dev:health
 
 ```sh
 # PostgreSQL — psql client
-PGPASSWORD=cyberguard_dev psql -h localhost -p 15432 -U cyberguard -d cyberguard
+PGPASSWORD=cyberguard_dev psql -h 127.0.0.1 -p 15432 -U cyberguard -d cyberguard
 
 # ClickHouse — clickhouse-client
-clickhouse-client --host localhost --port 9000 --user cyberguard --password cyberguard_dev --database cyberguard
+clickhouse-client --host 127.0.0.1 --port 9000 --user cyberguard --password cyberguard_dev --database cyberguard
 
 # Redis — redis-cli
-redis-cli -h localhost -p 16379 -a cyberguard_dev
+redis-cli -h 127.0.0.1 -p 16379 -a cyberguard_dev
 
 # NATS — nats CLI (https://github.com/nats-io/natscli)
-nats --server nats://localhost:4222 stream list
+nats --server nats://127.0.0.1:4222 stream list
 
 # MinIO — mc client (https://min.io/docs/minio/linux/reference/minio-mc.html)
-mc alias set cgdev http://localhost:9001 cyberguard cyberguard_dev_minio_root
+mc alias set cgdev http://127.0.0.1:9001 cyberguard cyberguard_dev_minio_root
 mc admin info cgdev
 ```
 
@@ -66,7 +66,8 @@ mc admin info cgdev
 
 ## Troubleshooting
 
-- **Port already in use** (`Bind for 0.0.0.0:5432 failed`). Edit `infra/dev/.env` and pick a free host port (e.g. `CG_PG_PORT=5433`). Re-run `task dev:up`.
+- **Port already in use** (`Bind for 127.0.0.1:15432 failed`). Edit `infra/dev/.env` and pick a free host port (e.g. `CG_PG_PORT=5433`). Re-run `task dev:up`.
+- **Only this machine reaches the stack.** Every port is published on `127.0.0.1` alone, so the stores and their dev passwords are not on the network. Connect with `127.0.0.1`, not `localhost`: on Windows `localhost` tries `::1` first, which the stack does not serve, and a refused connection costs about two seconds. An agent on another machine would need the mappings edited and a heartbeat certificate for the host name it dials: the self-issued one covers `localhost` and `127.0.0.1` only (SPEC-004 Amendment 2026-09-21).
 - **Healthcheck stuck on `starting`**. Containers can take longer than the `start_period` on slow disks. Re-run `task dev:health` after a minute; if still not healthy, `task dev:logs svc=<name>` to inspect.
 - **Permission denied on the named volumes**. Volumes are managed by Docker, not by the host. If a host file mounted under `./postgres/init/` is unreadable, check Windows / WSL2 file-sharing permissions in Docker Desktop.
 - **Want a fully clean slate**. `task dev:reset-data` removes containers and **destroys the named volumes**, then `task dev:up` re-bootstraps Postgres extensions and MinIO root from scratch.
