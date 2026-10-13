@@ -199,9 +199,15 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 **The amendment.** It applies to every route of the read API: the three of this SPEC, SPEC-010's drill, SPEC-012's forensic export and SPEC-013's report. It is a document change; the code follows in the implementing commits of the same sweep (debt #10, handoff-38), and until they land the routes behave as *What surfaced it* says.
 
 1. An `:id` that is not a UUID in canonical text form (8-4-4-4-12 hexadecimal digits, either case) → `404 { error: "not_found" }`, decided before any store is read. Postgres accepts other spellings of a UUID (braces, no hyphens); the read API does not. An `:id` in upper case is read, and answered, in lower case.
-2. On the lists: an `agent_id` that is not a UUID in that form, a `severity_id` that is not an integer from 0 to 6, or a `cursor` that does not decode to the form the API issues (a timestamp and a UUID) → `400 { error: "bad_request" }`, decided before any store is read. `status` and `limit` are unchanged: an unknown `status` matches no row, and `limit` is clamped (NFR-009-001).
-3. A store that cannot answer → `503 { error: "unavailable" }`. The store is Postgres for any read, and ClickHouse for the drill, the export and the report whenever they read it; an incident whose alerts carry no source event is answered from Postgres alone (SPEC-010 §Data contracts, "Empty"). "Cannot answer" means its client returns an error. The connection may be refused or dropped, may not be established within the client's timeout (5 s for the api's Postgres pool; the ClickHouse client's own request timeout), or the store may answer with an error. The cause is logged on the server at `error` level and never sent (NFR-009-003).
-4. Any other failure → `500 { error: "internal" }`, also logged on the server at `error` level. An error that Fastify itself raises with its own status (a body it cannot parse, say) keeps that status, as before.
+2. On the lists, `400 { error: "bad_request" }`, decided before any store is read, answers:
+   - an `agent_id` that is not a UUID in that form;
+   - a `severity_id` that, read as a number as before, is not an integer from 0 to 6;
+   - a `cursor` that does not decode to the form the API issues: a timestamp written as `toISOString()` writes it, with a year from 1 to 9999, and a UUID;
+   - a `status` that carries a NUL character, which Postgres cannot take as text.
+
+   These are the values Postgres would otherwise refuse. An empty parameter is absent, as before. Otherwise `status` and `limit` are unchanged: an unknown `status` matches no row, and `limit` is clamped (NFR-009-001).
+3. A store that cannot answer → `503 { error: "unavailable" }`. The store is Postgres for any read, and ClickHouse for the drill, the export and the report whenever they read it; an incident whose alerts carry no source event is answered from Postgres alone (SPEC-010 §Data contracts, "Empty"). "Cannot answer" means its client returns an error. The connection may be refused or dropped, may not be established within the client's timeout, or the store may answer with an error. The api's Postgres pool gives up after 5 s on a connection it cannot establish, and on a free connection it cannot get from a busy pool, so an overloaded Postgres is also a `503`. The ClickHouse client applies its own request timeout. A connection already open whose peer goes silent is not bounded: debt #71 (handoff-38). The cause is logged on the server at `error` level and never sent (NFR-009-003).
+4. Any other failure → `500 { error: "internal" }`, also logged on the server at `error` level. An error that Fastify itself raises with its own status (a body it cannot parse, say) keeps that status, as before. The error handler is the app's, so this logging covers SPEC-008's routes too. It records the error's type, code, message and stack, never the rest of the error object: a Postgres error's `detail` can quote a whole row, and on SPEC-008's `users` table the row holds a password hash and an encrypted TOTP secret.
 5. No existence oracle (§Security considerations): an `:id` read resolves the incident in Postgres, scoped to the session's org, before anything else is read. A Postgres failure answers `503` whatever the well-formed `:id`, and ClickHouse is read only for an incident of the session's org, so a `503` tells the caller nothing about another org's incidents.
 6. Not changed here: the session store (Redis) inside SPEC-008's session preHandler. A Redis error reply still answers `500`. A Redis that cannot be reached holds the request until it returns, since the api's client queues commands without a limit (`services/api/src/services.ts:33`); that is debt #69 (handoff-38), on SPEC-008's surface.
 
@@ -209,9 +215,10 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 - §Data contracts: the `404` of §2 is unchanged. The query parameters of §1 and §3 (`agent_id`, `severity_id`, `cursor`) gain the `400` of item 2.
 - NFR-009-003: its generic statuses become `400`/`401`/`404`/`500`/`503`.
-- read_ac_006 is restated: a malformed `:id` → `404` on each `:id` route, and a malformed `agent_id`, `severity_id` or `cursor` → `400` on the list that takes it. Each body carries only `error`.
+- read_ac_006 is restated: a malformed `:id` → `404` on each `:id` route, and a malformed `agent_id`, `severity_id`, `cursor` or `status` → `400` on the list that takes it. Each body carries only `error`.
 - New **read_ac_007 (store failure).**
-  - With Postgres refusing or dropping connections, each read route answers `503 { error: "unavailable" }`, and a malformed `:id` still `404`.
+  - With Postgres refusing or dropping connections, each read route answers `503 { error: "unavailable" }`, and a malformed `:id` still `404`. With Postgres accepting a connection and never answering, a read answers `503` once the pool's 5 s are out.
+  - The `503` and a `500` are logged at `error` level, and no log line carries a Postgres error's `detail`.
   - With ClickHouse doing the same, the drill, the export and the report of an incident with source events answer `503`, the detail and the lists answer `200`, and another org's incident `404`.
   - CI-able.
 - Not backward-compatible for four kinds of client:
