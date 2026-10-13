@@ -25,7 +25,8 @@
 //! `process_from_handle()` (the pattern ferrisetw documents as its most
 //! powerful option). `open` blocks until that thread reports the start
 //! result, so a failed start (missing privilege, or any other Win32
-//! error) reaches the caller with its code. The `UserTrace` is not
+//! error) reaches the caller with its code, after the session it may have
+//! left behind is stopped by name. The `UserTrace` is not
 //! `Send`, so it stays on the pump thread; `stop` (or `Drop`) ends the
 //! session by name through the side-channel helper, which makes
 //! `process_from_handle` return, and then waits for the pump thread. A
@@ -275,16 +276,12 @@ impl EtwSession {
             }
             Ok(Err(e)) => {
                 let _ = pump.join();
-                // A start that failed after StartTraceW succeeded (e.g. in
-                // EnableTraceEx2) can leave the session behind; a privilege
-                // failure creates none.
-                if !e.is_privilege() {
-                    let _ = super::stop_session(SESSION_NAME);
-                }
+                stop_after_failed_start();
                 Err(e)
             }
             Err(_) => {
                 let _ = pump.join();
+                stop_after_failed_start();
                 Err(OpenError::Failed {
                     code: 0,
                     message: "the ETW pump thread ended before reporting the session start"
@@ -336,6 +333,32 @@ impl EtwSession {
 impl Drop for EtwSession {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Stop the session of the agent's name after a failed start (SPEC-017
+/// Amendment 2026-10-13). ferrisetw 1.2 returns a failed `EnableTraceEx2`
+/// without stopping the session `StartTraceW` created; unelevated, that is
+/// the privilege failure. A start refused before the session existed
+/// leaves nothing to stop (4201).
+fn stop_after_failed_start() {
+    match super::stop_session(SESSION_NAME) {
+        Ok(true) => {
+            tracing::info!(
+                target: "cg_agent::etw",
+                session_name = SESSION_NAME,
+                "stopped the ETW session the failed start left behind",
+            );
+        }
+        Ok(false) => {}
+        Err(rc) => {
+            tracing::warn!(
+                target: "cg_agent::etw",
+                session_name = SESSION_NAME,
+                win32_status = rc,
+                "ControlTraceW(STOP) after the failed start failed",
+            );
+        }
     }
 }
 
