@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-36.md](../handoff-session-36.md)).
+([handoff-session-37.md](../handoff-session-37.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -268,7 +268,8 @@ This dependency-ordered document supersedes both for planning.
   session of the agent's, joined to Kernel-Process's Launch by PID and
   timestamp; secrets replaced on the agent; the user on the wire as
   `process.user.uid`; Windows 10 and Windows Server 2019 covered
-  (`docs/handoff-session-37.md`). Next SPEC-021, then the implementation.
+  (`docs/handoff-session-37.md`). Next SPEC-021, whose text waits on Manuel
+  (handoff-37 §SPEC-021), then the implementation.
 - Does: give the agent a real capture source for `command_line` and
   `subject_user_sid` (on the wire `process.command_line` and
   `process.user.uid`, ADR-0020), then carry them end-to-end (agent → wire

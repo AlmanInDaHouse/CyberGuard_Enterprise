@@ -1,8 +1,28 @@
 # Handoff — Session 37
 
-Session 37 opened on 2026-10-12. This record is started early because
-ADR-0020's owner-review branch cites its measurement; it is completed at
-the close.
+Session 37 opened on 2026-10-12 and closed on 2026-10-13. This record was
+started early because ADR-0020's owner-review branch cites its
+measurement. ADR-0020 is Accepted, gate 2 measured what SPEC-021 needs, and
+debt #60 is fixed; SPEC-021 is not written (*SPEC-021*, below). Its work
+order for Session 38 is *How Session 38 resumes* at the end.
+
+## State at close
+
+- `main` = `origin/main` = the commit that adds this section (CI ALL
+  GREEN, *CI monitoring*); tree clean; no stash.
+- Catalogs: ADR 20 / SPEC 20. Known CI debt: zero.
+- No branch or PR open: `fix/s37-debt-60-failed-start` (PR #6) landed as
+  `abde0a5`; the PR is closed and the branch deleted, local and on origin.
+- Code changed this session: debt #60's fix in `agent/cg-agent/src/etw/`
+  and capture_ac_001's test. The elevated gate covered it (*Gate outputs
+  and baselines*).
+- Outside the repository: the probe crate `C:\tmp\s36-b2-probe` (with
+  `s37-oq5-probe4.rs` and `s37-spec021-probe5.rs`, and `windows-sys` 0.59
+  in its `Cargo.toml`), its aggregates `C:\tmp\s37-*.txt` and the gate logs
+  `C:\tmp\s37-gate*.log`. On Manuel's machine, a session
+  `CGAgent-KernelProcess` left by gate 3b's last marquee (#63), until he
+  stops it elevated (`logman stop CGAgent-KernelProcess -ets`), the agent
+  starts again, or the host restarts.
 
 ## Start
 
@@ -24,7 +44,10 @@ Anchor commits on `main`, one per push, CI green on each:
 | `798e750` | This record started: the measurement of ADR-0020 Open questions 5, the first fresh-context pass and its dispositions, debts #58 and #59. |
 | `71a5930` | ADR-0020 Accepted with its six co-located amendments: the squash of the owner-review branch `adr/s36-0020-cmdline-user` at `7b65337`. |
 | `f3b9b05` | This record: the second pass, the ratification and the landing. Roadmap §B2 states the decided source and its status, Part (b) §6 is resolved, and §F no longer waits on B2 option (2). |
-| (this commit) | This record: gate 2, the measurement for SPEC-021; side effects; debts #60 and #61; #43 closed. |
+| `b15656f` | This record: gate 2, the measurement for SPEC-021; side effects; debts #60 and #61; #43 closed. |
+| `009b103` | SPEC-017 Amendment 2026-10-13: a failed start leaves no session (debt #60). |
+| `abde0a5` | Debt #60 fixed: the squash of `fix/s37-debt-60-failed-start` at `cfe70db` (PR #6), guard `git diff --cached --quiet` → exit 0. |
+| (this commit) | This record's close; SPEC-017's amendment brought to the landed code; `README.md` and the roadmap point here. |
 
 Manuel's decisions this session, in chat:
 
@@ -43,6 +66,13 @@ Manuel's decisions this session, in chat:
   answer would not be read as a ratification. His answer names the ADR and
   the six amendments of that list, so Claude Code read it as the
   ratification of all seven points.
+- 2026-10-13, the closed list of secret patterns P1–P6 that ADR-0020 §2
+  leaves to SPEC-021, proposed in chat as Claude Code's full
+  recommendation: "si". The list enters the repository with SPEC-021.
+- 2026-10-13, after the first stop of SPEC-021's drafting (*SPEC-021*):
+  "escribelo tu".
+- 2026-10-13, after the second, debt #60 first and then the close: "sí,
+  arranca con #60 y el cierre".
 
 The landing of ADR-0020 (handoff-36, *How Session 37 resumes* step 3):
 
@@ -188,6 +218,30 @@ Side effects of Claude Code's, outside the repository:
   changed) with `capture_ac_001_open_returns_the_start_result`, unelevated:
   it passed, and `CGAgent-KernelProcess` was left running. Stopped with
   `logman stop CGAgent-KernelProcess -ets`; debt #60.
+- The red run of #60's tests, unelevated, before the fix, left
+  `CGAgent-KernelProcess` running; Claude Code stopped it with `logman stop
+  CGAgent-KernelProcess -ets` ("El comando se completó correctamente.")
+  before the green run, after which `logman query -ets` listed no
+  `CGAgent` session.
+- After gate 3b, `logman query -ets` listed `CGAgent-KernelProcess` (#63).
+  Claude Code's unelevated `logman stop` of it answered "Acceso denegado.":
+  an elevated agent had started it. It waits on Manuel (*State at close*).
+
+## SPEC-021
+
+Claude Code's drafting of SPEC-021 was stopped twice on 2026-10-13 by the
+platform's safety classifier, with the instruction not to produce that
+content again, reworded or not. The first stop left an uncommitted partial
+file (the header and part of §Context), which was deleted; the second left
+nothing. Manuel asked Claude Code to bypass the instruction; Claude Code
+declined: it comes from the platform, outside this repository's decision
+authority, and no order inside a session lifts it. Nothing of SPEC-021 is
+in the repository. What it needs is here: ADR-0020 (Accepted), gate 2's
+measurements (*Progress*), Manuel's "si" to P1–P6, the review items marked
+"for SPEC-021" (*Self-reviews*), #60's second session and #62 (*Debts*).
+The path offered to Manuel: he writes SPEC-021, or has it written, and
+Claude Code lands it verbatim (*Integration path* §6), reviews it against
+the repository and implements it.
 
 ## Self-reviews
 
@@ -314,6 +368,100 @@ Decisions Claude Code took at the landing (anticipated):
 - The ratification as the first entry of ADR-0020's Decision record, as
   ADR-0019 records its own. Where: `71a5930`.
 
+- **SPEC-017 Amendment 2026-10-13**, the fixed SPEC/ADR prompt over
+  `docs/specs/SPEC-017-agent-capture-normal-run-path.md` and
+  `docs/specs/README.md` in the working tree, two passes before `009b103`.
+  - First pass, List A 2, both fixed: A1, "the Windows `rust-ci` job runs
+    elevated, where the start succeeds", against SPEC-017 Open questions 1
+    (the runner's ETW privilege untested) — now "if its start fails there";
+    A2, "the state the other failures already reach", while the
+    pump-thread branch (`session.rs:286-293` at `009b103`) stopped nothing —
+    that branch is now in the amendment and in the fix.
+  - First pass, List B 9: fixed B1 (the measured machine named), B2 ("a
+    later start of the agent stops it"), B3 (a failed stop logged at
+    `warn`), B4 (`open_excluding` named), B5 (the test named); recorded B6
+    (#60's destination and plural, *Debts*), B7 (#62), B8 (the unelevated
+    stop was measured with `logman`; the agent's own stop is asserted by the
+    unelevated run, and an unelevated stop of a session an elevated agent
+    started is refused, *Progress*); B9 lists what it checked.
+  - Second pass, List A 2, both fixed: A1, "run only … developer-local"
+    against "the runner … on either outcome" — now "they run wherever a
+    start fails"; A2, the spawn failure (`session.rs:238-241` at `009b103`)
+    also skipped the stop — named as a start that never reached
+    `StartTraceW`.
+  - Second pass, List B 8: fixed B5 (the `ERROR_ALREADY_EXISTS` clause
+    dropped) and B7's first item; B3 answered by the red run (an unelevated
+    query by name answers `Ok(0)` for a live session, so `Err(4201)` means
+    none); recorded B1, B2 (true once the fix landed), B4 (a `warn` where the
+    stop itself is denied with nothing to stop, unmeasured), B6, B7's second
+    item (#62), B8 (the elevated gate ran).
+- **The fix, `009b103..cfe70db`**, Claude Code's matrix (contract: SPEC-017
+  Amendment 2026-10-13 and #60), paths in
+  `agent/cg-agent/tests/capture_ac_001_startup_failure.rs`:
+
+  | Criterion | Test | Verdict |
+  |---|---|---|
+  | After a failed `EtwSession::open`, no session of the agent's name | `:101-107`, `assert_no_session` `:127-133` | covered for the privilege failure; where `StartTraceW` refuses, the stop is not exercised |
+  | After the real binary exits 9, no session | `:228-229` | covered |
+  | Beyond the criterion: after the in-process secure path fails, no session | `:167` | covered |
+  | Elevated, `stop` leaves no session | `:96-99`, gate 3 | covered |
+  | The pump thread ending before its report stops the session | none | missing: reached only by a panic inside ferrisetw, no seam |
+  | A failed stop is logged at `warn` and the start's failure returned | none | missing: `ControlTraceW(STOP)` cannot be made to fail on demand |
+
+  The fixed code prompt over the same range, with no build or run (the
+  gate was on the tree): list 1 as the matrix; list 2 empty; list 3, the
+  `info` line when the stop ends a session, which the amendment did not
+  state — kept and stated in this commit; the non-privilege path now logs
+  the stop's result; `ETW_LOCK` became a tokio mutex held across the async
+  tests' awaits; no change to authentication, authorization, cryptography,
+  privileges or the data collected (the same stop by name that
+  `reclaim_zombie` sends at every open). Not blocking, corrected in this
+  commit: the amendment's anchor `session.rs:238-241` became `:239-242`
+  with the fix, and its Effect's "every other failure of a start that
+  reached `trace.start()`" clashed with the pump-thread case. Recorded: the
+  marquees stop leaving a session on a failed start only once the release
+  binary is rebuilt (gate 3 rebuilt it); #60's plural.
+- **This commit's SPEC-017 change** (the amendment brought to `abde0a5`:
+  the `info` line, the anchor, the Effect's two cases), the fixed SPEC/ADR
+  prompt over the amendment as changed in the working tree. List A 2, both
+  fixed: A1, capture_ac_001's added criterion was unconditional while a
+  session an elevated agent left (#63) cannot be stopped unelevated — now
+  "from a host where no session of the agent's name is running"; A2, "they
+  run wherever a start fails", while the test asserts a privilege failure
+  first — now "fails for privilege". List B 12: fixed B1 (the anchor's SHA
+  named), B2 (the Effect's two cases named), B6 (the log's new line), B11's
+  citation (the refused stop is under *Progress*, not gate 2); recorded B3
+  (the bullet described, not quoted, as the amendment first landed), B4
+  (the `info` clause stated after the code: a reactive correction,
+  *Decisions*), B5 (ferrisetw's `open_trace(...)?`, `src/trace.rs:529`,
+  also returns without stopping; the rule covers it), B7 (an unelevated stop
+  with nothing to stop may log a spurious `warn`, unmeasured), B8 and B9
+  (SPEC-017 Open questions 1: the runner runs as the built-in
+  Administrator, so the added assertions most likely never run in CI; its
+  test output does not say which branch it took), B10 (the matrix's two
+  missing rows), B12 (#62).
+
+Decisions Claude Code took on debt #60 (anticipated):
+
+- #60 fixed now, on its own branch, not on B2's implementation branch (its
+  recorded destination): B2 waits on SPEC-021, and the defect left a
+  session behind on every unelevated run. Where: `009b103`, `abde0a5`.
+- The contract first, as a SPEC-017 amendment, although a fix's contract
+  may be its debt entry: no criterion covered a failed start, and the
+  amendment makes the rule standing. Alternative: the debt entry alone.
+- capture_ac_001's tests that open ETW serialized by a tokio mutex held
+  across their awaits, so that a leftover check cannot see another test's
+  session. Alternative: a std mutex with clippy's `await_holding_lock`
+  allowed.
+
+Reactive:
+
+- The pump-thread branch stops the session too, and the amendment says
+  so: the first pass's A2.
+- The `info` line on a stop that ends a session, kept and stated in the
+  amendment after the code review (this commit). Alternative: remove it,
+  which would have needed the elevated gate again for a log line.
+
 ## Debts
 
 New this session:
@@ -360,8 +508,38 @@ New this session:
   measured; gate 2 lost nothing at 400 process starts in about 3 s.
   Destination: a load measurement before roadmap §F; the lost counters
   (`events_lost`) are where a loss would show.
+- **#62 — SPEC-005 names the wrong call for exit 9.** Its §Failure modes
+  (`docs/specs/SPEC-005-agent-process-telemetry-windows-etw.md:205`) says
+  `OpenTrace` / `StartTrace` returns 5 or 1314; on the measured machine
+  the refusal comes at `EnableTraceEx2` (#60). SPEC-017 §Operational §1's
+  "Start refused for privilege" covers both by scope. Destination:
+  SPEC-021, which amends SPEC-005 §Failure modes.
+- **#63 — The marquees kill the agent, so the last one leaves its session
+  running.** `services/ingest/test/helpers/marquee-agent.ts:128` ends the
+  agent with `child.kill("SIGINT")`, which on Windows Node turns into a
+  forced termination: the agent's shutdown, which stops its session
+  (SPEC-017 §Operational §4, capture_ac_006), does not run. Each marquee's
+  agent reclaims the previous one's session (the SPEC-005 marquee's log in
+  gate 3b: "reclaimed zombie ETW session (pre-existing session stopped)"),
+  and after the gate `CGAgent-KernelProcess` stays running with its two
+  providers and no consumer, until the agent starts again or the host
+  restarts; unelevated it cannot be stopped. While it runs, an unelevated
+  `cargo test` fails capture_ac_001: the reclaim is refused, the start
+  fails with `ERROR_ALREADY_EXISTS`, not for privilege (SPEC-017 Amendment
+  2026-10-13, the criterion's precondition). Destination: a harness fix
+  that stops the agent's session at each marquee's end (or ends the agent
+  gracefully), with the elevated gate; B2's implementation branch touches
+  the marquees.
 
 Closed this session:
+
+- **#60 — An unelevated agent leaves its ETW session behind.** Fixed by
+  `abde0a5` under SPEC-017 Amendment 2026-10-13: after any failed start
+  that reached `trace.start()` the session of the agent's name is stopped,
+  and capture_ac_001 asserts that none is left after a failed open, a
+  failed in-process secure path and the binary's exit 9. It covers the one
+  session that exists: ADR-0020's second session needs the same stop and
+  assertion, in SPEC-021 and B2's implementation.
 
 - **#43 — Launch and connect may reach the callback out of order**
   (handoff-35). Its premise, "A real-time ETW session does not order events
@@ -373,3 +551,82 @@ Closed this session:
   order (gate 1: 0 of 1997 in one session). A process's connections are
   logged after its start, so its Launch is dispatched first. The cost of
   the mode is #61.
+
+## Gate outputs and baselines
+
+Non-elevated, Claude Code's terminal, at `cfe70db`: `cargo fmt --all --
+--check` clean; `cargo clippy --all-targets --all-features -- -D warnings`
+clean; `cargo test --all`: 125 passed, 0 failed, 7 ignored, as S35. Before
+the fix, the three new checks of capture_ac_001 failed with `left: Ok(0)`,
+`right: Err(4201)`; with it, `test result: ok. 8 passed; 0 failed`.
+
+Gate 3, elevated, at `cfe70db`, on 2026-10-13 (logs
+`C:\tmp\s37-gate3-*.log`, 03:11–03:12):
+
+- `net session` → "No hay entradas en la lista."; `git rev-parse --short
+  HEAD` → `cfe70db`; `git status --porcelain` → nothing.
+- `cargo build --release -j 2 -p cg-agent` → "Finished `release` profile
+  [optimized] target(s) in 19.45s".
+- capture_ac_001, elevated → "test result: ok. 8 passed; 0 failed; 0
+  ignored; 0 measured; 0 filtered out; finished in 0.02s".
+- `--ignored`, 7 passed: `auth_ac_012_logons_on_the_real_log`,
+  `capture_ac_006_elevated_shutdown_leaves_no_session`,
+  `net_ac_008_a_real_connection_is_reported_with_its_probe`,
+  `net_ac_009_an_accepted_connection_and_the_filter`,
+  `ac_004_cache_hit_terminate_matches_launch_byte_for_byte`,
+  `ac_007_parent_pid_only_when_parent_dead_at_child_launch`,
+  `ac_009_events_lost_under_deliberate_etw_buffer_pressure`.
+- vitest → "Error: Could not find a working container runtime strategy",
+  "Test Files  no tests": Docker Desktop was not running (its engine pipe
+  absent). Not a result of the change; rerun as gate 3b.
+- `logman query -ets` → no `CGAgent` session.
+
+Gate 3b, elevated, at `cfe70db`, on 2026-10-13 (logs
+`C:\tmp\s37-gate3b-*.log`, 03:23–03:26):
+
+- `docker version` → `29.1.2`; `net session` → "No hay entradas en la
+  lista."; `cfe70db`; `git status --porcelain` → nothing.
+- `cargo build --release -j 2 -p cg-agent` → "Finished `release` profile
+  [optimized] target(s) in 0.61s" (gate 3's binary).
+- vitest `services/ingest` → "Test Files  60 passed (60)", "Tests  197
+  passed (197)", "Duration  188.98s". The marquees: "detect_ac_001 captured
+  image_file_name — probe: C:\Users\<user>\AppData\Local\Temp\cg-detect-probe-MQY4Au\winword.exe;
+  child: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+  `{"event":"spec_005_marquee_complete","marquee_elapsed_seconds":40.054,"budget_seconds":45,"within_budget":true}`;
+  "spec_005 captured image_file_name — launch: C:\Windows\System32\cmd.exe;
+  terminate: cmd.exe"; `net_ac_010` 25.1 s and `auth_ac_013` 25.071 s
+  within 45; `ac-001-marquee` passed.
+- `logman query -ets` → `CGAgent-KernelProcess  Seguimiento  Activo` (#63).
+
+Baselines at the close: non-elevated cargo 125 passed / 7 ignored;
+elevated cargo `--ignored` 7 passed; vitest `services/ingest` elevated 60
+files / 197 tests; `services/api` unchanged (31 files / 62 tests, S35), not
+run. CI: every push to `main` green — the documentation commits
+`markdown-lint → success`; `abde0a5` `ts-ci → success`, `rust-ci →
+success`; on the branch, `cfe70db` the same two.
+
+## What waits on Manuel
+
+1. SPEC-021's text (*SPEC-021*).
+2. `logman stop CGAgent-KernelProcess -ets`, elevated, for the session
+   gate 3b left (#63).
+3. #59: a Windows 10 and a Windows Server 2019 to run the agent on.
+4. Roadmap Part (b) §9: which threats §B3's rules cover, before its SPEC
+   is accepted.
+5. #55: the threat model brought in line with the system.
+6. Unchanged: Part (b) §1–§4.
+
+## How Session 38 resumes
+
+1. *Session protocol* §At the start. Expected: `main` = `origin/main` at
+   this file's last commit; tree clean; no stash; no branch or PR open;
+   catalogs ADR 20 / SPEC 20; Known CI debt zero.
+2. SPEC-021: do not retry S37's drafting (*SPEC-021*); ask Manuel for the
+   text. When he brings it, land it verbatim (*Integration path* §6, with
+   the SHA-256), self-review it, and set its Status `Accepted`. It covers
+   the review items marked "for SPEC-021", #60's second session and #62.
+3. Then B2's implementation, on a branch with a PR: acceptance tests
+   failing first, CI on every push, the elevated gate through Manuel, the
+   self-review, landing by cherry-pick. It carries #31, #52, #53, #54, #56,
+   #58 and #63.
+4. Then roadmap §B3, after Part (b) §9.
