@@ -45,17 +45,29 @@ export const AGENT_ETW_SESSIONS: readonly string[] = ["CGAgent-KernelProcess"];
 
 /** `logman`'s exit status when no session of the name exists (PLA_E_DCS_NOT_FOUND). */
 const PLA_E_DCS_NOT_FOUND = 0x80300002;
+/** `logman`'s exit status for a session this process may not query or stop (E_ACCESSDENIED). */
+const E_ACCESSDENIED = 0x80070005;
 
-function etwSessionRunning(name: string): boolean {
-  const query = spawnSync("logman", ["query", name, "-ets"], { stdio: "ignore" });
-  if (query.status === 0) {
+/** Runs `logman` with `args` and returns its exit status (`null` if it did not run). */
+export type Logman = (args: readonly string[]) => number | null;
+
+const runLogman: Logman = (args) => spawnSync("logman", [...args], { stdio: "ignore" }).status;
+
+/**
+ * Whether a session of the name exists. A query answered with access denied
+ * means it exists and this process may not query it: for a name with no
+ * session the answer is PLA_E_DCS_NOT_FOUND, elevated or not.
+ */
+function etwSessionRunning(name: string, logman: Logman): boolean {
+  const status = logman(["query", name, "-ets"]);
+  if (status === 0 || status === E_ACCESSDENIED) {
     return true;
   }
-  if (query.status === PLA_E_DCS_NOT_FOUND) {
+  if (status === PLA_E_DCS_NOT_FOUND) {
     return false;
   }
   throw new Error(
-    `logman query ${name} -ets failed: ${query.error?.message ?? `exit status 0x${(query.status ?? 0).toString(16)}`}`,
+    `logman query ${name} -ets failed: ${status === null ? "it did not run" : `exit status 0x${status.toString(16)}`}`,
   );
 }
 
@@ -64,14 +76,14 @@ function etwSessionRunning(name: string): boolean {
  * still running afterwards: an unelevated process cannot stop a session an
  * elevated agent started (debt #63, docs/handoff-session-37.md).
  */
-export function stopEtwSessions(names: readonly string[]): string[] {
+export function stopEtwSessions(names: readonly string[], logman: Logman = runLogman): string[] {
   const left: string[] = [];
   for (const name of names) {
-    if (!etwSessionRunning(name)) {
+    if (!etwSessionRunning(name, logman)) {
       continue;
     }
-    spawnSync("logman", ["stop", name, "-ets"], { stdio: "ignore" });
-    if (etwSessionRunning(name)) {
+    logman(["stop", name, "-ets"]);
+    if (etwSessionRunning(name, logman)) {
       left.push(name);
     } else {
       console.log(JSON.stringify({ event: "marquee_agent_etw_session_stopped", session: name }));
@@ -178,17 +190,19 @@ export function prepareAgent(args: {
           clearTimeout(timer);
           // On Windows `kill("SIGINT")` is a forced termination: the agent's
           // shutdown, which stops its ETW session, does not run (debt #63).
+          // A rejection carries what the marquee would otherwise have logged.
+          const agentOutcome = `agent exit code ${code}; agent stderr: ${stderr.trim() || "(empty)"}`;
           let left: string[];
           try {
             left = process.platform === "win32" ? stopEtwSessions(AGENT_ETW_SESSIONS) : [];
           } catch (e) {
-            rejectRun(e);
+            rejectRun(new Error(`${(e as Error).message}; ${agentOutcome}`, { cause: e }));
             return;
           }
           if (left.length > 0) {
             rejectRun(
               new Error(
-                `the agent's ETW session ${left.join(", ")} is still running after the run and could not be stopped; a session an elevated agent started stops only elevated (logman stop <name> -ets)`,
+                `the agent's ETW session ${left.join(", ")} is still running after the run and could not be stopped; a session an elevated agent started stops only elevated (logman stop <name> -ets); ${agentOutcome}`,
               ),
             );
             return;

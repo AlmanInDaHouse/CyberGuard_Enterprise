@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
-import { AGENT_ETW_SESSIONS, stopEtwSessions } from "./helpers/marquee-agent.js";
+import { AGENT_ETW_SESSIONS, type Logman, stopEtwSessions } from "./helpers/marquee-agent.js";
 
 // Debt #63 (docs/handoff-session-37.md): on Windows Node ends the marquee's
 // agent with a forced termination, so the agent's shutdown never stops its
@@ -12,24 +12,68 @@ import { AGENT_ETW_SESSIONS, stopEtwSessions } from "./helpers/marquee-agent.js"
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const PROBE = "CgS38HarnessProbe";
+const PLA_E_DCS_NOT_FOUND = 0x80300002;
+const E_ACCESSDENIED = 0x80070005;
 
 function sessionRunning(name: string): boolean {
   return spawnSync("logman", ["query", name, "-ets"], { stdio: "ignore" }).status === 0;
 }
 
+/** A `logman` that answers each verb with a fixed status and records its calls. */
+function fakeLogman(answers: { query: number | null; stop: number | null }): {
+  logman: Logman;
+  calls: string[][];
+} {
+  const calls: string[][] = [];
+  const logman: Logman = (args) => {
+    calls.push([...args]);
+    return args[0] === "stop" ? answers.stop : answers.query;
+  };
+  return { logman, calls };
+}
+
 describe("the harness's list of the agent's ETW sessions", () => {
-  test("names the session the agent opens (agent/cg-agent/src/etw/mod.rs)", () => {
-    const source = readFileSync(
-      join(REPO_ROOT, "agent", "cg-agent", "src", "etw", "mod.rs"),
-      "utf8",
-    );
-    const name = /pub const SESSION_NAME: &str = "([^"]+)";/.exec(source)?.[1];
-    expect(name, "SESSION_NAME found in the agent's source").toBeDefined();
-    expect(AGENT_ETW_SESSIONS).toEqual([name]);
+  test("names every session constant in the agent's source", () => {
+    const src = join(REPO_ROOT, "agent", "cg-agent", "src");
+    const names = new Set<string>();
+    for (const file of readdirSync(src, { recursive: true, encoding: "utf8" })) {
+      if (!file.endsWith(".rs")) {
+        continue;
+      }
+      const source = readFileSync(join(src, file), "utf8");
+      for (const m of source.matchAll(/const \w*SESSION\w*: &str = "([^"]+)";/g)) {
+        names.add(m[1] as string);
+      }
+    }
+    expect(names.size, "a session constant found in the agent's source").toBeGreaterThan(0);
+    expect([...AGENT_ETW_SESSIONS].sort()).toEqual([...names].sort());
   });
 });
 
-describe.skipIf(process.platform !== "win32")("stopEtwSessions", () => {
+describe("stopEtwSessions, against a logman that answers as told", () => {
+  test("a session this process may not stop is reported as still running", () => {
+    const { logman, calls } = fakeLogman({ query: E_ACCESSDENIED, stop: E_ACCESSDENIED });
+    expect(stopEtwSessions(["X"], logman)).toEqual(["X"]);
+    expect(calls).toContainEqual(["stop", "X", "-ets"]);
+  });
+
+  test("a name with no session is neither stopped nor reported", () => {
+    const { logman, calls } = fakeLogman({ query: PLA_E_DCS_NOT_FOUND, stop: 0 });
+    expect(stopEtwSessions(["X"], logman)).toEqual([]);
+    expect(calls).not.toContainEqual(["stop", "X", "-ets"]);
+  });
+
+  test("any other answer to the query is an error", () => {
+    expect(() => stopEtwSessions(["X"], fakeLogman({ query: 1, stop: 0 }).logman)).toThrow(
+      "logman query X -ets failed: exit status 0x1",
+    );
+    expect(() => stopEtwSessions(["X"], fakeLogman({ query: null, stop: 0 }).logman)).toThrow(
+      "logman query X -ets failed: it did not run",
+    );
+  });
+});
+
+describe.skipIf(process.platform !== "win32")("stopEtwSessions, against logman", () => {
   afterEach(() => {
     spawnSync("logman", ["stop", PROBE, "-ets"], { stdio: "ignore" });
   });
