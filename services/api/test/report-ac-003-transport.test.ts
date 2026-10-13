@@ -143,7 +143,7 @@ test("report_ac_003: cross-org / non-existent / malformed id all return 404", as
   });
   expect(missing.statusCode).toBe(404);
 
-  // malformed :id (not a UUID → pg cast throws, caught) → 404
+  // malformed :id (not a canonical UUID → 404 before any store is read)
   const malformed = await apph.app.inject({
     method: "GET",
     url: "/v1/incidents/not-a-uuid/report",
