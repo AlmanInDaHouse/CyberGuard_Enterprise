@@ -153,7 +153,7 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 **The amendment.** A document change; the code follows in the implementing commits of the same sweep (debt #10, handoff-38).
 
-- §Operational's "Errors" bullet and step 1 (`:62`, `:68`): a malformed `:id` still answers `404 { error: "not_found" }`. It is decided before the query, against the canonical UUID form, and not by catching the failed cast.
+- §Operational's "Errors" bullet and step 1 (`:62`, `:68`): a malformed `:id` still answers `404 { error: "not_found" }`. It is decided before Postgres and ClickHouse are read, against the canonical UUID form, and not by catching the failed cast.
 - A Postgres or ClickHouse failure answers `503 { error: "unavailable" }`, and its cause is logged on the server.
 - Open question 3 is resolved: `503`.
 - No existence oracle: the org-scoped Postgres lookup of step 1 still decides `404` before ClickHouse is read, so only an incident of the session's org can reach a ClickHouse failure.

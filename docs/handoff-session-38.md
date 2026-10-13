@@ -445,6 +445,39 @@ New this session:
   `docker compose config`. Surfaced by both reviews of the sweep.
   Destination: a CI step that renders the compose and asserts its port
   bindings and image tags, Claude Code's, in a later sweep.
+- **#69 — An unreachable Redis holds an api request.** `services/api/src/services.ts`
+  builds the Redis client with `maxRetriesPerRequest: null`, and ioredis
+  keeps its offline queue. With Redis unreachable, the session
+  preHandler's `resolveSession` (`services/api/src/auth/prehandlers.ts`)
+  waits until Redis returns, and Fastify sets no handler timeout. A Redis
+  error reply answers 500. Surfaced by the review of SPEC-009 Amendment
+  2026-10-14. Destination: SPEC-008's surface, a bounded retry or a
+  command timeout; Claude Code's, in a later sweep.
+- **#70 — ADR-0015 says a ClickHouse outage fails only the drill.**
+  `docs/adr/0015-readonly-clickhouse-reader-in-api.md:70` (§Compliance:
+  "fails **only** the drill route") and `:57` ("for **this route only**").
+  Since SPEC-012 and SPEC-013 the forensic export and the report read
+  ClickHouse too, and SPEC-009 Amendment 2026-10-14 item 3 names all
+  three. Surfaced by the same review. Destination: an ADR-0015
+  amendment, which needs Manuel's "sí", in the next batch of ADR texts
+  put to him.
+- **#71 — The api's Postgres client has no query timeout.** The pool
+  gives up after 5 s on a connection it cannot make or get from a busy
+  pool. A connection already open whose peer goes silent holds the
+  request until the operating system's TCP timeout. The threat model's
+  "query timeouts" for cg-api (`docs/security/threat-model.md:85`) are
+  not realised. Surfaced by the review of the sweep's code. Destination:
+  a client query timeout or a `statement_timeout`; Claude Code's, in a
+  later sweep.
+- **#72 — An unknown role answers 500 on SPEC-008's user routes.**
+  `POST /v1/users` and `POST /v1/users/:id/role`
+  (`services/api/src/auth/routes.ts:49-71`) pass the role to Postgres
+  unchecked, and the `users` CHECK (`services/api/src/db/migrations/0001_users.ts:24-25`)
+  fails with a 500 rather than a 400. Before the sweep's log fix, that
+  failure's `detail`, the whole row with its password hash, would have
+  reached the log. Surfaced by the review of the sweep's code.
+  Destination: SPEC-008's input validation; Claude Code's, in a later
+  sweep.
 
 Closed this session:
 

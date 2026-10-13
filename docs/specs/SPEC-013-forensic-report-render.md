@@ -123,7 +123,7 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 **What surfaced it.** Debt #10, which SPEC-009's Amendment 2026-10-14 resolves for every read route. §Scope 3 (`:28`) says the report route's `404` mirrors the drill and the forensic export, which until then answered `404` to any error.
 
-**The amendment.** A document change; the code follows in the implementing commits of the same sweep (debt #10, handoff-38). The `404` of §Scope 3 and report_ac_003 is for an incident that does not exist, belongs to another org, or has a malformed `:id`; a malformed `:id` is decided before any read. A Postgres or ClickHouse failure answers `503 { error: "unavailable" }`, as SPEC-009's Amendment 2026-10-14 states.
+**The amendment.** A document change; the code follows in the implementing commits of the same sweep (debt #10, handoff-38). The `404` of §Scope 3 and report_ac_003 is for an incident that does not exist, belongs to another org, or has a malformed `:id`; a malformed `:id` is decided before Postgres and ClickHouse are read. A Postgres or ClickHouse failure answers `503 { error: "unavailable" }`, as SPEC-009's Amendment 2026-10-14 states.
 
 **Effect.** report_ac_001 to report_ac_005 are unchanged; the `503` case is SPEC-009's read_ac_007. Status stays **Accepted**.
 
