@@ -1,4 +1,4 @@
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -92,6 +92,40 @@ export function stopEtwSessions(names: readonly string[], logman: Logman = runLo
   return left;
 }
 
+/**
+ * The marquee agents still running. vitest runs the test files in one
+ * process (`singleFork`) but evaluates this module once per file, so the
+ * set lives on `globalThis`.
+ */
+function liveAgents(): Set<ChildProcess> {
+  const g = globalThis as { __cgMarqueeLiveAgents?: Set<ChildProcess> };
+  g.__cgMarqueeLiveAgents ??= new Set();
+  return g.__cgMarqueeLiveAgents;
+}
+
+/**
+ * Once a marquee's agent has exited (Windows): stop the agent's ETW
+ * sessions and return the names still running. While another marquee's
+ * agent runs — this one outlived a test that failed before it awaited the
+ * run — the name is that agent's, whose start reclaimed this one's
+ * session, so nothing is stopped.
+ */
+export function stopSessionsAfterExit(
+  othersRunning: boolean,
+  logman: Logman = runLogman,
+): string[] {
+  if (othersRunning) {
+    console.log(
+      JSON.stringify({
+        event: "marquee_agent_etw_stop_skipped",
+        reason: "another marquee agent is running",
+      }),
+    );
+    return [];
+  }
+  return stopEtwSessions(AGENT_ETW_SESSIONS, logman);
+}
+
 export interface AgentRunResult {
   exitCode: number | null;
   stdout: string;
@@ -105,8 +139,8 @@ export interface MarqueeAgent {
   agentTomlPath: string;
   /**
    * Run the agent (enroll + heartbeat), then SIGINT after `runMs`. On
-   * Windows it then stops the agent's ETW sessions, and rejects if one is
-   * still running.
+   * Windows it then stops the agent's ETW sessions unless another marquee
+   * agent is running, and rejects if one is still running.
    */
   run(runMs?: number): Promise<AgentRunResult>;
 }
@@ -173,6 +207,8 @@ export function prepareAgent(args: {
         const child = spawn(agentBinaryPath(), ["--config", tomlPath], {
           stdio: ["ignore", "pipe", "pipe"],
         });
+        const live = liveAgents();
+        live.add(child);
         let stdout = "";
         let stderr = "";
         child.stdout.on("data", (d: Buffer) => {
@@ -184,25 +220,28 @@ export function prepareAgent(args: {
         const timer = setTimeout(() => child.kill("SIGINT"), runMs);
         child.on("error", (e) => {
           clearTimeout(timer);
+          live.delete(child);
           rejectRun(e);
         });
         child.on("exit", (code) => {
           clearTimeout(timer);
+          live.delete(child);
           // On Windows `kill("SIGINT")` is a forced termination: the agent's
           // shutdown, which stops its ETW session, does not run (debt #63).
-          // A rejection carries what the marquee would otherwise have logged.
-          const agentOutcome = `agent exit code ${code}; agent stderr: ${stderr.trim() || "(empty)"}`;
+          // A rejection names the agent's exit code, not its stderr: the
+          // marquees print their output redacted (SPEC-020 §Operational §11).
+          const agentExit = `agent exit code ${code}`;
           let left: string[];
           try {
-            left = process.platform === "win32" ? stopEtwSessions(AGENT_ETW_SESSIONS) : [];
+            left = process.platform === "win32" ? stopSessionsAfterExit(live.size > 0) : [];
           } catch (e) {
-            rejectRun(new Error(`${(e as Error).message}; ${agentOutcome}`, { cause: e }));
+            rejectRun(new Error(`${(e as Error).message}; ${agentExit}`, { cause: e }));
             return;
           }
           if (left.length > 0) {
             rejectRun(
               new Error(
-                `the agent's ETW session ${left.join(", ")} is still running after the run and could not be stopped; a session an elevated agent started stops only elevated (logman stop <name> -ets); ${agentOutcome}`,
+                `the agent's ETW session ${left.join(", ")} is still running after the run and could not be stopped; a session an elevated agent started stops only elevated (logman stop <name> -ets); ${agentExit}`,
               ),
             );
             return;
