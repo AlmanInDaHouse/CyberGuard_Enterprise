@@ -5,13 +5,15 @@
 //! with `cg-agent: ETW session open failed: <code> <message>`; a build
 //! without a capture backend continues startup. `EtwSession::open`
 //! returns the start result itself: on unelevated Windows it is a
-//! privilege failure; elevated, the session opens and `stop` leaves no
-//! session of the agent's name behind.
+//! privilege failure; elevated, the session opens. Either way no session
+//! of the agent's name is left behind: the failed start stops it (SPEC-017
+//! Amendment 2026-10-13), and so does `stop`.
 //!
 //! On unelevated Windows the real binary enrolls, then exits with code 9
 //! and the AC-002 line on stderr (and in its log) without a single
-//! heartbeat POST; the in-process secure path returns the same failure.
-//! Both are skipped when elevated (the session would open).
+//! heartbeat POST, and leaves no session; the in-process secure path
+//! returns the same failure. Both are skipped when elevated (the session
+//! would open).
 
 mod common;
 
@@ -84,26 +86,25 @@ fn capture_ac_001_no_backend_continues_startup() {
 }
 
 /// Real ETW, either way: unelevated, `open` reports the privilege failure
-/// (it no longer returns `Ok` before the start runs); elevated, the
-/// session opens and `stop` leaves no session of the agent's name.
+/// (it no longer returns `Ok` before the start runs) and leaves no session
+/// of the agent's name; elevated, the session opens and `stop` leaves
+/// none.
 #[cfg(windows)]
 #[test]
 fn capture_ac_001_open_returns_the_start_result() {
-    let _etw = ETW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _etw = ETW_LOCK.blocking_lock();
     match EtwSession::open(16) {
         Ok(mut session) => {
             session.stop();
-            // ERROR_WMI_INSTANCE_NOT_FOUND: no session of that name exists.
-            assert_eq!(
-                cg_agent::etw::events_lost(cg_agent::etw::SESSION_NAME),
-                Err(4201),
-                "elevated: stop must leave no session behind"
-            );
+            assert_no_session("elevated: stop must leave no session behind");
         }
-        Err(e) => assert!(
-            e.is_privilege(),
-            "unelevated: open must report the privilege failure, got {e:?}"
-        ),
+        Err(e) => {
+            assert!(
+                e.is_privilege(),
+                "unelevated: open must report the privilege failure, got {e:?}"
+            );
+            assert_no_session("unelevated: the failed start must leave no session behind");
+        }
     }
 }
 
@@ -114,15 +115,27 @@ fn capture_ac_001_open_reports_no_backend() {
 }
 
 /// Serializes the tests of this binary that may open the agent's ETW
-/// session: the name is fixed, and a second open reclaims the first.
+/// session: the name is fixed, a second open reclaims the first, and a
+/// check for a leftover session must not see another test's. A tokio
+/// mutex, so that the async tests hold it across their awaits.
 #[cfg(windows)]
-static ETW_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static ETW_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// No ETW session of the agent's name exists: a query by name answers
+/// ERROR_WMI_INSTANCE_NOT_FOUND (4201).
+#[cfg(windows)]
+fn assert_no_session(context: &str) {
+    assert_eq!(
+        cg_agent::etw::events_lost(cg_agent::etw::SESSION_NAME),
+        Err(4201),
+        "{context}"
+    );
+}
 
 /// `true` when this process may open the agent's ETW session (elevated):
-/// the session is then stopped at once.
+/// the session is then stopped at once. The caller holds `ETW_LOCK`.
 #[cfg(windows)]
 fn elevated() -> bool {
-    let _etw = ETW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     match EtwSession::open(16) {
         Ok(mut session) => {
             session.stop();
@@ -138,6 +151,7 @@ fn elevated() -> bool {
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn capture_ac_001_unelevated_secure_path_fails_before_any_post() {
+    let _etw = ETW_LOCK.lock().await;
     if elevated() {
         eprintln!("skipped: elevated (the ETW session opens)");
         return;
@@ -150,6 +164,7 @@ async fn capture_ac_001_unelevated_secure_path_fails_before_any_post() {
     let err = outcome.expect_err("the start failure must end run_secure");
     assert_eq!(err.exit_code(), 9);
     assert!(mock.attempts().is_empty(), "no heartbeat or event POST");
+    assert_no_session("the failed secure path must leave no session behind");
 }
 
 /// The real binary, unelevated: it enrolls, then exits 9 with the AC-002
@@ -159,6 +174,7 @@ async fn capture_ac_001_unelevated_secure_path_fails_before_any_post() {
 async fn capture_ac_001_unelevated_binary_exits_9() {
     use std::io::Write as _;
 
+    let _etw = ETW_LOCK.lock().await;
     if elevated() {
         eprintln!("skipped: elevated (the ETW session opens)");
         return;
@@ -210,6 +226,7 @@ async fn capture_ac_001_unelevated_binary_exits_9() {
     .expect("launch the agent binary");
 
     assert_eq!(output.status.code(), Some(9), "{output:?}");
+    assert_no_session("a binary that exits 9 must leave no session behind");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains(AC_002_LINE), "stderr: {stderr}");
     let stdout = String::from_utf8_lossy(&output.stdout);
