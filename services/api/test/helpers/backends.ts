@@ -1,7 +1,7 @@
 import { GenericContainer, type StartedTestContainer, Wait } from "testcontainers";
 import type { Config } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
-import { bootstrapEventsTable } from "./events-schema.js";
+import { bootstrapIngestClickHouse } from "./events-schema.js";
 import { applyReadSchema } from "./read-schema.js";
 
 export interface Backends {
@@ -73,12 +73,10 @@ export async function startBackends(): Promise<Backends> {
     // SPEC-009 read-slice — materialise the ingest-owned read-target Postgres tables
     // (agents/alerts/incidents) by applying ingest's REAL migrations in-workspace.
     await applyReadSchema(config);
-    // SPEC-010 — materialise the ClickHouse cges_events read target the drill reads.
-    // The api owns no ClickHouse migration and ingest's bootstrap is private
-    // (services/ingest/src/db/migrate.ts:86-155), so this is a scoped test-only DDL
-    // helper. Named debt (SPEC-010 §Open questions 1): replace with a shared CH-schema
-    // module on the first un-caught DDL drift or a second shared CH table.
-    await bootstrapEventsTable(config);
+    // SPEC-010 — materialise the ClickHouse cges_events read target the drill reads,
+    // by running ingest's own ClickHouse bootstrap (debt #6). The api owns no
+    // ClickHouse migration.
+    await bootstrapIngestClickHouse(config);
 
     return {
       config,

@@ -1,3 +1,5 @@
+import * as path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import type { Config } from "../../src/config.js";
 
@@ -5,17 +7,18 @@ import type { Config } from "../../src/config.js";
  * SPEC-010 — materialise + seed the ClickHouse `cges_events` table in the api test
  * ClickHouse (the forensic event drill's read target).
  *
- * The api test harness applies ingest's REAL Postgres migrations in-workspace
- * (read-schema.ts), but `cges_events`'s DDL lives in ingest's PRIVATE
- * `bootstrapClickHouse` (services/ingest/src/db/migrate.ts:86-155), NOT a migration
- * file — so it cannot be reused the way the Postgres migrations are. This is
- * therefore a scoped, test-only DDL mirror of `cges_events` (the DDL is copied
- * VERBATIM from migrate.ts:134-153). Named architecture debt (SPEC-010 §Open
- * questions 1): replace with a shared ClickHouse-schema module (or an exported
- * `bootstrapClickHouse`) when a second api↔ingest ClickHouse table is shared, or on
- * the first un-caught DDL drift. A drift on a projected column is caught by
- * drill_ac_001 at the GREEN gate.
+ * The table is created by ingest's own ClickHouse bootstrap
+ * (`services/ingest/src/db/clickhouse-bootstrap.ts`), the statements ingest runs at
+ * its start, so the api tests read the table ingest writes and keep no copy of its
+ * DDL (debt #6; SPEC-010 §Open questions 1). It is loaded by URL at run time, as
+ * read-schema.ts loads ingest's Postgres migrations: the file lies outside this
+ * package's `rootDir`.
  */
+const INGEST_CLICKHOUSE_BOOTSTRAP = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../ingest/src/db/clickhouse-bootstrap.ts",
+);
+
 function chClient(config: Config): ClickHouseClient {
   return createClient({
     url: config.API_CH_URL,
@@ -25,60 +28,14 @@ function chClient(config: Config): ClickHouseClient {
   });
 }
 
-/** Create the `cges_events` table (verbatim DDL, ingest migrate.ts:134-153). */
-export async function bootstrapEventsTable(config: Config): Promise<void> {
+/** Create ingest's ClickHouse tables (`heartbeats` and `cges_events`) in the api test ClickHouse. */
+export async function bootstrapIngestClickHouse(config: Config): Promise<void> {
+  const { bootstrapClickHouseTables } = (await import(
+    pathToFileURL(INGEST_CLICKHOUSE_BOOTSTRAP).href
+  )) as { bootstrapClickHouseTables(ch: ClickHouseClient): Promise<void> };
   const ch = chClient(config);
   try {
-    await ch.command({
-      query: `
-        CREATE TABLE IF NOT EXISTS cges_events (
-          agent_id              UUID,
-          org_id                String DEFAULT 'default',
-          event_id              UUID,
-          class_uid             UInt32,
-          activity_id           UInt8,
-          process_pid           UInt32,
-          process_uid           String,
-          process_name          String,
-          process_created_time  Nullable(DateTime64(9, 'UTC')),
-          process_exit_code     Nullable(Int32),
-          process_parent_pid    Nullable(UInt32),
-          process_command_line  String DEFAULT '',
-          subject_user_sid      String DEFAULT '',
-          image_file_name       String DEFAULT '',
-          time                  DateTime64(9, 'UTC'),
-          arrived_at            DateTime64(3, 'UTC') DEFAULT now64(3)
-        ) ENGINE = ReplacingMergeTree(arrived_at)
-        PARTITION BY (org_id, toYYYYMMDD(time))
-        ORDER BY (org_id, time, event_id)
-      `,
-    });
-    // SPEC-019 §Operational §7 — the same ALTER ingest's bootstrap runs after its
-    // CREATE: the six Network Activity columns, and SPEC-020's eleven Authentication
-    // columns (§Operational §8). The api reads none of them; the
-    // mirror keeps describing the table the api reads.
-    await ch.command({
-      query: `
-        ALTER TABLE cges_events
-          ADD COLUMN IF NOT EXISTS src_ip        String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS src_port      UInt16 DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS dst_ip        String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS dst_port      UInt16 DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS net_protocol  String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS net_direction String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS user_uid         String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS user_name        String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS user_domain      String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS logon_type_id    UInt8 DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS status_id        UInt8 DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS status_code      String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS status_detail    String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS auth_protocol    String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS auth_protocol_id UInt8 DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS src_hostname     String DEFAULT '',
-          ADD COLUMN IF NOT EXISTS elevated_token   Nullable(Bool) DEFAULT NULL
-      `,
-    });
+    await bootstrapClickHouseTables(ch);
   } finally {
     await ch.close();
   }
@@ -99,7 +56,7 @@ export interface SeedCgesEvent {
   orgId?: string;
 }
 
-/** Insert one `cges_events` row (mirrors services/ingest/test/helpers/db.ts:153-183). */
+/** Insert one `cges_events` row (as `insertCgesEvent` in services/ingest/test/helpers/db.ts does). */
 export async function insertCgesEvent(config: Config, ev: SeedCgesEvent): Promise<void> {
   const ch = chClient(config);
   try {
