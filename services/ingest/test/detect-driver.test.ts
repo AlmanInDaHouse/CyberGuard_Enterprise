@@ -4,7 +4,13 @@ import type { Config } from "../src/config.js";
 import { buildDetectConfig, listEnrolledOrgs, startDetectionDriver } from "../src/detect/driver.js";
 import { runDetectionCycle } from "../src/detect/index.js";
 import type { DetectCycleResult } from "../src/detect/types.js";
-import { enrollTestAgent, getAlerts, getCursor, insertCgesEvent } from "./helpers/db.js";
+import {
+  clickHousePresent,
+  enrollTestAgent,
+  getAlerts,
+  getCursor,
+  insertCgesEvent,
+} from "./helpers/db.js";
 
 // ADR-0012 Amendment 2026-06-07 — production detection driver. CI-able
 // (testcontainers, NO ETW): synthetic cges_events drive the REAL runDetectionCycle
@@ -46,6 +52,7 @@ async function insertOfficeSpawn(
   childPid: number,
   seq: number,
   clock: string,
+  arrivedAt: string,
 ): Promise<void> {
   await insertCgesEvent(config, {
     agentId,
@@ -56,6 +63,7 @@ async function insertOfficeSpawn(
     processName: "winword.exe",
     imageFileName: WINWORD,
     time: `2026-06-07 ${clock}:00.000000000`,
+    arrivedAt,
   });
   await insertCgesEvent(config, {
     agentId,
@@ -67,6 +75,7 @@ async function insertOfficeSpawn(
     imageFileName: POWERSHELL,
     processParentPid: parentPid,
     time: `2026-06-07 ${clock}:01.000000000`,
+    arrivedAt,
   });
 }
 
@@ -80,7 +89,10 @@ beforeAll(() => {
 test("driver tick: a pass runs runDetectionCycle, persists the alert and advances the watermark", async () => {
   const orgId = "drv-tick";
   const agentId = "01934abc-def0-7000-89ab-00000000da01";
-  await insertOfficeSpawn(config, orgId, agentId, 9000, 9001, 901_000, "08:00");
+  // Arrived at ClickHouse's present, as the route's rows do (the helpers would
+  // otherwise stamp them TEST_ARRIVAL_LEAD_MS back, debt #41).
+  const arrivedAt = await clickHousePresent(config);
+  await insertOfficeSpawn(config, orgId, agentId, 9000, 9001, 901_000, "08:00", arrivedAt);
   await enrollTestAgent(config, agentId);
 
   // buildDetectConfig is the production config: the ticks read nothing until the

@@ -1,7 +1,68 @@
-import { createClient } from "@clickhouse/client";
+import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import pg from "pg";
 import type { Config } from "../../src/config.js";
 import type { DetectCursor } from "../../src/detect/types.js";
+
+/**
+ * How far before ClickHouse's present the insert helpers stamp `arrived_at` (debt
+ * #41). The detection tests read with a settle margin of 0 (helpers/detect.ts), on
+ * ClickHouse's clock (SPEC-018 §Operational §2). On Docker Desktop that clock steps
+ * back now and then: on 2026-10-14 its offset to the host fell by at least 2351 ms
+ * between two samples 108 ms apart. Rows ClickHouse stamped just before such a step
+ * lie in its future, and a margin-0 read misses them. Rows stamped this far back
+ * are read through any step shorter than it.
+ */
+export const TEST_ARRIVAL_LEAD_MS = 30_000;
+
+/** The last `arrived_at` this file's helpers stamped, in epoch milliseconds. */
+let lastArrivalMs = 0;
+
+/**
+ * The `arrived_at` the helpers stamp, in epoch milliseconds: ClickHouse's present
+ * less the lead, and after the last one stamped, so that the rows of successive
+ * calls arrive in order even when ClickHouse's clock steps back between them.
+ */
+export function nextArrivalMs(clickHouseNowMs: number, lastMs: number): number {
+  return Math.max(clickHouseNowMs - TEST_ARRIVAL_LEAD_MS, lastMs + 1);
+}
+
+/**
+ * ClickHouse's present, `now64(3, 'UTC')`, as a DateTime64(3) literal: the arrival
+ * of a row a test places "just now", as the route's rows get (SPEC-018 §Data
+ * contracts). A test that reads with the production margin uses it to see that
+ * margin waited out.
+ */
+export async function clickHousePresent(config: Config): Promise<string> {
+  const ch = createClient({
+    url: config.INGEST_CH_URL,
+    username: config.INGEST_CH_USER,
+    password: config.INGEST_CH_PASSWORD,
+    database: config.INGEST_CH_DB,
+  });
+  try {
+    const rs = await ch.query({
+      query: "SELECT toString(now64(3, 'UTC')) AS t",
+      format: "JSONEachRow",
+    });
+    const [row] = await rs.json<{ t: string }>();
+    if (row === undefined) throw new Error("ClickHouse returned no now64(3)");
+    return row.t;
+  } finally {
+    await ch.close();
+  }
+}
+
+/** Stamp one `arrived_at` for the rows of one insert, as a DateTime64(3) literal in UTC. */
+async function stampArrival(ch: ClickHouseClient): Promise<string> {
+  const rs = await ch.query({
+    query: "SELECT toUnixTimestamp64Milli(now64(3, 'UTC')) AS now_ms",
+    format: "JSONEachRow",
+  });
+  const [row] = await rs.json<{ now_ms: string | number }>();
+  if (row === undefined) throw new Error("ClickHouse returned no now64(3)");
+  lastArrivalMs = nextArrivalMs(Number(row.now_ms), lastArrivalMs);
+  return new Date(lastArrivalMs).toISOString().replace("T", " ").replace("Z", "");
+}
 
 /**
  * Insert an enrollment_tokens row directly (the server's CLI does this in
@@ -192,7 +253,10 @@ export interface InsertNetworkEventRow {
   orgId?: string;
 }
 
-/** Insert Network Activity rows in ONE ClickHouse INSERT, as the route writes them. */
+/**
+ * Insert Network Activity rows in ONE ClickHouse INSERT, in the shape the route
+ * writes them, with the arrival `stampArrival` gives (debt #41).
+ */
 export async function insertNetworkEvents(
   config: Config,
   rows: InsertNetworkEventRow[],
@@ -204,6 +268,7 @@ export async function insertNetworkEvents(
     database: config.INGEST_CH_DB,
   });
   try {
+    const arrivedAt = await stampArrival(ch);
     await ch.insert({
       table: "cges_events",
       values: rows.map((ev) => ({
@@ -222,6 +287,7 @@ export async function insertNetworkEvents(
         net_protocol: "tcp",
         net_direction: ev.direction,
         time: ev.time,
+        arrived_at: arrivedAt,
       })),
       format: "JSONEachRow",
     });
@@ -301,6 +367,7 @@ export async function insertLogonEvents(
     database: config.INGEST_CH_DB,
   });
   try {
+    const arrivedAt = await stampArrival(ch);
     await ch.insert({
       table: "cges_events",
       values: rows.map((ev) => ({
@@ -320,6 +387,7 @@ export async function insertLogonEvents(
         auth_protocol: "Negotiate",
         auth_protocol_id: 99,
         time: ev.time,
+        arrived_at: arrivedAt,
       })),
       format: "JSONEachRow",
     });
@@ -353,8 +421,9 @@ export interface InsertCgesEventRow {
   processParentPid?: number | null;
   orgId?: string;
   /**
-   * ClickHouse DateTime64(3) literal for `arrived_at`. Omitted ⇒ ClickHouse assigns
-   * it, as for every event the ingest route writes (SPEC-018 §Data contracts).
+   * ClickHouse DateTime64(3) literal for `arrived_at`. Omitted ⇒ the helper stamps
+   * one value for the call's rows, as the ingest route's single INSERT shares one:
+   * ClickHouse's present less TEST_ARRIVAL_LEAD_MS, after the last it stamped.
    */
   arrivedAt?: string;
 }
@@ -365,7 +434,8 @@ export async function insertCgesEvent(config: Config, ev: InsertCgesEventRow): P
 
 /**
  * Insert `rows` in ONE ClickHouse INSERT: rows that leave `arrivedAt` unset share
- * one ClickHouse-assigned `arrived_at` (SPEC-018 §Context 6).
+ * one `arrived_at`, as the rows of one route INSERT do (SPEC-018 §Context 6),
+ * stamped by `stampArrival` (debt #41).
  */
 export async function insertCgesEvents(config: Config, rows: InsertCgesEventRow[]): Promise<void> {
   const ch = createClient({
@@ -375,6 +445,10 @@ export async function insertCgesEvents(config: Config, rows: InsertCgesEventRow[
     database: config.INGEST_CH_DB,
   });
   try {
+    // A row that brings its own `arrived_at` is the test's to place, even in the future.
+    const arrivedAt = rows.some((ev) => ev.arrivedAt === undefined)
+      ? await stampArrival(ch)
+      : undefined;
     await ch.insert({
       table: "cges_events",
       values: rows.map((ev) => ({
@@ -389,7 +463,7 @@ export async function insertCgesEvents(config: Config, rows: InsertCgesEventRow[
         process_parent_pid: ev.processParentPid ?? null,
         image_file_name: ev.imageFileName,
         time: ev.time,
-        ...(ev.arrivedAt === undefined ? {} : { arrived_at: ev.arrivedAt }),
+        arrived_at: ev.arrivedAt ?? arrivedAt,
       })),
       format: "JSONEachRow",
     });
