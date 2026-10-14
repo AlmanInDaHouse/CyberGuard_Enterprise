@@ -4,7 +4,9 @@ import { registerAuthRoutes } from "./auth/routes.js";
 import {
   AuthError,
   BadRequestError,
+  ConflictError,
   ForbiddenError,
+  NotFoundError,
   NotImplementedError,
   RateLimitError,
   StoreUnavailableError,
@@ -31,10 +33,17 @@ function loggable(err: unknown): Record<string, unknown> {
  * session cookie. The error handler maps the error taxonomy to status codes:
  * AuthError→401, RateLimitError→429, ForbiddenError→403 (RBAC/CSRF),
  * BadRequestError→400 and StoreUnavailableError→503 (SPEC-009 Amendment
- * 2026-10-14). A 5xx is logged with its cause; no body carries internal detail.
+ * 2026-10-14), NotFoundError→404 and ConflictError→409 (SPEC-008 Amendment
+ * 2026-10-15). A 5xx is logged with its cause; no body carries internal detail.
+ * Each request gets a UUID as its id, the `reqId` of its log lines and the
+ * `correlation_id` of its audit rows; an id the client sends is ignored.
  */
 export function buildApp(services: Services, logger: LoggerOpt = false): FastifyInstance {
-  const app = Fastify({ logger });
+  const app = Fastify({
+    logger,
+    genReqId: () => globalThis.crypto.randomUUID(),
+    requestIdHeader: false,
+  });
   app.register(cookie);
 
   app.setErrorHandler((err, req, reply) => {
@@ -42,6 +51,8 @@ export function buildApp(services: Services, logger: LoggerOpt = false): Fastify
     if (err instanceof RateLimitError) return reply.code(429).send({ error: "rate_limited" });
     if (err instanceof ForbiddenError) return reply.code(403).send({ error: "forbidden" });
     if (err instanceof BadRequestError) return reply.code(400).send({ error: "bad_request" });
+    if (err instanceof NotFoundError) return reply.code(404).send({ error: "not_found" });
+    if (err instanceof ConflictError) return reply.code(409).send({ error: "conflict" });
     if (err instanceof NotImplementedError) {
       return reply.code(501).send({ error: "not_implemented" });
     }
@@ -53,7 +64,9 @@ export function buildApp(services: Services, logger: LoggerOpt = false): Fastify
     const statusCode = (err as { statusCode?: number }).statusCode;
     const code = typeof statusCode === "number" ? statusCode : 500;
     if (code >= 500) req.log.error({ error: loggable(err) }, "request failed");
-    return reply.code(code).send({ error: "internal" });
+    // A body Fastify cannot read keeps Fastify's 4xx (SPEC-008 Amendment 2026-10-15
+    // item 2): 400, 413 or 415.
+    return reply.code(code).send({ error: code < 500 ? "bad_request" : "internal" });
   });
 
   registerAuthRoutes(app, services);
