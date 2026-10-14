@@ -325,6 +325,19 @@ Claude Code's decisions inside ADR-0021, each with the alternative it discards:
 7. **The read route nested under the incident**, as the drill, the export and the report are. Alternative: a top-level `/v1/playbook-executions` list, which no MVP view needs.
 8. **Both emails kept.** Alternative: suppress SPEC-014's email when a playbook mails, which couples the two carriers.
 
+## Amendment 2026-10-14: the bounded send authenticates when offered, and parses its envelope
+
+**What surfaced it.** The fresh-context review of the implementation, before it landed. §Operational §6 says the bounded send "authenticates with SPEC-014's credentials, sends and quits". Read literally, a send authenticates on every connection. With a server that advertises no AUTH, nodemailer's `SMTPConnection` then falls back to PLAIN and sends the credentials: in clear text when the server is not on port 465 and offers no STARTTLS. SPEC-014's nodemailer transport never did that. It logged in only when the server advertised AUTH, and it took the envelope (sender and recipients) from the composed message's headers, so a sender written with a display name worked.
+
+**The amendment.** §Operational §6's bullet reads: it authenticates with SPEC-014's credentials when the server advertises AUTH, as SPEC-014's transport did, and otherwise sends without authenticating. It takes the envelope from the composed message's headers, as that transport did. It then sends and quits. Its TLS is unchanged: implicit TLS on port 465, otherwise STARTTLS when the server offers it.
+
+**Effect.** soar_ac_006 gains two cases, against a local SMTP server that records the commands it receives:
+
+- a send authenticates when the server advertises AUTH, and does not when it does not;
+- a sender with a display name gives the bare address in `MAIL FROM`.
+
+SPEC-014's notification, which uses the same send, keeps the behaviour its transport had. No other section changes. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0021](../adr/0021-soar-mvp-playbook-executor.md) — the decisions implemented here.
