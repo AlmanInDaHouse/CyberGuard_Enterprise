@@ -22,7 +22,7 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 | 5 | Incident PDF export | **Delivered** (SPEC-013). |
 | 1 | 10 detection rules | **Delivered** (SPEC-016): ten rules, each with a wired fixture and a CI scenario, evaluated over the events a deployed agent captures (SPEC-017). |
 | 2 | Windows agent: processes / network / logins | **Delivered** — processes (SPEC-005), TCP connections opened (SPEC-019) and logons succeeded and failed (SPEC-020), captured on the agent's normal run path (SPEC-017). |
-| 6 | 1 SOAR playbook | **Pending** — ADR-0021 Accepted (2026-10-14): one playbook, dry-run containment and an email, on the incident-create seam; its SPEC and implementation next. |
+| 6 | 1 SOAR playbook | **Delivered** (SPEC-022): `pb_high_severity_containment` runs on each new incident of severity High or more from a rule, records the agent's isolation in dry-run and emails the SOC, with a write-once, hash-chained execution record read at `GET /v1/incidents/:id/playbook-executions` (ADR-0021). |
 | 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
 
 On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07), over events read in arrival order (SPEC-018); on the agent side, process, network and logon capture run on the agent's normal secure path (SPEC-017). The latest session handoff, [`docs/handoff-session-38.md`](docs/handoff-session-38.md), is the canonical current state.
@@ -35,7 +35,7 @@ The remaining MVP work — phases ordered by technical dependency, plus the owne
 |---|---|
 | [`docs/`](docs/) | Specifications (SPEC-XXX), architecture decisions (ADR-NNNN), threat model, runbook. |
 | [`schemas/`](schemas/) | CyberGuard Common Event Schema (CGES) and OpenAPI contracts. |
-| [`services/`](services/) | Server-side services. Built: `api`, `ingest` (TypeScript). Placeholders: `pipeline`, `soar`, `ml`. Forensic ships inside `services/api` (SPEC-013). |
+| [`services/`](services/) | Server-side services. Built: `api`, `ingest` (TypeScript). Placeholders: `pipeline`, `ml`. Forensic ships inside `services/api` (SPEC-013) and SOAR inside `services/ingest` (SPEC-022); `services/soar/` holds only its README. |
 | [`agent/`](agent/) | Rust workspace for the endpoint agent. |
 | [`dashboard/`](dashboard/) | Next.js 15 SOC dashboard. |
 | [`rules/`](rules/) | Sigma-compatible detection rules and per-rule tests. |

@@ -336,12 +336,12 @@ This dependency-ordered document supersedes both for planning.
 
 ### E — SOAR (criterion 6)
 
-- **Status: IN PROGRESS** (S38, 2026-10-14). With B2 and §B3 parked, E and
-  F are the two MVP criteria left; E comes first, F is last by dependency.
-  ADR-0021 (SOAR for the MVP) and ADR-0002's Amendment 2026-10-14 were
-  ratified by Manuel on 2026-10-14 and landed (`71fbcca`); next its SPEC,
-  then the implementation, which runs the elevated gate since the call
-  site is in `services/ingest/src/detect/`.
+- **Status: DONE** — landed as `0dbe0a9..edbf8e9` (S38, 2026-10-14):
+  ADR-0021 (ratified by Manuel, `71fbcca`), SPEC-022 (`0246936`) and its
+  two amendments (`9f362e1`, `df69aa7`), the implementation after three
+  fresh-context code reviews, and elevated gate 4 green at `4c4e5b0`
+  (`docs/handoff-session-38.md`). Criterion 6 is delivered; F is the MVP
+  criterion left.
 - Does: one playbook executor on the incident-create seam. The seam
   exists: a create-only branch fires in `runDetectionCycle`
   (`services/ingest/src/detect/index.ts:77`) beside
@@ -349,8 +349,10 @@ This dependency-ordered document supersedes both for planning.
   carrier, same fire-and-forget contract.
 - Unblocks: criterion 6.
 - Blocked by: A (incidents must actually be created in prod).
-- Needs: ADR-0021 (Accepted) and its SPEC; `services/soar/` and
-  `playbooks/` are README stubs.
+- Needed: ADR-0021 (Accepted) and its SPEC (SPEC-022); `services/soar/`
+  and `playbooks/` were README stubs. SOAR now runs inside
+  `services/ingest` (`src/soar/`), and `playbooks/` holds the shipped
+  playbook.
 - Precedent to copy: the email fire-and-forget
   (`docs/specs/SPEC-014-incident-notification.md`,
   `docs/adr/0017-incident-email-notification.md`; call site

@@ -9,6 +9,18 @@ Session 38 opened on 2026-10-13 and closed on 2026-10-14. The session:
   could not supply SPEC-021. Claude Code parked roadmap §B2 and §B3, put E
   next, and decided #10 and #33.
 - Ran a second sweep for #33, #67 and #10, with the SPEC amendments first.
+- Delivered roadmap §E, MVP criterion 6: SPEC-022 and its two amendments,
+  and the SOAR implementation, landed after three fresh-context reviews of
+  the code and a green elevated gate 4.
+- Diagnosed and fixed debt #41: ClickHouse's clock in the Docker VM steps
+  back, and the tests read with a settle margin of 0.
+
+The session ran in two conversations. The first stopped on 2026-10-14 at
+04:22, waiting for gate 2. Windows Update restarted the host at 08:44
+(event 1074, `TrustedInstaller.exe`), and the work went on in a second
+conversation. Nothing was lost: every commit had been pushed, and the
+reviewers' reports were read back from the first conversation's
+transcript.
 
 Its work order for Session 39 is *How Session 39 resumes* at the end.
 
@@ -16,7 +28,7 @@ Its work order for Session 39 is *How Session 39 resumes* at the end.
 
 - `main` = `origin/main` = the commit that completes this file (CI ALL
   GREEN, *CI monitoring*); tree clean; no stash.
-- Catalogs: ADR 21 / SPEC 20. Known CI debt: zero.
+- Catalogs: ADR 21 / SPEC 21. Known CI debt: zero.
 - No branch or PR open. The owner-review branch `adr/s38-0021-soar`
   landed after Manuel's "sí" (`71fbcca`, `25add5b`) and is deleted, local
   and on origin. Each PR below is closed and its branch deleted, local and
@@ -26,8 +38,10 @@ Its work order for Session 39 is *How Session 39 resumes* at the end.
   - `fix/s38-debt-sweep-1` (PR #8) landed as four, `67f2055..6841aa5`.
   - `fix/s38-debt-sweep-2` (PR #9) landed as four, `bbdf1e3..8ea922e`, in
     an order its landing slip changed (*Progress*).
-- Roadmap: §B2 and §B3 PARKED (`4cad976`), §E IN PROGRESS: ADR-0021
-  Accepted, its SPEC next.
+  - `feat/s38-soar-mvp` (PR #10) landed as four, `0dbe0a9..edbf8e9`.
+  - `fix/s38-debt-41` (PR #11) landed by squash as `f8a2d4a`.
+- Roadmap: §B2 and §B3 PARKED (`4cad976`), §E DONE: criterion 6 delivered
+  (SPEC-022, `0dbe0a9..edbf8e9`).
 - Code changed this session. For #63: `services/ingest/test/helpers/marquee-agent.ts`
   and two new test files, `services/ingest/test/marquee-agent-etw.test.ts`
   and `agent/cg-agent/tests/etw_reclaim.rs`. The elevated gate covered it
@@ -45,6 +59,15 @@ Its work order for Session 39 is *How Session 39 resumes* at the end.
   `config.ts` are still runtime inputs under `services/`, so gate 1b (at
   `6fbcd0e`) is not evidence for the tip; the next gated change runs the
   gate again.
+- For §E: `services/ingest/src/soar/` (new), `src/notify/` (the bounded
+  send, `errors.ts`), `src/detect/index.ts` and `driver.ts`, `server.ts`,
+  `services.ts`, `config.ts`, `jcs.ts` and migration 0008;
+  `services/api/src/read/` (the read route); `playbooks/`,
+  `schemas/playbooks/`, the ingest Dockerfile, the dev compose, `ts-ci` and
+  `schema-validation`. `detect/index.ts` is on the gated path: gate 4 ran
+  at `4c4e5b0`, whose tree is `edbf8e9`'s (*Gate outputs and baselines*).
+  For #41: the test helpers and three test files under
+  `services/ingest/test/`; no production file.
 - Outside the repository:
   - Docker Desktop, started by Claude Code, is still running.
   - The dev stack (`cyberguard-dev-postgres-1`, `-redis-1`, `-nats-1`,
@@ -57,7 +80,13 @@ Its work order for Session 39 is *How Session 39 resumes* at the end.
     `C:\tmp\s38-gate1b-*.log`, and the logs of gate 1, which ran nothing in
     the repository (`C:\tmp\s38-gate1-*.log`).
   - No ETW session of the agent's name is running.
-  - `C:` has 17 GB free (29 GB at the start). The Docker Desktop disk under
+  - The host restarted on 2026-10-14 at 08:44 (Windows Update). Claude Code
+    started Docker Desktop again for gate 2b; containers with a restart
+    policy came up with it, the dev stack's and other projects'.
+  - The gate scripts `C:\tmp\s38-gate2.ps1`, `s38-gate2b.ps1` (not run),
+    `s38-gate3.ps1`, `s38-gate3b.ps1` and `s38-gate4.ps1`, and their logs.
+  - `C:` has 27 GB free at the close (29 GB at the session's start, 17 GB
+    on 2026-10-14 before the host restarted). The Docker Desktop disk under
     `%LOCALAPPDATA%\Docker` held 101 GB on 2026-10-13 and grows with each
     testcontainers run; `target/` held 8.5 GB.
   - Docker's build cache (20.95 GB) and dangling images (0.73 GB) were
@@ -118,6 +147,16 @@ Manuel's decisions this session, in chat:
   2: ADR-0002's amendment; 3: ADR-0015's amendment): "si a 1, 2 y  3".
   Claude Code read it as the ratification of all three, landed them, and
   set ADR-0021's status to Accepted.
+- 2026-10-14, in the second conversation, after Claude Code advised not to
+  run gate 2b, since the review fixes would change `services/` again:
+  "ok". Gate 2b was not run.
+- 2026-10-14, after Claude Code reported two decisions of its own (the
+  send's credentials only through a mechanism the server names; TLS before
+  AUTH left to him as #74): "acepto todo, podemos seguir". Claude Code read
+  it as his acceptance of those two decisions, not of the red gate 3, whose
+  output he had not seen yet, and said so.
+- 2026-10-14, asked whether to fix #41 before landing SOAR or to accept
+  gates 3 and 3b's red as a debt: "Arreglar #41 primero (Recommended)".
 
 The landing (*Integration path* §3): `main` had not moved since the branch
 was cut, so no rebase. Each commit cherry-picked in order, the guard
@@ -269,6 +308,79 @@ What ADR-0021 decides:
   Postgres trigger. Its steps form an unsigned SHA-256 chain.
 - Bounds: 10 steps, 15 s per step and 30 s per run.
 - One playbook ships, for High severity or more.
+
+### Roadmap §E: SPEC-022
+
+SPEC-022 (SOAR for the MVP) went straight to `main` after its self-review
+(*Integration path* §1), and two amendments followed from the
+implementation's reviews:
+
+| SHA | What | CI |
+|---|---|---|
+| `0246936` | SPEC-022 Accepted: the playbook and its schema, the loader and its policy, the trigger, the `playbook_executions` record and its triggers, the per-step chain, the bounds, the bounded SMTP send that SPEC-014's notification shares, the read route, the shipped playbook, CI, eight acceptance criteria. Debt #73. | markdown-lint → success |
+| `9f362e1` | Amendment 2026-10-14: the send authenticates when the server advertises AUTH, and takes its envelope from the headers. | markdown-lint → success |
+| `df69aa7` | Second Amendment 2026-10-14: only the limit a send is given reads as a timeout; the send authenticates only with PLAIN, LOGIN or CRAM-MD5 named as a whole token of the EHLO reply's AUTH line, and names it to `login`; a step the run's bound reaches before it starts; SPEC-014's `ESENDLIMIT`; its Decisions. Debts #74 and #75 in this file, and the open-debt count. | markdown-lint → success |
+
+### Roadmap §E: the implementation
+
+Branch `feat/s38-soar-mvp` (PR #10) held four commits. They were rebuilt
+each time a review's fixes were folded into them, so that no `main` SHA
+carries a state a review rejected, and every pushed commit had CI green
+(*Gate outputs and baselines*). After #41's fix landed, the branch was
+rebased onto `f8a2d4a`, pushed again one commit per push, and covered by
+gate 4. It landed by cherry-pick, each with a guard that stops:
+
+```text
+guard 8a49e5b -> 0   SHA 0dbe0a9: schema-validation -> success | ts-ci -> success
+guard 604a897 -> 0   SHA 6859616: ts-ci -> success
+guard fb61553 -> 0   SHA 0000cb7: ts-ci -> success
+guard 4c4e5b0 -> 0   SHA edbf8e9: markdown-lint -> success | schema-validation -> success | ts-ci -> success
+```
+
+| SHA | What |
+|---|---|
+| `0dbe0a9` | The playbook schema (`schemas/playbooks/v0.1/playbook.json`), the shipped playbook `pb_high_severity_containment`, and the loader (`src/soar/loader.ts`, `ajv` 8.20.0, MIT), run before any client; soar_ac_001. |
+| `6859616` | `runPlaybooks` on incident create; migration 0008 (`playbook_executions` and its write-once triggers); the chain; the bounds; the bounded SMTP send (`src/notify/bounded-send.ts`), which SPEC-014's notification now uses; soar_ac_002 to 006 and 008. |
+| `0000cb7` | `GET /v1/incidents/:id/playbook-executions`; soar_ac_007. |
+| `edbf8e9` | `schema-validation` validates `playbooks/` with ajv-cli; READMEs. |
+
+PR #10 is closed and its branch deleted, local and on origin.
+
+What the reviews found in the send, each fixed with a test that failed
+first against the code before the fix:
+
+- credentials sent to a server that offered no AUTH: after nodemailer's
+  HELO fallback; with PLAIN to a server that named only other mechanisms;
+  and with PLAIN to one that named `PLAIN-CLIENTTOKEN`;
+- a relay that names only `XOAUTH2` ended the process with an uncaught
+  `TypeError`. SPEC-014's transport on `main` did the same;
+- a sender with a display name was refused (`EENVELOPE`);
+- a connection the server closed before its greeting waited out the
+  send's limit and read as a timeout;
+- a subject kept the Unicode line breaks U+2028 and U+0085.
+
+### Debt #41
+
+Gates 3 and 3b each failed one detection test whose cycle read nothing:
+detect_ac_003, then notify_ac_003 (`alertsWritten` 0). Neither test is
+touched by the branch. Sampling ClickHouse's `now64(3)` against the host
+every 100 ms gave an offset between −1398 ms and +956.5 ms within a minute,
+and a fall of at least 2351 ms between two samples 108 ms apart. Rows
+stamped just before such a step lie in the clock's future, and the tests
+read with a settle margin of 0.
+
+Branch `fix/s38-debt-41` (PR #11). Its first version waited, after each
+insert, for ClickHouse's clock to pass the rows' `arrived_at`. Its review
+showed that a step after the wait still hid them, and it was replaced
+before landing. The helpers now stamp `arrived_at` themselves, 30 s behind
+ClickHouse's present and after the last value they stamped. It landed by
+squash:
+
+```text
+guard fix/s38-debt-41 -> 0   SHA f8a2d4a: ts-ci -> success
+```
+
+PR #11 is closed and its branch deleted, local and on origin.
 
 ## Decisions
 
@@ -464,6 +576,72 @@ Debt sweep 2, reactive:
   fixes, so that no `main` SHA carries the detail-logging state. The
   branch was Claude Code's own (*Integration path* §3).
 - The landing slip (*Progress*).
+
+SOAR, anticipated:
+
+- **The second conversation continues S38**, not S39. S38's close had not
+  run: PR #10 was open, this file said "SPEC-022 next", and the gate
+  scripts were S38's. Alternative: open S39, which would have left this
+  file's *State at close* false for good and recorded S38's work in
+  another session's handoff.
+- **One SMTP connection per send, closed at its limit**, since nodemailer's
+  transport cannot abort a send in flight. Alternative: the transport's
+  socket timeouts alone, which do not bound a send. Where: `0246936`,
+  `6859616`.
+- **SPEC-014's notification uses the same bounded send** (15 s), which
+  amends SPEC-014 by scope. Alternative: leave its transport unbounded,
+  where a stalled relay holds the cycle. Where: `0246936`.
+- **A failed send is reported by its code only** (NFR-022-003), since the
+  message can quote the recipient. Where: `0246936`, `6859616`.
+- **The test backends point SOAR at an empty directory**, so the marquees
+  run with SOAR idle. Alternative: marquees that also exercise SOAR, which
+  mixes two contracts in one gate. Where: `0dbe0a9`.
+- **The cycle passes `detectionSource: "rule"`.** `upsertAlert` writes the
+  literal `'rule'` (`services/ingest/src/detect/alerts.ts:57`) and the
+  engine refuses any other source (`engine.ts:174-177`). Alternative: read
+  the alert's stored value, a change to the detection path with no change
+  in behaviour. Three code reviews named it; each was answered with this
+  reason.
+- **The read route is open to all three roles** and looks the incident up
+  in the session's org first, as its sibling reads do. Where: `0000cb7`.
+
+SOAR, reactive:
+
+- **Credentials go out only through a mechanism the server names**:
+  PLAIN, LOGIN or CRAM-MD5, a whole token of the EHLO reply's AUTH line,
+  named to `login`. Alternatives: SPEC-014's rule, logging in whenever
+  nodemailer marks AUTH allowed, which sends PLAIN to servers that never
+  asked and crashes on `XOAUTH2`; or leaving it to Manuel. A relay outside
+  RFC 4954 (AUTH required after HELO, or PLAIN accepted unnamed) stops
+  receiving credentials. Manuel accepted it on 2026-10-14. Where:
+  `df69aa7`, `6859616`.
+- **TLS before AUTH is not required here.** Requiring it changes which
+  relays an operator can use, a deployment-contract decision (#74, *What
+  waits on Manuel*). Manuel accepted leaving it to him on 2026-10-14.
+- **A throw in the send's connect handler fails the send.** It ran inside
+  nodemailer's event handler, where nothing catches it. Where: `6859616`.
+- **The review fixes were folded into the four commits** each time rather
+  than added on top, so that no `main` SHA carries the credential
+  regression or a test that proved nothing. The branch was Claude Code's
+  own (*Integration path* §3).
+- **soar_ac_002's correlated alert: the second seed spawns `cmd.exe`.** An
+  alert's dedup key holds the child's process name and the incident
+  window's 5-minute bucket, so a second `winword → powershell` collapsed
+  into the first alert, and the test passed without one.
+- **Gate 2b was not run**: the review fixes changed `services/` again, and
+  the marquees do not use the send. Manuel's "ok".
+
+Debt #41:
+
+- **The helpers stamp the arrival, 30 s back and in order**, rather than
+  wait for ClickHouse's clock (the first version), which a step after the
+  wait defeats. Alternatives: a signed margin in the production read, for
+  a test's sake; or accepting the red gates as a debt, which Manuel
+  declined. Where: `f8a2d4a`.
+- **late_ac_005 and detect-driver place their rows at ClickHouse's
+  present** (`clickHousePresent`), so CI still waits out the production
+  margin.
+- **#41 was fixed before SOAR landed**, Manuel's choice.
 
 ## Self-reviews
 
@@ -728,6 +906,144 @@ context, the fixed ADR prompt, made two passes on the working tree:
   elevated gate, because the call site is in `detect/`.
 - Pass 2's fixes had no third pass; each answers an item of pass 2.
 
+### SPEC-022
+
+Claude Code's own pass checked each claim made in more than one place and
+each cited line. A reviewer with a fresh context, the fixed SPEC prompt,
+made two passes on the working tree before `0246936`:
+
+- **Pass 1, 4 items in List A**, all fixed:
+  - a failed send's record and log could hold the recipient, quoted in
+    nodemailer's error message: now its code only;
+  - the marquees start `startIngest` with the driver, so SOAR would run in
+    them: the test backends now point at an empty directory;
+  - a step's detail could exceed 500 characters: every detail is cut, and
+    `{{steps}}` is allowed only in a body;
+  - how `ml` and `hybrid_only` match was left open by ADR-0021: only
+    `rule` runs in the MVP.
+
+  From List B, also fixed: the workflow that validates the playbooks and
+  how the schema reaches the image, loading before any client,
+  `MailComposer`, the delay formula, triggers on INSERT and TRUNCATE, and
+  missing criteria.
+- **Pass 2, 5 items in List A**, all fixed:
+  - an absent set directory had been made to stop the boot, which changes
+    ADR-0021: back to idle, logged at warn;
+  - ADR-0021 and the SPEC disagreed on whether `ajv-cli` reads YAML: #73;
+  - `schema-validation` does not call `task`;
+  - `canonicalize` was not exported;
+  - step ids were not checked unique.
+
+  From List B, also fixed: the send's limit is the shorter of the step's
+  bound and the run's remaining time; SPEC-014's TLS; `ajv` in scope; the
+  claim's failure log; SPEC-009's deferral; cutting by code points; the
+  READMEs of `schemas/`.
+
+### SPEC-022's implementation
+
+Claude Code's own matrix, on the final tree (`edbf8e9`; test paths under
+`services/ingest/test/` unless named):
+
+| Criterion | Test | Verdict |
+|---|---|---|
+| 001: the repository's playbooks load; a README is ignored | `soar-ac-001-loading.test.ts:44`, `:140` | covered |
+| 001: the eleven refusals, each naming the file | `:62-131`, run by `:133` | covered |
+| 001: rejected before any client | `:159`: Postgres, ClickHouse and Redis at a listener that counts connections, none made; red with the loader moved after `buildServices` | covered |
+| 001: idle at info; an absent set directory at warn | `:140`, `:193`; `:152`, `:214` | covered |
+| 002: High runs once; Medium none; no `rule` none | `soar-ac-002-trigger.test.ts:32`, `:49`, `:65` | covered |
+| 002: a joining alert runs nothing | `:82`: the second alert is written, the incident holds two, no SOAR log | covered |
+| 003: the record; the two emails; the subject; no carrier | `soar-ac-003-dry-run-notify.test.ts:43`, `:65` (LF, CRLF, U+2028, U+0085), `:86` | covered |
+| 004: a claimed pair; running while sending; the six refusals | `soar-ac-004-claim-write-once.test.ts:58`, `:77`, `:95` | covered |
+| 005: the known answer; a recompute; a changed detail | `soar-ac-005-chain.test.ts:42`, `:71`, `:56`, `:83` | covered |
+| 006: the step and run bounds | `soar-ac-006-bounds.test.ts:36`, `:71` | covered |
+| 006: the silent listener, for the send and SPEC-014's notification | `:129`; `:149` (4500–9000 ms, `ETIMEDOUT`) | covered |
+| The amendments: AUTH when offered, PLAIN first; the envelope; HELO; other mechanisms only; `XOAUTH2 LOGIN` gets LOGIN; a close before the greeting; a transport timeout in a run | `:177`, `:198`, `:220`, `:232`, `:251`, `:263`, `:315`, `:328` | covered |
+| Second amendment: a step the run's bound reaches first; `ESENDLIMIT` at 15 s | none (#76) | statements without a test |
+| 007: the own org; the 404s; 401; 503; an empty list | `services/api/test/soar-ac-007-read.test.ts:105`, `:130`, `:138`, `:143`, `:124` | covered |
+| 008: success with the password in use; a refusal quoting the address; a synthetic error | `soar-ac-008-no-secret.test.ts:80`, `:98`, `:139` | covered |
+
+A reviewer with a fresh context, the fixed code prompt, made three passes:
+
+- **Pass 1, at `555970c`** (the first conversation).
+  - Weak: the warn boot log, the joining alert, soar_ac_008's success case.
+  - Contradicted: the timeout wording, `soar_run` skipped when the
+    completion failed, a loader looser than the SPEC.
+  - Beyond the contract: the send logged in on every connection, and
+    passed the configured strings as its envelope.
+  - Fixed and folded: `9f362e1` and the branch's commits. The timeout
+    wording went to pass 2. Not blocking: `X-Mailer` gone (nothing reads
+    it); the record's shape held by the code rather than the database; the
+    cycle's `detectionSource` (*Decisions*).
+- **Pass 2, at `87ba4a8`.**
+  - Weak: the joining alert, which proved nothing; SPEC-014's notification
+    timing; soar_ac_008's spy, which held no password.
+  - Contradicted: AUTH after HELO; a close before the greeting; the step
+    the run's bound reaches first (SPEC text).
+  - All fixed, with the second amendment.
+- **Pass 3, at `15093ec`.**
+  - No criterion contradicted or missing.
+  - Weak: the boot order, fixed with the connection counter.
+  - Partly met: the Unicode line breaks of a subject, fixed.
+  - Untested statements: #76, where the SPEC states them.
+  - Beyond the contract: the README's "next boot" for the image (fixed);
+    the private nodemailer fields (#75, and the connect handler's `try`);
+    `schema-validation`'s new job name, which no required check names,
+    since `main` is not protected (GitHub API: "Branch not protected").
+
+Pass 3's fixes had no fourth code pass; each answers an item of pass 3,
+and gate 4 covers the tree.
+
+### SPEC-022's second amendment
+
+Four passes of the fixed SPEC prompt, on `5d31f6d`, `8801971`, `9521ac5`
+and `c0d2fd0`, each an unpushed draft of `df69aa7`:
+
+- **Pass 1, 4 items in List A**: "exactly as SPEC-014's transport did" was
+  false, since it sent PLAIN to `AUTH GSSAPI NTLM`; `XOAUTH2` alone crashes
+  the process (fixed in the code: the mechanism named to `login`); a
+  successful send read as a failure; the `ECONNECTION` parenthetical.
+- **Pass 2, 2 items**: the first amendment's "never did that" had to be
+  corrected by the second; nodemailer's choice of mechanism was described
+  wrongly, since it uses its own fixed order.
+- **Pass 3, 2 items**: nodemailer's names match prefixes, so
+  `PLAIN-CLIENTTOKEN` counted as PLAIN (fixed in the code: whole tokens);
+  the catalog's first line kept the false comparison (a clause in the
+  second line).
+- **Pass 4, 2 items**: #74 was cited before this file held it (added in
+  the same commit); "as SPEC-014's transport did" was still false with
+  prefix names (the comparison now lists where the two differ). From List
+  B, also fixed: a false code comment, the RFC wording, a tab after
+  `AUTH`.
+
+Each pass's List B items were applied or recorded (#74, #75, #76). Pass
+4's fixes had no fifth pass; each answers an item of pass 4.
+
+### Debt #41
+
+Contract: debt #41 (`docs/handoff-session-34.md:328-332`), and the defect
+statement in *Progress*.
+
+| Criterion | Test | Verdict |
+|---|---|---|
+| A margin-0 read finds the rows through any step back shorter than the lead | `insert-arrival.test.ts:58`: rows at least 25 s old; a read with a 25 s margin finds them | covered |
+| Successive inserts keep their order of arrival across a step | `:78` (no step), `:94` (pure, a 2351 ms step) | weak: the wiring of `lastArrivalMs` is one line, read |
+| The rows of one insert share one arrival | `:78`; late_ac_003 | covered |
+| A row a test stamps stays where it was put | `arrived_at: ev.arrivedAt ?? arrivedAt`; late_ac_005 and read-model green | covered indirectly |
+| Production code unchanged | the diff is under `services/ingest/test/` only | covered |
+
+Two passes of the fixed code prompt:
+
+- **Pass 1, on `51fe26d`**, showed that the waiting version did not fix
+  the defect. It was replaced.
+- **Pass 2, on `dd54d4e`**, found no contradiction.
+  - Weak: the wiring (above); and several steps adding up past 30 s
+    before the clock recovers, which has not been observed (the measured
+    offsets stay within ±1.4 s).
+  - Fixed: three stale comments, and detect-driver's rows placed at
+    ClickHouse's present, so the production margin is still waited out.
+
+The flake cannot be provoked on demand; gate 4 ran its 261 tests green.
+
 ## Debts
 
 New this session:
@@ -814,6 +1130,8 @@ New this session:
   (measured on 2026-10-14 with `ajv validate -d t.yml`). The decision the
   clause supports holds: CI validates the playbooks through the loader in
   `ts-ci` (SPEC-022 §Operational §8). Surfaced by SPEC-022's review.
+  Since `edbf8e9`, `schema-validation` also runs ajv-cli on the YAML
+  playbooks.
   Destination: the next ADR-0021 amendment, which needs Manuel's "sí".
 - **#74 — SMTP credentials go in clear text to a server without TLS.** The
   bounded send keeps SPEC-014's TLS: implicit TLS on port 465, otherwise
@@ -836,6 +1154,14 @@ New this session:
   send's connect handler fails the send, not the process. Destination: the
   next nodemailer bump, which pins the version exactly or replaces the two
   reads; Claude Code's.
+- **#76 — Two statements of SPEC-022's second amendment have no test.** A
+  step that the run's bound reaches before it starts
+  (`services/ingest/src/soar/run.ts:153-157`), which a test reaches only
+  by a race; and `ESENDLIMIT` in SPEC-014's failure log when its 15 000 ms
+  limit cuts a send (`services/ingest/src/notify/index.ts`), which takes
+  15 s to reach. Both were read against the code. Destination: the next
+  change to either file, with an injectable bound or clock; Claude
+  Code's.
 
 Closed this session:
 
@@ -862,6 +1188,11 @@ Closed this session:
   Amendment 2026-10-14 and `8ea922e`.
 - **#67 — The dashboard's default API address is ingest's enroll port.**
   Fixed by `bbdf1e3`, documented by `12a7f13`.
+- **#41 — `read-model.test.ts` flake.** Diagnosed: ClickHouse's clock in
+  the Docker VM steps back (a fall of at least 2351 ms measured), and the
+  tests read with a settle margin of 0. It recurred in gates 3 and 3b
+  (detect_ac_003, notify_ac_003) and once in the first conversation
+  (soar_ac_002). Fixed by `f8a2d4a`; gate 4 green.
 
 Changed this session: #64 keeps only its ADR-0008 half. SPEC-005
 Amendment 2026-10-14 resolved the SPEC half (`ff20923`). The code takes
@@ -875,8 +1206,8 @@ records. The records are right and stay as written: #1 was resolved in S25
 *Progress* (`:168-182`), not its *Debts*; #3's cited collision is gone (the
 two UUIDs now differ), while its risk stays (18 hand-numbered agent IDs in
 16 files). Open debts at the close: 52. That is the inventory's 50, less
-the seven closed by the two sweeps (#18, #19, #36, #57, #10, #33, #67),
-plus #67, #68, #69–#72, and #73–#75 from SPEC-022 and its reviews.
+the eight closed this session (#18, #19, #36, #57, #10, #33, #67, #41),
+plus the ten it opened (#67, #68, #69–#72 and #73–#76).
 
 ## Gate outputs and baselines
 
@@ -1018,18 +1349,106 @@ Debt sweep 2, non-elevated, Claude Code's terminal:
   - On `main`: the landing block in *Progress*, and each docs commit's
     `markdown-lint → success`.
 
+SOAR, non-elevated, Claude Code's terminal:
+
+- `services/ingest`, at `2cde8ed` (the tree of `edbf8e9` before the
+  rebase):
+  - `pnpm run typecheck`; `pnpm run lint` ("Checked 126 files … No fixes
+    applied."); `pnpm run build`; the entrypoint check ("entrypoints ok:
+    [ 'dist/index.js', './dist/cli/issue-token.js' ]");
+  - `pnpm test` → "Test Files  4 failed | 65 passed | 1 skipped (70)",
+    "Tests  4 failed | 253 passed | 1 skipped (258)": the four capture
+    marquees with the agent's exit 9 ("insufficient privilege"), and
+    `ac-001-marquee` skipped.
+- The same, rebased on `f8a2d4a` (`4c4e5b0`): "Test Files  4 failed | 66
+  passed | 1 skipped (71)", "Tests  4 failed | 256 passed | 1 skipped
+  (261)", with the same four and the same skip.
+- `services/api`, at the same tree: `pnpm run typecheck`; lint ("Checked
+  72 files … No fixes applied."); build; "entrypoints ok: [
+  'dist/index.js', './dist/cli/create-user.js' ]"; `pnpm test` → "Test
+  Files  34 passed (34)", "Tests  116 passed (116)".
+- The red runs, against the code before each fix:
+  - the HELO case: "expected [ 'AUTH PLAIN AHUAcA==' ] to deeply equal []";
+  - a close before the greeting: "expected 5013 to be less than 2000";
+  - `GSSAPI XOAUTH2`: "TypeError: Cannot read properties of undefined
+    (reading 'getToken')";
+  - `PLAIN-CLIENTTOKEN`: "expected [ 'AUTH PLAIN AHUAcA==' ] to deeply
+    equal []";
+  - the joining alert: "expected +0 to be 1";
+  - the subject: "expected [ Array(1) ] to deeply equal [ Array(1) ]";
+  - the boot order, with the loader moved after `buildServices`:
+    "expected [Function] to throw error matching /bad\.yml/ but got 'read
+    ECONNRESET'".
+
+Debt #41, non-elevated: `services/ingest` at `d22f94e` → "Test Files  4 failed |
+59 passed | 1 skipped (64)", "Tests  4 failed | 207 passed | 1 skipped
+(212)", with the same four and the same skip. The red run, with the stamp
+at ClickHouse's present and no ordering: "expected 38 to be greater than or
+equal to 25000".
+
+The clock probe, on 2026-10-14 at about 11:39 UTC, against the dev
+ClickHouse in the same VM: 600 samples, 520 with a round trip of 5 ms or
+less; an offset between −1398 ms and +956.5 ms; the largest certain
+backward step 2351 ms, at 11:39:01.279Z.
+
+Elevated, Manuel's terminal, each at a clean tree, with `net session`
+answering "No hay entradas en la lista.":
+
+- **Gate 2, at `87ba4a8`, about 12:06** (`C:\tmp\s38-gate2-*.log`). Docker
+  was stopped after the restart. The cargo half ran: `cargo test …
+  --ignored` passed all seven (`auth_ac_012`, `capture_ac_006` elevated,
+  `net_ac_008`, `net_ac_009`, `process_ac_004`, `process_ac_007`,
+  `process_ac_009`). vitest: "Could not find a working container runtime
+  strategy", "no tests". No `CGAgent` session after.
+- **Gate 3, at `97d3e70`, 13:33–13:36** (`s38-gate3-*.log`): Docker
+  29.1.2; cargo `--ignored`, seven passed; vitest "Test Files  1 failed |
+  69 passed (70)", "Tests  1 failed | 257 passed (258)": detect_ac_003
+  "expected [] to have a length of 1 but got +0" (#41). Every marquee
+  passed.
+- **Gate 3b, at `97d3e70`, 13:42–13:46** (`s38-gate3b-*.log`, the vitest
+  half): "Test Files  1 failed | 69 passed (70)", "Tests  1 failed | 257
+  passed (258)": notify_ac_003 "expected +0 to be 1" (#41). Every marquee
+  passed.
+- **Gate 4, at `4c4e5b0`, 14:43–14:47** (`s38-gate4-*.log`):
+  - Docker 29.1.2; "Finished `release` profile [optimized] target(s) in
+    0.60s"; cargo `--ignored`, the seven passed;
+  - vitest "Test Files  71 passed (71)", "Tests  261 passed (261)",
+    "Duration  206.82s";
+  - `detect_ac_001` 46527 ms, "captured image_file_name — probe:
+    C:\Users\<user>\AppData\Local\Temp\cg-detect-probe-hiL3rP\winword.exe;
+    child: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+  - `{"event":"spec_005_marquee_complete","marquee_elapsed_seconds":40.3,"budget_seconds":45,"within_budget":true}`;
+    "spec_005 captured image_file_name — launch:
+    C:\Windows\System32\cmd.exe; terminate: cmd.exe";
+  - `net_ac_010` 25.413 s and `auth_ac_013` 25.304 s, within 45;
+  - one `marquee_agent_etw_session_stopped` per marquee, no reclaimed
+    session;
+  - after it, `logman query -ets` lists no `CGAgent`; `logman query
+    CGAgent-KernelProcess -ets` → "No se encontró el Conjunto de
+    recopiladores de datos."; "gate 4 done
+    2026-10-14T14:47:17.1043039+02:00".
+
+CI, every push green:
+
+- On PR #10: the first conversation's rebuilds (`99c3929..87ba4a8`), then
+  `9def716`, `4df721b`, `9a6ad26` and `97d3e70`, then after the rebase
+  `8a49e5b`, `604a897`, `fb61553` and `4c4e5b0`: `schema-validation` and
+  `ts-ci`, with `markdown-lint` on the last of each.
+- On PR #11: `51fe26d`, `dd54d4e` and `d22f94e`, `ts-ci`.
+- On `main`: `df69aa7` `markdown-lint`, `f8a2d4a` `ts-ci`, and the landing
+  blocks in *Progress*.
+
 Baselines at the close:
 
-- Cargo, non-elevated: 126 passed / 7 ignored.
-- Cargo, elevated `--ignored`: 7 (S37; not run again, since no agent
-  source changed).
-- vitest `services/ingest`, unelevated: 63 files / 209 tests (204 passed
+- Cargo, non-elevated: 126 passed / 7 ignored (no agent source changed).
+- Cargo, elevated `--ignored`: 7 passed (gate 4).
+- vitest `services/ingest`, unelevated: 71 files / 261 tests (256 passed
   / 4 failed with exit 9 / 1 skipped).
-- vitest `services/ingest`, elevated: 61 files / 205 tests at `6fbcd0e`
-  (gate 1b, before the two sweeps' tests). Expected 63 / 209 at the tip,
-  not run.
-- `services/api`: 33 files / 111 tests.
-- `dashboard`: 3 files / 8 tests.
+- vitest `services/ingest`, elevated: 71 files / 261 tests, all passed
+  (gate 4).
+- `services/api`: 34 files / 116 tests.
+- `dashboard`: 3 files / 8 tests (no dashboard code changed since the
+  second sweep).
 
 ## What waits on Manuel
 
@@ -1044,6 +1463,10 @@ still needs him:
    allow (*Local environment operations*). Optional.
 3. If he wants §B2 back: a SPEC-021 text from outside Claude Code
    (roadmap §B2).
+4. #74's open question: should the SMTP send refuse to authenticate
+   without TLS, by default or by a setting? Today a relay without STARTTLS
+   receives the credentials in clear text, as under SPEC-014. It is a
+   deployment-contract decision.
 
 ## How Session 39 resumes
 
@@ -1051,33 +1474,26 @@ still needs him:
    - `main` = `origin/main` at this file's last commit; tree clean; no
      stash;
    - no branch or PR open;
-   - catalogs ADR 21 / SPEC 20; Known CI debt zero;
+   - catalogs ADR 21 / SPEC 21; Known CI debt zero;
    - `logman query -ets` lists no `CGAgent` session.
-2. Roadmap §E, criterion 6: "1 SOAR playbook operational (dry-run +
-   notification, no destructive actions yet)" (`docs/product/blueprint.md:751`).
-   - ADR-0021 is Accepted. First its SPEC (SPEC-022): the playbook
-     schema, the loader and its policy checks, the record's table and
-     trigger, the chain, the bounds, the api's read route, the SMTP
-     send's bound, and the acceptance criteria. Self-reviewed, it goes
-     straight to `main`.
-   - Then its SPEC and the implementation: tests failing first, CI on every
-     push, the self-review, landing by cherry-pick with a guard that stops
-     (`feedback-landing-guard-must-stop`).
-3. Meanwhile, the next sweep of Claude Code's debts, each on a branch with
-   a PR, a failing test first where a test applies, CI on every push and
-   the self-review. In order of value:
+2. The next sweep of Claude Code's debts, each on a branch with a PR, a
+   failing test first where a test applies, CI on every push and the
+   self-review. In order of value:
    - #72 (the role check), #69 (Redis hold) and #71 (query timeout), on
      the api's availability and input;
    - #68 (a compose check in CI);
+   - #75 and #76 (the send's private fields; the two untested statements);
    - #6 (the api's copy of the `cges_events` table);
    - #30 (real-ETW tests on the hosted runner);
    - #39 and #40 (CGES examples and `time`);
    - #13 (stale citations, swept by pattern);
-   - #27 and #41 (diagnosis first);
+   - #27 (diagnosis first);
    - #3, #8, #9, #11.
 
    #7 may count as a new component, which is Manuel's: ask first.
-4. #55: the threat model brought in line with the system, before F.
-5. Roadmap §F, criterion 7: its SPEC decides Part (b) §2–§4 (delegated).
-   The ADR amendments go to Manuel for his "sí".
-6. §B2 and §B3 stay parked until a SPEC-021 text arrives (roadmap §B2).
+3. #55: the threat model brought in line with the system, before F. It
+   now covers SOAR as built, the send's credentials (#74) included.
+4. Roadmap §F, criterion 7: its SPEC decides Part (b) §2–§4 (delegated).
+   The ADR amendments go to Manuel for his "sí", with ADR-0021's amendment
+   for #73.
+5. §B2 and §B3 stay parked until a SPEC-021 text arrives (roadmap §B2).
