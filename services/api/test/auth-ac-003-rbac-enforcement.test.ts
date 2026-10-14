@@ -64,6 +64,7 @@ const ADMIN_ROUTES = [
   { method: "POST" as const, url: "/v1/users" },
   { method: "GET" as const, url: "/v1/users" },
   { method: "POST" as const, url: `/v1/users/${globalThis.crypto.randomUUID()}/role` },
+  { method: "POST" as const, url: `/v1/users/${globalThis.crypto.randomUUID()}/status` },
 ];
 
 test.each(

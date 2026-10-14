@@ -98,6 +98,17 @@ describe("a body that fails its schema is a 400, with nothing written", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  test("the status route refuses a status it does not know", async () => {
+    const res = await apph.app.inject({
+      method: "POST",
+      url: `/v1/users/${targetId}/status`,
+      payload: { status: "gone" },
+      ...admin(),
+    });
+    expect(res.statusCode).toBe(400);
+    expect((await getUserByEmail(config, "target@apiauth010.test"))?.status).toBe("active");
+  });
+
   test("the password change refuses a new password the policy refuses", async () => {
     const res = await apph.app.inject({
       method: "POST",
@@ -319,6 +330,22 @@ describe("the other routes' bodies", () => {
       payload: { anything: "here" },
     });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("the status route's body", () => {
+  test.each([
+    ["an extra field", { status: "disabled", x: 1 }],
+    ["a field of the wrong type", { status: 1 }],
+  ])("refuses %s", async (_label, payload) => {
+    const res = await apph.app.inject({
+      method: "POST",
+      url: `/v1/users/${targetId}/status`,
+      payload,
+      ...admin(),
+    });
+    expect(res.statusCode).toBe(400);
+    expect((await getUserByEmail(config, "target@apiauth010.test"))?.status).toBe("active");
   });
 });
 

@@ -71,13 +71,14 @@ export async function runMigrations(config: Config = loadConfig()): Promise<void
         migrationLockTableName: MIGRATION_LOCK_TABLE,
       });
       const { error, results } = await migrator.migrateToLatest();
-      for (const r of results ?? []) {
-        if (r.status === "Error") {
-          throw new Error(`migration failed: ${r.migrationName}`);
-        }
-      }
-      if (error) {
-        throw error instanceof Error ? error : new Error(String(error));
+      // The failed migration's own message is the operator's instruction (0004 names the
+      // org and the count to resolve, SPEC-008 Amendment 2026-10-15 item 3).
+      const failed = (results ?? []).find((r) => r.status === "Error");
+      if (failed || error) {
+        const reason = error instanceof Error ? error.message : String(error ?? "");
+        throw new Error(
+          `migration failed: ${failed?.migrationName ?? "(unknown)"}${reason ? `: ${reason}` : ""}`,
+        );
       }
     } finally {
       await sql`SELECT pg_advisory_unlock(${MIGRATION_LOCK_KEY})`.execute(db);
