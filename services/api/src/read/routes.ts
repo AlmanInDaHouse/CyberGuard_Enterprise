@@ -35,7 +35,7 @@ function incidentId(req: FastifyRequest): string | null {
 export function registerReadRoutes(app: FastifyInstance, services: Services): void {
   const requireSession = makeRequireSession(services);
 
-  app.get("/v1/incidents", { preHandler: requireSession }, async (req) => {
+  app.get("/v1/incidents", { onRequest: requireSession }, async (req) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
     const q = req.query as {
@@ -52,7 +52,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
     });
   });
 
-  app.get("/v1/incidents/:id", { preHandler: requireSession }, async (req, reply) => {
+  app.get("/v1/incidents/:id", { onRequest: requireSession }, async (req, reply) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
     const id = incidentId(req);
@@ -67,7 +67,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   // first read that crosses the Postgres→ClickHouse boundary (ADR-0015 — services.ch).
   // Same session preHandler + org-scope; read-only (no role gate, no CSRF, NFR-009-004).
   // 404 mirrors the detail handler above (malformed :id / not-found / cross-org).
-  app.get("/v1/incidents/:id/events", { preHandler: requireSession }, async (req, reply) => {
+  app.get("/v1/incidents/:id/events", { onRequest: requireSession }, async (req, reply) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
     const id = incidentId(req);
@@ -87,7 +87,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   // (SPEC-012 §Compliance line 108) — out-of-band anchoring is the deferred Open-Q.
   app.get(
     "/v1/incidents/:id/forensic-export",
-    { preHandler: requireSession },
+    { onRequest: requireSession },
     async (req, reply) => {
       const session = req.authSession;
       if (!session) throw new Error("unreachable: requireSession populates authSession");
@@ -106,7 +106,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   // mirrors them (malformed :id / not-found / cross-org). This is the FIRST non-JSON response in
   // the api: `reply.type("application/pdf")`. `buildReport` carries only the public seal — the
   // forensic private key is never serialized (inherited from SPEC-012).
-  app.get("/v1/incidents/:id/report", { preHandler: requireSession }, async (req, reply) => {
+  app.get("/v1/incidents/:id/report", { onRequest: requireSession }, async (req, reply) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
     const id = incidentId(req);
@@ -122,7 +122,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   // SPEC-009's Amendment 2026-10-14 states.
   app.get(
     "/v1/incidents/:id/playbook-executions",
-    { preHandler: requireSession },
+    { onRequest: requireSession },
     async (req, reply) => {
       const session = req.authSession;
       if (!session) throw new Error("unreachable: requireSession populates authSession");
@@ -134,7 +134,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
     },
   );
 
-  app.get("/v1/alerts", { preHandler: requireSession }, async (req) => {
+  app.get("/v1/alerts", { onRequest: requireSession }, async (req) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
     const q = req.query as {

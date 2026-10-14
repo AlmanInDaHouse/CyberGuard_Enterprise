@@ -46,3 +46,21 @@ export class StoreUnavailableError extends Error {
     this.name = "StoreUnavailableError";
   }
 }
+
+/** An object that does not exist for the caller — mapped to 404 (SPEC-008 Amendment
+ *  2026-10-15 item 5). */
+export class NotFoundError extends Error {
+  constructor(message = "not found") {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
+
+/** A change the current state refuses — mapped to 409 (SPEC-008 Amendment 2026-10-15
+ *  items 5 and 10). */
+export class ConflictError extends Error {
+  constructor(message = "conflict") {
+    super(message);
+    this.name = "ConflictError";
+  }
+}

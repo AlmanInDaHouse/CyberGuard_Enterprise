@@ -37,7 +37,7 @@ test("a viewer is DENIED an admin-only capability (server-side 403)", async () =
     url: "/v1/users",
     cookies: { cgsess: "tok-viewer-ac003" },
     headers: { "x-csrf-token": "csrf-tok-viewer-ac003" },
-    payload: { email: "made-by-viewer@ac003.test", password: "x", role: "viewer" },
+    payload: { email: "made-by-viewer@ac003.test", password: "Valid-passw0rd", role: "viewer" },
   });
   // SECURITY (CI-blocking). RED: 501 (enforcement absent). GREEN: 403 (blocked).
   expect(res.statusCode).toBe(403);
@@ -52,8 +52,35 @@ test("an admin IS allowed the same capability", async () => {
     url: "/v1/users",
     cookies: { cgsess: "tok-admin-ac003" },
     headers: { "x-csrf-token": "csrf-tok-admin-ac003" },
-    payload: { email: "made-by-admin@ac003.test", password: "x", role: "viewer" },
+    payload: { email: "made-by-admin@ac003.test", password: "Valid-passw0rd", role: "viewer" },
   });
   // RED: 501. GREEN: a 2xx create.
   expect(res.statusCode).toBeLessThan(400);
+});
+
+// SPEC-008 Amendment 2026-10-15: every admin route, for both non-admin roles. The
+// checks run before the body is read, so the body here is irrelevant.
+const ADMIN_ROUTES = [
+  { method: "POST" as const, url: "/v1/users" },
+  { method: "GET" as const, url: "/v1/users" },
+  { method: "POST" as const, url: `/v1/users/${globalThis.crypto.randomUUID()}/role` },
+];
+
+test.each(
+  (["viewer", "analyst"] as const).flatMap((role) => ADMIN_ROUTES.map((r) => ({ role, ...r }))),
+)("$role is denied $method $url (403)", async ({ role, method, url }) => {
+  const userId = await insertUserDirect(config, {
+    email: `${role}-${method}-${url.length}-${globalThis.crypto.randomUUID()}@ac003.test`,
+    role,
+  });
+  const token = `tok-${role}-${globalThis.crypto.randomUUID()}`;
+  await seedSession(config, { token, userId, role });
+  const res = await apph.app.inject({
+    method,
+    url,
+    cookies: { cgsess: token },
+    headers: { "x-csrf-token": `csrf-${token}` },
+    ...(method === "POST" ? { payload: { role: "admin" } } : {}),
+  });
+  expect(res.statusCode).toBe(403);
 });

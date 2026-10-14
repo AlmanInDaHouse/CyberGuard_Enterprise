@@ -41,3 +41,23 @@ test("a mutation without a valid CSRF token is rejected (403)", async () => {
   // SECURITY. RED: 501 (CSRF control absent). GREEN: 403 (missing CSRF token).
   expect(res.statusCode).toBe(403);
 });
+
+test("the same mutation with the session-bound CSRF token gets past the check", async () => {
+  const userId = await insertUserDirect(config, {
+    email: "csrf-ok@ac007.test",
+    role: "analyst",
+    totpEnrolled: true,
+  });
+  const token = "tok-csrf-ok-ac007";
+  await seedSession(config, { token, userId, role: "analyst", csrfToken: "the-csrf-007-ok" });
+
+  const res = await apph.app.inject({
+    method: "POST",
+    url: "/v1/auth/password",
+    cookies: { cgsess: token },
+    headers: { "x-csrf-token": "the-csrf-007-ok" },
+    // A wrong current password: past CSRF, the change itself is refused (401).
+    payload: { currentPassword: "not-it", newPassword: "Valid-passw0rd", totp_code: "000000" },
+  });
+  expect(res.statusCode).toBe(401);
+});

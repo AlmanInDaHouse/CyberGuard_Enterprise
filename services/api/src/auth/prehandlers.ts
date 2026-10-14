@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
-import { AuthError, ForbiddenError } from "../errors.js";
+import { AuthError, ForbiddenError, NotFoundError } from "../errors.js";
 import type { Services } from "../services.js";
+import { canonicalId } from "./schemas.js";
 import type { SessionInfo } from "./session.js";
 
 declare module "fastify" {
@@ -38,5 +39,16 @@ export function makeRequireCsrf() {
     if (!req.authSession || typeof header !== "string" || header !== req.authSession.csrf_token) {
       throw new ForbiddenError("missing or invalid CSRF token");
     }
+  };
+}
+
+/** The `:id` of a user route: a canonical UUID, read in lower case, or a 404 before the
+ *  body is read (SPEC-008 Amendment 2026-10-15 items 1 and 5). */
+export function makeRequireIdParam() {
+  return async (req: FastifyRequest): Promise<void> => {
+    const params = req.params as { id: string };
+    const id = canonicalId(params.id);
+    if (id === null) throw new NotFoundError();
+    params.id = id;
   };
 }
