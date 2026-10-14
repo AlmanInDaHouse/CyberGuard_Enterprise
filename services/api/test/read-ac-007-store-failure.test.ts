@@ -1,4 +1,10 @@
-import { type AddressInfo, type Server, type Socket, createServer } from "node:net";
+import {
+  type AddressInfo,
+  type Server,
+  type Socket,
+  createConnection,
+  createServer,
+} from "node:net";
 import { createClient } from "@clickhouse/client";
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
@@ -372,5 +378,64 @@ describe("what is logged", () => {
       payload: "{",
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("an open Postgres connection whose peer goes silent", () => {
+  // A proxy to the test Postgres that forwards both ways until it is told to go
+  // silent; from then on it drops what Postgres answers. The pool's connection is
+  // made and used first, so only the client's query timeout can end the wait
+  // (SPEC-008 Amendment 2026-10-15 item 15, SPEC-009 Amendment 2026-10-15).
+  let proxy: Server;
+  let silentPool: pg.Pool;
+  let app: FastifyInstance;
+  let silentNow = false;
+  const pipes = new Set<Socket>();
+
+  beforeAll(async () => {
+    const target = new URL(config.API_PG_URL);
+    proxy = await new Promise<Server>((resolve, reject) => {
+      const server = createServer((client) => {
+        const upstream = createConnection({
+          host: target.hostname,
+          port: Number(target.port || 5432),
+        });
+        pipes.add(client);
+        pipes.add(upstream);
+        client.on("data", (chunk) => upstream.write(chunk));
+        upstream.on("data", (chunk) => {
+          if (!silentNow) client.write(chunk);
+        });
+        client.on("error", () => upstream.destroy());
+        upstream.on("error", () => client.destroy());
+      });
+      server.once("error", reject);
+      server.listen({ host: "127.0.0.1", port: 0 }, () => resolve(server));
+    });
+    const viaProxy = new URL(config.API_PG_URL);
+    viaProxy.hostname = "127.0.0.1";
+    viaProxy.port = String((proxy.address() as AddressInfo).port);
+    silentPool = createPgPool(viaProxy.toString());
+    // The connection is open and back in the pool before the peer goes silent.
+    await silentPool.query("SELECT 1");
+    app = await appWith({ pg: silentPool });
+  });
+  afterAll(async () => {
+    await app?.close();
+    await silentPool?.end().catch(() => {});
+    for (const socket of pipes) socket.destroy();
+    await new Promise<void>((resolve) => (proxy ? proxy.close(() => resolve()) : resolve()));
+  });
+
+  test("a read answers 503 within 8 s", async () => {
+    silentNow = true;
+    const started = Date.now();
+    const res = await get(app, `/v1/incidents/${incidentId}`);
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ error: "unavailable" });
+    // The client's 6 s query timeout, not the 5 s connection timeout of a new one.
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(5900);
+    expect(elapsed).toBeLessThan(8000);
   });
 });

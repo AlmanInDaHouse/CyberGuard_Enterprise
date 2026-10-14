@@ -30,18 +30,46 @@ export interface Services {
 
 /** How long the pool waits for a connection, whether Postgres has not established it
  *  or a busy pool has none free, before the query fails: a read then answers 503
- *  (SPEC-009 Amendment 2026-10-14 §3). An open connection whose peer goes silent is
- *  not bounded here (debt #71). */
+ *  (SPEC-009 Amendment 2026-10-14 §3). */
 const PG_CONNECTION_TIMEOUT_MS = 5000;
+/** The server cancels a statement that runs this long (SPEC-008 Amendment 2026-10-15
+ *  item 15). */
+const PG_STATEMENT_TIMEOUT_MS = 5000;
+/** The client fails a query with no answer for this long, a silent peer included;
+ *  longer than the statement timeout, so a slow statement ends at the server first. */
+const PG_QUERY_TIMEOUT_MS = 6000;
 
-/** The api's Postgres pool. */
+/** The api's Postgres pool. A query that failed leaves the pool with its client. */
 export function createPgPool(connectionString: string): pg.Pool {
-  return new pg.Pool({ connectionString, connectionTimeoutMillis: PG_CONNECTION_TIMEOUT_MS });
+  return new pg.Pool({
+    connectionString,
+    connectionTimeoutMillis: PG_CONNECTION_TIMEOUT_MS,
+    statement_timeout: PG_STATEMENT_TIMEOUT_MS,
+    query_timeout: PG_QUERY_TIMEOUT_MS,
+  });
+}
+
+/** The bound of a connection to Redis and of each command (SPEC-008 Amendment
+ *  2026-10-15 item 14). */
+const REDIS_TIMEOUT_MS = 5000;
+
+/**
+ * The api's Redis client. A command it has not completed within 5 s fails, whether
+ * the connection could not be made or the server does not answer, and after one
+ * failed reconnection the commands it queued fail too, so no request waits for Redis
+ * to return (debt #69). Every failure reaches the caller, which answers 503.
+ */
+export function createRedisClient(url: string): Redis {
+  return new Redis(url, {
+    connectTimeout: REDIS_TIMEOUT_MS,
+    commandTimeout: REDIS_TIMEOUT_MS,
+    maxRetriesPerRequest: 1,
+  });
 }
 
 export async function buildServices(config: Config): Promise<Services> {
   const pool = createPgPool(config.API_PG_URL);
-  const redis = new Redis(config.API_REDIS_URL, { maxRetriesPerRequest: null });
+  const redis = createRedisClient(config.API_REDIS_URL);
   const ch = createClient({
     url: config.API_CH_URL,
     username: config.API_CH_USER,

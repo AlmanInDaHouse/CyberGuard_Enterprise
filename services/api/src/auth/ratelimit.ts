@@ -1,4 +1,18 @@
 import type { Redis } from "ioredis";
+import { StoreUnavailableError } from "../errors.js";
+
+/**
+ * A transaction's EXEC resolves with each command's error in its results rather than
+ * rejecting (a WRONGTYPE, say), so the results are read: any error is the store's, a
+ * 503 (SPEC-008 Amendment 2026-10-15 item 14).
+ */
+async function execOrFail(tx: ReturnType<Redis["multi"]>): Promise<void> {
+  const results = await tx.exec();
+  const failed = results?.find(([err]) => err);
+  if (results === null || failed) {
+    throw new StoreUnavailableError(failed?.[0] ?? new Error("the transaction was discarded"));
+  }
+}
 
 /**
  * SPEC-008 §Operational §3 — login rate-limit on two independent dimensions
@@ -38,7 +52,7 @@ export async function recordFailure(
   const tx = redis.multi();
   tx.incr(acctKey(org, email)).expire(acctKey(org, email), WINDOW_SECONDS);
   tx.incr(ipKey(ip)).expire(ipKey(ip), WINDOW_SECONDS);
-  await tx.exec();
+  await execOrFail(tx);
 }
 
 /** A successful login clears the account's consecutive-failure counter. */

@@ -2,6 +2,7 @@ import type { Redis } from "ioredis";
 import type { Pool } from "pg";
 import type { Config } from "../config.js";
 import { AuthError, RateLimitError } from "../errors.js";
+import { asStore } from "../stores.js";
 import { appendAudit } from "./audit.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { isAllowed, recordFailure, resetAccount } from "./ratelimit.js";
@@ -62,7 +63,10 @@ interface AuthUserRow {
   totp_secret: string; // decrypted base32 (pgp_sym_decrypt)
 }
 
-export function createAuthService(pool: Pool, redis: Redis, config: Config): AuthService {
+export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config): AuthService {
+  // Every Postgres and Redis call of the service fails as the store's: a 503.
+  const pool = asStore(rawPool);
+  const redis = asStore(rawRedis);
   const ORG = "default";
   return {
     async login(input, ip) {
