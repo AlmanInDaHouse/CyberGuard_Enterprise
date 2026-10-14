@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-05
-- Last updated: 2026-06-05
+- Last updated: 2026-10-14
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -90,6 +90,19 @@ When this ADR is ratified Proposed→Accepted, the same commit:
    - `ADR-0015 → ADR-0003` (consumes the ClickHouse storage home as a **reader**; does **not** amend or re-route storage).
    - `ADR-0015 → ADR-0014` (preserves the human/agent trust-boundary split — keeps the read in the user-facing api, not the agent boundary).
    - `ADR-0015 → SPEC-009` (amends-by-scope `:34`: the drill it deferred-with-destination is delivered by this ADR + SPEC-010).
+
+## Amendment 2026-10-14: three routes read ClickHouse
+
+**What surfaced it.** Debt #70 (`docs/handoff-session-38.md`). Three bullets of this ADR say ClickHouse serves the drill alone. Two are in §Consequences/Negative: the api gains a ClickHouse dependency "for **this route only**", and ClickHouse "must be reachable for the drill", "a new runtime dependency for that one capability". The third is in §Compliance: "a ClickHouse outage fails **only** the drill route". Since SPEC-012 and SPEC-013, two more routes read `cges_events` through the same reader: the forensic export (`/v1/incidents/:id/forensic-export`) and the report (`/v1/incidents/:id/report`). SPEC-009's Amendment 2026-10-14 names all three when ClickHouse cannot answer.
+
+**The amendment.** Wherever those three bullets say the drill, its route or its capability, they read: the routes that read `cges_events` — the drill (SPEC-010), the forensic export (SPEC-012) and the report (SPEC-013). Their substance is unchanged:
+
+- the client is lazy;
+- a ClickHouse outage fails no boot and no Postgres read route;
+- it fails these three routes with a `503` (SPEC-009 Amendment 2026-10-14);
+- the reader stays read-only in use and a singleton.
+
+**Effect.** §Out of scope's item on the `503`-vs-`404` distinction gave SPEC-010's Open question 3 as its destination, and SPEC-010's Amendment 2026-10-14 delivered it. That item stays as written, a record of what was deferred, as its PDF item did when SPEC-013 delivered the report. Proposed by Claude Code on 2026-10-14 under Manuel's delegation of that day, and ratified by Manuel the same day, in chat: "si a 1, 2 y  3" (point 3: this amendment). Status stays `Accepted`.
 
 ## References
 
