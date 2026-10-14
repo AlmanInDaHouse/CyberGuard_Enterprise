@@ -6,6 +6,7 @@ import type { Services } from "../services.js";
 import {
   getIncidentDetail,
   getIncidentEventTimeline,
+  getIncidentPlaybookExecutions,
   isUuid,
   listAlerts,
   listIncidents,
@@ -114,6 +115,24 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
     if (!pdf) return reply.code(404).send({ error: "not_found" });
     return reply.type("application/pdf").send(pdf);
   });
+
+  // SPEC-022 §Data contracts §4 — the playbook executions of an incident (ADR-0021
+  // §4). Same session preHandler and org scope as the sibling reads; GET, read-only.
+  // 404 for a malformed :id, an absent incident or another org's; 503 and 500 as
+  // SPEC-009's Amendment 2026-10-14 states.
+  app.get(
+    "/v1/incidents/:id/playbook-executions",
+    { preHandler: requireSession },
+    async (req, reply) => {
+      const session = req.authSession;
+      if (!session) throw new Error("unreachable: requireSession populates authSession");
+      const id = incidentId(req);
+      if (!id) return reply.code(404).send({ error: "not_found" });
+      const executions = await getIncidentPlaybookExecutions(services.pg, session.org_id, id);
+      if (!executions) return reply.code(404).send({ error: "not_found" });
+      return executions;
+    },
+  );
 
   app.get("/v1/alerts", { preHandler: requireSession }, async (req) => {
     const session = req.authSession;
