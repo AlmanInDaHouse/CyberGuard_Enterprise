@@ -48,6 +48,8 @@ export interface NotifyConfig {
   from: string;
   recipient: string;
   log: NotifyLogSink;
+  /** The send's time limit; NOTIFY_SEND_LIMIT_MS unless a test shortens it (debt #76). */
+  sendLimitMs?: number;
 }
 
 /** The incident fields the email carries — all available at the upsert seam, no extra read. */
@@ -84,7 +86,7 @@ export async function notifyIncidentCreated(
     ].join("\n");
     await notify.mailer.sendMail(
       { from: notify.from, to: notify.recipient, subject, text },
-      NOTIFY_SEND_LIMIT_MS,
+      notify.sendLimitMs ?? NOTIFY_SEND_LIMIT_MS,
     );
   } catch (err) {
     // The error's code only, never its message, which can quote the recipient

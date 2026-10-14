@@ -23,7 +23,9 @@ export interface SpyOptions {
   /** Delay the sends it picks by `ms` before accepting them. */
   delay?: { ms: number; which?: Which };
   /** Run before a send is accepted. */
-  onSend?: () => Promise<void>;
+  onSend?: (message: NotifyMessage) => Promise<void>;
+  /** Record the time limit each send was given. */
+  limits?: number[];
 }
 
 /**
@@ -39,7 +41,8 @@ export function spyNotify(opts: SpyOptions = {}): NotifySpy {
     from: "soc-noreply@cyberguard.test",
     recipient: "soc-team@cyberguard.test",
     mailer: {
-      sendMail: async (message) => {
+      sendMail: async (message, timeoutMs) => {
+        opts.limits?.push(timeoutMs);
         if (opts.throwOnSend instanceof Error) throw opts.throwOnSend;
         if (opts.throwOnSend) {
           throw new Error("smtp unreachable (fake)");
@@ -48,7 +51,7 @@ export function spyNotify(opts: SpyOptions = {}): NotifySpy {
         if (opts.delay && applies(opts.delay.which ?? true, message)) {
           await new Promise((resolve) => setTimeout(resolve, opts.delay?.ms));
         }
-        if (opts.onSend) await opts.onSend();
+        if (opts.onSend) await opts.onSend(message);
         sent.push(message);
         return { messageId: "fake-test-message" };
       },
