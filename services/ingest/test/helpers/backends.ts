@@ -74,6 +74,10 @@ export async function startBackends(): Promise<Backends> {
       // so the driver's buildDetectConfig loads the repo's rule set, like detectConfig().
       INGEST_DETECT_INTERVAL_MS: 10_000,
       INGEST_DETECT_RULES_DIR: RULES_WINDOWS_DIR,
+      // SPEC-022 §Operational §7 — an empty playbooks directory: the marquees that
+      // boot startIngest with the driver on run with SOAR idle, as they run with
+      // notification unset. A soar_ac test builds its own carrier.
+      INGEST_SOAR_PLAYBOOKS_DIR: mkdtempSync(join(tmpdir(), "cg-soar-none-")),
     };
 
     await runMigrations(config);

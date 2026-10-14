@@ -10,6 +10,9 @@ on:
       # SPEC-016 §Operational §4: the ingest suites load the rules and the scenarios.
       - "rules/**"
       - "harness/**"
+      # SPEC-022 §Operational §8: soar_ac_001 loads the playbooks against their schema.
+      - "playbooks/**"
+      - "schemas/playbooks/**"
       # SPEC-017: the ingest job builds the agent and launches it (ac-001-marquee).
       - "agent/**"
       - "Cargo.toml"
@@ -27,6 +30,9 @@ on:
       # SPEC-016 §Operational §4: the ingest suites load the rules and the scenarios.
       - "rules/**"
       - "harness/**"
+      # SPEC-022 §Operational §8: soar_ac_001 loads the playbooks against their schema.
+      - "playbooks/**"
+      - "schemas/playbooks/**"
       # SPEC-017: the ingest job builds the agent and launches it (ac-001-marquee).
       - "agent/**"
       - "Cargo.toml"

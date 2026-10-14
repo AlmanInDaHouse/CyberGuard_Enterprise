@@ -73,6 +73,11 @@ const EnvSchema = z
     // Sigma rules directory the driver loads (fail-loud at boot if it is empty).
     INGEST_DETECT_INTERVAL_MS: z.coerce.number().int().nonnegative().default(5000),
     INGEST_DETECT_RULES_DIR: z.string().min(1).default(defaultDetectRulesDir()),
+    // SPEC-022 §Operational §1 — the SOAR playbooks directory. Optional with NO
+    // default here, so the loader (src/soar/loader.ts) can tell set from unset: a
+    // set directory that does not exist is logged at warn, an unset one resolves to
+    // the bundled playbooks/. An empty value counts as unset.
+    INGEST_SOAR_PLAYBOOKS_DIR: z.preprocess(blankToUndefined, z.string().min(1).optional()),
     // SPEC-014 / ADR-0017 — incident email notification (notify-only). This SMTP
     // block is OPTIONAL and all-or-nothing: when unset, notification is disabled
     // cleanly (the boot does NOT fail — detection still runs, only the email is skipped,
