@@ -21,7 +21,7 @@ beforeAll(() => {
 const MITRE = { tactics: ["execution", "initial-access"], techniques: ["T1059.001", "T1566.001"] };
 
 test("incident_ac_005: FK rejects unenrolled agent; enrolling satisfies it (FK never weakened)", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000050";
+  const agentId = globalThis.crypto.randomUUID();
   const orgId = "incident-ac-005";
   const input: IncidentGroupingInput = {
     alertId: "01934abc-def0-7000-89ab-000000000501",

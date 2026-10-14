@@ -20,7 +20,7 @@ const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.ex
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 
 test("notify_ac_003: a throwing transport does not abort the cycle; incident persists; failure logged", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000052";
+  const agentId = globalThis.crypto.randomUUID();
   const orgId = "notify-ac-003";
   await enrollTestAgent(config, agentId);
 

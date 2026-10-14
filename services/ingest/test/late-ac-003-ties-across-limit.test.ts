@@ -16,7 +16,7 @@ import { detectConfig } from "./helpers/detect.js";
 // as in the cycle.
 
 const ORG = "late-ac-003";
-const AGENT = "01934abc-def0-7000-89ab-0000000a3001";
+const AGENT = globalThis.crypto.randomUUID();
 const NOTEPAD = "C:\\Windows\\System32\\notepad.exe";
 const ROWS = 2 * BATCH_LIMIT + BATCH_LIMIT / 2;
 

@@ -32,7 +32,7 @@ const INGEST_MIGRATIONS = path.join(
 const THROWAWAY_DB = "cyberguard_late_ac_006";
 
 const ORG = "late-ac-006";
-const AGENT = "01934abc-def0-7000-89ab-0000000a6001";
+const AGENT = globalThis.crypto.randomUUID();
 const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe";
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 

@@ -20,7 +20,7 @@ const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.ex
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 
 test("incident_ac_001: cg_mitre is non-empty on the persisted alert row", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000010";
+  const agentId = globalThis.crypto.randomUUID();
   const orgId = "incident-ac-001";
 
   await insertCgesEvent(config, {

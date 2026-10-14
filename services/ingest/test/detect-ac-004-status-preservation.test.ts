@@ -4,6 +4,10 @@ import { runDetectionCycle } from "../src/detect/index.js";
 import { enrollTestAgent, getAlerts, insertCgesEvent, setAlertStatus } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // SPEC-006 detect_ac_004 — status preservation: a re-fire over an alert a human
 // already moved off 'new' must NOT reset it (INSERT ... ON CONFLICT DO NOTHING,
 // not DO UPDATE; ADR-0012 §6). CI-able.
@@ -30,7 +34,7 @@ async function insertOfficeSpawn(
   await insertCgesEvent(config, {
     agentId,
     orgId: "detect-ac-004",
-    eventId: `01934abc-def0-4000-89ab-${String(seq).padStart(12, "0")}`,
+    eventId: `${ID_PREFIX}-def0-4000-89ab-${String(seq).padStart(12, "0")}`,
     activityId: 1,
     processPid: parentPid,
     processName: "winword.exe",
@@ -40,7 +44,7 @@ async function insertOfficeSpawn(
   await insertCgesEvent(config, {
     agentId,
     orgId: "detect-ac-004",
-    eventId: `01934abc-def0-4000-89ab-${String(seq + 1).padStart(12, "0")}`,
+    eventId: `${ID_PREFIX}-def0-4000-89ab-${String(seq + 1).padStart(12, "0")}`,
     activityId: 1,
     processPid: childPid,
     processName: "powershell.exe",
@@ -51,7 +55,7 @@ async function insertOfficeSpawn(
 }
 
 test("detect_ac_004: re-fire over an acknowledged alert keeps it acknowledged", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000440";
+  const agentId = globalThis.crypto.randomUUID();
 
   await insertOfficeSpawn(agentId, 7000, 7001, 4400, "12:00");
   await enrollTestAgent(config, agentId);

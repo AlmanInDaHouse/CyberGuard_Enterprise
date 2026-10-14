@@ -5,6 +5,10 @@ import type { IncidentGroupingInput } from "../src/detect/types.js";
 import { enrollTestAgent, getIncidents } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // SPEC-011 incident_severity_ac_001 — the MAX marquee. Two distinct alerts in the
 // SAME correlation window (same grouping_key) collapse to one incident whose
 // severity_id is the GREATEST of the members, regardless of ARRIVAL ORDER:
@@ -23,7 +27,7 @@ const WINDOW = "2026-05-31 18:00:00.000000000";
 
 function input(agentId: string, n: number, severityId: number): IncidentGroupingInput {
   return {
-    alertId: `01934abc-def0-7000-89ab-0000000006${String(n).padStart(2, "0")}`,
+    alertId: `${ID_PREFIX}-def0-7000-89ab-0000000006${String(n).padStart(2, "0")}`,
     orgId: "incident-severity-ac-001",
     agentId,
     cgMitre: MITRE,
@@ -36,13 +40,13 @@ test("incident_severity_ac_001: incident severity is MAX of its alerts, low->hig
   const orgId = "incident-severity-ac-001";
 
   // Incident A: low (2) THEN high (6) -> escalates to 6.
-  const agentA = "01934abc-def0-7000-89ab-0000000006a0";
+  const agentA = globalThis.crypto.randomUUID();
   await enrollTestAgent(config, agentA);
   await upsertIncident(detectConfig(config, orgId), input(agentA, 1, 2));
   await upsertIncident(detectConfig(config, orgId), input(agentA, 2, 6));
 
   // Incident B: high (6) THEN low (2) -> stays at 6 (a lower follower never lowers it).
-  const agentB = "01934abc-def0-7000-89ab-0000000006b0";
+  const agentB = globalThis.crypto.randomUUID();
   await enrollTestAgent(config, agentB);
   await upsertIncident(detectConfig(config, orgId), input(agentB, 3, 6));
   await upsertIncident(detectConfig(config, orgId), input(agentB, 4, 2));

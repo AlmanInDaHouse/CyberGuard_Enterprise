@@ -20,7 +20,7 @@ import { spyNotify } from "./helpers/notify.js";
 // triaged status preserved, its incident not updated, no notification.
 
 const ORG = "late-ac-004";
-const AGENT = "01934abc-def0-7000-89ab-0000000a4401";
+const AGENT = globalThis.crypto.randomUUID();
 
 const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe";
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";

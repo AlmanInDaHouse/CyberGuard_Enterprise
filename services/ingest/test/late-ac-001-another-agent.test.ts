@@ -13,8 +13,8 @@ import { detectConfig } from "./helpers/detect.js";
 // watermark B's events fell behind A's and were never read (§Context 3).
 
 const ORG = "late-ac-001";
-const AGENT_A = "01934abc-def0-7000-89ab-0000000a1001";
-const AGENT_B = "01934abc-def0-7000-89ab-0000000a1002";
+const AGENT_A = randomUUID();
+const AGENT_B = randomUUID();
 
 const EXPLORER = "C:\\Windows\\explorer.exe";
 const NOTEPAD = "C:\\Windows\\System32\\notepad.exe";

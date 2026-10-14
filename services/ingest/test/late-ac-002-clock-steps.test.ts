@@ -13,7 +13,7 @@ import { detectConfig } from "./helpers/detect.js";
 // the watermark an hour in the future and the pair was never read (§Context 3).
 
 const ORG = "late-ac-002";
-const AGENT = "01934abc-def0-7000-89ab-0000000a2001";
+const AGENT = globalThis.crypto.randomUUID();
 
 const NOTEPAD = "C:\\Windows\\System32\\notepad.exe";
 const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe";

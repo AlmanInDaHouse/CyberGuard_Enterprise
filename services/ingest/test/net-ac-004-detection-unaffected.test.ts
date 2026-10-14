@@ -13,7 +13,7 @@ import { detectConfig } from "./helpers/detect.js";
 // are neither evaluated nor taken as parents.
 
 const ORG = "net-ac-004";
-const AGENT = "01934abc-def0-7000-89ab-0000000a4004";
+const AGENT = globalThis.crypto.randomUUID();
 
 const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe";
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";

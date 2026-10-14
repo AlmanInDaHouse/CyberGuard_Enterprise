@@ -2,6 +2,10 @@ import pg from "pg";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // SPEC-006 / ADR-0012 §6 — migration 0002_alerts gate (Phase-5 5a).
 //
 // Verifies the alerts table EXISTS and its CHECK / UNIQUE / FK constraints
@@ -16,7 +20,7 @@ import type { Config } from "../src/config.js";
 
 let client: pg.Client;
 
-const AGENT = "01934abc-def0-7000-89ab-0000000000a1";
+const AGENT = globalThis.crypto.randomUUID();
 const SRC = "01934abc-def0-4000-89ab-0000000000b1";
 
 interface AlertInput {
@@ -39,7 +43,7 @@ let n = 0;
 function baseline(): AlertInput {
   n += 1;
   return {
-    alertId: `01934abc-def0-4000-89ab-${String(n).padStart(12, "0")}`,
+    alertId: `${ID_PREFIX}-def0-4000-89ab-${String(n).padStart(12, "0")}`,
     agentId: AGENT,
     severityId: 4,
     source: "rule",
@@ -213,7 +217,7 @@ test("rejects a duplicate dedup_key (UNIQUE)", async () => {
 test("rejects a FK to a nonexistent agent", async () => {
   const ok = await attempt(false, async () => {
     const a = baseline();
-    a.agentId = "01934abc-def0-7000-89ab-0000000fffff"; // not inserted into agents
+    a.agentId = globalThis.crypto.randomUUID(); // not inserted into agents
     await insertAlert(a);
   });
   expect(ok).toBe(false);

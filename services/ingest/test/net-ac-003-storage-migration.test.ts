@@ -117,7 +117,7 @@ test("net_ac_003: the bootstrap adds the six network columns to a new table and 
       format: "JSONEachRow",
       values: [
         {
-          agent_id: "01934abc-def0-7000-89ab-000000000003",
+          agent_id: "01934abc-def0-7000-89ab-0000000a3003",
           event_id: eventId,
           class_uid: 1007,
           activity_id: 1,

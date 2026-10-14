@@ -12,6 +12,10 @@ import {
   insertCgesEvent,
 } from "./helpers/db.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // ADR-0012 Amendment 2026-06-07 — production detection driver. CI-able
 // (testcontainers, NO ETW): synthetic cges_events drive the REAL runDetectionCycle
 // through the driver (a), while injected listOrgs/runCycle fakes exercise the
@@ -57,7 +61,7 @@ async function insertOfficeSpawn(
   await insertCgesEvent(config, {
     agentId,
     orgId,
-    eventId: `01934abc-def0-4000-89ab-${String(seq).padStart(12, "0")}`,
+    eventId: `${ID_PREFIX}-def0-4000-89ab-${String(seq).padStart(12, "0")}`,
     activityId: 1,
     processPid: parentPid,
     processName: "winword.exe",
@@ -68,7 +72,7 @@ async function insertOfficeSpawn(
   await insertCgesEvent(config, {
     agentId,
     orgId,
-    eventId: `01934abc-def0-4000-89ab-${String(seq + 1).padStart(12, "0")}`,
+    eventId: `${ID_PREFIX}-def0-4000-89ab-${String(seq + 1).padStart(12, "0")}`,
     activityId: 1,
     processPid: childPid,
     processName: "powershell.exe",
@@ -88,7 +92,7 @@ beforeAll(() => {
 // (a) A self-rescheduled tick runs the REAL runDetectionCycle and advances the watermark.
 test("driver tick: a pass runs runDetectionCycle, persists the alert and advances the watermark", async () => {
   const orgId = "drv-tick";
-  const agentId = "01934abc-def0-7000-89ab-00000000da01";
+  const agentId = globalThis.crypto.randomUUID();
   // Arrived at ClickHouse's present, as the route's rows do (the helpers would
   // otherwise stamp them TEST_ARRIVAL_LEAD_MS back, debt #41).
   const arrivedAt = await clickHousePresent(config);
@@ -146,8 +150,8 @@ test("single-flight: a cycle longer than the interval never overlaps the next ti
 // (c) Multi-org: the real enumeration returns DISTINCT agents.org_id, and the driver
 // drives a cycle for each org listOrgs yields.
 test("multi-org: listEnrolledOrgs returns DISTINCT agents.org_id and the driver processes each", async () => {
-  await enrollTestAgent(config, "01934abc-def0-7000-89ab-00000000dc01", "drv-org-a");
-  await enrollTestAgent(config, "01934abc-def0-7000-89ab-00000000dc02", "drv-org-b");
+  await enrollTestAgent(config, globalThis.crypto.randomUUID(), "drv-org-a");
+  await enrollTestAgent(config, globalThis.crypto.randomUUID(), "drv-org-b");
 
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   try {

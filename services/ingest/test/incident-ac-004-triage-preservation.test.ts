@@ -25,7 +25,7 @@ beforeAll(() => {
 const MITRE = { tactics: ["execution", "initial-access"], techniques: ["T1059.001", "T1566.001"] };
 
 test("incident_ac_004: a new alert in window preserves status/assigned_to, grows alert_ids", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000040";
+  const agentId = globalThis.crypto.randomUUID();
   const orgId = "incident-ac-004";
   await enrollTestAgent(config, agentId);
 

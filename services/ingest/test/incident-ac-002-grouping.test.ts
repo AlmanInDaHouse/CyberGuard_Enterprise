@@ -5,6 +5,10 @@ import type { IncidentGroupingInput } from "../src/detect/types.js";
 import { enrollTestAgent, getIncidents } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // SPEC-007 incident_ac_002 — grouping: N distinct alerts (same agent + canonical
 // tactic-set, within one correlation window) collapse to ONE incident carrying N
 // alert_ids. Harness-first RED: upsertIncident throws NotImplemented (grouping logic
@@ -20,14 +24,14 @@ beforeAll(() => {
 const MITRE = { tactics: ["execution", "initial-access"], techniques: ["T1059.001", "T1566.001"] };
 
 test("incident_ac_002: 3 distinct alerts, same agent+tactic+window -> 1 incident with 3 alert_ids", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000020";
+  const agentId = globalThis.crypto.randomUUID();
   const orgId = "incident-ac-002";
   await enrollTestAgent(config, agentId);
 
   // Three DISTINCT alerts (distinct alert_id), same agent + tactic-set, identical
   // event_time => same correlation window (robust to bucket-boundary alignment).
   const inputs: IncidentGroupingInput[] = [1, 2, 3].map((n) => ({
-    alertId: `01934abc-def0-7000-89ab-0000000002${String(n).padStart(2, "0")}`,
+    alertId: `${ID_PREFIX}-def0-7000-89ab-0000000002${String(n).padStart(2, "0")}`,
     orgId,
     agentId,
     cgMitre: MITRE,
