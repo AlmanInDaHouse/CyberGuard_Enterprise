@@ -1,20 +1,30 @@
 # Handoff — Session 38
 
-Session 38 opened on 2026-10-13 and closed on 2026-10-14. Manuel did not
-have SPEC-021's text, so roadmap §B2 still waits on it. The session fixed
-debt #63 on its own branch and landed it, then a first sweep of the open
-debts that are Claude Code's to fix: #19, #36, #18 and #57. Its work order
-for Session 39 is *How Session 39 resumes* at the end.
+Session 38 opened on 2026-10-13 and closed on 2026-10-14. The session:
+
+- Fixed debt #63 on its own branch and landed it.
+- Ran a first sweep of the open debts that are Claude Code's to fix: #19,
+  #36, #18 and #57.
+- On 2026-10-14 Manuel delegated every decision pending on him and said he
+  could not supply SPEC-021. Claude Code parked roadmap §B2 and §B3, put E
+  next, and decided #10 and #33.
+- Ran a second sweep for #33, #67 and #10, with the SPEC amendments first.
+
+Its work order for Session 39 is *How Session 39 resumes* at the end.
 
 ## State at close
 
 - `main` = `origin/main` = the commit that completes this file (CI ALL
   GREEN, *CI monitoring*); tree clean; no stash.
 - Catalogs: ADR 20 / SPEC 20. Known CI debt: zero.
-- No branch or PR open. `fix/s38-debt-63-marquee-session` (PR #7) landed as
-  five cherry-picked commits, `a9452b0..928cfbf`; `fix/s38-debt-sweep-1`
-  (PR #8) as four, `67f2055..6841aa5`. Both PRs are closed and both
-  branches deleted, local and on origin.
+- No branch or PR open. Each PR below is closed and its branch deleted,
+  local and on origin:
+  - `fix/s38-debt-63-marquee-session` (PR #7) landed as five cherry-picked
+    commits, `a9452b0..928cfbf`.
+  - `fix/s38-debt-sweep-1` (PR #8) landed as four, `67f2055..6841aa5`.
+  - `fix/s38-debt-sweep-2` (PR #9) landed as four, `bbdf1e3..8ea922e`, in
+    an order its landing slip changed (*Progress*).
+- Roadmap: §B2 and §B3 PARKED, §E NEXT (`4cad976`).
 - Code changed this session. For #63: `services/ingest/test/helpers/marquee-agent.ts`
   and two new test files, `services/ingest/test/marquee-agent-etw.test.ts`
   and `agent/cg-agent/tests/etw_reclaim.rs`. The elevated gate covered it
@@ -24,9 +34,14 @@ for Session 39 is *How Session 39 resumes* at the end.
   backends (`services/*/test/helpers/backends.ts`). No file under
   `agent/cg-agent/src/` changed, and none of the sweep's files is on a gated
   path (*Developer-local SPEC-005 marquee validation* §5, *SPEC-006* §6).
-  `server.ts` is still a runtime input under `services/`, so gate 1b
-  (at `6fbcd0e`) is not evidence for the tip; the next gated change runs
-  the gate again.
+  For the second sweep: `services/ingest/src/config.ts`, the dev compose
+  and `.env.example` (#33); `dashboard/src/lib/api/client.ts`, its two
+  pages and README (#67); and `services/api/src/` (`app.ts`, `errors.ts`,
+  `services.ts`, `read/queries.ts`, `read/routes.ts`) (#10). Each comes
+  with its tests, and none is on a gated path. `server.ts` and
+  `config.ts` are still runtime inputs under `services/`, so gate 1b (at
+  `6fbcd0e`) is not evidence for the tip; the next gated change runs the
+  gate again.
 - Outside the repository:
   - Docker Desktop, started by Claude Code, is still running.
   - The dev stack (`cyberguard-dev-postgres-1`, `-redis-1`, `-nats-1`,
@@ -39,9 +54,15 @@ for Session 39 is *How Session 39 resumes* at the end.
     `C:\tmp\s38-gate1b-*.log`, and the logs of gate 1, which ran nothing in
     the repository (`C:\tmp\s38-gate1-*.log`).
   - No ETW session of the agent's name is running.
-  - `C:` has 16 GB free (29 GB at the start). The Docker Desktop disk under
+  - `C:` has 17 GB free (29 GB at the start). The Docker Desktop disk under
     `%LOCALAPPDATA%\Docker` held 101 GB on 2026-10-13 and grows with each
     testcontainers run; `target/` held 8.5 GB.
+  - Docker's build cache (20.95 GB) and dangling images (0.73 GB) were
+    pruned on 2026-10-14 (`docker builder prune -f`, `docker image prune
+    -f`). The volumes and the tagged images, many of them other projects',
+    were left alone. The space stays inside the WSL disk: it is reused
+    there, and `C:` does not get it back until that disk is compacted,
+    which needs WSL shut down (*What waits on Manuel*).
 
 ## Start
 
@@ -81,6 +102,14 @@ Manuel's decisions this session, in chat:
 - 2026-10-14, after the system killed the sweep's landing loop under low
   memory and Claude Code asked whether to resume it: "he liberado memoria,
   puedes seguir". Claude Code resumed the landing.
+- 2026-10-14, after Claude Code listed what waited on him (SPEC-021, #10,
+  #33, the Docker disk, #64's ADR half, #59, Part (b) §9, #55, Part (b)
+  §1–§4): "lo que este pendiente de mi decidelo tu en base al beneficio
+  del proyecto, en base a lo de a spec-021 no me acuerdo de que va ahi
+  asique es imposible volver a hacerlo". Claude Code read it as a
+  delegation of every point, decided for an enterprise buyer, and said in
+  the same turn that an ADR still needs his explicit "sí" and that SPEC-021
+  stays one Claude Code cannot draft.
 
 The landing (*Integration path* §3): `main` had not moved since the branch
 was cut, so no rebase. Each commit cherry-picked in order, the guard
@@ -114,7 +143,7 @@ Code's, small and of value; #10 and #33, also on that list, went to Manuel
 | `eddadd7` | `1039b1a` | #19, first review: the driver's fail-loud refusal closes both listeners; the first test matches the port whose listen failed. |
 | `6841aa5` | `532e997` | #18: every port of the dev compose is published on `127.0.0.1`; the dev README dials `127.0.0.1` and says what an agent on another machine needs. |
 | `ac80734` | — | #57: CLAUDE.md's *SPEC amendment workflow* says SPEC-001 to SPEC-009 carry `Last updated` (docs, straight to `main`). |
-| (this commit) | — | This record of the sweep. |
+| `790970c` | — | This record of the sweep. |
 
 On the branch, the first #18 commit (`2534398`, with a `CG_PUBLISH_HOST`
 switch) was replaced after the first review by `532e997` (*Decisions*,
@@ -141,6 +170,57 @@ On `main`, only `markdown-lint` ran for `6841aa5`, for its README: no
 workflow's path filter covers `infra/dev/` (debt #68). The compose was
 checked by hand at the close (*Gate outputs and baselines*). PR #8 was
 closed with a comment that maps each branch SHA to its `main` SHA.
+
+### The delegation and debt sweep 2
+
+On 2026-10-14 Manuel delegated every decision pending on him. Claude Code
+decided each one (*Decisions*, delegated) and wrote the contract before
+the code. The docs below went straight to `main`, each pushed on its own
+with CI green:
+
+| SHA | What |
+|---|---|
+| `ff20923` | SPEC-009, SPEC-010 and SPEC-013 Amendments 2026-10-14 (#10, read errors). SPEC-018 Amendment 2026-10-14 (#33, the driver's interval). SPEC-005 Amendment 2026-10-14 (#64's SPEC half, the reclaim log line at `warn`). The catalog; CLAUDE.md's list of SPEC amendments that left `Last updated` as it was gains SPEC-005. |
+| `4cad976` | Roadmap: §B2 and §B3 parked with a reopen condition, §E next, Part (b) §1–§4 delegated. |
+| `6cd1871` | SPEC-009's amendment made exact after the first code review: the inputs Postgres would refuse, what the pool's 5 s bound, and what the log may carry. |
+| `56dfc4b` | SPEC-009's amendment: ClickHouse is read for every incident's drill, export and report. A test that tried to seed an alert with no source event failed on `alerts_source_events_nonempty`. |
+| `3659e15` | SPEC-009/010/013 amendments made exact after the second code review; debts #69–#72 recorded here. |
+
+The code, on `fix/s38-debt-sweep-2` (PR #9), was rebased twice onto
+`main` as the SPEC moved; each rebase was pushed again one commit per push
+with CI green. It landed as:
+
+| SHA on `main` | Branch SHA | What |
+|---|---|---|
+| `bbdf1e3` | `42b08e6` | #67: the dashboard reads the api's default listener, `http://127.0.0.1:8081`, when `API_BASE_URL` is unset. |
+| `4a6e981` | `ccda047` | #10: read errors, as SPEC-009 Amendment 2026-10-14 states. |
+| `12a7f13` | `de2b826` | The dashboard README: `API_BASE_URL` and its default. |
+| `8ea922e` | `843a80e` | #33: the driver's default interval is 5000 ms. |
+
+The landing slip: the branch's order was #33, #67, #10, README. The first
+landing command failed before its cherry-pick (`git rev-parse --short`
+given two revisions is an error), so #33 was not picked. The next three
+commands ran their guard but did not stop on it: `git diff --quiet …;
+echo "guard -> $?" && git push` pushes whatever the guard says. Their
+guards printed 1, since their landed trees lacked #33 and were not the
+trees CI had run on the branch. CI then ran green on each of those `main`
+SHAs. #33 landed last, with a guard that stops: `main`'s tree equals the
+branch tip `de2b826`, the tree CI ran last.
+
+```text
+guard 843a80e -> 128   (rev-parse failed; nothing picked, nothing pushed)
+guard 42b08e6 -> 1     SHA bbdf1e3: ts-ci -> success
+guard ccda047 -> 1     SHA 4a6e981: ts-ci -> success
+guard de2b826 -> 1     SHA 12a7f13: markdown-lint -> success | ts-ci -> success
+guard: main tree == branch tip de2b826
+SHA 8ea922e: ts-ci -> success
+```
+
+Each landed commit is true at its own SHA: none of the three depends on
+debt #33, and SPEC-018's amendment says the interval's code follows. What the
+slip cost is the guard's guarantee for those three trees, which only CI on
+`main` covered. The auto-memory now holds the corrected form of the step
+(`feedback-landing-guard-must-stop`).
 
 ## Decisions
 
@@ -252,6 +332,90 @@ Debt sweep 1, reactive:
   `d94ab7b`'s cherry-pick and before its push: 633 MB of 16 GB were free,
   and Docker's WSL VM held about 8 GB. Claude Code stopped and asked, then
   resumed once Manuel had freed memory.
+
+Delegated by Manuel on 2026-10-14, decided by Claude Code for an
+enterprise buyer (a security lead and a data-protection officer):
+
+- **SPEC-021, §B2, §B3, Part (b) §9:** B2 and B3 parked. Claude Code
+  cannot draft SPEC-021 (the platform's safety classifier, S37), Manuel no
+  longer holds what it was to say, and neither phase is an MVP criterion.
+  Reopen when a SPEC-021 text reaches the repository from outside Claude
+  Code. Alternative: B2 on another contract, which would be the same
+  content reworded. Where: `4cad976`.
+- **The order:** E (SOAR, criterion 6), then F (installation, criterion
+  7), the two MVP criteria left. Alternative: F first, which E does not
+  depend on but which is last by dependency in the roadmap. Where:
+  `4cad976`.
+- **#10:** a malformed input is a 404 or a 400, and a store that cannot
+  answer is a 503. A 404 during an outage tells an analyst an incident
+  does not exist, which is a forensic falsehood. Alternative: a 500, which
+  separates an outage from "not found" too, but not from a defect. Where:
+  `ff20923`, `4a6e981`.
+- **#33:** 5000 ms, the contract's value. Alternative: amend NFR-006-001
+  to 10 000. Where: `ff20923`, `8ea922e`.
+- **#67:** the api's own default listener, `http://127.0.0.1:8081`.
+  Alternative: 18081, the dev compose's host port, which ties the
+  dashboard's code to one dev setup. The README says what to set against
+  the dev stack. Where: `bbdf1e3`, `12a7f13`.
+- **#64:** SPEC-005 follows the code (`warn`). ADR-0008's helper names
+  stay, and the code takes them at the next change to
+  `agent/cg-agent/src/etw/` under the elevated gate. That keeps the ADR as
+  it is, with no "sí" needed. Alternative: amend the ADR to the code's
+  names. Where: `ff20923`.
+- **#59:** no virtual machine on Manuel's host. The Windows 10 / Server
+  2019 coverage matters for B2's second session, which is parked.
+- **#55:** Claude Code brings the threat model in line with the system
+  before F. The new risks it finds are listed as open, not accepted.
+- **The Docker disk:** only what rebuilds was pruned (build cache,
+  dangling images). Alternative: `docker system prune` with volumes,
+  which would delete other projects' data on the same daemon.
+- **Part (b) §1–§4:** §1 by an ADR-0002 amendment, §2–§4 in F's SPEC. The
+  ADR amendments still wait for Manuel's "sí". Where: `4cad976`.
+
+Debt sweep 2, anticipated:
+
+- The SPEC amendments land first on `main`, then the code on a branch
+  (*Compensating controls* §1).
+- #10's errors are decided at two points. Input is checked before the
+  read's stores, and every store call goes through one wrapper, `fromStore`,
+  so a store's failure is a `StoreUnavailableError` → 503. Alternative:
+  classify each driver's errors by code (SQLSTATE, ClickHouse codes),
+  which is fragile, and a code defect inside a store call reads as an
+  outage either way.
+- The UUID check is the canonical form only, and a valid upper-case
+  `:id` is read in lower case. Alternative: accept every spelling Postgres
+  takes, which echoes the caller's spelling back.
+- The api's Postgres pool gets a 5 s connection timeout, so a silent
+  Postgres is a 503 rather than a held request. Alternative: a debt only.
+  The pool also serves SPEC-008 and the forensic key's load at boot, which
+  the amendment states.
+- The list parameters are checked so that no value reaches Postgres as a
+  failure. An empty parameter stays absent and `severity_id` is read as a
+  number, as before, to break as few clients as possible.
+
+Debt sweep 2, reactive:
+
+- The amendment's first review (SPEC text): a Redis outage hangs rather
+  than answering 500 (#69); two items clashed on "whatever the `:id`";
+  the backward-compatibility list missed two kinds of client; ADR-0015
+  says only the drill reads ClickHouse (#70). All fixed in the text before
+  `ff20923`, the ADR as a debt.
+- The code's first review, the most serious item first. The app-wide
+  error handler, newly logging 5xx, logged the whole error. A Postgres
+  `detail` can quote a `users` row, password hash and encrypted TOTP
+  secret included. Now only type, code, message and stack are logged.
+  Also fixed: a cursor year Postgres refuses, and a `status` with a NUL,
+  still reached the store. `severity_id` was stricter than before. And
+  the impossible "incident without source events" case. Where:
+  `6cd1871`, `56dfc4b`, `4a6e981`.
+- The code's second review: pino's `err` serializer replaced `type`, so
+  the log moved to the key `error`. "Before any store" was not true of
+  Redis, and a line citation would move. The pool's reach is now stated,
+  and the debts it cites are recorded. Where: `3659e15`, `4a6e981`.
+- The #10 commit was rewritten twice on its branch to absorb the review
+  fixes, so that no `main` SHA carries the detail-logging state. The
+  branch was Claude Code's own (*Integration path* §3).
+- The landing slip (*Progress*).
 
 ## Self-reviews
 
@@ -398,6 +562,80 @@ A reviewer with a fresh context, the fixed code prompt, two passes:
 - `ac80734` (CLAUDE.md, a fact): Claude Code's own pass only, checked
   against the twenty SPEC headers above.
 
+### The delegation's SPEC amendments and debt sweep 2
+
+**The amendments' text**, a fresh-context pass with the fixed SPEC prompt,
+on the working tree before `ff20923`:
+
+- List A, all four items in SPEC-009's amendment:
+  - A1: a Redis outage hangs, it does not answer 500.
+  - A2: two items clashed ("whatever the `:id`" against a malformed `:id`).
+  - A3: the backward-compatibility list missed non-canonical UUID
+    spellings and out-of-range `severity_id`.
+  - A4: ADR-0015 §Compliance says only the drill reads ClickHouse.
+- List B: ten items, among them a text that read as already done, the
+  SPEC-005 rationale (the agent's default level is already `info`), the
+  undefined "unreachable", the upper-case `:id` echoed, the framework's
+  own status, and CLAUDE.md's amendment list missing SPEC-005.
+- Dispositions: A1 → item 6 and debt #69; A2 and A3 fixed; A4 → named in
+  the amendment and debt #70; from B, each "document change" note, the
+  rationale, the definition of "cannot answer", the lower-casing, the
+  framework status and the CLAUDE.md list. The revised text had no second
+  pass of its own: the code reviews below read it against the diff.
+
+**Claude Code's matrix at `de2b826`** (the landed tree). The api tests are
+`services/api/test/read-ac-006-error-sanitisation.test.ts` (006) and
+`read-ac-007-store-failure.test.ts` (007):
+
+| Criterion | Test | Verdict |
+|---|---|---|
+| SPEC-009 §1: a malformed `:id` → 404 before the read's stores, on all four routes | 006 `test.each` over the four routes; 006, an existing incident with braces or no hyphens → 404 (200 before); 007, the four routes with Postgres down → 404 | covered |
+| §1: an upper-case `:id` read and answered in lower case | 006, detail, drill and export | covered (the report returns a PDF; same helper) |
+| §2: malformed `agent_id`, `severity_id`, `cursor` (years 0, -1, 10000), `status` with a NUL → 400 | 006 `test.each`; 007, list parameters with Postgres down → 400 | covered |
+| §2: empty parameter absent, unknown `status` no row, `severity_id` read as a number, year 1 accepted | 006 | covered |
+| §3: Postgres dropping, refusing or silent → 503 | 007, the six routes dropping; list and detail refusing; detail silent, 4.9–8 s; the api's own pool carries the 5 s timeout | covered |
+| §3: ClickHouse failing → 503 on drill, export and report; detail and lists 200 | 007, dropping (three routes), refusing (drill) | covered |
+| §3–§4: 503 and 500 logged at `error`, type and code kept, no `detail` | 007 "what is logged": Postgres 503, ClickHouse 503, a signing failure's 500 | covered |
+| §4: a status Fastify raises keeps it | 007, invalid JSON on login → 400 | covered |
+| §5: no existence oracle | 007, another org's incident with ClickHouse down → 404; with Postgres down → 503 like any well-formed `:id` | covered |
+| SPEC-018: the default is 5000 ms | `services/ingest/test/config-detect-interval.test.ts`; the compose and `.env.example` by reading | covered in code; the dev files missing as a test (#68) |
+| #67: the default is the api's own listener | `dashboard/test/api-base-url.test.ts`, against the api's `loadConfig` defaults | covered; the two pages' use by reading |
+
+A reviewer with a fresh context, the fixed code prompt, two passes:
+
+- **Pass 1, `4cad976..8cc1901`.**
+  - List 1: the malformed-`:id` test could not tell form from "not found"
+    (it used an all-zero UUID); the lower-casing, the logs, the 500, the
+    refusing store and the no-source-event case missing; the timeout bound
+    loose.
+  - List 2: a cursor year Postgres refuses, and a `status` with a NUL,
+    still reached the store (503); `severity_id` stricter than before; the
+    timeout's comment overclaimed.
+  - List 3, the security item: the app-wide handler now logged 5xx on
+    SPEC-008's routes with the whole error, and a `users` CHECK failure's
+    `detail` quotes the row's password hash and encrypted TOTP secret. Also
+    the pool's 5 s reaching auth and boot, `fromStore` wrapping a code
+    defect as an outage, the empty cursor, and #67's value against the dev
+    compose.
+  - Dispositions: all of List 2 and the security item fixed (log type,
+    code, message and stack only; inputs refused before the store);
+    List 1's gaps tested; the pool's reach and the empty parameter stated
+    in the amendment (`6cd1871`); #67's value documented in the dashboard
+    README; `fromStore`'s breadth recorded (*Decisions*); a silent open
+    connection → #71; the unvalidated role → #72.
+- **Pass 2, `56dfc4b..6ade78b`.**
+  - No blocking defect.
+  - List 2: the logged `type` replaced by pino's serializer; a stale line
+    citation; "before any store" untrue of Redis; ClickHouse "for every
+    incident" untrue of an incident whose alerts are gone; debts cited but
+    not yet recorded.
+  - Weak: year 1, list parameters with a dead store, `buildServices`'s
+    pool, the ClickHouse log.
+  - Dispositions: all fixed (`3659e15`, `4a6e981`); the stale comment in
+    `report-ac-003-transport.test.ts` updated.
+- The second pass's own fixes had no third pass. Each answers an item of
+  pass 2, and the type fix was shown red under the old key.
+
 ## Debts
 
 New this session:
@@ -496,6 +734,19 @@ Closed this session:
   undoes it.
 - **#57 — CLAUDE.md says a SPEC header has no `Last updated`.** Fixed by
   `ac80734`.
+- **#10 — The event drill answers 404 when ClickHouse is down.** Widened
+  to the read API's error semantics and fixed by SPEC-009 Amendment
+  2026-10-14 (`ff20923`, made exact in `6cd1871`, `56dfc4b`, `3659e15`)
+  and `4a6e981`.
+- **#33 — The driver's default interval is 10 000 ms.** Fixed by SPEC-018
+  Amendment 2026-10-14 and `8ea922e`.
+- **#67 — The dashboard's default API address is ingest's enroll port.**
+  Fixed by `bbdf1e3`, documented by `12a7f13`.
+
+Changed this session: #64 keeps only its ADR-0008 half. SPEC-005
+Amendment 2026-10-14 resolved the SPEC half (`ff20923`). The code takes
+ADR-0008's names at the next change to `agent/cg-agent/src/etw/` under
+the elevated gate.
 
 The inventory also found where the auto-memory index differed from the
 records. The records are right and stay as written: #1 was resolved in S25
@@ -503,8 +754,9 @@ records. The records are right and stay as written: #1 was resolved in S25
 (`docs/handoff-session-29.md:116-119`); #54 is recorded in handoff-36's
 *Progress* (`:168-182`), not its *Debts*; #3's cited collision is gone (the
 two UUIDs now differ), while its risk stays (18 hand-numbered agent IDs in
-16 files). Open debts at the close: 48 (the inventory's 50, less the four
-closed by the sweep, plus #67 and #68).
+16 files). Open debts at the close: 49. That is the inventory's 50, less
+the seven closed by the two sweeps (#18, #19, #36, #57, #10, #33, #67),
+plus #67, #68 and #69–#72.
 
 ## Gate outputs and baselines
 
@@ -612,62 +864,100 @@ Debt sweep 1, non-elevated, Claude Code's terminal:
   success`; `2534398` and `532e997` got `markdown-lint` and `ts-ci →
   success`. On `main`, the landing block in *Progress*.
 
-Baselines at the close: non-elevated cargo 126 passed / 7 ignored;
-elevated cargo `--ignored` 7 (S37; not rerun, no agent source changed);
-vitest `services/ingest` unelevated 62 files / 207 tests (202 passed / 4
-failed with exit 9 / 1 skipped), elevated 61 files / 205 tests at
-`6fbcd0e` (gate 1b, before the sweep's two tests; expected 62 / 207 at the
-tip, not run); `services/api` 31 files / 62 tests (this session).
+Debt sweep 2, non-elevated, Claude Code's terminal:
+
+- `services/ingest`, at #33's commit (`8599993`, before the rebases):
+  - `pnpm run typecheck`, `pnpm run lint` ("Checked 109 files … No fixes
+    applied."), `pnpm run build` and the entrypoint check, all passing.
+  - `pnpm test` → "Test Files  4 failed | 58 passed | 1 skipped (63)",
+    "Tests  4 failed | 204 passed | 1 skipped (209)": the four capture
+    marquees with exit 9, and `ac-001-marquee` skipped.
+  - The red run: "expected 10000 to be 5000".
+- `dashboard`, at #67's commit:
+  - `pnpm run build`, `pnpm run typecheck`, and lint ("Checked 25 files …
+    No fixes applied."), all passing.
+  - `pnpm test` → "Test Files  3 passed (3)", "Tests  8 passed (8)".
+  - The red run: "expected 'localhost' to be '127.0.0.1'".
+- `services/api`, at the final #10 tree:
+  - `pnpm run typecheck`, `pnpm run lint` ("Checked 71 files … No fixes
+    applied."), `pnpm run build` and the entrypoint check ("entrypoints
+    ok: [ 'dist/index.js', './dist/cli/create-user.js' ]"), all passing.
+  - `pnpm test` → "Test Files  33 passed (33)", "Tests  111 passed (111)".
+- #10's red runs:
+  - Against the code before #10, read_ac_007 failed 10 of 13: 404 or 500
+    where 503 is due, and the silent Postgres "Test timed out in
+    120000ms".
+  - The extended read_ac_006 failed 16 of 23 against `main`'s `src/`.
+  - The log tests failed with the seeded `detail` in the 503 and 500 lines
+    ("not to contain 'argon2id-hash-that-must-not-be-logged'"), and again
+    under the old `err` key.
+- CI: every push green.
+  - On the branch: the first push `8599993`, `be9ef90` and `8cc1901`; the
+    first rebase `755cc87`, `177fc70`, `a4bf90d` and `6ade78b`; the second
+    `843a80e`, `42b08e6`, `ccda047` and `de2b826`.
+  - On `main`: the landing block in *Progress*, and each docs commit's
+    `markdown-lint → success`.
+
+Baselines at the close:
+
+- Cargo, non-elevated: 126 passed / 7 ignored.
+- Cargo, elevated `--ignored`: 7 (S37; not run again, since no agent
+  source changed).
+- vitest `services/ingest`, unelevated: 63 files / 209 tests (204 passed
+  / 4 failed with exit 9 / 1 skipped).
+- vitest `services/ingest`, elevated: 61 files / 205 tests at `6fbcd0e`
+  (gate 1b, before the two sweeps' tests). Expected 63 / 209 at the tip,
+  not run.
+- `services/api`: 33 files / 111 tests.
+- `dashboard`: 3 files / 8 tests.
 
 ## What waits on Manuel
 
-1. SPEC-021's text (handoff-37 *SPEC-021*).
-2. #10, widened. The four read routes, `/v1/incidents/:id`, `/events`,
-   `/forensic-export` and `/report` (`services/api/src/read/routes.ts`),
-   answer 404 to any error, a store that is down included. Recommendation:
-   check the `:id`'s UUID form first (404 if malformed), and answer `503
-   {"error":"unavailable"}` when a store fails. That amends SPEC-009,
-   SPEC-010 (its Open question 3 already points there), SPEC-012 and
-   SPEC-013, with tests that take ClickHouse and Postgres down. The
-   dashboard already treats any status other than 200, 401 or 404 as an
-   error. Asked because it is the error semantics of the public API.
-3. #33. NFR-006-001 (`docs/specs/SPEC-006-detection-mvp.md:195`) sets the
-   detection interval at 5000 ms; the code (`services/ingest/src/config.ts:74`),
-   the compose (`:152`) and `infra/dev/.env.example:64` use 10000.
-   Recommendation: bring the code to the contract, 5000 ms. The worst-case
-   latency drops from about 20 s to about 15 s, and the load on ClickHouse
-   is negligible at the MVP's volume. Alternative: amend the SPEC to 10000.
-   Asked because it changes the default of a variable a deployment reads.
-   #67 follows the same answer.
-4. The Docker Desktop disk: `C:` has 16 GB free. Pruning it
-   (`docker system prune`, its volumes) deletes his Docker data; the daemon
-   also runs other projects' containers.
-5. #64's ADR-0008 half.
-6. Unchanged: #59, roadmap Part (b) §9, #55, Part (b) §1–§4.
+Manuel delegated every pending decision on 2026-10-14 (*Decisions*). What
+still needs him:
+
+1. His explicit "sí" on each ADR text Claude Code puts to him:
+   - ADR-0021, SOAR (roadmap §E);
+   - the ADR-0002 amendment (Part (b) §1);
+   - the ADR-0015 amendment (#70);
+   - later, with F's SPEC, the ADR-0001 amendment (§4) and the ADR-0016
+     amendment (§3).
+2. Compacting the Docker WSL disk to give `C:` back the space the prune
+   freed inside it. That needs WSL shut down, which is his to do or to
+   allow (*Local environment operations*). Optional.
+3. If he wants §B2 back: a SPEC-021 text from outside Claude Code
+   (roadmap §B2).
 
 ## How Session 39 resumes
 
-1. *Session protocol* §At the start. Expected: `main` = `origin/main` at
-   this file's last commit; tree clean; no stash; no branch or PR open;
-   catalogs ADR 20 / SPEC 20; Known CI debt zero; `logman query -ets` lists
-   no `CGAgent` session.
-2. SPEC-021: when Manuel brings the text, land it verbatim (*Integration
-   path* §6, with the SHA-256), self-review it, and set its Status
-   `Accepted`. It covers the review items marked "for SPEC-021" in
-   handoff-37, #60's second session and #62.
-3. If Manuel has answered #10 or #33 (*What waits on Manuel*): the SPEC
-   amendments first, self-reviewed, then the code on a branch with tests
-   failing first. #67 goes with #33's answer.
-4. Meanwhile, the next sweep of Claude Code's debts, each one on a branch
-   with a PR, a failing test first where a test applies, CI on every push
-   and the self-review. In order of value: #68 (a compose check in CI),
-   #6 (the api's copy of the `cges_events` table, before B2 adds columns),
-   #30 (the real-ETW tests on the hosted runner), #39 and #40 (CGES
-   examples and `time`), #13 (stale citations, swept by pattern), #27 and
-   #41 (diagnosis first), #3, #8, #9, #11. #7 may count as a new component,
-   which is Manuel's: ask first.
-5. Then B2's implementation, on a branch with a PR: acceptance tests
-   failing first, CI on every push, the elevated gate as a one-line script
-   (*Environment facts*), the self-review, landing by cherry-pick. It
-   carries #31, #52, #53, #54, #56, #58, #64's SPEC-005 row and #66.
-6. Then roadmap §B3, after Part (b) §9.
+1. *Session protocol* §At the start. Expected:
+   - `main` = `origin/main` at this file's last commit; tree clean; no
+     stash;
+   - no branch or PR open, unless this file names an owner-review branch;
+   - catalogs ADR 20 / SPEC 20; Known CI debt zero;
+   - `logman query -ets` lists no `CGAgent` session.
+2. Roadmap §E, criterion 6: "1 SOAR playbook operational (dry-run +
+   notification, no destructive actions yet)" (`docs/product/blueprint.md:751`).
+   - First ADR-0021, on an owner-review branch for Manuel's "sí", in one
+     batch with the ADR-0002 and ADR-0015 amendments.
+   - Then its SPEC and the implementation: tests failing first, CI on every
+     push, the self-review, landing by cherry-pick with a guard that stops
+     (`feedback-landing-guard-must-stop`).
+3. Meanwhile, the next sweep of Claude Code's debts, each on a branch with
+   a PR, a failing test first where a test applies, CI on every push and
+   the self-review. In order of value:
+   - #72 (the role check), #69 (Redis hold) and #71 (query timeout), on
+     the api's availability and input;
+   - #68 (a compose check in CI);
+   - #6 (the api's copy of the `cges_events` table);
+   - #30 (real-ETW tests on the hosted runner);
+   - #39 and #40 (CGES examples and `time`);
+   - #13 (stale citations, swept by pattern);
+   - #27 and #41 (diagnosis first);
+   - #3, #8, #9, #11.
+
+   #7 may count as a new component, which is Manuel's: ask first.
+4. #55: the threat model brought in line with the system, before F.
+5. Roadmap §F, criterion 7: its SPEC decides Part (b) §2–§4 (delegated).
+   The ADR amendments go to Manuel for his "sí".
+6. §B2 and §B3 stay parked until a SPEC-021 text arrives (roadmap §B2).
