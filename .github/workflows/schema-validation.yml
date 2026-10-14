@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - "schemas/**"
+      # SPEC-022 §Operational §8: the SOAR playbooks are validated against their schema.
+      - "playbooks/**"
       - ".github/workflows/schema-validation.yml"
   pull_request:
     paths:
       - "schemas/**"
+      # SPEC-022 §Operational §8: the SOAR playbooks are validated against their schema.
+      - "playbooks/**"
       - ".github/workflows/schema-validation.yml"
 
 permissions:
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   validate:
-    name: Validate CGES examples against schemas
+    name: Validate CGES examples and SOAR playbooks against their schemas
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -56,5 +60,26 @@ jobs:
               -d "$f" \
               --all-errors \
               --strict=false
+            echo "::endgroup::"
+          done
+
+      - name: Validate every SOAR playbook
+        # SPEC-022 §Operational §8 — ajv-cli reads YAML data files. The loader's own
+        # policy (unique ids, placeholders, no live agent.isolate) runs in ts-ci.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          playbooks=(playbooks/*.yml playbooks/*.yaml)
+          if [ ${#playbooks[@]} -eq 0 ]; then
+            echo "No playbooks under playbooks/: nothing to validate."
+            exit 0
+          fi
+          for f in "${playbooks[@]}"; do
+            echo "::group::Validate $f"
+            ajv validate \
+              --spec=draft2020 \
+              -s schemas/playbooks/v0.1/playbook.json \
+              -d "$f" \
+              --all-errors
             echo "::endgroup::"
           done

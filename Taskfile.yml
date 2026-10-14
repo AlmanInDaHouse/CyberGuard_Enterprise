@@ -35,8 +35,10 @@ tasks:
       - echo "task lint — populated by SPEC-XXX-ci"
 
   validate-schemas:
-    desc: "Validate all CGES example events against the v0.1 schemas (ajv-cli)."
+    desc: "Validate the CGES example events and the SOAR playbooks against their schemas (ajv-cli)."
     cmds:
+      # SPEC-022 §Operational §8 — the SOAR playbooks (ajv-cli reads YAML data files).
+      - npx --yes -p ajv-cli ajv validate --spec=draft2020 -s schemas/playbooks/v0.1/playbook.json -d "playbooks/*.{yml,yaml}" --all-errors
       - npx --yes -p ajv-cli -p ajv-formats ajv validate --spec=draft2020 -c ajv-formats -s schemas/cges/v0.1/event.json -r "schemas/cges/v0.1/common/*.json" -r "schemas/cges/v0.1/objects/*.json" -r "schemas/cges/v0.1/classes/*.json" -d "schemas/cges/v0.1/examples/*.json" --all-errors --strict=false
 
   # ------------------------------------------------------------------
