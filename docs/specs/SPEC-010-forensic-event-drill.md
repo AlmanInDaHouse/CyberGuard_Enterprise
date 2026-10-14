@@ -165,6 +165,20 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 - This realises ADR-0015 §Out of scope's item on the `503`-vs-`404` distinction, whose destination was this Open question. The ADR's text stays as written, as its PDF item did when SPEC-013 delivered the report.
 - Status stays **Accepted**.
 
+## Amendment 2026-10-15: the api tests run ingest's ClickHouse bootstrap (Open question 1 resolved)
+
+**What surfaced it.** Debt #6 (`docs/handoff-session-26.md`) and this SPEC's Open question 1. The test-only copy of `cges_events`'s DDL that the Open question recommended had drifted: it lacked the `arrived_at` skip index (SPEC-018) and the time-to-live of class 3002 (ADR-0019 §9). Neither changes what the drill reads, so drill_ac_001 did not catch it.
+
+**The amendment.** A record of what the code already does. The code landed first, in the same sweep (`b10bc3d`, debt #6, `docs/handoff-session-39.md`): Open question 1 had already named the shared module as the remedy and the first uncaught drift as its trigger, so the code followed this SPEC as written.
+
+- Ingest's ClickHouse statements move, unchanged, from `bootstrapClickHouse` in `services/ingest/src/db/migrate.ts` into `bootstrapClickHouseTables`, exported by `services/ingest/src/db/clickhouse-bootstrap.ts`. Ingest's bootstrap calls it.
+- The api test harness runs that function in its ClickHouse and keeps no DDL of its own. Its `insertCgesEvent` seed stays.
+- The `cges_events` columns that §Context and §Data contracts cite at `migrate.ts:137` and `migrate.ts:134-153`, and Open question 1's `bootstrapClickHouse` at `migrate.ts:86-155`, are defined in that module.
+- The api test ClickHouse also gets ingest's `heartbeats` table, which no api test reads.
+- Open question 1 is resolved: the shared module it named as the replacement.
+
+**Effect.** No change to the drill, its route or its acceptance criteria. Ingest's tables are created by the same statements, in the same order. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0015](../adr/0015-readonly-clickhouse-reader-in-api.md) — the boundary decision this SPEC implements.

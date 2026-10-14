@@ -387,6 +387,30 @@ SPEC-014's notification, which uses the same send, keeps the behaviour its trans
 - SPEC-014's notification no longer sends credentials to a server reached by HELO, or with a mechanism the server did not name. A server that names only `XOAUTH2` no longer ends the process. Against a server whose AUTH line names PLAIN, LOGIN or CRAM-MD5 as whole tokens, and holds no name that only starts with one of them, it authenticates as before.
 - No other section changes. Status stays **Accepted**.
 
+## Amendment 2026-10-15: credentials only over TLS
+
+**What surfaced it.** Debt #74 (`docs/handoff-session-38.md`). The bounded send keeps SPEC-014's TLS: implicit TLS on port 465, otherwise STARTTLS when the server offers it. A relay that names PLAIN or LOGIN in its AUTH line and offers no STARTTLS receives the user name and password in clear text. With CRAM-MD5 it receives an HMAC of the server's challenge keyed with the password, open to an offline dictionary attack. When an attacker on the path removes STARTTLS from a relay's EHLO reply, the send never tries TLS, and the attacker reads them. The second amendment above left the decision to Manuel, as a deployment-contract decision. He delegated it on 2026-10-15 ("todo lo que dependa de mi elige tu en beneficio del proyecto"), and Claude Code decided it.
+
+**The amendment.** §Operational §6, the bounded send:
+
+- The send authenticates only over TLS: on port 465, where the connection starts in TLS, or after a STARTTLS upgrade that completed. When the rule of the second amendment picks a mechanism and the connection is not encrypted, the send sends no AUTH command and fails with the code `ENOTLS`. A step records `send failed: ENOTLS`, and SPEC-014's notification logs the code `ENOTLS`.
+- With STARTTLS, the mechanism is still read from the EHLO reply after TLS, as the second amendment says.
+- The relay's certificate is verified as before, against Node's trusted roots and the relay's host name. A failed upgrade or verification is a failure with the code `SMTPConnection` gives it, as before: nodemailer 8.0.10 reports a certificate it cannot verify as `ESOCKET`, the code of a reset too. The send takes optional trusted roots, which only the tests pass. In production the option is absent, so Node's own roots apply; an empty list would replace them with none. Node adds the roots named by the `NODE_EXTRA_CA_CERTS` environment variable, which is how a relay with a private certificate authority can be trusted until roadmap §F's SPEC decides the operator's surface (debt #78, `docs/handoff-session-39.md`).
+- A server whose AUTH line names none of PLAIN, LOGIN and CRAM-MD5 as a whole token is unchanged. The send delivers without authenticating, over TLS when the server offers STARTTLS. When the server offers no STARTTLS, the message travels in clear text, as before.
+
+**Decisions.**
+
+- *Credentials only over TLS, always, with no setting.* Alternatives: a setting, with TLS required by default, which would let an operator turn the rule off where a security lead expects it on; and TLS for every send, which would refuse internal relays that take mail by address without TLS, while protecting only the first hop of the message's path.
+- *A code of its own, `ENOTLS`.* Alternative: `ETLS`, the code `SMTPConnection` gives a failed upgrade. The record then could not tell a relay that offers no TLS from one whose TLS failed, and the operator's remedy differs.
+
+**Effect.**
+
+- soar_ac_006's AUTH cases run over STARTTLS: the test server offers it with a certificate the test passes as the send's trusted root. The rule of the second amendment is otherwise unchanged. A new case: a server that names `PLAIN LOGIN` and offers no STARTTLS receives no AUTH command, and the send fails at once with `ENOTLS`. A run records `send failed: ENOTLS`, and SPEC-014's notification logs `ENOTLS`.
+- soar_ac_008's success case and its refused-recipient case authenticate over STARTTLS.
+- SPEC-014, by scope: its notification no longer sends credentials without TLS. This is not backward-compatible for a relay that asks for credentials without TLS. Such a deployment stops sending, and its log shows `ENOTLS`.
+- This replaces three passages of the second amendment where they differ: its decision "TLS is not required before AUTH here"; the sentence "It is taken here, and TLS is not, because …" of its first decision; and its effect's "it authenticates as before" for a server that names PLAIN, LOGIN or CRAM-MD5 without TLS.
+- No other section changes. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0021](../adr/0021-soar-mvp-playbook-executor.md) — the decisions implemented here.

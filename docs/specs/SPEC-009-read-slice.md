@@ -232,6 +232,17 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 - SPEC-010 and SPEC-013 record the effect on their routes in their own amendments of the same date. SPEC-012 states no error semantics for its route (its §Data contracts leaves the endpoint surface to the implementation), so it is not amended.
 - Status stays **Accepted**.
 
+## Amendment 2026-10-15: the stores' bounds
+
+**What surfaced it.** Debts #71 and #69 (`docs/handoff-session-38.md`), which Amendment 2026-10-14 named as limits of its item 3 and its item 6.
+
+**The amendment.** SPEC-008 Amendment 2026-10-15 items 14 and 15 bound Postgres and Redis for every route of the api, the read routes included:
+
+- Amendment 2026-10-14 item 3's "A connection already open whose peer goes silent is not bounded" no longer holds. The server cancels a statement that runs 5 s, the client fails a query that has had no answer for 6 s, and the read answers `503`.
+- Amendment 2026-10-14 item 6 is superseded. A Redis failure in the session check, whether an unreachable or silent server or an error reply, answers `503 { error: "unavailable" }` within the client's 5 s, and is logged as item 3 says. SPEC-008's apiauth_ac_014 asserts it within 8 s. The change of a Redis error reply from `500` to `503` is on Manuel's list, a public API contract; it was delegated by Manuel on 2026-10-15 ("todo lo que dependa de mi elige tu en beneficio del proyecto") and decided by Claude Code.
+
+**Effect.** read_ac_007 gains a case: with an open Postgres connection whose peer goes silent, a read answers `503` within 8 s. The statuses of NFR-009-003 are unchanged. The api's one pool also bounds SPEC-008's routes, which now answer `503` rather than `500` when a store cannot answer, and the forensic key's load at boot. Status stays **Accepted**.
+
 ## References
 
 - [SPEC-008](SPEC-008-auth-core.md) — the auth-core this slice sits behind; `:40`/`:275` defer the reads + their RBAC matrix to here; the `makeRequireSession`/`makeRequireRole` preHandler factories (`services/api/src/auth/prehandlers.ts`, realised at SPEC-008's GREEN gate), `cgsess` cookie, `POST /v1/auth/login`, and Fastify+Zod scaffold this SPEC reuses.
