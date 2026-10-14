@@ -17,3 +17,15 @@ export async function verifyPassword(stored: string, password: string): Promise<
     return false;
   }
 }
+
+let fixedHash: Promise<string> | undefined;
+
+/**
+ * A fixed Argon2id hash of the service's parameters, made once per process: the login
+ * verifies against it when no active account holds the address, so its work does not
+ * tell whether one does (SPEC-008 Amendment 2026-10-15 item 11, NFR-008-003).
+ */
+export function constantWorkHash(): Promise<string> {
+  fixedHash ??= hashPassword(globalThis.crypto.randomUUID());
+  return fixedHash;
+}

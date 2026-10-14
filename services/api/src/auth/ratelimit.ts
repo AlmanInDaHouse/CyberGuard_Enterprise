@@ -32,6 +32,27 @@ function acctKey(org: string, email: string): string {
 function ipKey(ip: string): string {
   return `rl:ip:${ip}`;
 }
+/** The TOTP confirmation's per-user counter (SPEC-008 Amendment 2026-10-15 item 12). */
+function userKey(userId: string): string {
+  return `rl:user:${userId}`;
+}
+
+/** The confirmation's gate: the user's own counter, and the login's per-IP counter. */
+export async function isConfirmAllowed(redis: Redis, userId: string, ip: string): Promise<boolean> {
+  const [u, i] = await Promise.all([redis.get(userKey(userId)), redis.get(ipKey(ip))]);
+  return Number(u ?? 0) < ACCOUNT_MAX && Number(i ?? 0) < IP_MAX;
+}
+
+export async function recordConfirmFailure(
+  redis: Redis,
+  userId: string,
+  ip: string,
+): Promise<void> {
+  const tx = redis.multi();
+  tx.incr(userKey(userId)).expire(userKey(userId), WINDOW_SECONDS);
+  tx.incr(ipKey(ip)).expire(ipKey(ip), WINDOW_SECONDS);
+  await tx.exec();
+}
 
 export async function isAllowed(
   redis: Redis,
