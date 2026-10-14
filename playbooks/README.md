@@ -1,29 +1,23 @@
 # SOAR playbooks
 
-Declarative YAML playbooks executed by [`services/soar/`](../services/soar/).
+Declarative YAML playbooks, to be run by a SOAR module inside `services/ingest` ([ADR-0021](../docs/adr/0021-soar-mvp-playbook-executor.md)). Their schema is to be versioned in `schemas/playbooks/v0.1/` and validated at boot and in CI ([ADR-0002](../docs/adr/0002-language-per-component.md) Rule 6). The module, the schema, the loader and the first playbook land with ADR-0021's implementing SPEC; until then this folder holds no playbook.
 
-## Required fields per playbook
+## Fields of a playbook (ADR-0021 §2)
 
 | Field | Purpose |
 |---|---|
-| `id` | Stable identifier. |
-| `name`, `description` | Human-readable metadata. |
-| `trust_sources` | Subset of `["rule", "ml", "hybrid"]` whose alerts can trigger this playbook. |
-| `trigger` | Condition that selects an alert or incident. |
-| `actions` | Ordered list of declarative steps. |
-| `approval` | Required for any destructive step. |
-| `rollback` | Compensating step for each reversible action. |
+| `id`, `version`, `name` | Identity; the execution record carries `id` and `version`. |
+| `trust_sources` | The detection sources whose incidents may run it: `rule`, `ml`, `hybrid_only` ([ADR-0005](../docs/adr/0005-detection-rules-and-ml-in-parallel.md) §Playbook governance). Every MVP incident comes from a rule. |
+| `trigger` | `on: incident.created`, and a `when` on the incident's `severity_id`. |
+| `steps` | At most 10 ordered steps, each an action from the closed list below, run `live` or `dry_run` (`dry_run` by default). |
 
-## Action classes
+## Actions in the MVP (ADR-0021 §3)
 
-| Class | Examples | Source policy |
+| Action | ADR-0005 class | Live |
 |---|---|---|
-| Reversible | tag, notify, suppress, escalate severity, ack | rule / ml / hybrid |
-| Semi-reversible | isolate endpoint, kill process | rule (or hybrid with rule confirmation) |
-| Destructive | delete data, disable AD user, modify policies | always requires human approval |
+| `agent.isolate` | semi-reversible | no: `dry_run` only |
+| `notify.email` | reversible | yes |
 
-The action policy follows the detection philosophy described in the onboarding (forthcoming ADR-0005).
+The loader is to refuse any other action, a `live` `agent.isolate`, and any destructive action, so no playbook needs an approval step in the MVP. Human approval, rollback, and live semi-reversible or destructive actions wait for their own ADR (ADR-0021 §Out of scope).
 
-MVP target: one operational playbook (dry-run + notification, no destructive actions).
-
-Populated by SPEC-XXX-playbooks.
+MVP target: one operational playbook, dry-run and notification, with no destructive action (Blueprint §18).

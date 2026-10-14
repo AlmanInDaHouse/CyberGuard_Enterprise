@@ -45,6 +45,8 @@ The total language surface is bounded to **four**: Rust, Go, TypeScript, Python.
 > **Amended (2026-05-22):** the `services/ingest/` row is superseded for the MVP by [ADR-0007](0007-ingest-language-typescript-mvp.md) — the agent control-plane ingest (enroll + heartbeat) is **TypeScript + Fastify**. The high-throughput event firehose that motivated `ingest = Go` is deferred and will get its own ADR. The four-language bound is unaffected (TypeScript is already in the set).
 >
 > **Amended (2026-06-07):** the `services/forensic/` row is superseded for the MVP forensic render by [SPEC-013](../specs/SPEC-013-forensic-report-render.md) — the per-incident report render is a **TypeScript module in `services/api/`** (`@react-pdf/renderer`), not the standalone Go service (which was never built). The four-language bound is unaffected (TypeScript is already in the set). See the dated `## Amendment 2026-06-07` below.
+>
+> **Amended (2026-10-14, with ADR-0021):** TypeScript is the server-side default (Rule 3), and the four Go rows read as that amendment states; see the [Amendment 2026-10-14](#amendment-2026-10-14-typescript-is-the-server-side-default) below.
 
 ### Cross-cutting rules
 
@@ -145,6 +147,38 @@ The component-language table assigns `services/pipeline/` (the correlation/norma
 ## Amendment 2026-06-07 (SPEC-013): `services/forensic/` render realized in TypeScript (module in `services/api/`)
 
 The component-language table assigns `services/forensic/` to Go, and Rule 3 requires a superseding/amending ADR for any non-Go server-side artifact. [SPEC-013](../specs/SPEC-013-forensic-report-render.md) (Accepted) realizes the per-incident forensic report render as a **TypeScript module inside `services/api/`** (`@react-pdf/renderer`, composing the SPEC-010 / 011 / 012 read-layer outputs), **not** the standalone Go `services/forensic/` service — that Go service was never built. Because the render landed as code inside the already-TypeScript `services/api/` rather than as a new non-Go component, it adds **no new language** and the four-language bound `{Rust, Go, TypeScript, Python}` is unaffected. ADR-0002 remains `Accepted`; this amendment supersedes the `Go` assignment of the `services/forensic/` row for the MVP forensic render. Unlike the 2026-05-30 detection-slice amendment (transitory, with a named Go exit), this pivot is **not** flagged transitory: the report render's MVP home is the `services/api/` module, and any future standalone Go forensic service would open its own ADR. Mirrors ADR-0007's amendment of the `services/ingest/` row and this ADR's 2026-05-30 amendment of the `services/pipeline/` slice.
+
+## Amendment 2026-10-14: TypeScript is the server-side default
+
+**What surfaced it.** Roadmap Part (b) §1 and debt #5 (`docs/handoff-session-26.md`). Every server-side artifact the MVP has built is TypeScript:
+
+- the ingest control plane (ADR-0007);
+- the detection slice (ADR-0012 §1, this ADR's Amendment 2026-05-30);
+- the api (the table);
+- the forensic render (this ADR's Amendment 2026-06-07).
+
+SOAR, as ADR-0021 decides it, is TypeScript too. Rule 3 still makes Go the default, so each TypeScript artifact has needed a text of its own to supersede it. `services/README.md` describes Go services that were never built.
+
+**The amendment.**
+
+1. Rule 3 reads in full: TypeScript is the default for new server-side code, meaning services in `services/` and server-side tooling. Adding a server-side artifact in any other language requires an ADR. Two exceptions keep their Go assignment:
+   - the harness runner in `harness/cmd/`, deferred with the firehose (ADR-0012 §Compliance; SPEC-016 §Out of scope). Meanwhile the scenario runner is a TypeScript test (SPEC-016).
+   - the event firehose of `services/pipeline/` (the 2026-05-30 amendment's named exit). The event-firehose ADR confirms or changes that language and its component boundary (ADR-0007 §Compliance), and it may revisit this default.
+2. For the MVP, the table's rows read:
+   - `services/ingest/` is TypeScript (ADR-0007).
+   - `services/pipeline/` holds a detection slice that is TypeScript inside `services/ingest/` (ADR-0012), and keeps Go for the firehose as item 1 says.
+   - `services/soar/` is a TypeScript module inside `services/ingest/` (ADR-0021), on the same seam as the detection slice.
+   - `services/forensic/` is a TypeScript module inside `services/api/` (SPEC-013).
+3. §Compliance's sentence that "Rule 3 in particular requires a superseding ADR for any non-Go server-side artifact" reads: Rule 3 requires an ADR for any server-side artifact that is not TypeScript, its two Go exceptions aside.
+4. §Consequences' clause that "the rest of the server runs on Go" reads, for the MVP: the rest of the server runs on TypeScript, the firehose aside.
+5. The four-language bound `{Rust, Go, TypeScript, Python}` is unchanged.
+
+**Effect.**
+
+- The amendments of 2026-05-30 and 2026-06-07 stand as written. They record Rule 3 as it read then. What each superseded for its own artifact is now the default.
+- `services/README.md` and the READMEs of `services/pipeline/`, `services/soar/` and `playbooks/` are brought in line in the same change.
+- The Blueprint's services table (`docs/product/blueprint.md:105-112`) and its stage table (`:393`) are not edited. Where an Accepted ADR and the Blueprint differ, the ADR governs, as ADR-0007 does for ingest. That half of debt #5 stays open.
+- The amendment was proposed by Claude Code on 2026-10-14 under Manuel's delegation of that day, together with ADR-0021. Manuel ratified both on 2026-10-14, in chat: "si a 1, 2 y  3" (point 2: this amendment). The status stays `Accepted`.
 
 ## References
 

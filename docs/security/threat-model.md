@@ -244,6 +244,35 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 
 **Effect on other sections.** None is restated. §8's per-service database users with scoped privileges (Spoofing, Tampering) describe the plan, not the repository: the ingest service and the api share one ClickHouse user (`infra/dev/docker-compose.dev.yml:134`, `:207`), as the api entry above states. Its query-log filtering of PII fields is not configured yet: SPEC-021 and the deployment contract set it (ADR-0020 §4). Those statements, with the others of this document that later ADRs changed, wait for their own amendment (`docs/handoff-session-36.md`, debt #55).
 
+## Amendment 2026-10-14 (ADR-0021): cg-soar as an in-process module of the MVP
+
+**Status.** Co-located with ADR-0021; Accepted with it on 2026-10-14 (Manuel, in chat: "si a 1, 2 y  3"). It restates §5's trust boundary and mitigations for the MVP and adds to §2, §3, *Threats explicitly accepted in MVP* and *References*. The threat model remains `Accepted`.
+
+**Context.** ADR-0021 runs SOAR as a TypeScript module inside `cg-ingest`. The detection cycle calls it after the commit of an incident it has just created; there is no bus and no separate service. Its actions are a closed list: `agent.isolate`, run in dry-run only, and `notify.email`, run live.
+
+**Amendment.**
+
+- **§5 cg-soar, trust boundary**, for the MVP: in-process in `cg-ingest`. It reaches two things outside the process: Postgres, where it writes its execution records with the ingest service's credential, and SPEC-014's SMTP relay, through `notify.email`.
+- **§5, Spoofing**: the trigger is the detection cycle's own signal that it created an incident, so nothing arrives across a boundary as a trigger. A trigger can still be caused from outside, by making the cycle create an incident:
+  - an enrolled agent can send events that match a High or Critical rule;
+  - anyone holding the ClickHouse credential ingest uses can insert such events; in the dev stack the api shares it (`infra/dev/docker-compose.dev.yml:134`, `:207`), as the Amendment 2026-10-13 above records.
+
+  What a forged trigger yields in the MVP is an email and a dry-run record, never an action on a host (ADR-0021 §3). A writer to Postgres can also suppress a trigger, by placing an incident with the same grouping key first. The mitigations are those of the agent's identity (§1, §2) and of the stores' access (§8).
+- **§5, Tampering**: playbooks are read from `INGEST_SOAR_PLAYBOOKS_DIR` at boot and validated against their schema and the action policy (ADR-0021 §2–§3). The MVP has no surface for changing them at run time. A playbook changed on disk takes effect at the next boot, and only if it passes the same validation; whoever can write that directory can change what runs, a host-level control.
+- **§5, Repudiation**: one record per execution, claimed before its first step and completed once, with its steps in an unsigned hash chain (ADR-0021 §4). A Postgres trigger refuses any change to a completed record. Both hold against a writer that goes through the application, not against the owner of the database. In the dev stack, ingest and the api share one Postgres user, the image's superuser (`infra/dev/docker-compose.dev.yml:132`, `:200`).
+- **§5, Information Disclosure**: the module uses two credentials, both from the environment: the ingest service's Postgres credential and SPEC-014's SMTP password. A step record holds no credential, and no event data beyond the incident's id, severity and title and its agent's id. The module logs step outcomes, never its configuration.
+- **§5, Denial of Service**: at most 10 steps per playbook, 15 s per step and 30 s per run; one execution per playbook and incident, claimed before its first step; and no retry. The detection cycle awaits each run, so a slow relay, or a burst of matching incidents, delays detection by up to 30 s per run.
+- **§2 cg-ingest, assets at risk**, add: the playbooks directory, and SPEC-014's SMTP password, which `notify.email` uses.
+- **§3 cg-api, Information Disclosure**, add: the api reads execution records, scoped to the session's org like its other reads (ADR-0021 §4).
+- **§5, Elevation of Privilege**: the MVP has no live semi-reversible or destructive action, and the loader refuses one at boot (ADR-0021 §3). That enforces in code that no destructive action runs without `human.approve`, which does not exist yet.
+- **Threats explicitly accepted in MVP**, add:
+  - **Containment is not performed.** A playbook records the isolation it would do, and an analyst acts. Accepted until a channel from the server to the agent exists, under its own ADR (ADR-0021 A4).
+  - **SOAR delays detection.** The cycle awaits each run, by up to 30 s per run, when the relay is slow or matching incidents come in bursts. Accepted until a queue separates them (ADR-0021 A7).
+  - **The database's owner can rewrite or delete an execution record.** Accepted until a separate role or an external anchor exists (ADR-0021 §Out of scope).
+- **References**, add: ADR-0021.
+
+**Effect on other sections.** §5's description through NATS and `cg-api` stays as the plan for a future bus. Its *Open questions* (vault integration) are unchanged. §8's per-service database users remain the plan, not the dev stack, as the Amendment 2026-10-13 records.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
@@ -253,4 +282,5 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 - [ADR-0005](../adr/0005-detection-rules-and-ml-in-parallel.md) — Detection rules and ML in parallel (reversibility classes mitigate Tampering and Elevation via SOAR)
 - [ADR-0015](../adr/0015-readonly-clickhouse-reader-in-api.md) — The api's ClickHouse reader, read-only in use (cited by the Amendment 2026-10-13)
 - [ADR-0020](../adr/0020-process-command-line-and-user.md) — Process command line and user (the assets and mitigations of the Amendment 2026-10-13)
+- [ADR-0021](../adr/0021-soar-mvp-playbook-executor.md) — SOAR for the MVP, in-process in cg-ingest (the trust boundary and mitigations of the Amendment 2026-10-14)
 - [Foundational Blueprint](../product/blueprint.md) — §7 (protocol), §10 (RBAC roles), §17 (non-goals)

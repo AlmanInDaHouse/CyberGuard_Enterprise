@@ -1,14 +1,12 @@
 # services/soar
 
-Go service that executes SOAR playbooks declaratively.
+**Not built as a standalone service.** [ADR-0021](../../docs/adr/0021-soar-mvp-playbook-executor.md) places SOAR for the MVP as a TypeScript module inside `services/ingest`, run on the incident-create seam. A service here would come with the event bus, under its own ADR. This folder stays a placeholder.
 
-Populated by SPEC-XXX-soar. Until then this folder is a placeholder.
+What the module is to do, once ADR-0021's implementing SPEC lands (ADR-0021 §Decision and §Out of scope):
 
-Expected responsibilities:
+- Load declarative YAML playbooks from `INGEST_SOAR_PLAYBOOKS_DIR` (by default the repository's `playbooks/`, bundled into the image), validated against `schemas/playbooks/v0.1/` at boot and in CI.
+- Run `dry_run` by default, and containment (`agent.isolate`) only in dry-run.
+- Honour `trust_sources` per playbook (ADR-0005).
+- Keep one record per playbook and incident, claimed before its first step, completed once, and hash-chained per step.
 
-- Parse YAML playbooks under `playbooks/`.
-- Enforce dry-run mode by default.
-- Honor `trust_sources` per playbook (`["rule"]`, `["rule", "ml"]`, or `["hybrid_only"]`).
-- Require explicit human approval for destructive actions.
-- Provide rollback steps for reversible and semi-reversible actions.
-- Maintain a tamper-evident audit log of every step (hash-chained).
+Human approval, rollback, and live semi-reversible or destructive actions wait for their own ADR.
