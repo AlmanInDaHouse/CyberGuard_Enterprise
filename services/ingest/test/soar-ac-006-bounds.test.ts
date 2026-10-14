@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { type AddressInfo, type Server, type Socket, createServer } from "node:net";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
@@ -260,6 +261,15 @@ test("SPEC-014's notification logs ESENDLIMIT when its limit cuts a live send", 
   } finally {
     await smtp.close();
   }
+});
+
+test("the installed nodemailer is the release whose private fields the send reads", () => {
+  // Debt #75: bounded-send.ts reads _supportedAuth and _ehloLines of this release.
+  // A bump reads them again, or replaces the two reads, before it changes this.
+  const { version } = createRequire(import.meta.url)("nodemailer/package.json") as {
+    version: string;
+  };
+  expect(version).toBe("8.0.10");
 });
 
 test("the bounded send authenticates only when the server offers AUTH", async () => {

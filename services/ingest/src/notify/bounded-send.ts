@@ -11,8 +11,9 @@ import type { NotifyMailer, NotifyMessage } from "./index.js";
 // loads the package.
 
 interface SmtpConnection {
-  // Two fields private to nodemailer 8.0.10, pinned by the lockfile; soar_ac_006's
-  // HELO and mechanism cases fail if either changes.
+  // Two fields private to nodemailer 8.0.10, which package.json pins exactly (debt
+  // #75); soar_ac_006 fails on another release, and its HELO and mechanism cases fail
+  // if either field changes.
   /**
    * The AUTH mechanisms nodemailer matched in the last EHLO reply, among PLAIN, LOGIN,
    * CRAM-MD5 and XOAUTH2. Only that reply fills it (after STARTTLS, the one after
