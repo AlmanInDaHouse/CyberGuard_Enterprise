@@ -815,6 +815,27 @@ New this session:
   clause supports holds: CI validates the playbooks through the loader in
   `ts-ci` (SPEC-022 §Operational §8). Surfaced by SPEC-022's review.
   Destination: the next ADR-0021 amendment, which needs Manuel's "sí".
+- **#74 — SMTP credentials go in clear text to a server without TLS.** The
+  bounded send keeps SPEC-014's TLS: implicit TLS on port 465, otherwise
+  STARTTLS only when the server offers it (SPEC-022 §Operational §6 and its
+  second Amendment 2026-10-14). A relay that names PLAIN or LOGIN and offers
+  no STARTTLS receives the credentials in clear text. So does an attacker on
+  the path who strips STARTTLS from the EHLO reply. Requiring TLS before
+  AUTH (nodemailer's `requireTLS`), or preferring CRAM-MD5 without TLS,
+  changes which relays an operator can use, so it is a deployment-contract
+  decision and Manuel's. Open question: should the send refuse to
+  authenticate without TLS, by default or by a setting? Reopen when Manuel
+  answers, or with F's deployment SPEC. Surfaced by the reviews of SPEC-022's
+  second amendment.
+- **#75 — The bounded send reads two private fields of nodemailer.**
+  `services/ingest/src/notify/bounded-send.ts` reads `_supportedAuth` and
+  `_ehloLines`, since nodemailer exposes neither the mechanisms an EHLO reply
+  named nor whether HELO replaced it. `services/ingest/package.json` allows
+  `nodemailer ^8.0.10`, and only the lockfile pins 8.0.10. soar_ac_006's
+  HELO and mechanism cases fail if either field changes, and a throw in the
+  send's connect handler fails the send, not the process. Destination: the
+  next nodemailer bump, which pins the version exactly or replaces the two
+  reads; Claude Code's.
 
 Closed this session:
 
@@ -853,9 +874,9 @@ records. The records are right and stay as written: #1 was resolved in S25
 (`docs/handoff-session-29.md:116-119`); #54 is recorded in handoff-36's
 *Progress* (`:168-182`), not its *Debts*; #3's cited collision is gone (the
 two UUIDs now differ), while its risk stays (18 hand-numbered agent IDs in
-16 files). Open debts at the close: 49. That is the inventory's 50, less
+16 files). Open debts at the close: 52. That is the inventory's 50, less
 the seven closed by the two sweeps (#18, #19, #36, #57, #10, #33, #67),
-plus #67, #68 and #69–#72.
+plus #67, #68, #69–#72, and #73–#75 from SPEC-022 and its reviews.
 
 ## Gate outputs and baselines
 

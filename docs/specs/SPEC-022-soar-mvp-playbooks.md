@@ -338,6 +338,55 @@ Claude Code's decisions inside ADR-0021, each with the alternative it discards:
 
 SPEC-014's notification, which uses the same send, keeps the behaviour its transport had. No other section changes. Status stays **Accepted**.
 
+## Amendment 2026-10-14: a send's failures, the mechanism it authenticates with, and a step the run's bound reaches first
+
+**What surfaced it.** The second fresh-context review of the implementation, before it landed, read against the text as amended above, and the reviews of this amendment's drafts. They found five points:
+
+- **The transport's timeouts.** §Operational §4 says a send cut by its bound is `timed out after <n> ms`, and that "a send that the mailer rejects at its own time limit counts as cut, so a timeout always reads this way". §Operational §6 gives the transport its own timeouts: connection and greeting 5000 ms, socket 10 000 ms. When one of them runs out, nodemailer reports a failure with the code `ETIMEDOUT`. Such a failure cannot read `timed out after 15000 ms`, since that bound was never reached. The two sections clash.
+- **A connection the server closes.** When a server closes the connection before its greeting, `SMTPConnection` ends without an error. The send then waited out its limit and read as cut, although the server had ended it.
+- **AUTH after HELO.** The amendment above says the send authenticates when the server advertises AUTH, "and otherwise sends without authenticating". When a server refuses EHLO with any reply but `421`, `SMTPConnection` falls back to HELO and marks AUTH as allowed, although nothing advertised it (nodemailer 8.0.10, `lib/smtp-connection/index.js:1525-1526`, "assume that authentication is enabled"). A send that trusted that mark logged in with PLAIN, in clear text where there is no TLS. The amendment above says of SPEC-014's transport that it "never did that. It logged in only when the server advertised AUTH". That does not hold for a server reached by HELO: the transport trusted the same mark and logged in there too.
+- **The mechanism.** SPEC-014's transport called `SMTPConnection.login` whenever AUTH was marked allowed (`lib/smtp-transport/index.js:271`). `login` takes the first entry of nodemailer's own list of mechanisms, and PLAIN when that list is empty (`lib/smtp-connection/index.js:531`). The list holds those of PLAIN, LOGIN, CRAM-MD5 and XOAUTH2 that the EHLO reply names, always in that order. Each name matches the start of a token, so `PLAIN-CLIENTTOKEN` counts as PLAIN (`:1484-1501`). So a server that advertises only other mechanisms, for example `AUTH GSSAPI NTLM`, received the credentials with PLAIN. A server that advertises only `XOAUTH2` makes `login` read an OAuth token that SPEC-014's credentials do not have. The resulting `TypeError` is thrown where nothing catches it, and it ends the process. SPEC-014's transport behaved the same in all three cases, so "as SPEC-014's transport did" did not describe a safe rule.
+- **A step the run's bound reaches first.** §Operational §6 names a step that the run's bound cuts. It does not name a step that the run's bound reaches before the step starts.
+
+**The amendment.**
+
+- **§Operational §4, `notify.email`, `live`.**
+  - Only the limit a send is given cuts it: the step's bound, or the run's remaining time (§6).
+  - A cut send is `failed`, with detail `timed out after <n> ms`, where `<n>` is the step's bound. When the run's remaining time was the shorter, the detail is `run timed out after <n> ms`, where `<n>` is the run's bound. On a tie, the step's bound applies.
+  - Every other failed end of a send is a failure, `send failed: <code>`. That includes the transport's own timeouts (`ETIMEDOUT`).
+  - A connection that the server closes before the send completes, with no error from `SMTPConnection`, is `ECONNECTION`. A close that `SMTPConnection` reports itself keeps its code, for example `ETLS` during STARTTLS or `ESOCKET` on a reset.
+  - The sentence "A send that the mailer rejects at its own time limit counts as cut, so a timeout always reads this way" is withdrawn.
+- **§Operational §6, the bounded send's authentication, as amended above.**
+  - The send authenticates only when the AUTH line of the server's EHLO reply names PLAIN, LOGIN or CRAM-MD5 as a whole token. With STARTTLS, that is the reply to the EHLO after TLS.
+  - It names the mechanism to `login`: the first of PLAIN, LOGIN and CRAM-MD5, in that order, that the line names.
+  - Otherwise it sends no credentials. That covers a server reached by HELO, and a server whose AUTH line names only other mechanisms. If such a server then requires authentication, it refuses the message, which is a failure with its code.
+  - It picks the mechanism SPEC-014's transport picked, except on three kinds of server: one reached by HELO; one whose AUTH line names none of PLAIN, LOGIN and CRAM-MD5 as a whole token; and one whose AUTH line holds a name that only starts with one of them, such as `PLAIN-CLIENTTOKEN`. There it sends no credentials, or uses the mechanism the line names.
+  - This rule replaces two passages of the amendment above where they differ: its rule "it authenticates with SPEC-014's credentials when the server advertises AUTH, as SPEC-014's transport did, and otherwise sends without authenticating", and its effect "a send authenticates when the server advertises AUTH, and does not when it does not". Its sentence "SPEC-014's notification, which uses the same send, keeps the behaviour its transport had" is withdrawn.
+- **§Operational §6, SPEC-014's notification.** Its failure log carries a failure's code, as a step's detail does. When the notification's 15 000 ms limit cuts a send, where a step's detail would read `timed out after <n> ms`, the log's code is `ESENDLIMIT`.
+- **§Operational §6, bounds.**
+  - The run's bound counts from the moment the claim's write returns.
+  - A step that the run's bound reaches before the step starts is `failed`, with detail `run timed out after <n> ms`, like a step that the run's bound cuts while it runs. Its `started_at` and `finished_at` are read when the run's bound is found reached.
+  - The steps after it are `skipped`.
+- **SPEC-014, by scope.** The by-scope amendment of SPEC-014 (this SPEC's header) extends to when its send authenticates, as set out above. Its acceptance criteria are unchanged.
+
+**Decisions.**
+
+- *Credentials only through a mechanism the server named.* The alternative was SPEC-014's rule: log in whenever AUTH is marked allowed, with nodemailer's own choice of mechanism. It was discarded because it sends PLAIN to servers that never offered it, and because an `XOAUTH2`-only server ends the process. AUTH is an ESMTP extension that the EHLO reply advertises, and a client uses one of the mechanisms advertised (RFC 4954). Only a relay that works outside that stops receiving credentials: one that requires AUTH after HELO, or one that expects a mechanism it does not name. The rule narrows which relays receive credentials, as requiring TLS would. It is taken here, and TLS is not, because it closes a crash and a leak of credentials to servers that never asked for them, and leaves conforming relays as they were.
+- *TLS is not required before AUTH here.* A server that names PLAIN or LOGIN with no TLS still receives the credentials in clear text, as under SPEC-014. Requiring TLS would change which relays an operator can use, so it is a deployment-contract decision for Manuel. It is recorded as debt #74 (`docs/handoff-session-38.md`).
+- *`ECONNECTION` for a silent close.* `SMTPConnection` gives the same code to a connection closed unexpectedly after its greeting (`lib/smtp-connection/index.js:959-961`). SPEC-014's transport failed a close before the greeting about a second later, with no code. A new code was the alternative, and it would name nothing a reader of the record could look up.
+- *A tie goes to the step's bound.* That is the code's existing comparison. Either reading records a cut send.
+
+**Effect.**
+
+- soar_ac_006 gains these cases:
+  - a server whose AUTH line names `PLAIN LOGIN` receives `AUTH PLAIN`, and one whose line names `XOAUTH2 LOGIN` receives `AUTH LOGIN`;
+  - a server that refuses EHLO is reached by HELO and receives no AUTH command;
+  - a server whose AUTH line names only `GSSAPI XOAUTH2`, or only `PLAIN-CLIENTTOKEN OAUTHBEARER LOGINX`, receives no AUTH command, and the send completes;
+  - a server that closes the connection before its greeting fails the send at once with `ECONNECTION`, not at the send's limit, and a run records `send failed: ECONNECTION`;
+  - against the silent listener, a step records `send failed: ETIMEDOUT`, and SPEC-014's notification logs `ETIMEDOUT` at the greeting timeout.
+- SPEC-014's notification no longer sends credentials to a server reached by HELO, or with a mechanism the server did not name. A server that names only `XOAUTH2` no longer ends the process. Against a server whose AUTH line names PLAIN, LOGIN or CRAM-MD5 as whole tokens, and holds no name that only starts with one of them, it authenticates as before.
+- No other section changes. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0021](../adr/0021-soar-mvp-playbook-executor.md) — the decisions implemented here.
