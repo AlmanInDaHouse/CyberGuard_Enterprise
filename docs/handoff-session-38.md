@@ -16,19 +16,18 @@ Its work order for Session 39 is *How Session 39 resumes* at the end.
 
 - `main` = `origin/main` = the commit that completes this file (CI ALL
   GREEN, *CI monitoring*); tree clean; no stash.
-- Catalogs: ADR 20 / SPEC 20. Known CI debt: zero.
-- One branch open, with no PR: `adr/s38-0021-soar` (`e619797`), the
-  owner-review branch of ADR-0021 and the ADR-0002 and ADR-0015
-  amendments, waiting for Manuel's "sí" (*What waits on Manuel*). No PR
-  is open. Each PR below is closed and its branch deleted, local and on
-  origin:
+- Catalogs: ADR 21 / SPEC 20. Known CI debt: zero.
+- No branch or PR open. The owner-review branch `adr/s38-0021-soar`
+  landed after Manuel's "sí" (`71fbcca`, `25add5b`) and is deleted, local
+  and on origin. Each PR below is closed and its branch deleted, local and
+  on origin:
   - `fix/s38-debt-63-marquee-session` (PR #7) landed as five cherry-picked
     commits, `a9452b0..928cfbf`.
   - `fix/s38-debt-sweep-1` (PR #8) landed as four, `67f2055..6841aa5`.
   - `fix/s38-debt-sweep-2` (PR #9) landed as four, `bbdf1e3..8ea922e`, in
     an order its landing slip changed (*Progress*).
-- Roadmap: §B2 and §B3 PARKED (`4cad976`), §E IN PROGRESS (this record's
-  commit).
+- Roadmap: §B2 and §B3 PARKED (`4cad976`), §E IN PROGRESS: ADR-0021
+  Accepted, its SPEC next.
 - Code changed this session. For #63: `services/ingest/test/helpers/marquee-agent.ts`
   and two new test files, `services/ingest/test/marquee-agent-etw.test.ts`
   and `agent/cg-agent/tests/etw_reclaim.rs`. The elevated gate covered it
@@ -114,6 +113,11 @@ Manuel's decisions this session, in chat:
   delegation of every point, decided for an enterprise buyer, and said in
   the same turn that an ADR still needs his explicit "sí" and that SPEC-021
   stays one Claude Code cannot draft.
+- 2026-10-14, asked for his explicit "sí" on each of the three texts of
+  `adr/s38-0021-soar` (1: ADR-0021 with the threat model's amendment;
+  2: ADR-0002's amendment; 3: ADR-0015's amendment): "si a 1, 2 y  3".
+  Claude Code read it as the ratification of all three, landed them, and
+  set ADR-0021's status to Accepted.
 
 The landing (*Integration path* §3): `main` had not moved since the branch
 was cut, so no rebase. Each commit cherry-picked in order, the guard
@@ -237,6 +241,20 @@ markdownlint passed locally on every file (0 errors).
 |---|---|
 | `cc158cf` | ADR-0021, SOAR for the MVP (Proposed), together with ADR-0002's Amendment 2026-10-14 (TypeScript is the server-side default; the harness runner and the event firehose keep Go until the firehose ADR). The threat model's Amendment 2026-10-14 (ADR-0021) for §2, §3 and §5. The READMEs of `services/`, `services/pipeline/`, `services/soar/` and `playbooks/`. The catalog. |
 | `e619797` | ADR-0015's Amendment 2026-10-14 (#70): three bullets name the three routes that read `cges_events`. The catalog. |
+
+After Manuel's "sí", the branch was rebased onto `main`. The two commits
+were rebuilt with the marker stripped from their subjects, ADR-0021's
+status set to Accepted, the date and his words written into each text and
+into the threat model's amendment, and "proposed" removed from the
+catalog. They landed by cherry-pick, each with a guard that stops:
+
+```text
+guard 67b0d7f -> 0   SHA 71fbcca: markdown-lint -> success
+guard 9f54f60 -> 0   SHA 25add5b: markdown-lint -> success
+```
+
+The branch is deleted, local and on origin. The README's scorecard row 6
+and roadmap §E name ADR-0021 Accepted.
 
 What ADR-0021 decides:
 
@@ -990,15 +1008,9 @@ Baselines at the close:
 Manuel delegated every pending decision on 2026-10-14 (*Decisions*). What
 still needs him:
 
-1. His explicit "sí" on each text of the owner-review branch
-   `adr/s38-0021-soar` (read on GitHub, the branch's compare view):
-   - ADR-0021, SOAR for the MVP, with the threat model's amendment (roadmap
-     §E). It is meant to be ratified together with the next item.
-   - ADR-0002's Amendment 2026-10-14 (Part (b) §1).
-   - ADR-0015's Amendment 2026-10-14 (#70).
-
-   Later, with F's SPEC, the ADR-0001 amendment (§4) and the ADR-0016
-   amendment (§3).
+1. His explicit "sí" on each later ADR text: with F's SPEC, the ADR-0001
+   amendment (Part (b) §4) and the ADR-0016 amendment (§3). ADR-0021 and
+   the ADR-0002 and ADR-0015 amendments were ratified on 2026-10-14.
 2. Compacting the Docker WSL disk to give `C:` back the space the prune
    freed inside it. That needs WSL shut down, which is his to do or to
    allow (*Local environment operations*). Optional.
@@ -1010,17 +1022,16 @@ still needs him:
 1. *Session protocol* §At the start. Expected:
    - `main` = `origin/main` at this file's last commit; tree clean; no
      stash;
-   - one branch, `adr/s38-0021-soar` at `e619797`, with no PR, unless
-     Manuel has ratified it and it has landed;
-   - catalogs ADR 20 / SPEC 20; Known CI debt zero;
+   - no branch or PR open;
+   - catalogs ADR 21 / SPEC 20; Known CI debt zero;
    - `logman query -ets` lists no `CGAgent` session.
 2. Roadmap §E, criterion 6: "1 SOAR playbook operational (dry-run +
    notification, no destructive actions yet)" (`docs/product/blueprint.md:751`).
-   - First Manuel's "sí" on `adr/s38-0021-soar`. On it, land the two
-     commits by cherry-pick, with the marker stripped from each subject
-     and ADR-0021's status set to Accepted. The catalog rows lose
-     "proposed, NOT YET RATIFIED", and the dates of ratification go into
-     the texts.
+   - ADR-0021 is Accepted. First its SPEC (SPEC-022): the playbook
+     schema, the loader and its policy checks, the record's table and
+     trigger, the chain, the bounds, the api's read route, the SMTP
+     send's bound, and the acceptance criteria. Self-reviewed, it goes
+     straight to `main`.
    - Then its SPEC and the implementation: tests failing first, CI on every
      push, the self-review, landing by cherry-pick with a guard that stops
      (`feedback-landing-guard-must-stop`).

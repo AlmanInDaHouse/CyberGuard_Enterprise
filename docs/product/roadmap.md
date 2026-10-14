@@ -338,9 +338,10 @@ This dependency-ordered document supersedes both for planning.
 
 - **Status: IN PROGRESS** (S38, 2026-10-14). With B2 and §B3 parked, E and
   F are the two MVP criteria left; E comes first, F is last by dependency.
-  ADR-0021 (SOAR for the MVP) and ADR-0002's Amendment 2026-10-14 are
-  proposed on the owner-review branch `adr/s38-0021-soar` and wait for
-  Manuel's "sí"; then the SPEC and the implementation.
+  ADR-0021 (SOAR for the MVP) and ADR-0002's Amendment 2026-10-14 were
+  ratified by Manuel on 2026-10-14 and landed (`71fbcca`); next its SPEC,
+  then the implementation, which runs the elevated gate since the call
+  site is in `services/ingest/src/detect/`.
 - Does: one playbook executor on the incident-create seam. The seam
   exists: a create-only branch fires in `runDetectionCycle`
   (`services/ingest/src/detect/index.ts:77`) beside
@@ -348,7 +349,7 @@ This dependency-ordered document supersedes both for planning.
   carrier, same fire-and-forget contract.
 - Unblocks: criterion 6.
 - Blocked by: A (incidents must actually be created in prod).
-- Needs: ADR-0021 (proposed) and its SPEC; `services/soar/` and
+- Needs: ADR-0021 (Accepted) and its SPEC; `services/soar/` and
   `playbooks/` are README stubs.
 - Precedent to copy: the email fire-and-forget
   (`docs/specs/SPEC-014-incident-notification.md`,

@@ -22,7 +22,7 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 | 5 | Incident PDF export | **Delivered** (SPEC-013). |
 | 1 | 10 detection rules | **Delivered** (SPEC-016): ten rules, each with a wired fixture and a CI scenario, evaluated over the events a deployed agent captures (SPEC-017). |
 | 2 | Windows agent: processes / network / logins | **Delivered** — processes (SPEC-005), TCP connections opened (SPEC-019) and logons succeeded and failed (SPEC-020), captured on the agent's normal run path (SPEC-017). |
-| 6 | 1 SOAR playbook | **Pending** — unblocked by the prod-driver seam. |
+| 6 | 1 SOAR playbook | **Pending** — ADR-0021 Accepted (2026-10-14): one playbook, dry-run containment and an email, on the incident-create seam; its SPEC and implementation next. |
 | 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
 
 On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07), over events read in arrival order (SPEC-018); on the agent side, process, network and logon capture run on the agent's normal secure path (SPEC-017). The latest session handoff, [`docs/handoff-session-38.md`](docs/handoff-session-38.md), is the canonical current state.
