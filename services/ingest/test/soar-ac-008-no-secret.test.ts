@@ -14,6 +14,7 @@ import {
   shippedPlaybooks,
   soarHarness,
 } from "./helpers/soar.js";
+import { type LoopbackCert, loopbackCert } from "./helpers/tls-cert.js";
 
 // soar_ac_008 — SPEC-022 NFR-022-003: no record field and no log line holds an SMTP
 // credential or the configured recipient's address. A failed send is reported by
@@ -37,16 +38,22 @@ afterAll(async () => {
 type LogLine = { obj: Record<string, unknown>; msg: string };
 
 /** The production notification carrier against `smtp`, its log captured. */
-function realCarrier(smtp: FakeSmtp): { notify: NotifyConfig; logs: LogLine[] } {
-  const built = buildNotifyConfig({
-    ...config,
-    INGEST_SMTP_HOST: "127.0.0.1",
-    INGEST_SMTP_PORT: smtp.port,
-    INGEST_SMTP_USER: "cg-notify",
-    INGEST_SMTP_PASS: PASSWORD,
-    INGEST_SMTP_FROM: "soc-noreply@cyberguard.test",
-    INGEST_NOTIFY_RECIPIENT: RECIPIENT,
-  });
+function realCarrier(
+  smtp: FakeSmtp,
+  cert: LoopbackCert,
+): { notify: NotifyConfig; logs: LogLine[] } {
+  const built = buildNotifyConfig(
+    {
+      ...config,
+      INGEST_SMTP_HOST: "127.0.0.1",
+      INGEST_SMTP_PORT: smtp.port,
+      INGEST_SMTP_USER: "cg-notify",
+      INGEST_SMTP_PASS: PASSWORD,
+      INGEST_SMTP_FROM: "soc-noreply@cyberguard.test",
+      INGEST_NOTIFY_RECIPIENT: RECIPIENT,
+    },
+    { tls: { ca: cert.cert } },
+  );
   if (!built) throw new Error("notification not built");
   const logs: LogLine[] = [];
   return { notify: { ...built, log: { warn: (obj, msg) => logs.push({ obj, msg }) } }, logs };
@@ -67,9 +74,14 @@ function everything(...parts: unknown[]): string {
   return JSON.stringify(parts);
 }
 
-/** Whether the server received the password, in an AUTH PLAIN line. */
+/** Whether the server received the password, in an AUTH PLAIN line, and only over TLS. */
 function passwordSent(smtp: FakeSmtp): boolean {
-  return smtp.commands.some((c) => {
+  const isAuth = (c: string) => /^AUTH/i.test(c);
+  // Every AUTH the server received came inside a TLS session.
+  if (smtp.commands.filter(isAuth).length !== smtp.commandsOverTls.filter(isAuth).length) {
+    return false;
+  }
+  return smtp.commandsOverTls.some((c) => {
     const payload = /^AUTH PLAIN (\S+)$/i.exec(c)?.[1];
     return (
       payload !== undefined && Buffer.from(payload, "base64").toString("utf8").includes(PASSWORD)
@@ -78,9 +90,10 @@ function passwordSent(smtp: FakeSmtp): boolean {
 }
 
 test("a successful run, with the password in use, records and logs neither it nor the address", async () => {
-  const smtp = await fakeSmtp({ offerAuth: true });
+  const cert = await loopbackCert();
+  const smtp = await fakeSmtp({ offerAuth: true, starttls: cert });
   try {
-    const carrier = realCarrier(smtp);
+    const carrier = realCarrier(smtp, cert);
     const before = harness.logs.length;
     const execution = await runFor("soar-ac-008-ok", carrier.notify);
 
@@ -96,12 +109,14 @@ test("a successful run, with the password in use, records and logs neither it no
 });
 
 test("a send the server refuses, quoting the address, is recorded and logged by its code", async () => {
+  const cert = await loopbackCert();
   const smtp = await fakeSmtp({
     offerAuth: true,
+    starttls: cert,
     rcptReply: `550 5.1.1 <${RECIPIENT}>: user unknown`,
   });
   try {
-    const carrier = realCarrier(smtp);
+    const carrier = realCarrier(smtp, cert);
     // The error the mailer gives here quotes the address.
     const err = await carrier.notify.mailer
       .sendMail({ from: carrier.notify.from, to: RECIPIENT, subject: "s", text: "t" }, 5000)

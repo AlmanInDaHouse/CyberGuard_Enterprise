@@ -12,6 +12,7 @@ import { detectConfig } from "./helpers/detect.js";
 import { playbookMail, spyNotify } from "./helpers/notify.js";
 import { fakeSmtp } from "./helpers/smtp.js";
 import { getExecutions, seedOfficeSpawn, soarHarness, testPlaybook } from "./helpers/soar.js";
+import { type LoopbackCert, loopbackCert } from "./helpers/tls-cert.js";
 
 // soar_ac_006 — SPEC-022 §Operational §6: a step and a run are bounded, a send is
 // closed at its bound, and a cut run neither throws nor holds the cycle.
@@ -272,24 +273,104 @@ test("the installed nodemailer is the release whose private fields the send read
   expect(version).toBe("8.0.10");
 });
 
-test("the bounded send authenticates only when the server offers AUTH", async () => {
+test("the bounded send authenticates only when the server offers AUTH, and only over TLS", async () => {
+  const cert = await loopbackCert();
   for (const offerAuth of [false, true]) {
-    const smtp = await fakeSmtp({ offerAuth });
+    const smtp = await fakeSmtp({ offerAuth, starttls: cert });
     try {
-      const mailer = createBoundedSmtpMailer({
-        host: "127.0.0.1",
-        port: smtp.port,
-        user: "u",
-        pass: "p",
-      });
-      await mailer.sendMail(MESSAGE, 5000);
+      await createBoundedSmtpMailer(OVER_TLS(smtp.port, cert)).sendMail(MESSAGE, 5000);
       const auth = smtp.commands.filter((c) => /^AUTH/i.test(c));
       expect(auth, `offerAuth=${offerAuth}`).toHaveLength(offerAuth ? 1 : 0);
+      // Every AUTH went after STARTTLS, inside the TLS session.
+      expect(smtp.commands.slice(0, smtp.commands.indexOf("STARTTLS") + 1)).not.toContainEqual(
+        expect.stringMatching(/^AUTH/i),
+      );
+      expect(smtp.commandsOverTls.filter((c) => /^AUTH/i.test(c))).toEqual(auth);
       // Offered PLAIN and LOGIN, the send takes PLAIN, the first of its order.
       if (offerAuth) expect(auth[0]?.split(" ")[1]).toBe("PLAIN");
     } finally {
       await smtp.close();
     }
+  }
+});
+
+test("a server that names no mechanism the send uses gets the message over TLS when it offers STARTTLS", async () => {
+  const cert = await loopbackCert();
+  const smtp = await fakeSmtp({ starttls: cert });
+  try {
+    await createBoundedSmtpMailer(OVER_TLS(smtp.port, cert)).sendMail(MESSAGE, 5000);
+    expect(smtp.commandsOverTls).toContain("MAIL FROM:<soc-noreply@cyberguard.test>");
+    expect(smtp.commandsOverTls).toContain("DATA");
+  } finally {
+    await smtp.close();
+  }
+});
+
+test("a relay whose certificate the send cannot verify gets no credentials: ESOCKET", async () => {
+  const cert = await loopbackCert();
+  const smtp = await fakeSmtp({ offerAuth: true, starttls: cert });
+  try {
+    // No trusted roots given: Node's own roots, which do not hold the test's certificate.
+    const err = await createBoundedSmtpMailer(LOCAL(smtp.port))
+      .sendMail(MESSAGE, 5000)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect((err as { code?: unknown } | null)?.code).toBe("ESOCKET");
+    expect(smtp.commands.filter((c) => /^(AUTH|MAIL)/i.test(c))).toEqual([]);
+  } finally {
+    await smtp.close();
+  }
+});
+
+test("a relay that refuses STARTTLS fails the send with ETLS, and gets no credentials", async () => {
+  const smtp = await fakeSmtp({ offerAuth: true, refuseStarttls: true });
+  try {
+    const err = await createBoundedSmtpMailer(LOCAL(smtp.port))
+      .sendMail(MESSAGE, 5000)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect((err as { code?: unknown } | null)?.code).toBe("ETLS");
+    expect(smtp.commands.filter((c) => /^(AUTH|MAIL)/i.test(c))).toEqual([]);
+  } finally {
+    await smtp.close();
+  }
+});
+
+test("a server that names CRAM-MD5 without TLS gets no AUTH either: ENOTLS", async () => {
+  const smtp = await fakeSmtp({ offerAuth: "CRAM-MD5" });
+  try {
+    const err = await createBoundedSmtpMailer(LOCAL(smtp.port))
+      .sendMail(MESSAGE, 5000)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect((err as { code?: unknown } | null)?.code).toBe("ENOTLS");
+    expect(smtp.commands.filter((c) => /^(AUTH|MAIL)/i.test(c))).toEqual([]);
+  } finally {
+    await smtp.close();
+  }
+});
+
+test("a server that asks for credentials without TLS gets none, and the send fails ENOTLS", async () => {
+  const smtp = await fakeSmtp({ offerAuth: true });
+  try {
+    const started = Date.now();
+    const err = await createBoundedSmtpMailer(LOCAL(smtp.port))
+      .sendMail(MESSAGE, 5000)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect((err as { code?: unknown } | null)?.code).toBe("ENOTLS");
+    expect(smtp.commands.filter((c) => /^(AUTH|MAIL)/i.test(c))).toEqual([]);
+  } finally {
+    await smtp.close();
   }
 });
 
@@ -314,6 +395,8 @@ test("the bounded send takes its envelope from the headers, as SPEC-014's transp
 });
 
 const LOCAL = (port: number) => ({ host: "127.0.0.1", port, user: "u", pass: "p" });
+/** The same server's address, its certificate trusted: for a server that offers STARTTLS. */
+const OVER_TLS = (port: number, cert: LoopbackCert) => ({ ...LOCAL(port), tls: { ca: cert.cert } });
 
 test("a server that refuses EHLO is reached by HELO and gets no credentials", async () => {
   const smtp = await fakeSmtp({ refuseEhlo: true });
@@ -347,9 +430,10 @@ test("a server that advertises only mechanisms the send does not use gets no cre
 });
 
 test("the bounded send names the first of PLAIN, LOGIN and CRAM-MD5 that the server advertises", async () => {
-  const smtp = await fakeSmtp({ offerAuth: "XOAUTH2 LOGIN" });
+  const cert = await loopbackCert();
+  const smtp = await fakeSmtp({ offerAuth: "XOAUTH2 LOGIN", starttls: cert });
   try {
-    await createBoundedSmtpMailer(LOCAL(smtp.port)).sendMail(MESSAGE, 5000);
+    await createBoundedSmtpMailer(OVER_TLS(smtp.port, cert)).sendMail(MESSAGE, 5000);
     expect(smtp.commands.filter((c) => /^AUTH/i.test(c)).map((c) => c.split(" ")[1])).toEqual([
       "LOGIN",
     ]);
@@ -418,6 +502,33 @@ test("a run whose server closes the connection records a failure, not a timeout"
     expect(execution?.steps.map((s) => [s.step_id, s.outcome, s.detail])).toEqual([
       ["notify", "failed", "send failed: ECONNECTION"],
     ]);
+  } finally {
+    await smtp.close();
+  }
+});
+
+test("a run whose server asks for credentials without TLS records ENOTLS, and SPEC-014 logs it", async () => {
+  const smtp = await fakeSmtp({ offerAuth: true });
+  try {
+    const execution = await runOneEmailAgainst("soar-ac-006-notls", smtp.port);
+    expect(execution?.status).toBe("failed");
+    expect(execution?.steps.map((s) => [s.step_id, s.outcome, s.detail])).toEqual([
+      ["notify", "failed", "send failed: ENOTLS"],
+    ]);
+    const logs: { obj: Record<string, unknown>; msg: string }[] = [];
+    await notifyIncidentCreated(
+      {
+        mailer: createBoundedSmtpMailer(LOCAL(smtp.port)),
+        from: MESSAGE.from,
+        recipient: MESSAGE.to,
+        log: { warn: (obj, msg) => logs.push({ obj, msg }) },
+      },
+      { incidentId: "i", severityId: 4, title: "t", orgId: "o" },
+    );
+    expect(logs.map((l) => [l.msg, l.obj.code])).toEqual([
+      ["incident notification send failed", "ENOTLS"],
+    ]);
+    expect(smtp.commands.filter((c) => /^AUTH/i.test(c))).toEqual([]);
   } finally {
     await smtp.close();
   }
