@@ -17,14 +17,18 @@ Its work order for Session 39 is *How Session 39 resumes* at the end.
 - `main` = `origin/main` = the commit that completes this file (CI ALL
   GREEN, *CI monitoring*); tree clean; no stash.
 - Catalogs: ADR 20 / SPEC 20. Known CI debt: zero.
-- No branch or PR open. Each PR below is closed and its branch deleted,
-  local and on origin:
+- One branch open, with no PR: `adr/s38-0021-soar` (`e619797`), the
+  owner-review branch of ADR-0021 and the ADR-0002 and ADR-0015
+  amendments, waiting for Manuel's "sí" (*What waits on Manuel*). No PR
+  is open. Each PR below is closed and its branch deleted, local and on
+  origin:
   - `fix/s38-debt-63-marquee-session` (PR #7) landed as five cherry-picked
     commits, `a9452b0..928cfbf`.
   - `fix/s38-debt-sweep-1` (PR #8) landed as four, `67f2055..6841aa5`.
   - `fix/s38-debt-sweep-2` (PR #9) landed as four, `bbdf1e3..8ea922e`, in
     an order its landing slip changed (*Progress*).
-- Roadmap: §B2 and §B3 PARKED, §E NEXT (`4cad976`).
+- Roadmap: §B2 and §B3 PARKED (`4cad976`), §E IN PROGRESS (this record's
+  commit).
 - Code changed this session. For #63: `services/ingest/test/helpers/marquee-agent.ts`
   and two new test files, `services/ingest/test/marquee-agent-etw.test.ts`
   and `agent/cg-agent/tests/etw_reclaim.rs`. The elevated gate covered it
@@ -221,6 +225,32 @@ debt #33, and SPEC-018's amendment says the interval's code follows. What the
 slip cost is the guard's guarantee for those three trees, which only CI on
 `main` covered. The auto-memory now holds the corrected form of the step
 (`feedback-landing-guard-must-stop`).
+
+### Roadmap §E: ADR-0021 proposed
+
+ADR-0021 and two ADR amendments are on the owner-review branch
+`adr/s38-0021-soar`, cut from `95a8c9f`. Each commit's subject carries
+`NOT YET RATIFIED`. The branch has no PR, so no workflow ran on it, and
+markdownlint passed locally on every file (0 errors).
+
+| SHA | What |
+|---|---|
+| `cc158cf` | ADR-0021, SOAR for the MVP (Proposed), together with ADR-0002's Amendment 2026-10-14 (TypeScript is the server-side default; the harness runner and the event firehose keep Go until the firehose ADR). The threat model's Amendment 2026-10-14 (ADR-0021) for §2, §3 and §5. The READMEs of `services/`, `services/pipeline/`, `services/soar/` and `playbooks/`. The catalog. |
+| `e619797` | ADR-0015's Amendment 2026-10-14 (#70): three bullets name the three routes that read `cges_events`. The catalog. |
+
+What ADR-0021 decides:
+
+- SOAR is a TypeScript module of `services/ingest` on the incident-create
+  seam, after the commit.
+- Its playbooks are YAML, validated at every boot and in CI against
+  `schemas/playbooks/v0.1/`, with `ajv` as a direct dependency.
+- Its actions are a closed list: `agent.isolate` in dry-run only, and
+  `notify.email` live.
+- Each run has one record per playbook and incident. The record is claimed
+  before the first step, completed once, and refused any later change by a
+  Postgres trigger. Its steps form an unsigned SHA-256 chain.
+- Bounds: 10 steps, 15 s per step and 30 s per run.
+- One playbook ships, for High severity or more.
 
 ## Decisions
 
@@ -636,6 +666,50 @@ A reviewer with a fresh context, the fixed code prompt, two passes:
 - The second pass's own fixes had no third pass. Each answers an item of
   pass 2, and the type fix was shown red under the old key.
 
+### ADR-0021 and the ADR-0002 and ADR-0015 amendments
+
+Claude Code's own pass covered the pre-flight against ADR-0001, ADR-0002
+Rules 3 and 6, ADR-0003, ADR-0005, ADR-0017 and the threat model's §5. It
+also checked each cited line against the tree. A reviewer with a fresh
+context, the fixed ADR prompt, made two passes on the working tree:
+
+- **Pass 1, 11 items in List A**, all fixed:
+  - the threat model's Spoofing claim: a trigger can be caused by making
+    the cycle create an incident;
+  - Postgres left out of the trust boundary and the credentials;
+  - an idempotency key written after the steps: now the record is claimed
+    first;
+  - a playbook whose email preceded the step it reported: the order is
+    reversed;
+  - a delay bound that did not bound: now 30 s per run, stated;
+  - ADR-0002's amendment deciding the firehose's language, against ADR-0007
+    §Compliance;
+  - §Compliance's old Rule 3 sentence;
+  - the harness READMEs: the runner keeps Go;
+  - `playbooks/README.md`;
+  - ADR-0015's third drill-only statement;
+  - `services/README.md`'s self-contradiction.
+
+  From List B, also fixed: the severity seen only at creation, the chain's
+  real limits, `ajv` and the CI step, the SMTP timeouts, the citations and
+  the dashboard destination.
+- **Pass 2, 6 items in List A**, all fixed:
+  - Rule 6's line, moved by the new blockquote;
+  - Rule 3 restated whole, not its first sentence;
+  - one reading of the firehose's language: Go stays, and the firehose ADR
+    confirms or changes it;
+  - READMEs that described SOAR as built: now in the future tense;
+  - the shared database users: a fact of the dev stack, not §8;
+  - sharing the chain code: possibly a new component, Manuel's (#7).
+
+  From List B, also fixed: the departure from ADR-0017's A2 named; the
+  whole send bounded; validation at every boot; `ajv`'s version, licence
+  and absence of install scripts; retention against ADR-0003's audit-log
+  row; the catalog edges; the Blueprint's names; and the api's read in the
+  threat model. Recorded without a change: the implementation runs the
+  elevated gate, because the call site is in `detect/`.
+- Pass 2's fixes had no third pass; each answers an item of pass 2.
+
 ## Debts
 
 New this session:
@@ -916,12 +990,15 @@ Baselines at the close:
 Manuel delegated every pending decision on 2026-10-14 (*Decisions*). What
 still needs him:
 
-1. His explicit "sí" on each ADR text Claude Code puts to him:
-   - ADR-0021, SOAR (roadmap §E);
-   - the ADR-0002 amendment (Part (b) §1);
-   - the ADR-0015 amendment (#70);
-   - later, with F's SPEC, the ADR-0001 amendment (§4) and the ADR-0016
-     amendment (§3).
+1. His explicit "sí" on each text of the owner-review branch
+   `adr/s38-0021-soar` (read on GitHub, the branch's compare view):
+   - ADR-0021, SOAR for the MVP, with the threat model's amendment (roadmap
+     §E). It is meant to be ratified together with the next item.
+   - ADR-0002's Amendment 2026-10-14 (Part (b) §1).
+   - ADR-0015's Amendment 2026-10-14 (#70).
+
+   Later, with F's SPEC, the ADR-0001 amendment (§4) and the ADR-0016
+   amendment (§3).
 2. Compacting the Docker WSL disk to give `C:` back the space the prune
    freed inside it. That needs WSL shut down, which is his to do or to
    allow (*Local environment operations*). Optional.
@@ -933,13 +1010,17 @@ still needs him:
 1. *Session protocol* §At the start. Expected:
    - `main` = `origin/main` at this file's last commit; tree clean; no
      stash;
-   - no branch or PR open, unless this file names an owner-review branch;
+   - one branch, `adr/s38-0021-soar` at `e619797`, with no PR, unless
+     Manuel has ratified it and it has landed;
    - catalogs ADR 20 / SPEC 20; Known CI debt zero;
    - `logman query -ets` lists no `CGAgent` session.
 2. Roadmap §E, criterion 6: "1 SOAR playbook operational (dry-run +
    notification, no destructive actions yet)" (`docs/product/blueprint.md:751`).
-   - First ADR-0021, on an owner-review branch for Manuel's "sí", in one
-     batch with the ADR-0002 and ADR-0015 amendments.
+   - First Manuel's "sí" on `adr/s38-0021-soar`. On it, land the two
+     commits by cherry-pick, with the marker stripped from each subject
+     and ADR-0021's status set to Accepted. The catalog rows lose
+     "proposed, NOT YET RATIFIED", and the dates of ratification go into
+     the texts.
    - Then its SPEC and the implementation: tests failing first, CI on every
      push, the self-review, landing by cherry-pick with a guard that stops
      (`feedback-landing-guard-must-stop`).

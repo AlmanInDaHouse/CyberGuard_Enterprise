@@ -336,21 +336,24 @@ This dependency-ordered document supersedes both for planning.
 
 ### E — SOAR (criterion 6)
 
-- **Status: NEXT** (S38, 2026-10-14). With B2 and §B3 parked, E and F are
-  the two MVP criteria left. E comes first, F is last by dependency.
+- **Status: IN PROGRESS** (S38, 2026-10-14). With B2 and §B3 parked, E and
+  F are the two MVP criteria left; E comes first, F is last by dependency.
+  ADR-0021 (SOAR for the MVP) and ADR-0002's Amendment 2026-10-14 are
+  proposed on the owner-review branch `adr/s38-0021-soar` and wait for
+  Manuel's "sí"; then the SPEC and the implementation.
 - Does: one playbook executor on the incident-create seam. The seam
   exists: a create-only branch fires in `runDetectionCycle`
-  (`services/ingest/src/detect/index.ts:69`) beside
+  (`services/ingest/src/detect/index.ts:77`) beside
   `notifyIncidentCreated`. SOAR attaches there as a second optional
   carrier, same fire-and-forget contract.
 - Unblocks: criterion 6.
 - Blocked by: A (incidents must actually be created in prod).
-- Needs: a SOAR SPEC + ADR — unassigned today (`SPEC-XXX-soar`);
-  `services/soar/` + `playbooks/` are README stubs.
+- Needs: ADR-0021 (proposed) and its SPEC; `services/soar/` and
+  `playbooks/` are README stubs.
 - Precedent to copy: the email fire-and-forget
   (`docs/specs/SPEC-014-incident-notification.md`,
   `docs/adr/0017-incident-email-notification.md`; call site
-  `services/ingest/src/detect/index.ts:69-76`).
+  `services/ingest/src/detect/index.ts:77-84`).
 
 ### F — Installation / deployment (criterion 7)
 
