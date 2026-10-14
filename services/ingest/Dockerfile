@@ -32,6 +32,11 @@ COPY --from=build /repo/services/ingest/dist ./dist
 # so the production driver's INGEST_DETECT_RULES_DIR default resolves: the process
 # runs with cwd = /app (WORKDIR), so <cwd>/rules/windows = /app/rules/windows.
 COPY rules ./rules
+# SPEC-022 §Operational §1 — bundle the SOAR playbooks and their schema, so that
+# INGEST_SOAR_PLAYBOOKS_DIR's default (<cwd>/playbooks) and the schema the loader
+# compiles (<cwd>/schemas/playbooks/v0.1/playbook.json) resolve in the image.
+COPY playbooks ./playbooks
+COPY schemas/playbooks ./schemas/playbooks
 EXPOSE 8080 8443
 # Runs as root in the dev image so it can write the self-generated server TLS
 # identity to the /certs volume; non-root hardening is a deploy concern.

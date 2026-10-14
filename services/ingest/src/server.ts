@@ -1,10 +1,13 @@
 import type { AddressInfo } from "node:net";
+import { pino } from "pino";
 import { buildEnrollApp, buildHeartbeatApp } from "./app.js";
 import { ensureServerCert } from "./cert.js";
 import type { Config } from "./config.js";
 import { runMigrations } from "./db/migrate.js";
 import { startProdDetectionDriver } from "./detect/driver.js";
 import { buildServices } from "./services.js";
+import { loadPlaybooks } from "./soar/loader.js";
+import type { LoadedPlaybooks } from "./soar/types.js";
 
 /** A running ingest server: the two listener URLs and the CA PEM. */
 export interface IngestServer {
@@ -27,7 +30,34 @@ export interface IngestServer {
  * host the agent dials (SPEC-003 FR-005), not the bound interface, and the
  * self-issued cert (cert.ts) covers only localhost / 127.0.0.1.
  */
-export async function startIngest(config: Config): Promise<IngestServer> {
+/** The boot log surface (pino's `Logger` satisfies it); a test injects a sink. */
+export interface BootLog {
+  info(obj: Record<string, unknown>, msg: string): void;
+  warn(obj: Record<string, unknown>, msg: string): void;
+}
+
+export interface StartOptions {
+  /** Where the boot logs before the apps exist; pino at INGEST_LOG_LEVEL by default. */
+  log?: BootLog;
+}
+
+/** Log why SOAR is idle, at the level the loader chose (SPEC-022 §Operational §1). */
+function logSoarIdle(log: BootLog, loaded: LoadedPlaybooks): void {
+  if (!loaded.idle) return;
+  const { reason, dir, level } = loaded.idle;
+  log[level]({ event: "soar_idle", reason, dir }, "SOAR is idle");
+}
+
+export async function startIngest(
+  config: Config,
+  options: StartOptions = {},
+): Promise<IngestServer> {
+  // SPEC-022 §Operational §1 — the playbooks load first, before any client is built
+  // or any migration runs: a refused playbook rejects here and leaves nothing open.
+  const log = options.log ?? pino({ name: "ingest-boot", level: config.INGEST_LOG_LEVEL });
+  const playbooks = loadPlaybooks(config.INGEST_SOAR_PLAYBOOKS_DIR);
+  logSoarIdle(log, playbooks);
+
   if (config.INGEST_RUN_MIGRATIONS) {
     await runMigrations(config);
   }

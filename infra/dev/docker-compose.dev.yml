@@ -151,6 +151,9 @@ services:
       # here as the explicit operator surface.
       INGEST_DETECT_INTERVAL_MS: ${CG_INGEST_DETECT_INTERVAL_MS:-5000}
       INGEST_DETECT_RULES_DIR: ${CG_INGEST_DETECT_RULES_DIR:-/app/rules/windows}
+      # SPEC-022 / ADR-0021 — the SOAR playbooks directory (the image bundles
+      # playbooks/). An empty directory turns SOAR off; an absent one leaves it idle.
+      INGEST_SOAR_PLAYBOOKS_DIR: ${CG_INGEST_SOAR_PLAYBOOKS_DIR:-/app/playbooks}
       # SPEC-014 / ADR-0017 — incident email notify (notify-only, on CREATE). OPTIONAL
       # and all-or-nothing: empty defaults ⇒ notify DISABLED cleanly in dev (no relay,
       # detection still runs). Set all six CG_INGEST_SMTP_* / CG_INGEST_NOTIFY_RECIPIENT

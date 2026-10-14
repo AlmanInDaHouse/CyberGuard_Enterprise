@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 // implements RFC 8785 (JCS) — byte-identical to the agent's serde_jcs over
 // the envelope's value space (ASCII strings, unsigned integers, nested
 // objects; no floats), per SPEC-004 FR-010.
-const canonicalize = createRequire(import.meta.url)("canonicalize") as (
+export const canonicalize = createRequire(import.meta.url)("canonicalize") as (
   value: unknown,
 ) => string | undefined;
 

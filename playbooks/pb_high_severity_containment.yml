@@ -1,0 +1,34 @@
+# SPEC-022 §Operational §5 — the MVP's playbook (ADR-0021 §5): on a new incident of
+# severity High (4) or more from a rule, record the isolation of its agent in
+# dry-run, then ask the SOC by email to act. No action reaches the host.
+id: pb_high_severity_containment
+version: 1
+name: "Contain the host of a high-severity incident (dry-run)"
+description: >-
+  Records, in dry-run, the isolation of the agent behind a new high-severity
+  incident, and emails the SOC that containment awaits an analyst.
+trust_sources: ["rule"]
+trigger:
+  on: incident.created
+  when:
+    severity_id_gte: 4
+steps:
+  - id: isolate
+    action: agent.isolate
+    mode: dry_run
+  - id: notify
+    action: notify.email
+    mode: live
+    params:
+      subject: "[CyberGuard] Containment pending: {{incident.title}}"
+      body: |
+        A CyberGuard playbook ran for a new incident and recorded the containment
+        it would do. Containment awaits an analyst's action.
+
+        Incident: {{incident.id}}
+        Severity: {{incident.severity_id}}
+        Agent:    {{incident.agent_id}}
+        Playbook: {{playbook.id}} (execution {{execution.id}})
+
+        Steps so far:
+        {{steps}}
