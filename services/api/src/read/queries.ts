@@ -1,6 +1,7 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import type { Pool } from "pg";
-import { BadRequestError, StoreUnavailableError } from "../errors.js";
+import { BadRequestError } from "../errors.js";
+import { fromStore } from "../stores.js";
 import type {
   AlertListItem,
   EventTimeline,
@@ -34,15 +35,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isUuid(s: string): boolean {
   return UUID.test(s);
-}
-
-/** Run one store call; its failure is the store's, whatever the client threw. */
-async function fromStore<T>(call: () => Promise<T>): Promise<T> {
-  try {
-    return await call();
-  } catch (err) {
-    throw new StoreUnavailableError(err);
-  }
 }
 
 function clampLimit(raw: string | undefined): number {
