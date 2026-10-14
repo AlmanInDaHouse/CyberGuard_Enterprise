@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Services } from "../services.js";
 import {
   makeRequireCsrf,
@@ -11,9 +11,16 @@ import {
   LoginBody,
   PasswordBody,
   RoleBody,
+  StatusBody,
   TotpConfirmBody,
   parseBody,
 } from "./schemas.js";
+import type { RequestContext } from "./service.js";
+
+/** The request's id, address and session, for the audit rows (Amendment item 6). */
+function ctxOf(req: FastifyRequest): RequestContext {
+  return { correlationId: req.id, sourceIp: req.ip, session: req.authSession };
+}
 
 /**
  * SPEC-008 §Operational — the auth-core HTTP surface. Session lifecycle is open
@@ -34,7 +41,7 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
 
   app.post("/v1/auth/login", async (req, reply) => {
     const body = parseBody(LoginBody, req.body);
-    const result = await services.auth.login(body, req.ip);
+    const result = await services.auth.login(body, ctxOf(req));
     reply.setCookie("cgsess", result.token, {
       httpOnly: true,
       secure: true,
@@ -45,13 +52,13 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
   });
 
   app.post("/v1/auth/logout", { onRequest: [requireSession, requireCsrf] }, async (req, reply) => {
-    await services.auth.logout(req.cookies?.cgsess ?? "");
+    await services.auth.logout(req.cookies?.cgsess ?? "", ctxOf(req));
     reply.clearCookie("cgsess", { path: "/" });
     return { ok: true };
   });
 
   app.post("/v1/auth/totp/confirm", async (req) => {
-    await services.auth.confirmTotpEnrollment(parseBody(TotpConfirmBody, req.body));
+    await services.auth.confirmTotpEnrollment(parseBody(TotpConfirmBody, req.body), ctxOf(req));
     return { ok: true };
   });
 
@@ -59,7 +66,7 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
     const body = parseBody(PasswordBody, req.body);
-    await services.auth.changePassword({ userId: session.user_id, ...body });
+    await services.auth.changePassword({ userId: session.user_id, ...body }, ctxOf(req));
     return { ok: true };
   });
 
@@ -68,13 +75,16 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     "/v1/users",
     { onRequest: [requireSession, requireAdmin, requireCsrf] },
     async (req, reply) => {
-      const created = await services.auth.createUser(parseBody(CreateUserBody, req.body));
+      const created = await services.auth.createUser(
+        parseBody(CreateUserBody, req.body),
+        ctxOf(req),
+      );
       return reply.code(201).send(created);
     },
   );
 
-  app.get("/v1/users", { onRequest: [requireSession, requireAdmin] }, async () =>
-    services.auth.listUsers(),
+  app.get("/v1/users", { onRequest: [requireSession, requireAdmin] }, async (req) =>
+    services.auth.listUsers(ctxOf(req)),
   );
 
   app.post(
@@ -82,7 +92,18 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     { onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
     async (req) => {
       const body = parseBody(RoleBody, req.body);
-      await services.auth.assignRole((req.params as { id: string }).id, body.role);
+      await services.auth.assignRole((req.params as { id: string }).id, body.role, ctxOf(req));
+      return { ok: true };
+    },
+  );
+
+  // SPEC-008 Amendment 2026-10-15 item 8: disable or enable a user (§2's admin revoke).
+  app.post(
+    "/v1/users/:id/status",
+    { onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
+    async (req) => {
+      const body = parseBody(StatusBody, req.body);
+      await services.auth.setStatus((req.params as { id: string }).id, body.status, ctxOf(req));
       return { ok: true };
     },
   );

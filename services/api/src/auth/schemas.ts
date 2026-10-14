@@ -52,7 +52,11 @@ export const PasswordBody = z
 
 export const CreateUserBody = z
   .object({
-    email: z.string().max(254).email(),
+    // Trimmed and lower-cased first, then checked (Amendment item 3).
+    email: z
+      .string()
+      .transform((e) => e.trim().toLowerCase())
+      .pipe(z.string().max(254).email()),
     password: newPassword,
     role: z.enum(ROLES),
   })

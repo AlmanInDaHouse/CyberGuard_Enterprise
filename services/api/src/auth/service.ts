@@ -1,7 +1,13 @@
 import type { Redis } from "ioredis";
-import type { Pool } from "pg";
+import pg, { type Pool, type PoolClient } from "pg";
 import type { Config } from "../config.js";
-import { AuthError, RateLimitError } from "../errors.js";
+import {
+  AuthError,
+  ConflictError,
+  NotFoundError,
+  RateLimitError,
+  StoreUnavailableError,
+} from "../errors.js";
 import { asStore } from "../stores.js";
 import { appendAudit } from "./audit.js";
 import { hashPassword, verifyPassword } from "./password.js";
@@ -19,7 +25,12 @@ import { generateSecret, provisioningUri, verifyTotp } from "./totp.js";
  * SPEC-008 auth-core service — the realisation the GREEN gate fills. Every method
  * is a real control backed by Postgres (users/audit_log) + Redis (sessions /
  * rate-limit / TOTP-replay). Negative branches throw typed errors the app maps to
- * 401/403/429; positive paths write append-only audit rows.
+ * 401/403/404/409/429; positive paths write append-only audit rows.
+ *
+ * SPEC-008 Amendment 2026-10-15: the user routes act in the session's org and write
+ * their change and its audit row in one transaction; a role, status or password
+ * change raises the user's authority version, and the login reads it twice, so a
+ * login racing a change keeps no session with the old authority.
  */
 export interface LoginInput {
   email: string;
@@ -35,32 +46,76 @@ export interface CreateUserInput {
   email: string;
   password: string;
   role: string;
-  org_id?: string;
+}
+export type UserStatus = "active" | "disabled";
+
+/** What a request carries into the service: its id, its address, and its session. */
+export interface RequestContext {
+  correlationId: string;
+  sourceIp: string;
+  session?: SessionInfo;
 }
 
 export interface AuthService {
-  login(input: LoginInput, ip: string): Promise<LoginResult>;
-  logout(token: string): Promise<void>;
+  login(input: LoginInput, ctx: RequestContext): Promise<LoginResult>;
+  logout(token: string, ctx: RequestContext): Promise<void>;
   resolveSession(token: string): Promise<SessionInfo | null>;
-  createUser(input: CreateUserInput): Promise<{ userId: string; totpProvisioningUri: string }>;
-  listUsers(): Promise<Array<{ userId: string; email: string; role: string }>>;
-  assignRole(userId: string, role: string): Promise<void>;
-  changePassword(input: {
-    userId: string;
-    currentPassword: string;
-    newPassword: string;
-    totp_code: string;
-  }): Promise<void>;
-  confirmTotpEnrollment(input: { userId: string; totp_code: string }): Promise<void>;
+  createUser(
+    input: CreateUserInput,
+    ctx: RequestContext,
+  ): Promise<{ userId: string; totpProvisioningUri: string }>;
+  listUsers(
+    ctx: RequestContext,
+  ): Promise<Array<{ userId: string; email: string; role: string; status: string }>>;
+  assignRole(userId: string, role: string, ctx: RequestContext): Promise<void>;
+  setStatus(userId: string, status: UserStatus, ctx: RequestContext): Promise<void>;
+  changePassword(
+    input: { userId: string; currentPassword: string; newPassword: string; totp_code: string },
+    ctx: RequestContext,
+  ): Promise<void>;
+  confirmTotpEnrollment(
+    input: { userId: string; totp_code: string },
+    ctx: RequestContext,
+  ): Promise<void>;
 }
 
 interface AuthUserRow {
   user_id: string;
+  org_id: string;
   role: string;
   status: string;
   password_hash: string;
   totp_enrolled: boolean;
+  authority_version: string; // bigint, as pg returns it
   totp_secret: string; // decrypted base32 (pgp_sym_decrypt)
+}
+
+/** An address as the api compares it (SPEC-008 Amendment 2026-10-15 item 3). */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/** The session a user route runs under; the hooks guarantee one. */
+function sessionOf(ctx: RequestContext): SessionInfo {
+  if (!ctx.session) throw new Error("unreachable: requireSession populates the session");
+  return ctx.session;
+}
+
+/** Whether an error is the server's answer, with a SQLSTATE, rather than the connection's. */
+function isServerAnswer(err: unknown): boolean {
+  return err instanceof pg.DatabaseError;
+}
+
+/** An integrity violation (SQLSTATE class 23): the connection is sound. */
+function isIntegrityViolation(err: unknown): boolean {
+  return isServerAnswer(err) && String((err as { code?: unknown }).code).startsWith("23");
+}
+
+/** A Postgres unique violation, seen through the store view. */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    err instanceof StoreUnavailableError && (err.cause as { code?: unknown })?.code === "23505"
+  );
 }
 
 export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config): AuthService {
@@ -68,28 +123,167 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
   const pool = asStore(rawPool);
   const redis = asStore(rawRedis);
   const ORG = "default";
+
+  /**
+   * Run `work` in one transaction on one client; any failure rolls it back.
+   * - A store failure leaves the pool with its client (item 15), a statement cancelled
+   *   by `statement_timeout` included; only an integrity violation (a taken address)
+   *   returns the connection to the pool.
+   * - A failure of the connection itself, not an answer of the server (a timeout, a
+   *   reset), is not followed by a ROLLBACK, which would wait behind the query that
+   *   hung: closing the connection rolls the transaction back.
+   * - A COMMIT that got no answer leaves the outcome unknown, and is marked so. A COMMIT
+   *   the server refused rolled back, and is not.
+   */
+  async function inTransaction<T>(work: (db: PoolClient) => Promise<T>): Promise<T> {
+    const db = asStore(await pool.connect());
+    let broken = false;
+    let committing = false;
+    try {
+      await db.query("BEGIN");
+      const result = await work(db);
+      committing = true;
+      await db.query("COMMIT");
+      return result;
+    } catch (err) {
+      const store = err instanceof StoreUnavailableError;
+      const answered = store && isServerAnswer(err.cause);
+      broken = store && !isIntegrityViolation(err.cause);
+      if (!store || answered) await db.query("ROLLBACK").catch(() => {});
+      if (committing && store && !answered) {
+        Object.assign(err, { commitUncertain: true });
+      }
+      throw err;
+    } finally {
+      db.release(broken);
+    }
+  }
+
+  /**
+   * A change of a user's authority, then the deletion of its sessions (item 9). Only a
+   * COMMIT whose answer was lost leaves the change possibly made; then the deletion is
+   * tried anyway, since by then the change found its user in the session's org and
+   * wrote its row inside the transaction. Any earlier failure, and a refusal (404,
+   * 409), changed nothing and deletes nothing.
+   */
+  async function authorityChange(
+    userId: string,
+    work: (db: PoolClient) => Promise<void>,
+  ): Promise<void> {
+    try {
+      await inTransaction(work);
+    } catch (err) {
+      if ((err as { commitUncertain?: boolean }).commitUncertain) {
+        await revokeAllForUser(redis, userId).catch(() => {});
+      }
+      throw err;
+    }
+    await deleteSessionsAfterChange(userId);
+  }
+
+  /**
+   * Delete a user's sessions after a change committed (SPEC-008 §2; Amendment
+   * 2026-10-15 item 9). If Redis cannot, the change stands and the request is a 503,
+   * logged with the user's id so the sessions left can be found.
+   */
+  async function deleteSessionsAfterChange(userId: string): Promise<void> {
+    try {
+      await revokeAllForUser(redis, userId);
+    } catch (err) {
+      const cause = err instanceof StoreUnavailableError ? err.cause : err;
+      const code = (cause as { code?: unknown })?.code;
+      throw new StoreUnavailableError(
+        Object.assign(
+          new Error(`the sessions of user ${userId} were not deleted after its change committed`),
+          { code },
+        ),
+      );
+    }
+  }
+
+  /**
+   * A role or status change (SPEC-008 Amendment 2026-10-15 items 5, 7, 8, 10): the org's
+   * active admins and the target are locked in user-id order, the last active admin is
+   * kept, the change raises the authority version and writes its row, and the user's
+   * sessions are deleted after the commit. A change to the value already held is
+   * recorded like any other.
+   */
+  async function changeUser(
+    targetId: string,
+    change: { role?: string; status?: UserStatus },
+    ctx: RequestContext,
+  ): Promise<void> {
+    const session = sessionOf(ctx);
+    await authorityChange(targetId, async (db) => {
+      const locked = await db.query<{ user_id: string; role: string; status: string }>(
+        `SELECT user_id, role, status FROM users
+          WHERE org_id = $1 AND ((role = 'admin' AND status = 'active') OR user_id = $2)
+          ORDER BY user_id FOR UPDATE`,
+        [session.org_id, targetId],
+      );
+      const target = locked.rows.find((r) => r.user_id === targetId);
+      if (!target) throw new NotFoundError();
+      const role = change.role ?? target.role;
+      const status = change.status ?? target.status;
+      const activeAdmins = locked.rows.filter((r) => r.role === "admin" && r.status === "active");
+      const removesAnAdmin =
+        target.role === "admin" &&
+        target.status === "active" &&
+        (role !== "admin" || status !== "active");
+      if (removesAnAdmin && activeAdmins.length <= 1) throw new ConflictError();
+      await db.query(
+        `UPDATE users
+            SET role = $2, status = $3, authority_version = authority_version + 1, updated_at = now()
+          WHERE user_id = $1`,
+        [targetId, role, status],
+      );
+      const action =
+        change.role !== undefined
+          ? "role.change"
+          : status === "disabled"
+            ? "user.disable"
+            : "user.enable";
+      const detail =
+        change.role !== undefined
+          ? { from: target.role, to: role }
+          : { from: target.status, to: status };
+      await appendAudit(db, {
+        userId: session.user_id,
+        orgId: session.org_id,
+        action,
+        targetId,
+        outcome: "ok",
+        sourceIp: ctx.sourceIp,
+        correlationId: ctx.correlationId,
+        detail,
+      });
+    });
+  }
+
   return {
-    async login(input, ip) {
+    async login(input, ctx) {
+      const email = normalizeEmail(input.email);
       // Rate-limit gate BEFORE any credential work (real counter, two axes).
-      if (!(await isAllowed(redis, ORG, input.email, ip))) {
+      if (!(await isAllowed(redis, ORG, email, ctx.sourceIp))) {
         throw new RateLimitError();
       }
       const res = await pool.query<AuthUserRow>(
-        `SELECT user_id, role, status, password_hash, totp_enrolled,
+        `SELECT user_id, org_id, role, status, password_hash, totp_enrolled, authority_version,
                 pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE org_id = $2 AND email = $3`,
-        [config.API_DB_ENC_PASSPHRASE, ORG, input.email],
+        [config.API_DB_ENC_PASSPHRASE, ORG, email],
       );
       const user = res.rows[0];
       // Single generic negative branch — no user-enumeration, no per-factor oracle.
-      const reject = async (): Promise<never> => {
-        await recordFailure(redis, ORG, input.email, ip);
+      const reject = async (count = true): Promise<never> => {
+        if (count) await recordFailure(redis, ORG, email, ctx.sourceIp);
         await appendAudit(pool, {
           userId: user?.user_id ?? null,
-          orgId: ORG,
+          orgId: user?.org_id ?? ORG,
           action: "auth.login.fail",
           outcome: "denied",
-          sourceIp: ip,
+          sourceIp: ctx.sourceIp,
+          correlationId: ctx.correlationId,
         });
         throw new AuthError();
       };
@@ -107,34 +301,58 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
       );
       if (firstUse === null) return reject();
 
-      await resetAccount(redis, ORG, input.email);
       const { token, csrfToken } = await createSession(redis, {
         user_id: user.user_id,
-        org_id: ORG,
+        org_id: user.org_id,
         role: user.role,
       });
+      // Read the row again (Amendment 2026-10-15 item 9): a change that committed since
+      // the first read raised the version, and its deletion may have run before this
+      // session existed. Then this session goes too.
+      const again = await pool.query<{ authority_version: string; status: string }>(
+        "SELECT authority_version, status FROM users WHERE user_id = $1",
+        [user.user_id],
+      );
+      const now = again.rows[0];
+      if (!now || now.authority_version !== user.authority_version || now.status !== "active") {
+        // The credentials were right: the row changed under the login. Its row is
+        // written, and nothing counts against the user's limits.
+        await revokeSession(redis, token);
+        return reject(false);
+      }
+      // Only a login that keeps its session clears the account's failures.
+      await resetAccount(redis, ORG, email);
       await pool.query("UPDATE users SET last_login_at = now() WHERE user_id = $1", [user.user_id]);
       await appendAudit(pool, {
         userId: user.user_id,
-        orgId: ORG,
+        orgId: user.org_id,
         action: "auth.login.ok",
         outcome: "ok",
-        sourceIp: ip,
+        sourceIp: ctx.sourceIp,
+        correlationId: ctx.correlationId,
       });
       return {
         token,
         csrfToken,
-        session: { user_id: user.user_id, org_id: ORG, role: user.role, csrf_token: csrfToken },
+        session: {
+          user_id: user.user_id,
+          org_id: user.org_id,
+          role: user.role,
+          csrf_token: csrfToken,
+        },
       };
     },
 
-    async logout(token) {
+    async logout(token, ctx) {
       const sess = await resolveSessionRedis(redis, token);
       await revokeSession(redis, token);
       await appendAudit(pool, {
         userId: sess?.user_id ?? null,
+        orgId: sess?.org_id ?? ORG,
         action: "auth.logout",
         outcome: "ok",
+        sourceIp: ctx.sourceIp,
+        correlationId: ctx.correlationId,
       });
     },
 
@@ -142,46 +360,66 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
       return resolveSessionRedis(redis, token);
     },
 
-    async createUser(input) {
+    async createUser(input, ctx) {
+      const session = sessionOf(ctx);
+      const email = normalizeEmail(input.email);
       const userId = globalThis.crypto.randomUUID();
       const ph = await hashPassword(input.password);
       const secret = generateSecret();
-      await pool.query(
-        `INSERT INTO users (user_id, org_id, email, password_hash, totp_secret, totp_enrolled, role)
-         VALUES ($1, $2, $3, $4, pgp_sym_encrypt($5, $6), false, $7)`,
-        [
-          userId,
-          input.org_id ?? ORG,
-          input.email,
-          ph,
-          secret,
-          config.API_DB_ENC_PASSPHRASE,
-          input.role,
-        ],
-      );
-      await appendAudit(pool, { userId, action: "user.create", targetId: userId, outcome: "ok" });
-      return { userId, totpProvisioningUri: provisioningUri(input.email, secret) };
+      try {
+        await inTransaction(async (db) => {
+          await db.query(
+            `INSERT INTO users (user_id, org_id, email, password_hash, totp_secret, totp_enrolled, role)
+             VALUES ($1, $2, $3, $4, pgp_sym_encrypt($5, $6), false, $7)`,
+            [userId, session.org_id, email, ph, secret, config.API_DB_ENC_PASSPHRASE, input.role],
+          );
+          await appendAudit(db, {
+            userId: session.user_id,
+            orgId: session.org_id,
+            action: "user.create",
+            targetId: userId,
+            outcome: "ok",
+            sourceIp: ctx.sourceIp,
+            correlationId: ctx.correlationId,
+            detail: { role: input.role },
+          });
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) throw new ConflictError();
+        throw err;
+      }
+      return { userId, totpProvisioningUri: provisioningUri(email, secret) };
     },
 
-    async listUsers() {
-      const res = await pool.query<{ user_id: string; email: string; role: string }>(
-        "SELECT user_id, email, role FROM users ORDER BY created_at",
-      );
-      return res.rows.map((r) => ({ userId: r.user_id, email: r.email, role: r.role }));
-    },
-
-    async assignRole(userId, role) {
-      await pool.query("UPDATE users SET role = $2, updated_at = now() WHERE user_id = $1", [
-        userId,
-        role,
+    async listUsers(ctx) {
+      const session = sessionOf(ctx);
+      const res = await pool.query<{
+        user_id: string;
+        email: string;
+        role: string;
+        status: string;
+      }>("SELECT user_id, email, role, status FROM users WHERE org_id = $1 ORDER BY created_at", [
+        session.org_id,
       ]);
-      await revokeAllForUser(redis, userId); // privilege change rotates the user's sessions
-      await appendAudit(pool, { userId, action: "role.change", targetId: userId, outcome: "ok" });
+      return res.rows.map((r) => ({
+        userId: r.user_id,
+        email: r.email,
+        role: r.role,
+        status: r.status,
+      }));
     },
 
-    async changePassword(input) {
-      const res = await pool.query<{ password_hash: string; totp_secret: string }>(
-        `SELECT password_hash, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
+    assignRole(userId, role, ctx) {
+      return changeUser(userId, { role }, ctx);
+    },
+
+    setStatus(userId, status, ctx) {
+      return changeUser(userId, { status }, ctx);
+    },
+
+    async changePassword(input, ctx) {
+      const res = await pool.query<{ org_id: string; password_hash: string; totp_secret: string }>(
+        `SELECT org_id, password_hash, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE user_id = $2`,
         [config.API_DB_ENC_PASSPHRASE, input.userId],
       );
@@ -194,21 +432,27 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
         throw new AuthError();
       }
       const ph = await hashPassword(input.newPassword);
-      await pool.query(
-        "UPDATE users SET password_hash = $2, updated_at = now() WHERE user_id = $1",
-        [input.userId, ph],
-      );
-      await revokeAllForUser(redis, input.userId);
-      await appendAudit(pool, {
-        userId: input.userId,
-        action: "user.password.change",
-        outcome: "ok",
+      await authorityChange(input.userId, async (db) => {
+        await db.query(
+          `UPDATE users
+              SET password_hash = $2, authority_version = authority_version + 1, updated_at = now()
+            WHERE user_id = $1`,
+          [input.userId, ph],
+        );
+        await appendAudit(db, {
+          userId: input.userId,
+          orgId: ctx.session?.org_id ?? u.org_id,
+          action: "user.password.change",
+          outcome: "ok",
+          sourceIp: ctx.sourceIp,
+          correlationId: ctx.correlationId,
+        });
       });
     },
 
-    async confirmTotpEnrollment(input) {
-      const res = await pool.query<{ user_id: string; totp_secret: string }>(
-        `SELECT user_id, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
+    async confirmTotpEnrollment(input, ctx) {
+      const res = await pool.query<{ user_id: string; org_id: string; totp_secret: string }>(
+        `SELECT user_id, org_id, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE user_id = $2`,
         [config.API_DB_ENC_PASSPHRASE, input.userId],
       );
@@ -220,7 +464,14 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
         "UPDATE users SET totp_enrolled = true, updated_at = now() WHERE user_id = $1",
         [input.userId],
       );
-      await appendAudit(pool, { userId: input.userId, action: "user.totp.enroll", outcome: "ok" });
+      await appendAudit(pool, {
+        userId: input.userId,
+        orgId: u.org_id,
+        action: "user.totp.enroll",
+        outcome: "ok",
+        sourceIp: ctx.sourceIp,
+        correlationId: ctx.correlationId,
+      });
     },
   };
 }
