@@ -10,8 +10,14 @@ import {
 } from "../errors.js";
 import { asStore } from "../stores.js";
 import { appendAudit } from "./audit.js";
-import { hashPassword, verifyPassword } from "./password.js";
-import { isAllowed, recordFailure, resetAccount } from "./ratelimit.js";
+import { constantWorkHash, hashPassword, verifyPassword } from "./password.js";
+import {
+  isAllowed,
+  isConfirmAllowed,
+  recordConfirmFailure,
+  recordFailure,
+  resetAccount,
+} from "./ratelimit.js";
 import {
   type SessionInfo,
   createSession,
@@ -123,6 +129,29 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
   const pool = asStore(rawPool);
   const redis = asStore(rawRedis);
   const ORG = "default";
+  // The constant-work material (Amendment 2026-10-15 items 11 and 12), made at start so
+  // the first refused login or confirmation of a process does no extra work.
+  constantWorkHash().catch(() => {});
+  const constantWorkSecret = generateSecret();
+  let dummyCiphertext: Promise<Buffer> | undefined;
+
+  /** The pgcrypto decrypt a found row costs, on a path that found no row (items 11, 12). */
+  async function decryptLikeARow(): Promise<void> {
+    dummyCiphertext ??= pool
+      .query<{ c: Buffer }>("SELECT pgp_sym_encrypt('constant work', $1) AS c", [
+        config.API_DB_ENC_PASSPHRASE,
+      ])
+      .then((r) => r.rows[0]?.c ?? Buffer.alloc(0))
+      .catch((err: unknown) => {
+        dummyCiphertext = undefined;
+        throw err;
+      });
+    const c = await dummyCiphertext;
+    await pool.query("SELECT pgp_sym_decrypt($1::bytea, $2) AS x", [
+      c,
+      config.API_DB_ENC_PASSPHRASE,
+    ]);
+  }
 
   /**
    * Run `work` in one transaction on one client; any failure rolls it back.
@@ -287,7 +316,13 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
         });
         throw new AuthError();
       };
-      if (!user || user.status !== "active") return reject();
+      if (!user || user.status !== "active") {
+        // The same work as a wrong password (Amendment 2026-10-15 item 11): the decrypt
+        // a found row costs, and the Argon2 verification.
+        if (!user) await decryptLikeARow();
+        await verifyPassword(await constantWorkHash(), input.password);
+        return reject();
+      }
       if (!(await verifyPassword(user.password_hash, input.password))) return reject();
       if (!user.totp_enrolled) return reject();
       if (!verifyTotp(user.totp_secret, input.totp_code)) return reject();
@@ -450,16 +485,54 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
       });
     },
 
+    /**
+     * SPEC-008 §8 and Amendment 2026-10-15 item 12: confirms only a user whose TOTP is
+     * not yet confirmed, behind the login's limits, and marks the accepted code used, so
+     * the confirmation is no way to try codes against an enrolled user.
+     */
     async confirmTotpEnrollment(input, ctx) {
-      const res = await pool.query<{ user_id: string; org_id: string; totp_secret: string }>(
-        `SELECT user_id, org_id, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
+      if (!(await isConfirmAllowed(redis, input.userId, ctx.sourceIp))) {
+        throw new RateLimitError();
+      }
+      const res = await pool.query<{
+        user_id: string;
+        org_id: string;
+        totp_enrolled: boolean;
+        totp_secret: string;
+      }>(
+        `SELECT user_id, org_id, totp_enrolled, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE user_id = $2`,
         [config.API_DB_ENC_PASSPHRASE, input.userId],
       );
       const u = res.rows[0];
-      if (!u || !verifyTotp(u.totp_secret, input.totp_code)) {
+      const reject = async (): Promise<never> => {
+        await recordConfirmFailure(redis, input.userId, ctx.sourceIp);
+        await appendAudit(pool, {
+          userId: u?.user_id ?? null,
+          orgId: u?.org_id ?? ORG,
+          action: "user.totp.enroll",
+          outcome: "denied",
+          sourceIp: ctx.sourceIp,
+          correlationId: ctx.correlationId,
+        });
         throw new AuthError();
+      };
+      if (!u || u.totp_enrolled) {
+        // The same work as a wrong code (item 12): the decrypt and the TOTP check.
+        if (!u) await decryptLikeARow();
+        verifyTotp(constantWorkSecret, input.totp_code);
+        return reject();
       }
+      if (!verifyTotp(u.totp_secret, input.totp_code)) return reject();
+      // The accepted code is used up, as the login's is: it cannot open a session.
+      const firstUse = await redis.set(
+        `totp:replay:${u.user_id}:${input.totp_code}`,
+        "1",
+        "EX",
+        90,
+        "NX",
+      );
+      if (firstUse === null) return reject();
       await pool.query(
         "UPDATE users SET totp_enrolled = true, updated_at = now() WHERE user_id = $1",
         [input.userId],
