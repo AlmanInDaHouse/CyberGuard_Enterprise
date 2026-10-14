@@ -1,0 +1,55 @@
+name: infra-ci
+
+# Debt #68: a change to the dev compose runs a check. It renders the compose as
+# Docker Compose reads it, every profile included, then asserts its port bindings,
+# its network mode and its image references (infra/dev/check-compose.mjs), after
+# the check's own test. The test backends are named here because the check
+# compares their ClickHouse image with the compose's.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/dev/**"
+      - "services/ingest/test/helpers/backends.ts"
+      - "services/api/test/helpers/backends.ts"
+      - ".github/workflows/infra-ci.yml"
+  pull_request:
+    paths:
+      - "infra/dev/**"
+      - "services/ingest/test/helpers/backends.ts"
+      - "services/api/test/helpers/backends.ts"
+      - ".github/workflows/infra-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    name: Dev compose binds loopback and names its images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          # The root package.json declares pnpm, which setup-node's cache would
+          # resolve before corepack exists; this job installs nothing.
+          package-manager-cache: false
+
+      - name: Test the check
+        run: node --test infra/dev/check-compose.test.mjs
+
+      - name: Render the dev compose, every profile included
+        run: >-
+          docker compose -f infra/dev/docker-compose.dev.yml
+          --env-file infra/dev/.env.example --profile '*' config --format json
+          > "$RUNNER_TEMP/compose.json"
+
+      - name: Check its ports and images
+        run: >-
+          node infra/dev/check-compose.mjs "$RUNNER_TEMP/compose.json"
+          services/ingest/test/helpers/backends.ts
+          services/api/test/helpers/backends.ts
