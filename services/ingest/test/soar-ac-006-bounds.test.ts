@@ -98,6 +98,49 @@ test("a run cut by its own bound fails the step it cut", async () => {
   ]);
 });
 
+test("a step the run's bound reaches before it starts fails with the run's detail", async () => {
+  const org = "soar-ac-006-reached";
+  const agent = globalThis.crypto.randomUUID();
+  await enrollTestAgent(config, agent, org);
+  await seedOfficeSpawn(config, org, agent);
+  // The run's clock: its first send takes the run's whole bound, and no real time.
+  let clock = Date.parse("2026-10-15T10:00:00.000Z");
+  const harness = soarHarness(
+    config,
+    [
+      testPlaybook({
+        id: "pb_run_reached",
+        steps: [EMAIL("first"), EMAIL("second"), EMAIL("third", "dry_run")],
+      }),
+    ],
+    { stepMs: 5000, runMs: 300 },
+    () => clock,
+  );
+  try {
+    const spy = spyNotify({
+      onSend: async (message) => {
+        if (playbookMail(message)) clock += 300;
+      },
+    });
+    await runDetectionCycle(detectConfig(config, org), spy.notify, harness.soar);
+    // The second step never reached the mailer.
+    expect(spy.sent.filter(playbookMail).map((m) => m.subject)).toEqual(["Pending first"]);
+  } finally {
+    await harness.close();
+  }
+  const [execution] = await getExecutions(config, (await incidentFor(org, agent)).incident_id);
+  expect(execution?.status).toBe("failed");
+  expect(execution?.steps.map((s) => [s.step_id, s.outcome, s.detail])).toEqual([
+    ["first", "done", "sent"],
+    ["second", "failed", "run timed out after 300 ms"],
+    ["third", "skipped", "an earlier step failed"],
+  ]);
+  // Its times are read when the run's bound is found reached, by the run's clock.
+  const second = execution?.steps[1];
+  expect(second?.started_at).toBe("2026-10-15T10:00:00.300Z");
+  expect(second?.finished_at).toBe("2026-10-15T10:00:00.300Z");
+});
+
 // A listener that accepts connections and never sends an SMTP greeting.
 let silent: Server;
 const held = new Set<Socket>();
@@ -172,6 +215,51 @@ test("SPEC-014's notification, through the transport it is built with, ends with
   expect(Object.keys(logs[0]?.obj ?? {}).sort()).toEqual(["code", "incident_id"]);
   // The greeting timeout is the transport's own: a failure with its code.
   expect(logs[0]?.obj.code).toBe("ETIMEDOUT");
+});
+
+test("SPEC-014's notification gives its send 15 000 ms", async () => {
+  const limits: number[] = [];
+  const spy = spyNotify({ limits });
+  await notifyIncidentCreated(spy.notify, {
+    incidentId: "i",
+    severityId: 4,
+    title: "t",
+    orgId: "o",
+  });
+  expect(limits).toEqual([15_000]);
+});
+
+test("SPEC-014's notification logs ESENDLIMIT when its limit cuts a live send", async () => {
+  // Each reply 300 ms late: the transport's own timeouts never run out, the limit does.
+  const smtp = await fakeSmtp({ replyDelayMs: 300 });
+  try {
+    const logs: { obj: Record<string, unknown>; msg: string }[] = [];
+    const started = Date.now();
+    await notifyIncidentCreated(
+      {
+        mailer: createBoundedSmtpMailer({
+          host: "127.0.0.1",
+          port: smtp.port,
+          user: "u",
+          pass: "p",
+        }),
+        from: MESSAGE.from,
+        recipient: MESSAGE.to,
+        log: { warn: (obj, msg) => logs.push({ obj, msg }) },
+        sendLimitMs: 500,
+      },
+      { incidentId: "i", severityId: 4, title: "t", orgId: "o" },
+    );
+    expect(Date.now() - started).toBeLessThan(2000);
+    // The server read EHLO before the cut; the message itself never went.
+    expect(smtp.commands.some((c) => /^EHLO/i.test(c))).toBe(true);
+    expect(smtp.commands.some((c) => /^DATA/i.test(c))).toBe(false);
+    expect(logs.map((l) => [l.msg, l.obj.code])).toEqual([
+      ["incident notification send failed", "ESENDLIMIT"],
+    ]);
+  } finally {
+    await smtp.close();
+  }
 });
 
 test("the bounded send authenticates only when the server offers AUTH", async () => {

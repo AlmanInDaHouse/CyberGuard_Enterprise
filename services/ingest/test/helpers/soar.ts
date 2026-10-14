@@ -33,6 +33,7 @@ export function soarHarness(
   config: Config,
   playbooks: Playbook[],
   bounds?: Partial<SoarBounds>,
+  now?: () => number,
 ): SoarHarness {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   const logs: SoarLogLine[] = [];
@@ -45,6 +46,7 @@ export function soarHarness(
       pg: pool,
       log: { info: line("info"), warn: line("warn"), debug: line("debug") },
       ...(bounds ? { bounds } : {}),
+      ...(now ? { now } : {}),
     },
     logs,
     close: () => pool.end(),

@@ -87,6 +87,9 @@ export interface SoarConfig {
   pg: SoarPg;
   log: SoarLog;
   bounds?: Partial<SoarBounds>;
+  /** The clock the run's bound and the steps' times read, in ms; `Date.now` unless a
+   *  test replaces it to reach the run's bound between two steps (debt #76). */
+  now?: () => number;
 }
 
 /** What the seam knows of a newly created incident. */
