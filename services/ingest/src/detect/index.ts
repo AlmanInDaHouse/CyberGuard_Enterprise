@@ -1,4 +1,6 @@
 import { type NotifyConfig, notifyIncidentCreated } from "../notify/index.js";
+import { runPlaybooks } from "../soar/run.js";
+import type { SoarConfig } from "../soar/types.js";
 import { upsertAlert } from "./alerts.js";
 import { evaluateRule, loadRules } from "./engine.js";
 import { upsertIncident } from "./incidents.js";
@@ -35,10 +37,15 @@ export const BATCH_LIMIT = 1000;
  * is created, an email is sent fire-and-forget AFTER the upsert committed (ADR-0017
  * §2). `notifyIncidentCreated` self-swallows + logs any send failure, so a flaky
  * SMTP can never abort this cycle — which has no surrounding try/catch.
+ *
+ * SPEC-022 — `soar` is a third OPTIONAL carrier (ADR-0021). When present and a NEW
+ * incident is created, the matching playbooks run AFTER SPEC-014's notification,
+ * awaited; `runPlaybooks` never throws, so it cannot abort the cycle either.
  */
 export async function runDetectionCycle(
   config: DetectConfig,
   notify?: NotifyConfig,
+  soar?: SoarConfig,
 ): Promise<DetectCycleResult> {
   const rules = loadRules(config.rulesDir);
   const cursor = await getCursor(config);
@@ -80,6 +87,19 @@ export async function runDetectionCycle(
             severityId: incident.severityId,
             title: incident.title,
             orgId: incident.orgId,
+          });
+        }
+        // SPEC-022 §Operational §2 — the playbooks of a newly created incident, after
+        // the notification. Every MVP rule's cg_detection_source is `rule` (the
+        // engine refuses any other, engine.ts), so the creating alert's is too.
+        if (soar !== undefined && incident.created) {
+          await runPlaybooks(soar, notify, {
+            incidentId: incident.incidentId,
+            orgId: incident.orgId,
+            agentId: match.sourceEvent.agentId,
+            title: incident.title,
+            severityId: incident.severityId,
+            detectionSource: "rule",
           });
         }
       }

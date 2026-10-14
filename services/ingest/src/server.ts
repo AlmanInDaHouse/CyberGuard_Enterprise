@@ -62,7 +62,7 @@ export async function startIngest(
     await runMigrations(config);
   }
 
-  const services = await buildServices(config);
+  const services = await buildServices(config, playbooks.playbooks);
   // The apps built so far, so a failure after a listen closes what was bound.
   const built: { close(): Promise<unknown> }[] = [];
 

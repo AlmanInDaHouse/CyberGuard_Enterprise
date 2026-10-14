@@ -3,14 +3,24 @@
 // side-effect; ADR-0017 §2 bounds it to fire-and-forget AFTER the incident upsert
 // has committed. It carries NO transport library import — the transport is injected
 // (NotifyConfig.mailer), so the detection-cycle tests inject an in-memory fake and
-// never load nodemailer (the real transport lives in ./transport.ts).
+// never load nodemailer (the real transport lives in ./transport.ts and
+// ./bounded-send.ts).
+
+import { sendFailureCode } from "./errors.js";
 
 /**
- * The minimal mail surface a transport must expose. nodemailer's `Transporter`
- * satisfies it structurally (`sendMail`), and a test injects a spy / JSON transport.
+ * SPEC-022 §Operational §6 — the time limit of SPEC-014's send. The bounded send
+ * closes its connection at it, so the notification never outlives it.
+ */
+export const NOTIFY_SEND_LIMIT_MS = 15_000;
+
+/**
+ * The minimal mail surface a transport must expose: a send with its time limit
+ * (SPEC-022 §Operational §6). Production uses the bounded SMTP send
+ * (./bounded-send.ts); a test injects a spy.
  */
 export interface NotifyMailer {
-  sendMail(message: NotifyMessage): Promise<unknown>;
+  sendMail(message: NotifyMessage, timeoutMs: number): Promise<unknown>;
 }
 
 export interface NotifyMessage {
@@ -72,13 +82,15 @@ export async function notifyIncidentCreated(
       `Title:    ${incident.title}`,
       `Org:      ${incident.orgId}`,
     ].join("\n");
-    await notify.mailer.sendMail({ from: notify.from, to: notify.recipient, subject, text });
+    await notify.mailer.sendMail(
+      { from: notify.from, to: notify.recipient, subject, text },
+      NOTIFY_SEND_LIMIT_MS,
+    );
   } catch (err) {
+    // The error's code only, never its message, which can quote the recipient
+    // (SPEC-022 §Operational §6, amending SPEC-014 by scope).
     notify.log.warn(
-      {
-        err: err instanceof Error ? err.message : String(err),
-        incident_id: incident.incidentId,
-      },
+      { code: sendFailureCode(err), incident_id: incident.incidentId },
       "incident notification send failed",
     );
   }

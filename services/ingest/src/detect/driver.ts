@@ -169,7 +169,11 @@ export function startProdDetectionDriver(
     intervalMs: config.INGEST_DETECT_INTERVAL_MS,
     listOrgs: () => listEnrolledOrgs(services.pool),
     runCycle: (orgId) =>
-      runDetectionCycle(buildDetectConfig(config, orgId), services.notify ?? undefined),
+      runDetectionCycle(
+        buildDetectConfig(config, orgId),
+        services.notify ?? undefined,
+        services.soar ?? undefined,
+      ),
     log,
   });
 }
