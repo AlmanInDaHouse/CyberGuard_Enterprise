@@ -9,6 +9,8 @@ export interface FakeSmtpOptions {
   closeBeforeGreeting?: boolean;
   /** The reply to RCPT TO (default `250 OK`). */
   rcptReply?: string;
+  /** Delay each reply after the greeting by this many ms, a slow but live server. */
+  replyDelayMs?: number;
 }
 
 function authLine(offerAuth: boolean | string | undefined): string {
@@ -41,6 +43,15 @@ export async function fakeSmtp(opts: FakeSmtpOptions = {}): Promise<FakeSmtp> {
     // AUTH LOGIN's two 334 prompts: 1 awaits the user name, 2 the password.
     let loginStep = 0;
     socket.write("220 fake ESMTP\r\n");
+    const reply = (text: string, end = false) => {
+      const send = () => {
+        if (socket.destroyed) return;
+        if (end) socket.end(text);
+        else socket.write(text);
+      };
+      if (opts.replyDelayMs) setTimeout(send, opts.replyDelayMs);
+      else send();
+    };
     socket.on("data", (chunk) => {
       buffered += chunk.toString("utf8");
       let end = buffered.indexOf("\r\n");
@@ -51,30 +62,30 @@ export async function fakeSmtp(opts: FakeSmtpOptions = {}): Promise<FakeSmtp> {
         if (inData) {
           if (line === ".") {
             inData = false;
-            socket.write("250 queued\r\n");
+            reply("250 queued\r\n");
           }
           continue;
         }
         commands.push(line);
         if (loginStep > 0) {
           loginStep = loginStep === 1 ? 2 : 0;
-          socket.write(loginStep === 2 ? "334 UGFzc3dvcmQ6\r\n" : "235 accepted\r\n");
+          reply(loginStep === 2 ? "334 UGFzc3dvcmQ6\r\n" : "235 accepted\r\n");
         } else if (/^AUTH LOGIN$/i.test(line)) {
           loginStep = 1;
-          socket.write("334 VXNlcm5hbWU6\r\n");
+          reply("334 VXNlcm5hbWU6\r\n");
         } else if (/^EHLO/i.test(line)) {
-          if (opts.refuseEhlo) socket.write("502 5.5.2 EHLO not supported\r\n");
+          if (opts.refuseEhlo) reply("502 5.5.2 EHLO not supported\r\n");
           else {
-            socket.write(`250-fake\r\n${authLine(opts.offerAuth)}250 OK\r\n`);
+            reply(`250-fake\r\n${authLine(opts.offerAuth)}250 OK\r\n`);
           }
-        } else if (/^HELO/i.test(line)) socket.write("250 fake\r\n");
-        else if (/^AUTH/i.test(line)) socket.write("235 accepted\r\n");
-        else if (/^RCPT/i.test(line)) socket.write(`${opts.rcptReply ?? "250 OK"}\r\n`);
+        } else if (/^HELO/i.test(line)) reply("250 fake\r\n");
+        else if (/^AUTH/i.test(line)) reply("235 accepted\r\n");
+        else if (/^RCPT/i.test(line)) reply(`${opts.rcptReply ?? "250 OK"}\r\n`);
         else if (/^DATA/i.test(line)) {
           inData = true;
-          socket.write("354 go on\r\n");
-        } else if (/^QUIT/i.test(line)) socket.end("221 bye\r\n");
-        else socket.write("250 OK\r\n");
+          reply("354 go on\r\n");
+        } else if (/^QUIT/i.test(line)) reply("221 bye\r\n", true);
+        else reply("250 OK\r\n");
       }
     });
   });

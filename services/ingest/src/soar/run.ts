@@ -130,11 +130,12 @@ async function runOne(
   }
 
   // 2. Steps, each under its bound; a failed step ends the run.
-  const runDeadline = Date.now() + bounds.runMs;
+  const now = soar.now ?? Date.now;
+  const runDeadline = now() + bounds.runMs;
   const steps: UnlinkedStep[] = [];
   let failed = false;
   for (const step of playbook.steps) {
-    const started = new Date().toISOString();
+    const started = new Date(now()).toISOString();
     const record = (outcome: StepOutcome, detail: string): void => {
       steps.push({
         step_id: step.id,
@@ -143,14 +144,14 @@ async function runOne(
         outcome,
         detail: cut(detail),
         started_at: started,
-        finished_at: new Date().toISOString(),
+        finished_at: new Date(now()).toISOString(),
       });
     };
     if (failed) {
       record("skipped", "an earlier step failed");
       continue;
     }
-    const remaining = runDeadline - Date.now();
+    const remaining = runDeadline - now();
     if (remaining <= 0) {
       failed = true;
       record("failed", `run timed out after ${bounds.runMs} ms`);
