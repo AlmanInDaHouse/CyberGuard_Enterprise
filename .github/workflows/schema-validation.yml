@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           # setup-node@v5 auto-caches when package.json has a `packageManager`
           # field (default package-manager-cache: true); the root declares
           # pnpm, so it tries to resolve pnpm BEFORE corepack puts it on PATH
