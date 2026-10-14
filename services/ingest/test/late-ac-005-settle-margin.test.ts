@@ -54,8 +54,8 @@ async function insertAged(orgId: string, arrivedAt: string): Promise<DetectCurso
   return { arrivedAt, eventId: await insertRow(orgId, arrivedAt) };
 }
 
-/** Insert one benign Launch into `orgId`; `arrivedAt` omitted ⇒ ClickHouse assigns it. */
-async function insertRow(orgId: string, arrivedAt?: string): Promise<string> {
+/** Insert one benign Launch into `orgId`, arrived at `arrivedAt`. */
+async function insertRow(orgId: string, arrivedAt: string): Promise<string> {
   const eventId = randomUUID();
   await insertCgesEvent(config, {
     agentId: AGENT,
@@ -102,9 +102,9 @@ test("late_ac_005: the production driver's config reads with the 5000 ms constan
   expect(cfg.settleMarginMs).toBeUndefined();
   expect(SETTLE_MARGIN_MS).toBe(5000);
 
-  // 10 s old: past a 5000 ms margin. Just inserted: inside it.
+  // 10 s old: past a 5000 ms margin. Stamped at ClickHouse's present: inside it.
   const past = await insertAged(org, await chNowMinus(10_000));
-  await insertRow(org);
+  await insertRow(org, await chNowMinus(0));
 
   const result = await runDetectionCycle(cfg);
   expect(result.eventsEvaluated).toBe(1);
