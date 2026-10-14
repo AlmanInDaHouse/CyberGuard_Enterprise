@@ -12,8 +12,8 @@ import type { NotifyMailer, NotifyMessage } from "./index.js";
 
 interface SmtpConnection {
   // Two fields private to nodemailer 8.0.10, which package.json pins exactly (debt
-  // #75); soar_ac_006 fails on another release, and its HELO and mechanism cases fail
-  // if either field changes.
+  // #75), and `secure` below, public but undocumented; soar_ac_006 fails on another
+  // release, and its HELO, mechanism and TLS cases fail if any of the three changes.
   /**
    * The AUTH mechanisms nodemailer matched in the last EHLO reply, among PLAIN, LOGIN,
    * CRAM-MD5 and XOAUTH2. Only that reply fills it (after STARTTLS, the one after
@@ -24,6 +24,8 @@ interface SmtpConnection {
   _supportedAuth: string[];
   /** The lines of the last EHLO reply, without their reply codes. */
   _ehloLines?: string[];
+  /** Whether the connection is encrypted: implicit TLS, or a completed STARTTLS. */
+  secure: boolean;
   once(event: "error", listener: (err: Error) => void): void;
   once(event: "end", listener: () => void): void;
   connect(callback: () => void): void;
@@ -59,11 +61,19 @@ export const SMTP_SOCKET_TIMEOUT_MS = 10_000;
 /** The code of a send whose connection the server closed before it completed. */
 export const SEND_CLOSED_CODE = "ECONNECTION";
 
+/** The code of a send refused because the server asks for credentials without TLS. */
+export const SEND_NO_TLS_CODE = "ENOTLS";
+
 export interface SmtpServer {
   host: string;
   port: number;
   user: string;
   pass: string;
+  /**
+   * Trusted roots for the relay's certificate, passed by the tests only. Absent in
+   * production, so Node's roots apply (an empty list would replace them with none).
+   */
+  tls?: { ca: string | string[] };
 }
 
 /** The mechanisms a user name and password authenticate with, in nodemailer's order. */
@@ -96,7 +106,9 @@ function authMechanism(connection: SmtpConnection): string | null {
  * (implicit TLS on 465, otherwise STARTTLS when the server offers it), and closes
  * it when the send's time limit runs out. It authenticates only with a mechanism the
  * server's EHLO reply advertised (`authMechanism`), so credentials never go to a
- * server that did not ask for them. It takes the envelope from the message's
+ * server that did not ask for them, and only over TLS: a server that asks for them
+ * on a connection in clear text gets none, and the send fails as `ENOTLS` (SPEC-022
+ * Amendment 2026-10-15). It takes the envelope from the message's
  * headers, so a sender with a display name still works. A connection the server
  * closes fails the send at once, as `ECONNECTION` (SPEC-014's transport failed it
  * about a second later, with no code); only the send's own limit reads as a timeout.
@@ -112,6 +124,7 @@ export function createBoundedSmtpMailer(server: SmtpServer): NotifyMailer {
           connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
           greetingTimeout: SMTP_GREETING_TIMEOUT_MS,
           socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
+          ...(server.tls === undefined ? {} : { tls: server.tls }),
         });
         let settled = false;
         const finish = (err?: Error | null) => {
@@ -166,6 +179,14 @@ export function createBoundedSmtpMailer(server: SmtpServer): NotifyMailer {
           try {
             const method = authMechanism(connection);
             if (method === null) return deliver();
+            if (!connection.secure) {
+              return finish(
+                Object.assign(
+                  new Error("the server asks for credentials on a connection without TLS"),
+                  { code: SEND_NO_TLS_CODE },
+                ),
+              );
+            }
             connection.login({ user: server.user, pass: server.pass, method }, (loginErr) => {
               if (loginErr) return finish(loginErr);
               deliver();
