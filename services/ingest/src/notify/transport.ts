@@ -1,15 +1,12 @@
-import { createRequire } from "node:module";
-import type Nodemailer from "nodemailer";
 import { pino } from "pino";
 import type { Config } from "../config.js";
+import { createBoundedSmtpMailer } from "./bounded-send.js";
 import type { NotifyConfig } from "./index.js";
 
-// nodemailer is CJS; load via createRequire for clean ESM interop — the same
-// pattern ingest already uses for `canonicalize` (src/jcs.ts). The `import type`
-// pulls @types/nodemailer at compile time only; the runtime value comes from
-// createRequire. This module is imported ONLY by services.ts (the boot graph),
-// never by the detect-cycle tests, so the tests never load nodemailer.
-const nodemailer = createRequire(import.meta.url)("nodemailer") as typeof Nodemailer;
+// This module is imported ONLY by services.ts (the boot graph), never by the
+// detect-cycle tests, so the tests never load nodemailer. The send is the bounded
+// one of ./bounded-send.ts (SPEC-022 §Operational §6), one SMTP connection per
+// send, closed at its time limit.
 
 /**
  * Build the production NotifyConfig from the optional SMTP block (SPEC-014
@@ -42,16 +39,11 @@ export function buildNotifyConfig(config: Config): NotifyConfig | null {
 
   // Generic SMTP (ADR-0017 §Decision §1) — Gmail is reached as one SMTP host
   // (smtp.gmail.com) among many, never the Gmail REST API / OAuth.
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-  });
+  const mailer = createBoundedSmtpMailer({ host, port, user, pass });
   const log = pino({ name: "ingest-notify", level: config.INGEST_LOG_LEVEL });
 
   return {
-    mailer: { sendMail: (message) => transporter.sendMail(message) },
+    mailer,
     from,
     recipient,
     log,

@@ -2,11 +2,13 @@ import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import { Redis } from "ioredis";
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
+import { pino } from "pino";
 import { type ServerCa, ensureCa } from "./ca.js";
 import type { Config } from "./config.js";
 import type { Database } from "./db/schema.js";
 import type { NotifyConfig } from "./notify/index.js";
 import { buildNotifyConfig } from "./notify/transport.js";
+import type { Playbook, SoarConfig } from "./soar/types.js";
 
 /**
  * The shared persistence + crypto layer behind both listeners (FR-002):
@@ -28,10 +30,16 @@ export interface Services {
    * merge (ADR-0017 §Consequences).
    */
   notify: NotifyConfig | null;
+  /**
+   * SPEC-022 — the SOAR carrier, or `null` when no playbook loaded (SOAR idle).
+   * Built once at boot from the playbooks startIngest loaded first; consumed by
+   * the production detection driver, as `notify` is.
+   */
+  soar: SoarConfig | null;
   close(): Promise<void>;
 }
 
-export async function buildServices(config: Config): Promise<Services> {
+export async function buildServices(config: Config, playbooks: Playbook[] = []): Promise<Services> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
   const redis = new Redis(config.INGEST_REDIS_URL, { maxRetriesPerRequest: 1 });
@@ -44,6 +52,14 @@ export async function buildServices(config: Config): Promise<Services> {
 
   const ca = await ensureCa(pool, config.INGEST_CA_PASSPHRASE);
   const notify = buildNotifyConfig(config);
+  const soar: SoarConfig | null =
+    playbooks.length > 0
+      ? {
+          playbooks,
+          pg: pool,
+          log: pino({ name: "ingest-soar", level: config.INGEST_LOG_LEVEL }),
+        }
+      : null;
 
   return {
     config,
@@ -53,6 +69,7 @@ export async function buildServices(config: Config): Promise<Services> {
     ch,
     ca,
     notify,
+    soar,
     async close() {
       await Promise.allSettled([db.destroy(), redis.quit(), ch.close()]);
     },
