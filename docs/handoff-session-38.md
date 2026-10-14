@@ -808,6 +808,13 @@ New this session:
   reached the log. Surfaced by the review of the sweep's code.
   Destination: SPEC-008's input validation; Claude Code's, in a later
   sweep.
+- **#73 — ADR-0021 §2 says `ajv-cli` reads JSON.** `docs/adr/0021-soar-mvp-playbook-executor.md`
+  §2: "CI's validation reads the YAML playbooks through the same loader,
+  since `ajv-cli` reads JSON." ajv-cli 5 reads YAML data files too
+  (measured on 2026-10-14 with `ajv validate -d t.yml`). The decision the
+  clause supports holds: CI validates the playbooks through the loader in
+  `ts-ci` (SPEC-022 §Operational §8). Surfaced by SPEC-022's review.
+  Destination: the next ADR-0021 amendment, which needs Manuel's "sí".
 
 Closed this session:
 
