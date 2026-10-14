@@ -16,7 +16,7 @@ import { detectConfig } from "./helpers/detect.js";
 // own. The production case builds the config as the driver does
 // (buildDetectConfig), which leaves the margin unset: the constant, 5000 ms.
 
-const AGENT = "01934abc-def0-7000-89ab-0000000a5001";
+const AGENT = globalThis.crypto.randomUUID();
 const NOTEPAD = "C:\\Windows\\System32\\notepad.exe";
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;

@@ -5,6 +5,10 @@ import type { NormalizedProcessEvent } from "../src/detect/types.js";
 import { insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // SPEC-016 rules_ac_004 — parent resolution per child (§Operational §1): the
 // parent is the most recent Launch of the child's parent pid on the same agent,
 // at most 24 h before the child, unless that process's own Terminate (matched by
@@ -38,7 +42,7 @@ interface Proc {
 /** Insert one Process Activity row (a Launch unless `activity` says otherwise); returns its event_id. */
 async function insert(p: Proc): Promise<string> {
   seq += 1;
-  const eventId = `01934abc-def0-4000-89ab-0000000a4${String(seq).padStart(3, "0")}`;
+  const eventId = `${ID_PREFIX}-def0-4000-89ab-0000000a4${String(seq).padStart(3, "0")}`;
   await insertCgesEvent(config, {
     agentId: p.agent,
     orgId: p.org,
@@ -78,7 +82,7 @@ async function readEarlierBatch(org: string): Promise<number> {
 
 test("a parent launched 2 h before its child resolves", async () => {
   const org = "rules-ac-004-2h";
-  const agent = "01934abc-def0-7000-89ab-0000000a4001";
+  const agent = globalThis.crypto.randomUUID();
   await insert({ org, agent, pid: 7100, image: WINWORD, time: "2026-09-27 08:00:00.000000000" });
   // The parent was read by an earlier cycle; the next batch holds the child only.
   expect(await readEarlierBatch(org)).toBe(1);
@@ -96,7 +100,7 @@ test("a parent launched 2 h before its child resolves", async () => {
 
 test("a later reuse of the parent's pid, inside the same batch, does not replace it", async () => {
   const org = "rules-ac-004-reuse";
-  const agent = "01934abc-def0-7000-89ab-0000000a4002";
+  const agent = globalThis.crypto.randomUUID();
   await insert({ org, agent, pid: 7200, image: WINWORD, time: "2026-09-27 10:00:00.000000000" });
   const child = await insert({
     org,
@@ -130,7 +134,7 @@ test("a later reuse of the parent's pid, inside the same batch, does not replace
 
 test("a candidate whose Terminate precedes the child is not used", async () => {
   const org = "rules-ac-004-terminated";
-  const agent = "01934abc-def0-7000-89ab-0000000a4003";
+  const agent = globalThis.crypto.randomUUID();
   const t = (s: string) => `2026-09-27 10:00:${s}.000000000`;
 
   // WINWORD (uid u-7300) launches, spawns a child, then terminates; a later child of pid 7300.
@@ -193,7 +197,7 @@ test("a candidate whose Terminate precedes the child is not used", async () => {
 
 test("a parent launched more than 24 h before its child resolves to null", async () => {
   const org = "rules-ac-004-24h";
-  const agent = "01934abc-def0-7000-89ab-0000000a4004";
+  const agent = globalThis.crypto.randomUUID();
   // 24 h + 1 s before its child: outside the look-back.
   await insert({ org, agent, pid: 7400, image: WINWORD, time: "2026-09-26 09:59:59.000000000" });
   // Exactly 24 h before its child: the look-back is inclusive.

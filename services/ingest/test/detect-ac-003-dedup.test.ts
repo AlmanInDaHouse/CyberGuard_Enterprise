@@ -4,6 +4,10 @@ import { runDetectionCycle } from "../src/detect/index.js";
 import { enrollTestAgent, getAlerts, insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // SPEC-006 detect_ac_003 — dedup: five matching Office->script-host spawns in
 // the same (agent_id, rule, process_name, 5-min bucket) produce exactly ONE
 // alert (INSERT ... ON CONFLICT (dedup_key) DO NOTHING, ADR-0012 §5/§6). Also
@@ -21,7 +25,7 @@ const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.ex
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 
 test("detect_ac_003: 5 winword->powershell spawns in one 5-min bucket dedupe to 1 alert", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000330";
+  const agentId = globalThis.crypto.randomUUID();
 
   // Five parent(winword)->child(powershell) pairs, all inside one 5-minute
   // bucket (11:00:00..11:04:59 → floor(unix/300) identical).
@@ -32,7 +36,7 @@ test("detect_ac_003: 5 winword->powershell spawns in one 5-min bucket dedupe to 
     await insertCgesEvent(config, {
       agentId,
       orgId: "detect-ac-003",
-      eventId: `01934abc-def0-4000-89ab-${String(seq).padStart(12, "0")}`,
+      eventId: `${ID_PREFIX}-def0-4000-89ab-${String(seq).padStart(12, "0")}`,
       activityId: 1,
       processPid: parentPid,
       processName: "winword.exe",
@@ -42,7 +46,7 @@ test("detect_ac_003: 5 winword->powershell spawns in one 5-min bucket dedupe to 
     await insertCgesEvent(config, {
       agentId,
       orgId: "detect-ac-003",
-      eventId: `01934abc-def0-4000-89ab-${String(seq + 1).padStart(12, "0")}`,
+      eventId: `${ID_PREFIX}-def0-4000-89ab-${String(seq + 1).padStart(12, "0")}`,
       activityId: 1,
       processPid: childPid,
       processName: "powershell.exe",

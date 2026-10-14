@@ -156,7 +156,7 @@ test("incident_severity_ac_004: 0006 backfills each incident's severity_id to MA
     // 2) Seed mixed-severity alerts + incidents that reference them (no severity yet).
     const agentId = "01934abc-def0-7000-89ab-0000000004a0";
     await seedAgent(pool, agentId);
-    const a2 = "01934abc-def0-7000-89ab-000000000402";
+    const a2 = "01934abc-def0-7000-89ab-000000004a02";
     const a6 = "01934abc-def0-7000-89ab-000000000406";
     const a5 = "01934abc-def0-7000-89ab-000000000405";
     const a3 = "01934abc-def0-7000-89ab-000000000403";

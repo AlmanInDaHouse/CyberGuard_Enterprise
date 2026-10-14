@@ -4,6 +4,10 @@ import { advanceCursor, getCursor, readNewEvents } from "../src/detect/read-mode
 import { insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
 
+// Debt #3: the ids this file builds start with a prefix of its own run, so no other
+// file's rows in the shared stores can carry them.
+const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
+
 // SPEC-006 5b — read-model unit/integration gate. Exercises readNewEvents +
 // getCursor + advanceCursor (SPEC-018 arrival cursor) directly against synthetic
 // cges_events, with the settle margin at 0 (helpers/detect.ts). This
@@ -21,7 +25,7 @@ const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.ex
 let seq = 0;
 function ev(): string {
   seq += 1;
-  return `01934abc-def0-4000-89ab-${String(seq).padStart(12, "0")}`;
+  return `${ID_PREFIX}-def0-4000-89ab-${String(seq).padStart(12, "0")}`;
 }
 
 beforeAll(() => {
@@ -30,7 +34,7 @@ beforeAll(() => {
 
 test("projects verbatim cges_events columns into a NormalizedProcessEvent", async () => {
   const org = "rm-cols";
-  const agentId = "01934abc-def0-7000-89ab-0000000000c1";
+  const agentId = globalThis.crypto.randomUUID();
   const eventId = ev();
   await insertCgesEvent(config, {
     agentId,
@@ -64,7 +68,7 @@ test("no FINAL: a resent row arrives after the cursor and is read again (SPEC-01
   const org = "rm-resend";
   const eventId = ev();
   const row = {
-    agentId: "01934abc-def0-7000-89ab-0000000000c2",
+    agentId: globalThis.crypto.randomUUID(),
     eventId,
     orgId: org,
     activityId: 1,
@@ -92,7 +96,7 @@ test("no FINAL: a resent row arrives after the cursor and is read again (SPEC-01
 
 test("cursor: starts at the beginning, read batch A, advance, next poll reads only batch B", async () => {
   const org = "rm-wm";
-  const agentId = "01934abc-def0-7000-89ab-0000000000c3";
+  const agentId = globalThis.crypto.randomUUID();
   const cfg = detectConfig(config, org);
 
   // Fresh org → no detect_watermark row → the cursor's start (the 0007 defaults).
@@ -161,7 +165,7 @@ test("cursor: starts at the beginning, read batch A, advance, next poll reads on
 
 test("parent-pid self-join: captured parent resolves; absent parent yields null", async () => {
   const org = "rm-join";
-  const agentId = "01934abc-def0-7000-89ab-0000000000c4";
+  const agentId = globalThis.crypto.randomUUID();
   const cfg = detectConfig(config, org);
 
   // Parent winword (pid 9300) captured; child powershell whose parent is 9300.

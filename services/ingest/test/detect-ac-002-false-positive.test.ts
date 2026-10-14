@@ -24,7 +24,7 @@ beforeAll(() => {
 });
 
 test("detect_ac_002: explorer.exe -> powershell.exe yields 0 alerts (FP), cycle ran", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000220";
+  const agentId = globalThis.crypto.randomUUID();
   const parentPid = 5000;
 
   // Parent: explorer.exe (NOT an Office application).

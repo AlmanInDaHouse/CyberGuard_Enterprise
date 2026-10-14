@@ -18,10 +18,11 @@ beforeAll(() => {
 });
 
 const ORG = "debt-41-arrival";
+const AGENT = globalThis.crypto.randomUUID();
 
 function row(eventId: string) {
   return {
-    agentId: "01934abc-def0-7000-89ab-0000000d4101",
+    agentId: AGENT,
     orgId: ORG,
     eventId,
     activityId: 1,

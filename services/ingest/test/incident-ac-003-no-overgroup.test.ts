@@ -18,7 +18,7 @@ const TACTICS_EXEC = { tactics: ["execution", "initial-access"], techniques: ["T
 const TACTICS_PERSIST = { tactics: ["persistence"], techniques: ["T1547.001"] };
 
 test("incident_ac_003: distinct tactic-set OR out-of-window -> separate incidents", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000030";
+  const agentId = globalThis.crypto.randomUUID();
   const orgId = "incident-ac-003";
   await enrollTestAgent(config, agentId);
 

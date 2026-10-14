@@ -18,7 +18,7 @@ const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.ex
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 
 test("notify_ac_004: the email content carries incident_id, severity, and title", async () => {
-  const agentId = "01934abc-def0-7000-89ab-000000000053";
+  const agentId = globalThis.crypto.randomUUID();
   const orgId = "notify-ac-004";
   await enrollTestAgent(config, agentId);
 
