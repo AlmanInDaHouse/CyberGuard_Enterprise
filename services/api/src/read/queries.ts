@@ -7,6 +7,9 @@ import type {
   IncidentDetail,
   IncidentListItem,
   Page,
+  PlaybookExecution,
+  PlaybookExecutionStep,
+  PlaybookExecutions,
   ResolvedAlert,
   TimelineEvent,
 } from "./types.js";
@@ -381,4 +384,53 @@ export async function listAlerts(
   const next_cursor =
     hasMore && last ? encodeCursor({ t: last.event_time.toISOString(), id: last.alert_id }) : null;
   return { items, next_cursor };
+}
+
+interface PlaybookExecutionRow {
+  execution_id: string;
+  playbook_id: string;
+  playbook_version: number;
+  status: string;
+  started_at: Date;
+  finished_at: Date | null;
+  chain_head: string | null;
+  steps: PlaybookExecutionStep[];
+}
+
+/**
+ * SPEC-022 §Data contracts §4 — the execution records of an incident, oldest first.
+ * The org-scoped lookup of the incident comes first, as SPEC-010's step 1 does: an
+ * absent or cross-org incident is `null`, which the route answers with 404. Every
+ * store call goes through `fromStore` (SPEC-009 Amendment 2026-10-14 §3).
+ */
+export async function getIncidentPlaybookExecutions(
+  pool: Pool,
+  orgId: string,
+  id: string,
+): Promise<PlaybookExecutions | null> {
+  const ir = await fromStore(() =>
+    pool.query("SELECT 1 FROM incidents WHERE incident_id = $1 AND org_id = $2", [id, orgId]),
+  );
+  if (ir.rows.length === 0) return null;
+  const er = await fromStore(() =>
+    pool.query<PlaybookExecutionRow>(
+      `SELECT execution_id, playbook_id, playbook_version, status, started_at, finished_at,
+              chain_head, steps
+         FROM playbook_executions
+        WHERE incident_id = $1 AND org_id = $2
+        ORDER BY started_at, execution_id`,
+      [id, orgId],
+    ),
+  );
+  const executions: PlaybookExecution[] = er.rows.map((row) => ({
+    execution_id: row.execution_id,
+    playbook_id: row.playbook_id,
+    playbook_version: row.playbook_version,
+    status: row.status,
+    started_at: row.started_at.toISOString(),
+    finished_at: row.finished_at ? row.finished_at.toISOString() : null,
+    chain_head: row.chain_head,
+    steps: row.steps,
+  }));
+  return { incident_id: id, executions };
 }

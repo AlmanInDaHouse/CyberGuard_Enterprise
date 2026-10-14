@@ -70,3 +70,33 @@ export interface EventTimeline {
   incident_id: string;
   events: TimelineEvent[];
 }
+
+// SPEC-022 §Data contracts §4 — the playbook executions of an incident, as ingest's
+// SOAR run records them (`playbook_executions`, ingest migration 0008). The steps
+// are returned as stored, each with its chain link.
+export interface PlaybookExecutionStep {
+  step_id: string;
+  action: string;
+  mode: string;
+  outcome: string;
+  detail: string;
+  started_at: string;
+  finished_at: string;
+  link: string;
+}
+
+export interface PlaybookExecution {
+  execution_id: string;
+  playbook_id: string;
+  playbook_version: number;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  chain_head: string | null;
+  steps: PlaybookExecutionStep[];
+}
+
+export interface PlaybookExecutions {
+  incident_id: string;
+  executions: PlaybookExecution[];
+}
