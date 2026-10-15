@@ -476,6 +476,44 @@ Load-bearing decisions for Manuel's gate. Manuel delegated the choice explicitly
 
 **Effect.** No change to the rule set, its fixtures or its scenarios. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows a phase decision of Manuel's and decides nothing of its own. Status stays **Accepted**.
 
+## Amendment 2026-10-16: the rule set is loaded once, at the driver's start
+
+This amendment is a document change: until the code that implements it lands, ingest behaves as *What surfaced it* says. Status stays **Accepted**.
+
+**What surfaced it.** Debt #91 (`docs/handoff-session-39.md:705`). Every cycle of the production driver loads `INGEST_DETECT_RULES_DIR` again (`services/ingest/src/detect/index.ts`, `runDetectionCycle`). Whoever can write that directory therefore changes detection within one cycle, without a restart. A file that fails to load makes every cycle fail, with a log line (`detect_driver_pass_error`), while ingest keeps running and detects nothing. Threat model R8 (`docs/security/threat-model.md:323`). The threat model's plan for detection already says otherwise: "Rules are loaded only from `rules/` at startup" (`:99`), and the MVP forbids hot reload (`:105`).
+
+**Amendment.**
+
+1. **Loaded once.** The production driver (`startProdDetectionDriver`, `services/ingest/src/detect/driver.ts`) loads the rule set from `INGEST_DETECT_RULES_DIR` once, when it starts. It runs the checks it runs there today: the rejections of §Operational §2 (a rule outside the contract), an unreadable directory, and a directory with no rules each refuse to start the driver, and so ingest, as before. Every cycle of the driver evaluates the rule set loaded at that start. With `INGEST_DETECT_INTERVAL_MS=0`, the driver's off switch, nothing is loaded, as before.
+2. **A change takes a restart.** A rule file added to, changed in or removed from the directory after the start changes nothing until ingest starts again, and that start runs the same checks. A file that would fail to load fails that start, visibly. It no longer makes every cycle fail while ingest keeps running. A broken file written while ingest runs therefore lies dormant until the next start, which it then refuses: ingest stops whole, its listeners included, not only its detection. That is the same as a restart today.
+3. **Other callers.** `runDetectionCycle` called without a loaded rule set loads the directory itself, as before. The tests and the detect_ac_001 marquee call it that way.
+
+**Decision.** Claude Code's, inside ADR-0012 and this SPEC: when the rule set is read is the design of the detection module, and which threats the rules cover is not touched. It follows the threat model's plan (`:99`, `:105`). Alternatives, both a form of the hot reload `:105` forbids:
+
+- keep the reload on every cycle and raise a failed load as an alert, the debt's other destination;
+- watch the directory and reload on a change.
+
+**Acceptance criteria.** CI-able, against the real stores, with no ETW.
+
+- **rules_ac_007 (the rule set loaded at start).** The production driver starts over a copy of `rules/windows/`.
+  1. First, `office_spawns_script_host.yml` is removed from the copy. That valid change does not change detection: a `winword.exe` → `powershell.exe` pair still raises `rule.office_spawns_script_host`.
+  2. Then a `.yml` file that fails to load is written into the copy. That does not change detection either: a second pair raises the rule too, and no cycle fails.
+  3. Finally, a start over a copy that holds the broken file refuses to start.
+
+**Effect.**
+
+- §Operational §2: "fail-closed at load and fail-loud at boot" now also means that the production driver loads only at its start.
+- SPEC-018 §Operational §3 (`docs/specs/SPEC-018-detection-read-model-arrival-cursor.md:116`) says "the rules are loaded on every cycle". That holds for a caller of item 3. Under the production driver, the rule set is the one loaded at its start, so a second evaluation can still match where the first did not only through the parent's resolution.
+- ADR-0012's driver (Amendment 2026-06-07): its scheduler, its cycles and its off switch are unchanged. Its call to `runDetectionCycle` now carries the rule set it loaded, which item 3's callers leave out.
+- The detect_ac_001 marquee calls `runDetectionCycle` itself, with the driver off, so it does not exercise item 1; rules_ac_007 does, inside the same suite.
+- The threat model, when the code lands, in two places:
+  - R8 narrows to rules that change at a restart, by whoever can write the directory and restart ingest;
+  - its record of the system as built (§4, `:305`, "read from `INGEST_DETECT_RULES_DIR` again on every cycle … not only at startup") changes with it.
+
+  The threat model is Manuel's, and `docs/handoff-session-40.md` lists the change for his audit.
+- The code that implements this amendment touches `services/ingest/src/detect/`, so it lands only after a green elevated gate (CLAUDE.md, *Developer-local SPEC-006 marquee validation* §6).
+- Debt #91 closes with that code.
+
 ## References
 
 - [SPEC-006](SPEC-006-detection-mvp.md) — the MVP rule, SC001 / SC010, the parent self-join amended here by scope, and the "Full detection bar" realised here.

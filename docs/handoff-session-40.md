@@ -733,6 +733,41 @@ Decisions (delegated):
 Deployment note, for roadmap §F's Redis user per service (#85): the api's
 login now runs `EVAL`, so its user needs the `@scripting` category.
 
+### #91: the contract
+
+SPEC-016's Amendment 2026-10-16, *the rule set is loaded once, at the
+driver's start*, lands first as a document, after the fixed SPEC prompt.
+The production driver loads `INGEST_DETECT_RULES_DIR` once, at its start,
+with the checks it already ran there. A change to the directory takes
+effect at the next start, and must pass the same checks. A file that fails
+to load fails that start instead of every cycle. This follows the threat
+model's own plan (`:99`, rules loaded only at startup; `:105`, no hot
+reload).
+
+An anticipated decision, Claude Code's inside ADR-0012; the alternatives,
+both forms of hot reload, are in the amendment. Its code touches
+`services/ingest/src/detect/`, so it waits for an elevated gate.
+
+For Manuel's audit: when the code lands, the threat model's R8 narrows,
+and its record of the system as built (§4, `:305`) changes with it.
+
+The fixed SPEC prompt found three points that blocked (A), all fixed:
+
+- the criterion's id, `rules_ac_005`, was taken (now rules_ac_007);
+- SPEC-018 §Operational §3 says the rules load on every cycle (now amended
+  by scope, with its catalog edge);
+- the draft called "silent" a failure the driver logs.
+
+From its second list, the draft took:
+
+- a criterion that tells a load at start from a reload that keeps the last
+  good set, by applying a valid change alone first;
+- the checks the driver runs, named where they are;
+- the off switch;
+- the threat model's plan;
+- the dormant broken file that stops ingest at the next start;
+- ADR-0012's call.
+
 ## Debts
 
 New this session:
@@ -841,6 +876,9 @@ Changed this session:
   want of a session, which waits for Manuel's reading of ADR-0014
   §Compliance (`docs/adr/0014-human-authentication-model.md:98`); see *What
   waits on Manuel*. Its `403` half closed with that commit.
+- **#91**: its destination is SPEC-016's Amendment 2026-10-16, the rule
+  set loaded at the driver's start; it closes with its code, after the
+  elevated gate.
 - **#104**: the headers must not include `Referrer-Policy: no-referrer`:
   under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
   same-origin check would refuse every sign-in and sign-out (the fourth
