@@ -134,6 +134,18 @@ export async function buildReport(
   orgId: string,
   incidentId: string,
 ): Promise<Buffer | null> {
+  return (await composeReport(services, orgId, incidentId))?.pdf ?? null;
+}
+
+/**
+ * The report and the export whose seal it transcribes: the route records what the
+ * forensic key signed for it (SPEC-009's third Amendment 2026-10-15, item 3).
+ */
+export async function composeReport(
+  services: Pick<Services, "pg" | "ch" | "forensicKey">,
+  orgId: string,
+  incidentId: string,
+): Promise<{ pdf: Buffer; seal: ForensicExport } | null> {
   const detail = await getIncidentDetail(services.pg, orgId, incidentId);
   if (!detail) {
     return null;
@@ -142,5 +154,5 @@ export async function buildReport(
   if (!exp) {
     return null;
   }
-  return renderReport(detail, exp);
+  return { pdf: await renderReport(detail, exp), seal: exp };
 }

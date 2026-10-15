@@ -3,8 +3,10 @@
  * change (threat model § cg-api Repudiation). INSERT-only path (no update/delete).
  *
  * SPEC-008 Amendment 2026-10-15 item 6: `userId` is the acting principal, `targetId`
- * the user acted on, `correlationId` the request's id, and `detail` holds only role
- * and status values.
+ * the user acted on (the incident, on a forensic row), `correlationId` the request's id, and `detail` holds only role
+ * and status values, and, on the forensic rows (SPEC-009's third Amendment 2026-10-15),
+ * the count of events signed and the hashes that identify them; never an address, a
+ * password, a code or a token.
  */
 export interface AuditEvent {
   userId?: string | null;

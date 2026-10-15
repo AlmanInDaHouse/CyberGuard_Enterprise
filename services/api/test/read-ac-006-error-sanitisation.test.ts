@@ -8,6 +8,7 @@ import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-s
 // the list that takes it. Each body carries only `error`: no SQL, no stack.
 
 const TOKEN = "tok-read-ac-006";
+const ANALYST_TOKEN = "tok-read-ac-006-analyst";
 const ORG = "read-ac-006";
 
 let apph: Awaited<ReturnType<typeof buildTestApp>>;
@@ -19,6 +20,12 @@ let incidentId: string;
 beforeAll(async () => {
   config = inject("apiConfig");
   apph = await buildTestApp(config);
+  await seedSession(config, {
+    token: ANALYST_TOKEN,
+    userId: globalThis.crypto.randomUUID(),
+    role: "analyst",
+    orgId: ORG,
+  });
   await seedSession(config, {
     token: TOKEN,
     userId: globalThis.crypto.randomUUID(),
@@ -41,8 +48,15 @@ afterAll(async () => {
   await apph?.close();
 });
 
+/** A viewer reads every route but the forensic ones, which it is refused before its :id
+ *  is read (SPEC-009's third Amendment 2026-10-15); those take an analyst. */
 async function get(url: string) {
-  return apph.app.inject({ method: "GET", url, cookies: { cgsess: TOKEN } });
+  const forensic = /\/(forensic-export|report)$/.test(url.split("?")[0] ?? "");
+  return apph.app.inject({
+    method: "GET",
+    url,
+    cookies: { cgsess: forensic ? ANALYST_TOKEN : TOKEN },
+  });
 }
 
 /** A cursor as the API encodes one (base64url of `{ t, id }`), with chosen fields. */
