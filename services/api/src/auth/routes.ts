@@ -16,11 +16,7 @@ import {
   parseBody,
 } from "./schemas.js";
 import type { RequestContext } from "./service.js";
-
-/** The request's id, address and session, for the audit rows (Amendment item 6). */
-function ctxOf(req: FastifyRequest): RequestContext {
-  return { correlationId: req.id, sourceIp: req.ip, session: req.authSession };
-}
+import { sourceAddress } from "./source-address.js";
 
 /**
  * SPEC-008 §Operational — the auth-core HTTP surface. Session lifecycle is open
@@ -38,6 +34,15 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
   const requireAdmin = makeRequireRole("admin");
   const requireCsrf = makeRequireCsrf();
   const requireUserId = makeRequireIdParam();
+
+  /** The request's id, source address and session, for the limits and the audit rows
+   *  (the first Amendment 2026-10-15, item 6; the second, *the source address behind a
+   *  proxy*, items 2 and 3). */
+  const ctxOf = (req: FastifyRequest): RequestContext => ({
+    correlationId: req.id,
+    sourceIp: sourceAddress(req.ip, req.headers["x-forwarded-for"], services.trustedProxies),
+    session: req.authSession,
+  });
 
   app.post("/v1/auth/login", async (req, reply) => {
     const body = parseBody(LoginBody, req.body);
