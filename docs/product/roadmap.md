@@ -385,9 +385,13 @@ This dependency-ordered document supersedes both for planning.
   connection telemetry (#95, #47); the bootstrap CLI's password off the
   command line (#77); trusting a relay's private CA (#78); the proxy's
   forwarded address (#79: the `API_TRUSTED_PROXIES` list of SPEC-008's
-  second Amendment 2026-10-15). From S40 (`docs/handoff-session-40.md`): the
-  dashboard served only behind a TLS proxy that appends or sets
-  `X-Forwarded-For` (#103); the dashboard's security headers (#104).
+  second Amendment 2026-10-15; the listed proxies between the dashboard and
+  the api append to `X-Forwarded-For` or pass it on unchanged, item 4). From S40
+  (`docs/handoff-session-40.md`): the dashboard served only behind a TLS
+  proxy (SPEC-009's second Amendment 2026-10-15, item 5) that appends to or
+  sets `X-Forwarded-For` (#103), and that either passes the browser's `Host`
+  as sent, dropping any `X-Forwarded-Host`, or sets `X-Forwarded-Host` to
+  that `Host`; the dashboard's security headers (#104).
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
 - Last by dependency.

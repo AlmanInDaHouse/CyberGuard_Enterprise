@@ -125,6 +125,55 @@ This record's first form lands with SPEC-008's and SPEC-009's second
 amendments of 2026-10-15, after four passes of the fixed SPEC prompt on
 their drafts.
 
+### Two corrections to the contracts, before their code
+
+The code reviews of PR #19 (below) found two places where the amendments
+and the code differed. Both were corrected in place in this commit, before
+any code that relies on them landed:
+
+- SPEC-008's second Amendment 2026-10-15, item 1 and apiauth_ac_018: the
+  code refuses more ranges than `/0`. Item 1 now names them: a prefix past
+  its family's length, and any IPv6 range that holds the IPv4-mapped space
+  (`::ffff:0:0/96`, `::/80`), which a mapped range matches for IPv4 peers.
+  Each entry is checked alone. Item 2's unset case reads the socket's
+  address as the socket gives it.
+- SPEC-009's second Amendment 2026-10-15, item 2 and dash_ac_005: the hosts
+  are compared without regard to case. An empty first `X-Forwarded-Host`
+  entry reads `Host`, as Next's check does. The `Origin`'s host is read as
+  its URL gives it, and port 80 or 443 is removed from the host addressed
+  only, so `http://host:443` no longer passes. Next 15.5.19 sets
+  `X-Forwarded-Host` under `next start`. The criterion names an `Origin`
+  that matches `Host` while the first `X-Forwarded-Host` entry names
+  another host. Item 5 asks the proxy for the browser's `Host` with its
+  port, and roadmap §F carries that half of the requirement too.
+- SPEC-008's second Amendment, item 4, two sentences on `main` since
+  `6aaea20`, which the second pass found false. The first said the walk
+  reaches the client only if the hop in front of the outermost listed one
+  appends or sets the header, which is false when that hop is a proxy that
+  appends. The second said the dashboard neither appends nor sets the
+  header, but its server fills the header when a request carries none.
+
+The fixed SPEC prompt ran five times. The first pass found that the draft
+had replaced an accurate sentence with a false one (A1): it said Next's
+Server Actions check accepts either header. Next 15.5.19 calls
+`parseHostHeader` without an origin (`action-handler.js:356`), so it reads
+the first `X-Forwarded-Host` entry, or else `Host`. The draft went back to
+the accurate sentence; the code reviewer that had prompted the change had
+misread Next. The second pass found item 4's two sentences (A1, A2). The
+third found that the first rewrite of item 4 still named the entry the walk
+takes ambiguously (A1), and that the roadmap carried item 5's requirement
+on the proxy without its `X-Forwarded-Host` half (A2); both were fixed,
+with the port in the `X-Forwarded-Host` a proxy sets. The fourth found
+that a listed hop which sets the header behind another listed hop
+discards what that hop wrote (A1), and that item 4's summary of the walk
+left out item 2's entries that are not IP addresses (A2): item 4 now asks
+the listed hops behind the outermost one to append, and roadmap §F
+carries it. The fifth found that this rule left out the dashboard, which
+passes the header on unchanged and is safe to list behind a listed proxy
+(A1), and that item 4's summary left out item 2's cases where no entry
+qualifies (A2). Both were fixed with the wording the reviewer proposed;
+no sixth pass ran on those two one-line changes.
+
 ## Debts
 
 New this session:
