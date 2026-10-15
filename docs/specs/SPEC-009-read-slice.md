@@ -273,6 +273,51 @@ This is SPEC-009's second amendment of 2026-10-15. A reference to "SPEC-009 Amen
 
 **Effect.** §Scope item 4 and §Operational §3: the dashboard's views are login, incidents list and incident detail, as before; the login view submits, and the incident views sign out. §Data contracts §4: the mechanism is settled; its contract (session mediation on the dashboard's origin, server-side forwarding, `401` → login) is unchanged, and the dashboard's origin now holds `cgcsrf` beside `cgsess`. §Open questions 2: resolved. NFR-009-004: the read routes still write nothing; the dashboard's handlers call SPEC-008's login and logout, the logout with its CSRF token. §Security considerations: the session posture is unchanged and the CSRF token is held as the session is, in an `HttpOnly` cookie of the browser; the dashboard's server stores no secret, and carries a login's password and TOTP code to the api without keeping them. The threat model's §9 (`docs/security/threat-model.md:184`) names "Fastify-issued CSRF tokens on every mutation" for the dashboard; between the browser and the dashboard, item 2's checks take that role, and the token guards the dashboard's call to the api. When the code lands, the threat model's record of the system as built gains this, with the dashboard's login (`docs/security/threat-model.md:310`, R13); the threat model is Manuel's, and `docs/handoff-session-40.md` lists the change for his audit. §Acceptance criteria: dash_ac_003 to 008. Not backward-compatible for a client that relied on the pages forwarding other cookies, which no component does. With the code that implements this amendment, debt #83 narrows to the TOTP enrollment and the user management in the dashboard, with #98's invitation, and #97 to the transport. #102, #103 and #104 are new.
 
+## Amendment 2026-10-15: the forensic export and report, a role and an audit row
+
+This is SPEC-009's third amendment of 2026-10-15; a bare reference to "SPEC-009 Amendment 2026-10-15" still means the first, *the stores' bounds*. It amends SPEC-008 and SPEC-013 by scope, as *Effect* says. Until the code that implements it lands, the api behaves as *What surfaced it* says.
+
+**What surfaced it.** Debt #90 (`docs/handoff-session-39.md:700`). Any role may request `GET /v1/incidents/:id/forensic-export` (SPEC-012), which has the forensic key sign the events the drill returns, and `GET /v1/incidents/:id/report` (SPEC-013), the PDF whose seal the same signing produces (`services/api/src/forensic/report.ts`, `buildReport`). Neither request is recorded (`services/api/src/read/routes.ts`). Threat model R7 (`docs/security/threat-model.md:322`).
+
+**Amendment.**
+
+1. **The matrix** (§Operational §2) gains two rows:
+
+   | Read capability | admin | analyst | viewer |
+   | --- | --- | --- | --- |
+   | Forensic export (SPEC-012) | ✅ | ✅ | ❌ |
+   | Forensic report (SPEC-013) | ✅ | ✅ | ❌ |
+
+   Both have the forensic key sign: the export returns the signature, and the report transcribes it. A viewer keeps the incidents, the alerts, the drill (SPEC-010) and the playbook executions (SPEC-022).
+2. **The order of the checks.** The session (`401`), then the role (`403 { error: "forbidden" }`), both before the `:id` is read, so that a refused role learns nothing about an incident from these routes; a viewer's malformed `:id` is therefore a `403`. Then, for an admin or an analyst, the `:id` and the org (`404`, read_ac_005, and read_ac_006 as restated by Amendment 2026-10-14) and a store that cannot answer (`503`), as before. Neither route has a `HEAD` form, which would sign without sending a document: a `HEAD` request answers `404`.
+3. **An audit row for each document.** Once the document is built, and before it is sent, the request writes one `audit_log` row (SPEC-008 §Data contracts §2):
+   - `action` `forensic.export` or `forensic.report`; `outcome` `ok`;
+   - `user_id` and `org_id`, the session's; `target_id`, the incident's id, lower-cased;
+   - `source_ip`, the request's source address (SPEC-008's second Amendment 2026-10-15, items 2 and 3); `correlation_id`, the request's id;
+   - `detail`, which identifies what the key signed: `{ "events": "<N>", "chain_root": "<chain_N>" }`, the number of events signed and the chain head as the export carries it, lowercase hex. The report's `detail` adds `"report_sha256"`, the SHA-256 of the PDF sent, lowercase hex (threat model §7 asks report generation to be logged with the report's hash, `docs/security/threat-model.md:151`).
+
+   When the row cannot be written, the request sends no document, so no signature leaves without its row: a store that cannot write it answers `503 { error: "unavailable" }`, and any other failure `500`, as Amendment 2026-10-14 item 4 says. A request refused at the session or the role writes no row, as on every route (debt #80); one refused at the `:id`, or that answers `404`, writes none either.
+4. **SPEC-008's `detail`.** SPEC-008 Amendment 2026-10-15 item 6 says `detail` holds only role and status values. It now also holds the counts and hashes of item 3, none of them a secret; it still never holds an address, a password, a code or a token.
+
+**Decision.** Delegated by Manuel on 2026-10-15 ("Lo que dependa de mí, decídelo tú en beneficio del proyecto", the opening of Session 40, recorded in `docs/handoff-session-40.md`): who may have the forensic key sign, and what the api records of it, are the privilege model and the security posture, and a viewer's `403` breaks a public API contract (CLAUDE.md *Decision authority*). Decided for an enterprise buyer: the analyst, who works the incident and hands evidence on, and the admin may export and report, and a viewer may not. Every document produced is recorded with what was signed, and none is sent unrecorded. Alternatives: every role, with an audit row, which leaves the signing open to a role meant only to read; admin only, which keeps the analyst from handing evidence on.
+
+**Acceptance criteria.** CI-able, against the real api and its stores.
+
+- **forensic_ac_001 (the role — SECURITY, CI-BLOCKING).** A viewer's export and report answer `403 { error: "forbidden" }`, for an incident of its org, for an id no incident has, and for a malformed id, and write no row; an analyst's and an admin's answer `200`. A `HEAD` request on either answers `404` and writes no row.
+- **forensic_ac_002 (the audit row).** An analyst's export writes one `forensic.export` row: the session's user and org, the incident's id as target, outcome `ok`, the request's source address and id, and a `detail` whose `events` is the number of events the export carries and whose `chain_root` is its `chain_root`. A report writes one `forensic.report` row with the same columns, and a `detail` that adds the SHA-256 of the PDF sent. An `:id` in upper case is recorded lower-cased. A `404` writes none.
+- **forensic_ac_003 (no document without its row).** When the audit row cannot be written, the export and the report answer `503 { error: "unavailable" }` with no document.
+
+**Effect.**
+
+- §Operational §2: the matrix gains the two rows, and "in the MVP all three roles read" holds for every other read. read_ac_004's "any of the three roles → `200`", and the statuses Amendment 2026-10-14 gives every route of the read API (NFR-009-003), gain a viewer's `403` on these two routes.
+- NFR-009-004 (read-only) and §Security considerations' "no writes": the two forensic routes write one audit row each and nothing else, and the rest of the slice writes nothing. They take no CSRF token: a cross-site request carries no `cgsess` (`SameSite=Strict`), and the row records a request, not a change of state. §Scope's in-scope item 3, "this read-only slice", reads the same way.
+- The second Amendment 2026-10-15, item 6: "the read routes neither count nor record" a client address, except these two, which record the request's source address.
+- read_ac_006 (as restated by Amendment 2026-10-14): a malformed `:id` is a `404` on these two routes for the roles that may call them, and a `403` for a viewer. Its test seeds a viewer, so it calls them with an analyst.
+- SPEC-013 §Compliance (`docs/specs/SPEC-013-forensic-report-render.md:90`, "GET, read-only (no role gate, no CSRF — consistent with `/events` and `/forensic-export`)"): the route takes the role gate of item 1 and writes the audit row of item 3, so it is no longer read-only nor consistent with `/events`; it still takes no CSRF token. Its document and its errors are otherwise unchanged. SPEC-012 states no role for its export and is not amended; the export keeps its shape for the roles that may call it.
+- SPEC-008 Amendment 2026-10-15 item 6: item 4 above.
+- The threat model, when the code lands: R7 narrows to the shared credentials that can write what the key signs. Those are the shared Postgres superuser, which can rewrite which events an incident's alerts name (debt #86), and the shared ClickHouse credential, which can rewrite the events themselves (debt #108, new), both roadmap §F. The record of the system as built (§3's "an export or a report writes none", §7's "any role… neither is audited") changes with it. The threat model is Manuel's, and `docs/handoff-session-40.md` lists the change for his audit.
+- Not backward-compatible for a viewer that exported, which no component does: the dashboard requests neither route. Debt #90 closes with the code that implements this amendment.
+
 ## References
 
 - [SPEC-008](SPEC-008-auth-core.md) — the auth-core this slice sits behind; `:40`/`:275` defer the reads + their RBAC matrix to here; the `makeRequireSession`/`makeRequireRole` preHandler factories (`services/api/src/auth/prehandlers.ts`, realised at SPEC-008's GREEN gate), `cgsess` cookie, `POST /v1/auth/login`, and Fastify+Zod scaffold this SPEC reuses.

@@ -393,7 +393,8 @@ This dependency-ordered document supersedes both for planning.
   as sent, dropping any `X-Forwarded-Host`, or sets `X-Forwarded-Host` to
   that `Host`; the dashboard's security headers (#104, without
   `Referrer-Policy: no-referrer`); `__Host-` names for the dashboard's
-  cookies (#106).
+  cookies (#106); a ClickHouse user per service, the api's read-only
+  (#108).
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
 - Last by dependency.

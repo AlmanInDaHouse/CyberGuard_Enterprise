@@ -430,6 +430,35 @@ Reactive:
   `X-Forwarded-Host` entry reads `Host`, and port 80 or 443 is removed only
   on the host addressed, so `http://x:443` no longer passes.
 
+### #90: the contract
+
+SPEC-009's third Amendment 2026-10-15, *the forensic export and report, a
+role and an audit row*, lands first as a document, after the fixed SPEC
+prompt (see the next paragraph). It amends SPEC-008 and SPEC-013 by scope;
+SPEC-012 states no role and is not amended. The forensic export and report become `admin` and `analyst`
+only. Each document produced writes one audit row that identifies what the
+forensic key signed (the events' count, the chain head, and the report's
+SHA-256), and none is sent without it. Decided under Manuel's delegation;
+alternatives in the amendment's *Decision*. For Manuel's audit: when the
+code lands, the threat model's R7 narrows to the shared Postgres and
+ClickHouse credentials (#86, #108), and its record of the system as built
+(§3, §7) changes with it.
+
+The first pass of the fixed SPEC prompt found six points that blocked (A):
+
+- read_ac_006's `404` for a viewer's malformed id;
+- SPEC-013's "no role gate";
+- the report's row recorded nothing of what it signed;
+- the second amendment's "the read routes neither count nor record one";
+- R7's residual cited the wrong debts, and closing #90, which named the
+  shared ClickHouse credential, would leave it without an open debt (now
+  #108);
+- this record did not yet list the change.
+
+The draft fixed all six, and took the second list's points on `HEAD`
+requests (which would sign and send nothing), on `500` beside `503`, and
+on the catalog's edge to SPEC-008 and SPEC-013.
+
 ## Debts
 
 New this session:
@@ -479,6 +508,16 @@ New this session:
   reviews of PR #19. Destination: a SPEC-009 change, with roadmap §F's
   deployment domain.
 
+- **#108 — Ingest and the api share one ClickHouse credential, which can
+  write the events the forensic key signs.** The export signs what the drill
+  reads from `cges_events` (`services/api/src/forensic/export.ts`), and the
+  api's ClickHouse credential is the same one ingest writes with
+  (`infra/dev/docker-compose.dev.yml`), so whoever holds it can change, before
+  an export, the evidence the key then attests. Threat model R7's residual
+  with #86. Surfaced by the review of SPEC-009's third Amendment 2026-10-15.
+  Destination: roadmap §F, a ClickHouse user per service, the api's
+  read-only.
+
 Opened and closed this session:
 
 - **#107 — The dashboard's logout answered the api's `403` with `403` after
@@ -514,6 +553,8 @@ Changed this session:
 - **#97**: narrowed by `1697e60`, whose pages forward the session alone, to
   the transport between the dashboard and the api: plain HTTP by default,
   which a login's password and TOTP code now cross too. Roadmap §F.
+- **#90**: its destination is SPEC-009's third Amendment 2026-10-15; it
+  closes with that amendment's code.
 - **#104**: the headers must not include `Referrer-Policy: no-referrer`:
   under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
   same-origin check would refuse every sign-in and sign-out (the fourth
