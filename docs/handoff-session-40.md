@@ -648,6 +648,91 @@ code read differently, and the text was clarified before the code landed:
   another failure was unreachable, since every failure of the write is the
   store's.
 
+### #80, #100 and #101: the code
+
+Branch `fix/s40-debts-80-100-101` (PR #21), one commit. It was rebuilt
+three times to fold the reviews' fixes, rebased once onto `fac5654`, and
+pushed with CI on each:
+
+```text
+632fef6: ts-ci -> success
+4ef6c68: ts-ci -> success     first review's fixes, on fac5654
+e9b0937: ts-ci -> success     second review's fixes
+574638e: ts-ci -> success     third review's fix
+```
+
+Landed on `main` as `8bd5bc9` by `git merge --squash`, behind the two tree
+guards, each stopping the push on a mismatch; PR #21 closed, the branch
+deleted.
+
+```text
+SHA 8bd5bc9: ts-ci -> success
+```
+
+The criteria ran red first, against `main`'s code: 12 of 18 failed for
+the missing behavior. The 6 that passed assert behavior the old code
+already had: no row without a session, counters the password change did
+not share, a success, a `429`, and a store failure that counted nothing.
+The red run showed #101's race: twenty parallel failed logins from one
+address answered twenty `401`, none `429`. Local gate at the tip:
+`services/api` 46 files / 282 tests; the dashboard's tests against the
+real api, 38 of 38.
+
+Self-review matrix
+(`services/api/test/apiauth-ac-019-021-refused-password-reservation.test.ts`):
+every clause of apiauth_ac_019, 020 and 021 covered. Claude Code's own
+matrix had none weak; the reviewers found four (below).
+
+Three passes of the fixed code prompt:
+
+- First pass. Fixed:
+  - the row's org now comes from a session of a non-default org;
+  - a kept window is asserted to be still running (`ttl > 0`);
+  - a store failure starts from counters above 0.
+
+  Clarified in the contract first (`fac5654`): a failure whose row fails
+  keeps its slots; a `503` when the refused request's row cannot be
+  written, the `500` branch being unreachable. Recorded: a give-back can
+  take the slot of another attempt in flight (an edge the text names).
+- Second pass. Fixed:
+  - each outcome settles its slots before the Redis call that records it,
+    so a failure stays counted and a give-back never runs twice;
+  - a failure whose counter's window ended in flight counts afresh at 1;
+  - the confirmations' statuses are asserted;
+  - apiauth_ac_014's comment.
+
+  Recorded:
+  - a corrupt counter can leave a partial reservation, as `MULTI` could;
+  - the give-back on any error, not only a store failure, which no client
+    can trigger after the credential checks;
+  - the confirmation now fails closed on a Redis error reply (the first
+    amendment's item 14).
+- Third pass. One contradiction: the success's give-back had been made to
+  swallow a Redis error, answering `200` unlogged, against the first
+  Amendment 2026-10-15 item 14. Fixed by letting it propagate: a `503`,
+  logged, with the slots counted until their window ends. No fourth pass
+  ran on that revert.
+
+Decisions (delegated):
+
+- Anticipated:
+  - **Where the refusal's row is written.** The error handler writes it,
+    once for every role or CSRF refusal. Alternative: each `preHandler`
+    writes its own.
+  - **The reservation is three Lua scripts.** One reserves, one records a
+    failure, one gives back; each runs atomically. Alternative: `WATCH`
+    and `MULTI`, which retry under contention.
+  - **The password change's counter is its own `rl:pw:<id>`.**
+- Reactive:
+  - **The give-back after a store failure** (the third text review).
+  - **The settle order** (the second code review).
+  - **The failure that recreates its counter** (the second code review).
+  - **The success's give-back propagates its Redis error** (the third
+    code review).
+
+Deployment note, for roadmap §F's Redis user per service (#85): the api's
+login now runs `EVAL`, so its user needs the `@scripting` category.
+
 ## Debts
 
 New this session:
@@ -728,6 +813,12 @@ Closed this session:
   or an analyst, and each document is recorded with what the key signed
   (SPEC-009's third Amendment 2026-10-15).
 
+- **#100**, by `8bd5bc9`: the password change is limited on a per-user
+  counter of its own, records a failure, and uses up its code (SPEC-008's
+  Amendment 2026-10-16, item 2).
+- **#101**, by `8bd5bc9`: every limited attempt reserves its slots in one Redis
+  script before its credentials are checked (item 3).
+
 Changed this session:
 
 - **#88**: its server half closed with `b293500`: the ingest server reissues
@@ -746,13 +837,10 @@ Changed this session:
 - **#97**: narrowed by `1697e60`, whose pages forward the session alone, to
   the transport between the dashboard and the api: plain HTTP by default,
   which a login's password and TOTP code now cross too. Roadmap §F.
-- **#80**: its `403` half's destination is SPEC-008's Amendment
-  2026-10-16, and that half closes with its code. Its `401` half waits for
-  Manuel's reading of ADR-0014 §Compliance
-  (`docs/adr/0014-human-authentication-model.md:98`).
-- **#100**: its destination is SPEC-008's Amendment 2026-10-16, item 2.
-- **#101**: its destination is SPEC-008's Amendment 2026-10-16, item 3, a
-  reservation in one script rather than an increment-then-check.
+- **#80**: narrowed by `8bd5bc9` to its `401` half, a request refused for
+  want of a session, which waits for Manuel's reading of ADR-0014
+  §Compliance (`docs/adr/0014-human-authentication-model.md:98`); see *What
+  waits on Manuel*. Its `403` half closed with that commit.
 - **#104**: the headers must not include `Referrer-Policy: no-referrer`:
   under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
   same-origin check would refuse every sign-in and sign-out (the fourth
