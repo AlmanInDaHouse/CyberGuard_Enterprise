@@ -312,7 +312,7 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
    - A store that cannot answer → `503 { error: "unavailable" }`, logged as SPEC-009 Amendment 2026-10-14 item 3 says.
 6. **Audit rows.** Every row written while serving a request carries:
    - `user_id`, the acting principal. On `user.create`, `role.change`, `user.disable`, `user.enable` and `auth.logout` it is the session's user. On the login and self-service rows it is the user concerned, or `NULL` for a failed login of an unknown address, as before.
-   - `org_id`, the session's org; for the login and the TOTP confirmation, the org of the user concerned, or `default` when no user is found. A failed confirmation whose id matches no user has `user_id` `NULL`. A failed confirmation whose id matches no user has `user_id` `NULL`.
+   - `org_id`, the session's org; for the login and the TOTP confirmation, the org of the user concerned, or `default` when no user is found. A failed confirmation whose id matches no user has `user_id` `NULL`.
    - `target_id`, the user acted on, on the rows of the user routes.
    - `correlation_id`, the request's id. The api generates a UUID for each request and writes it on the request's log lines as `reqId`. A request id the client sends is ignored.
    - `source_ip`, the request's address as the api sees it (debt #79 for a reverse proxy, `docs/handoff-session-39.md`).

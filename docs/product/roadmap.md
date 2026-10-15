@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-38.md](../handoff-session-38.md)).
+([handoff-session-39.md](../handoff-session-39.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -372,6 +372,16 @@ This dependency-ordered document supersedes both for planning.
   wait for his explicit "sí". (B2 option (2)'s audit-policy dependency no
   longer waits here: ADR-0020 ruled the option out.)
 - Needs: an infra/deploy SPEC (`SPEC-XXX-infra-docker`).
+- Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
+  model's Amendment 2026-10-15): a working dashboard login (#83, with #97);
+  the agents' certificate renewal (#88; the server certificate's reissue
+  goes first, in the next sweep); a Redis user and a Postgres role per
+  service (#85, #86); TLS on the enrollment listener (#89); non-root
+  containers and the TLS key's file mode (#92); Postgres logging without
+  parameters (#94); per-service grants and retention for the logon and
+  connection telemetry (#95, #47); the bootstrap CLI's password off the
+  command line (#77); trusting a relay's private CA (#78); the proxy's
+  forwarded address (#79).
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
 - Last by dependency.

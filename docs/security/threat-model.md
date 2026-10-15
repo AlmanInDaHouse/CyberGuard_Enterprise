@@ -273,6 +273,66 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 
 **Effect on other sections.** §5's description through NATS and `cg-api` stays as the plan for a future bus. Its *Open questions* (vault integration) are unchanged. §8's per-service database users remain the plan, not the dev stack, as the Amendment 2026-10-13 records.
 
+## Amendment 2026-10-15 (debt #55): the system as built
+
+**Status.** Debt #55 (`docs/handoff-session-36.md`): this document describes the Phase-0 plan, not the system. Manuel delegated it on 2026-10-14 ("lo que este pendiente de mi decidelo tu en base al beneficio del proyecto, …") and again on 2026-10-15 ("todo lo que dependa de mi elige tu en beneficio del proyecto"). Claude Code wrote it, and decided, as `docs/handoff-session-38.md` records, that the new risks are listed as open, not accepted. It restates no section: each section's Phase-0 text stays as the plan, and this amendment says where the system as built at `main` on 2026-10-15 differs. The threat model remains `Accepted`.
+
+**Context.** The MVP as built (roadmap §E done, §F next):
+
+- `cg-agent`, Rust, run by hand as an elevated administrator (ADR-0010). It captures processes, network connections and logons, and keeps its events in memory only (ADR-0009).
+- `cg-ingest`, TypeScript, one process: the enrollment listener over plain HTTP (SPEC-004), the agents' mTLS listener, the CA, detection (ADR-0012), incidents, the email notification (SPEC-014) and SOAR (ADR-0021).
+- `cg-api`, TypeScript: human auth (SPEC-008), the read API (SPEC-009), and the forensic drill, export and report (SPEC-010, SPEC-012, SPEC-013) as a module.
+- The dashboard, Next.js.
+- Postgres, ClickHouse and Redis. NATS and MinIO run in the dev stack and nothing uses them. There is no `cg-pipeline`, `cg-ml` or `cg-forensic` service, no bus, no Loki.
+
+**Where the system differs from the plan.** Each item names the section and what is built; the open risks it raises are numbered R1–R15 below.
+
+- **§1 Agent.**
+  - The buffer is an in-memory ring, nothing is written to disk (ADR-0009), so "locally buffered events (encrypted at rest)" and the DPAPI-derived buffer key do not apply.
+  - Key custody: the private key is protected with DPAPI at machine scope, and its file's ACL grants the enrolling user and SYSTEM (`agent/cg-agent/src/secure_storage.rs`, `agent/cg-agent/src/identity.rs`). Any process of the enrolling user, unelevated, can read and decrypt it, not only LocalSystem. The files are written before their ACL is tightened, and keep the inherited one if tightening fails (R1).
+  - The enrollment token is an opaque random value, single-use with a 15-minute time-to-live (`services/ingest/src/cli/issue-token.ts`), not a scope-bound JWT. It travels over the plain-HTTP enrollment listener, as SPEC-004 accepts, and is stored as typed (R4).
+  - There is no installer and no code signing (roadmap §F). The agent runs as an elevated administrator started by hand, not a service account (ADR-0010).
+  - The signature of each batch is verified and not stored, and the sequence number restarts with the process and is informational only, by ADR-0004's Amendment 2026-05-23, so an accepted event is not kept as evidence non-repudiable against the agent's key.
+  - Resource limits are fixed constants (the ring, the batch); there is no CPU or memory cap.
+  - Command lines and users (Amendment 2026-10-13) are not captured: roadmap §B2 is parked. That amendment describes ADR-0020's design, not what is built: `cges_events` has `process_command_line` and `subject_user_sid`, both empty, no `process_user_uid`, and no time-to-live on either. The `image_file_name` of a process can hold a user name inside its path, and has no time-to-live.
+- **§2 cg-ingest.** No NATS: it writes ClickHouse, Postgres and Redis itself. Its event schemas are zod copies of the CGES shapes, not the JSON Schemas under `schemas/cges/`, and no fuzz test exists. The nonce cache is built; the per-agent rate limits and the TLS-level connection caps are not, and the sequence-number defense was dropped by ADR-0004's Amendment 2026-05-23. The heartbeat table that records accepted envelopes is unsigned. The agent sets each event's `time`, unbounded (R9). Ingest terminates the agents' TLS itself and reads the CN from its own socket, so the accepted trust in a reverse proxy that terminates mTLS (*Threats explicitly accepted in MVP*) does not apply as built. The same process runs detection, and holds the CA's private key and the SMTP credential that SPEC-014's notification and SOAR share (R6).
+- **§3 cg-api.** SPEC-008 Amendment 2026-10-15 brings these mitigations in line with this section: strict schemas, org-scoped user routes, the audit row's actor, target and correlation id, query timeouts, account disable. The authority for strict schemas is this section's Tampering line itself, not ADR-0002 Rule 4, which makes TypeScript the default for user-facing layers and locks no framework (debt #84; the References entry for ADR-0002 repeats the miscitation). Still not as planned:
+  - Sessions are opaque random tokens in Redis, not signed, and last a fixed 8 h (debt #82).
+  - The login limit is fixed counters, 5 per account and 10 per address within 15 minutes of the last failure, with no progressive back-off. Rate limits exist only on the login and the TOTP confirmation.
+  - `audit_log` is append-only by the application only: no database grant or trigger enforces it. A request the session, role or CSRF check denies writes no row (#80); the login and the TOTP confirmation do write one for a failure. A read, an export or a report writes none.
+  - `GET /v1/users` has no pagination.
+  - Every role reads every incident (SPEC-009). Behind a proxy the api sees the proxy's address (#79). There is no WebSocket and no external-client credential.
+- **§4 cg-pipeline.** Detection is a module of `cg-ingest` that polls `cges_events` and writes alerts and incidents to Postgres. Its rules are read from `INGEST_DETECT_RULES_DIR` again on every cycle (`services/ingest/src/detect/index.ts`), not only at startup, so whoever can write that directory changes detection within one cycle, and a file that fails to load stops detection with a log line (R8). There is no `dropped_events_total` metric and no Prometheus: the agent counts the events a full ring drops and logs other drops, its own connections' records excepted by design, and the server logs a refused batch. The org scope exists in the SQL, and the org is always `default` (a single-org MVP, SPEC-008 Amendment 2026-10-15 item 5).
+- **§5 cg-soar.** As Amendment 2026-10-14 states. The SMTP send now authenticates only over TLS (SPEC-022 Amendment 2026-10-15). A message to a relay that asks no credentials still travels in clear text when the relay offers no TLS.
+- **§6 cg-ml.** Not built. The engine refuses any detection source but `rule`.
+- **§7 cg-forensic.** A module of `cg-api`, run on request; nothing is stored, and the PDF is unsigned. The export signs, with the forensic key, the evidence that ClickHouse returns at the request. Any role may request an export or a report, and neither is audited (R7). There is no maximum evidence count.
+- **§8 Storage layer.** In the dev stack, ingest and the api share one credential per store: Postgres as the image's superuser, ClickHouse, and Redis (`infra/dev/docker-compose.dev.yml`). There are no per-service users with scoped grants (R2, R3), no TLS to the stores, no signed mirror of `audit_log`, and no retention in Postgres or ClickHouse but the 365 days of class 3002. The application encrypts three secrets with pgcrypto, passing the passphrase as a SQL parameter (R10). Assets not listed above, both personal data readable with the api's ClickHouse credential (R11): the logons of class 3002, which hold user names, domains, source addresses and host names; and the connections of class 4001, which hold source and destination addresses and ports by process, with no time-to-live (debt #47).
+- **§9 Dashboard.** The login page submits nothing and no auth proxy exists (debt #83), so the dashboard is not usable without setting the session cookie by hand. No Content Security Policy or HSTS header is configured. Its server pages forward the browser's whole cookie header to the api, over HTTP by default (`API_BASE_URL`) (R13). Admins set users' passwords and receive their TOTP secret (R14).
+- **Cross-cutting.** The ingest and api containers run as root, and ingest writes its TLS key with the default file mode (R15). The agents' and the server's certificates last 90 days with no renewal; the CA's lasts 10 years (R5). Service logs are pino lines on standard output, not Loki. `.env.example` supplies the dev values and the compose file sets secrets inline. No dependency audit (`cargo audit`, `pnpm audit`) runs in CI, and the dependency runbook does not exist (R12).
+- **Threats explicitly accepted in MVP.** "Root-level local compromise of an endpoint defeats agent key custody" understates the exposure: the enrolling user's own processes suffice (R1), which is not accepted.
+
+**New risks, open.** None is accepted. Each is a debt with a destination (`docs/handoff-session-39.md`):
+
+- **R1 — The agent's private key is readable by the enrolling user's unelevated processes** (debt #87). Destination: a SPEC-002 amendment, since its NFR-003 makes the key owner-only and the owner is the enrolling user, with the next agent change under the elevated gate.
+- **R2 — A compromised ingest can forge an api session.** Api sessions are Redis records holding the role, and ingest, the component exposed to agents, uses the same Redis credential (debt #85). Destination: roadmap §F, a Redis user per service with key-pattern ACLs.
+- **R3 — Both services act as the Postgres superuser**, so either can read or rewrite `users`, `audit_log`, `ca` and `forensic_key` (debt #86). Destination: roadmap §F, a Postgres role per service with the grants it needs.
+- **R4 — Enrollment: a token in clear text on the wire and at rest, its org and scope ignored, no rate limit**, and the CA signs a certificate for every request before the token is checked (debt #89). Destination: roadmap §F (TLS on the enrollment listener) and a SPEC-004 amendment.
+- **R5 — Certificates last 90 days, with no renewal and no revocation list.** An agent stops being accepted 90 days after its enrollment, and a stolen certificate with its key is cut off only by deleting its agent's row, which the enrollment token's reference to it blocks until the token row is cleared. The ingest server's own certificate is reused from disk at every start without a look at its expiry, so when it expires every agent's connection fails at once (debt #88). Destination: the server certificate first, in the next sweep; the agents' renewal before roadmap §F's installation is called done.
+- **R6 — One process holds the internet-facing listeners and the CA's private key**, so a parser defect in ingest reaches the key that issues agent identities (debt #99). Destination: if the CA is to leave ingest, an ADR, a component decision.
+- **R7 — The forensic export is a signing oracle**: any role can have the forensic key sign the events that Postgres selects and ClickHouse holds, which the shared credentials can write, and nothing is audited (debt #90). Destination: a later sweep, an audit row per export and report and a role check.
+- **R8 — Detection rules change, or stop, without a deploy** (debt #91). Destination: a later sweep, rules loaded at boot, or a failed load raised as an alert.
+- **R9 — The agent sets the events' time**, which drives ClickHouse partitions and incident windows (debt #31, `docs/handoff-session-33.md`). Destination: a later sweep, the server refusing an event whose time lies too far from its arrival, in a SPEC-017 amendment.
+- **R10 — Encryption passphrases travel as SQL parameters**, so a Postgres that logs statements with their parameters records them (debt #94). Destination: roadmap §F's deployment of Postgres logging.
+- **R11 — Logon and connection telemetry is personal data readable with the api's credential**: logons kept 365 days, connections with no time-to-live (debts #95, #47). Destination: roadmap §F's per-service grants and retention, and the DPO's record of processing.
+- **R12 — No dependency audit runs in CI** (debt #93). Destination: a later sweep, `cargo audit` and `pnpm audit` steps.
+- **R13 — The dashboard forwards the browser's whole cookie header to the api**, over HTTP by default (debt #97). Destination: with debt #83.
+- **R14 — Admins set users' passwords and receive their TOTP secret** (debt #98). Destination: a later SPEC-008 change, an invitation the user completes.
+- **R15 — The containers run as root, and ingest writes its TLS key with the default file mode** (debt #92). Destination: roadmap §F.
+
+The dev stack also runs NATS without authentication and MinIO with the dev root credentials of the compose file, which nothing uses (debt #96). Destination: a later sweep, removing them until a SPEC uses them.
+
+**Effect on other sections.** None is restated. The amendments of 2026-10-13 and 2026-10-14 stand, the first as ADR-0020's design (§1 above); their citations of `infra/dev/docker-compose.dev.yml:200` and `:207` now fall a few lines above the lines they meant (the Postgres URL is at `:203`, the ClickHouse user at `:210`), anchor drift for the citation sweep (debt #13).
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
@@ -283,4 +343,5 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 - [ADR-0015](../adr/0015-readonly-clickhouse-reader-in-api.md) — The api's ClickHouse reader, read-only in use (cited by the Amendment 2026-10-13)
 - [ADR-0020](../adr/0020-process-command-line-and-user.md) — Process command line and user (the assets and mitigations of the Amendment 2026-10-13)
 - [ADR-0021](../adr/0021-soar-mvp-playbook-executor.md) — SOAR for the MVP, in-process in cg-ingest (the trust boundary and mitigations of the Amendment 2026-10-14)
+- [ADR-0009](../adr/0009-event-delivery-and-buffer.md), [ADR-0010](../adr/0010-agent-privilege-model-mvp.md), [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) — the agent's in-memory buffer, its privilege model, the in-process detection (cited by the Amendment 2026-10-15)
 - [Foundational Blueprint](../product/blueprint.md) — §7 (protocol), §10 (RBAC roles), §17 (non-goals)
