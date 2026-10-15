@@ -390,6 +390,96 @@ This is SPEC-008's second amendment of 2026-10-15. A reference to "SPEC-008 Amen
 
 **Effect.** The api's variables gain `API_TRUSTED_PROXIES` (`services/api/src/config.ts`). SPEC-008 has no table of them: the Amendment 2026-09-23 says no SPEC consolidates the api's configuration surface, which stays roadmap §F's (debt #20). §Operational §3: its two dimensions, thresholds and windows are unchanged; the per-IP dimension reads the source address of item 2. The audit rows' `source_ip` follows item 3. Additive and backward-compatible: unset, the behavior is the prior one, and the lockout *What surfaced it* describes remains until a deployment lists the dashboard behind a proxy as item 4 says; a dashboard listed without one lets a client choose its counted address (debt #103). Debt #79 closes with the code that implements this amendment; roadmap §F's SPEC lists the addresses for its compose.
 
+## Amendment 2026-10-16: refused requests, the password change, the limiter's reservation
+
+This amendment is a document change: until the code that implements it lands, the api behaves as *What surfaced it* says.
+
+**What surfaced it.** Three debts of the api's sweep (`docs/handoff-session-39.md`):
+
+- #80 (`:623`): a request refused for want of a session (`401`), and one the role check or the CSRF check refuses (`403`, `services/api/src/auth/prehandlers.ts`), write no audit row, so an attempt to use an admin route without the role leaves no trace (threat model §3 cg-api, Repudiation).
+- #100 (`:745`): `POST /v1/auth/password` verifies the current password and a TOTP code with no rate limit, writes no row for a failure, and does not mark the code used, so with a session the code can still open another session within its window.
+- #101 (`:751`): the limiter reads its counters, then counts a failure later (`services/api/src/auth/ratelimit.ts`, `isAllowed` and `recordFailure`), so a burst of parallel attempts passes the threshold before any count lands; the TOTP confirmation shares the pattern.
+
+**Amendment.**
+
+1. **A refusal of a known principal writes a row** (#80, its `403` half). A request that the role check (§Operational §5) or the CSRF check (§Operational §4) refuses with `403` writes one `audit_log` row:
+   - `action` `access.denied`; `outcome` `denied`;
+   - `user_id` and `org_id`, the session's; `target_id` null;
+   - `source_ip` and `correlation_id`, as the first Amendment 2026-10-15 item 6 and the second Amendment 2026-10-15 item 3 say;
+   - `detail`, `{ "reason": "role" | "csrf", "route": "<METHOD> <route>" }`: the request's method and the route's pattern as registered (`/v1/users/:id/role`), never the request's path, query or body.
+
+   This holds on every route those checks guard, SPEC-009's forensic routes included. The request is refused either way: when the store cannot write the row it answers `503 { error: "unavailable" }`, and on any other failure `500`. A request refused for want of a session (`401`) is not settled here. It has no principal to record, and a row for each would let anyone who reaches the api fill the table. But ADR-0014 §Compliance (`docs/adr/0014-human-authentication-model.md:98`) asks that "all authentication events" be audit-logged, and whether a rejected or missing session token is one is a reading of that ADR, which is Manuel's. Until he reads it, such a request writes no row, as now, and debt #80 stays open for that half. At the api's default log level (`info`), the request log records the request, with its method, URL, status and request id.
+2. **The password change is limited, and its code used** (#100). `POST /v1/auth/password` is rate-limited per user id, on a counter of its own, with the login's per-account threshold. It needs a session, so it shares no counter that a request with no session fills: neither the TOTP confirmation's per-user counter nor the login's per-IP counter. A failure, a wrong current password or a wrong code, answers `401`, writes `user.password.change` with outcome `denied`, and counts on that counter. A code it accepts is marked used, as the login marks it (§Operational §1.3), before the password is changed: it cannot open a session, or change the password again, within its window, and a code already used is a failure.
+3. **The limiter reserves before it verifies** (#101). Each limited attempt (a login, a TOTP confirmation, a password change) first reserves one slot on each of its counters, atomically. One Redis script checks every counter against its threshold and, only if none has reached it, increments each, starting the window of a counter it creates. A burst of parallel attempts gets at most the threshold's number of slots, and the rest answer `429` before any credential work. An attempt refused this way reserves nothing and changes no window.
+   - **A failed attempt** keeps its slots, which count it, and restarts their windows, as a failure did before.
+   - **An attempt that ends in a store failure** gives its slots back, as a success does, so a store's outage counts nothing against anyone.
+   - **A successful attempt** gives its slots back:
+     - the login clears the account's counter, as before, and gives back its per-IP slot;
+     - the TOTP confirmation and the password change give back each of theirs.
+   - **A login that item 9 of the first Amendment 2026-10-15 refuses after its credentials matched** gives its slots back too: it counts no failure, as built (`services/api/src/auth/service.ts`, `reject(false)`).
+   - A give-back never takes a counter below 0, and a counter that reaches 0 is removed. A successful login still clears the account's counter, as before, slots of attempts in flight included. The thresholds (5 per account or user, 10 per address) and the window (15 minutes from the last failure) are unchanged; attempts in flight now count toward the thresholds too.
+4. **The audit row's `detail`.** The first Amendment 2026-10-15 item 6 says `detail` holds only role and status values; SPEC-009's third Amendment 2026-10-15 added the forensic rows' counts and hashes. It now also holds item 1's reason and route. It still never holds an address, a password, a code or a token.
+
+**Decision.** Delegated by Manuel on 2026-10-15 ("Lo que dependa de mí, decídelo tú en beneficio del proyecto", the opening of Session 40, recorded in `docs/handoff-session-40.md`): what the api records of a refused request, and how it limits the routes that check a second factor, are the security posture, and a `429` on the password change breaks a public API contract (CLAUDE.md *Decision authority*). The `401` half of #80 waits for Manuel's reading of ADR-0014 (item 1). Decided for an enterprise buyer:
+
+- every refusal of a known principal is recorded with its route; a principal's own refusals are attributable to it, so their rows are its trace, and a principal that floods them is identified by them;
+- the password change is limited per user as the login is per account, and no unauthenticated route can lock it;
+- no burst of parallel requests passes a threshold.
+
+Alternatives:
+
+- for item 1, the request's path instead of the route's pattern, which would copy ids and query strings into the row;
+- for item 2, the login's per-IP counter, which requests with no session fill;
+- for item 3, one lock per counter held across each attempt, which would make a user's or an address's attempts wait for one another, where the script makes one atomic round trip.
+
+**Acceptance criteria.** CI-able, against the real api and its stores.
+
+- **apiauth_ac_019 (refused requests).**
+  - An analyst's `POST /v1/users` answers `403` and writes one `access.denied` row: the session's user and org, outcome `denied`, `detail` `{ "reason": "role", "route": "POST /v1/users" }`, the request's source address and id.
+  - An admin's `POST /v1/users` without `X-CSRF-Token` writes one with reason `csrf`.
+  - A viewer's forensic export writes one, with route `GET /v1/incidents/:id/forensic-export`, and a viewer's report one with route `GET /v1/incidents/:id/report`; neither writes a forensic row.
+  - A refused request with a query string records the route's pattern, without the query.
+  - A request with no session writes no row, as now (item 1).
+  - When the store cannot write the row, the refused request answers `503`.
+- **apiauth_ac_020 (the password change).**
+  - A wrong current password, and a wrong code, each answer `401` and write a denied `user.password.change` row.
+  - After five failures for one user, from five addresses, the sixth answers `429`; failed TOTP confirmations of that user, and failed logins from its address, do not count toward it.
+  - A code that changed the password neither opens a session nor changes the password again.
+- **apiauth_ac_021 (the reservation).**
+  - Twenty parallel failed logins from one address, each for its own account, answer ten `401` and ten `429`.
+  - Six parallel failed logins of one account, from six addresses, answer five `401` and one `429`.
+  - Eight parallel failed TOTP confirmations of one user id, each from an address of its own, answer five `401` and three `429`; so do eight parallel failed password changes of one user.
+  - A successful login takes its slot back from the address's counter, and does not restart the window.
+  - An attempt answered `429` does not restart the window.
+  - A login that ends in a store failure gives its slots back: the account's and the address's counters hold what they held before it.
+
+**Effect.**
+
+- §Data contracts §2: the rows that MUST be written gain `access.denied` and a denied `user.password.change`.
+- §Operational §1: the slots are reserved before the credentials are checked (before steps 1 to 3), replacing step 5's increment on a failure, and a success gives the address's slot back.
+- §Operational §3: the counters reserve; their dimensions, thresholds and window are unchanged. auth_ac_004 still holds.
+- §Operational §4 and §5: a refusal writes item 1's row.
+- §Operational §8: the password change is limited, recorded on failure, and marks its code used.
+- The first Amendment 2026-10-15:
+  - Item 6's "no row is written for a change those routes refused" now means no row of the change's own action; a role or CSRF refusal writes item 1's row.
+  - Item 6's `detail` is restated by item 4 above.
+  - Item 12's per-user counter stays the confirmation's own.
+- SPEC-009's third Amendment 2026-10-15, *Effect* on NFR-009-004: "the two forensic routes write one audit row each" holds for the documents they produce; a refused request writes item 1's `access.denied` row instead.
+- SPEC-009's third Amendment 2026-10-15, item 3, says a request refused at the role writes no row "as on every route (debt #80)", and its forensic_ac_001 says a viewer's export and report "write no row". A viewer's refused export or report now writes item 1's `access.denied` row, and still no forensic row: forensic_ac_001 reads "write no forensic row", and the code that implements this amendment changes its test to count forensic rows only. The `access.denied` row is apiauth_ac_019's.
+- The threat model, when the code lands, changes in four §3 sentences:
+  - "a request the session, role or CSRF check denies writes no row (#80)" becomes the role and CSRF refusals' row, the session's refusal still writing none;
+  - "rate limits exist only on the login and the TOTP confirmation" gains the password change;
+  - "the login and the TOTP confirmation do write one for a failure" gains the password change;
+  - "A read writes none" gains the refused read's `access.denied` row.
+
+  The threat model is Manuel's, and `docs/handoff-session-40.md` lists the change for his audit.
+- Not backward-compatible, for a client that relied on the prior behavior:
+  - the password change can answer `429`, and a code the login has just used fails it;
+  - a refused request answers `503` when the store cannot write its row, and `500` on any other failure of it;
+  - attempts in flight count toward the thresholds, so an eleventh concurrent login from one address answers `429` even when none has failed;
+  - a refused request of a known principal writes a row.
+- Debts #100 and #101 close with the code that implements this amendment. Debt #80 narrows with it to its `401` half, which waits for Manuel's reading of ADR-0014 (item 1).
+
 ## References
 
 - [ADR-0014](../adr/0014-human-authentication-model.md) — the human-auth model this SPEC realises (identity §1, session §2, `services/api` §3, RBAC §4); the §Compliance MUSTs (rate-limit, cookies, CI-blocking RBAC, audit) and the §Out of scope CSRF deferral this SPEC closes.

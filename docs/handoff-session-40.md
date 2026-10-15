@@ -550,6 +550,94 @@ The threat model, for Manuel's audit:
   (#86, #108).
 - §3 and §7 now record the role gate and the audit rows.
 
+### #80, #100 and #101: the contract
+
+SPEC-008's Amendment 2026-10-16, *refused requests, the password change, the
+limiter's reservation*, lands first as a document, after two passes of the
+fixed SPEC prompt.
+
+- A role or CSRF refusal writes an `access.denied` row with its reason and
+  route pattern.
+- A request refused for want of a session writes none, as now. ADR-0014
+  §Compliance (`:98`) asks that "all authentication events" be logged, and
+  whether a missing or rejected session token is one is Manuel's reading
+  of that ADR. #80 stays open for that half; see *What waits on Manuel*.
+- The password change is limited on a per-user counter of its own, writes
+  a denied row, and marks its code used.
+- Every limited attempt reserves its slots atomically, with one Redis
+  script, before the credentials are checked. A failure restarts the
+  window, as before; a success gives its slots back.
+
+It amends SPEC-009's third Amendment 2026-10-15 by scope (item 3 and
+forensic_ac_001): a viewer's refused export or report writes the
+`access.denied` row and no forensic row. Decided under Manuel's
+delegation; the alternatives are in the amendment's *Decision*. For
+Manuel's audit: when the code lands, four sentences of the threat model's
+§3 change with it:
+
+- "a request the session, role or CSRF check denies writes no row (#80)";
+- "rate limits exist only on the login and the TOTP confirmation";
+- "the login and the TOTP confirmation do write one for a failure";
+- "A read writes none".
+
+The first pass of the fixed SPEC prompt found six points that blocked (A):
+
+- forensic_ac_001's test counts every row of the viewer, so it changes;
+- the threat model's §3 had more sentences that change;
+- #80's `401` half was dropped from its restatement;
+- the first amendment's item 6 said a refused change writes no row;
+- #101's destination named increment-then-check;
+- the amendment did not say it is not backward-compatible.
+
+From the first pass's second list, the draft took:
+
+- a success no longer restarts the window;
+- a counter of the password change's own;
+- a counter that reaches 0 is removed;
+- `503` for a store failure and `500` for any other;
+- an attempt that ends in a store failure keeps its slots, which the third
+  pass turned around (below).
+
+The second pass found six more (A):
+
+- the password change still shared the login's per-IP counter, which
+  unauthenticated requests fill (now it does not);
+- SPEC-009's forensic_ac_001 criterion still said "write no row";
+- a present-tense claim about a test, now preceded by the document-change
+  sentence;
+- one listed incompatibility was not one, and the real one (attempts in
+  flight count) was missing;
+- the `401` half had been closed "by decision" against ADR-0014's MUST,
+  which is Manuel's to read (now open, for him);
+- this record's count of the threat model's sentences.
+
+From the second pass's second list, the draft took:
+
+- the wording of what the limit prevents;
+- the edge of a window that ends in flight;
+- the Decision naming the API contract;
+- the criteria's wording.
+
+The third pass found two (A):
+
+- this record pointed at a *What waits on Manuel* section it did not yet
+  have (now begun, below);
+- slots kept after a store failure would have counted an outage against
+  accounts, against "the window unchanged". Now such an attempt gives its
+  slots back.
+
+From its second list, the draft took:
+
+- the code citation for item 9's give-back;
+- removing a promise about windows that end in flight, which plain counters
+  cannot keep;
+- the code marked used before the change;
+- the alternatives of items 1 and 2;
+- the report's refusal and the route without its query in the criteria;
+- the NFR-009-004 line.
+
+No fourth pass ran on those changes.
+
 ## Debts
 
 New this session:
@@ -648,7 +736,34 @@ Changed this session:
 - **#97**: narrowed by `1697e60`, whose pages forward the session alone, to
   the transport between the dashboard and the api: plain HTTP by default,
   which a login's password and TOTP code now cross too. Roadmap §F.
+- **#80**: its `403` half's destination is SPEC-008's Amendment
+  2026-10-16, and that half closes with its code. Its `401` half waits for
+  Manuel's reading of ADR-0014 §Compliance
+  (`docs/adr/0014-human-authentication-model.md:98`).
+- **#100**: its destination is SPEC-008's Amendment 2026-10-16, item 2.
+- **#101**: its destination is SPEC-008's Amendment 2026-10-16, item 3, a
+  reservation in one script rather than an increment-then-check.
 - **#104**: the headers must not include `Referrer-Policy: no-referrer`:
   under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
   same-origin check would refuse every sign-in and sign-out (the fourth
   code review of PR #19).
+
+## What waits on Manuel
+
+This section is begun mid-session; the close completes it.
+
+- **The `401` half of debt #80: a reading of ADR-0014.** ADR-0014
+  §Compliance (`docs/adr/0014-human-authentication-model.md:98`) says "All
+  authentication events and role assignments MUST be audit-logged". The
+  question is whether a request that carries no session token, or a
+  rejected one, is an authentication event.
+  - If it is, every such `401` writes an audit row, and the api needs a
+    bound on them (a per-address limit), since anyone who reaches it can
+    send them.
+  - If it is not, the request log is its record, and #80 closes.
+
+  Recommendation: it is not. An authentication event is an attempt to
+  authenticate (a login, a TOTP confirmation, a password change), and each
+  of those writes its row. A session check is the use of an authentication
+  already made. SPEC-008's Amendment 2026-10-16 leaves it open until his
+  answer.
