@@ -373,7 +373,10 @@ This dependency-ordered document supersedes both for planning.
   longer waits here: ADR-0020 ruled the option out.)
 - Needs: an infra/deploy SPEC (`SPEC-XXX-infra-docker`).
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
-  model's Amendment 2026-10-15): a working dashboard login (#83, with #97);
+  model's Amendment 2026-10-15): a working dashboard login (#83, with #97;
+  SPEC-009's second Amendment 2026-10-15 settles the login and logout, and
+  its code leaves #83 the TOTP enrollment and user management, #97 the
+  transport between the dashboard and the api);
   the agents' certificate renewal (#88; the server certificate's reissue
   goes first, in the next sweep); a Redis user and a Postgres role per
   service (#85, #86); TLS on the enrollment listener (#89); non-root
@@ -381,7 +384,10 @@ This dependency-ordered document supersedes both for planning.
   parameters (#94); per-service grants and retention for the logon and
   connection telemetry (#95, #47); the bootstrap CLI's password off the
   command line (#77); trusting a relay's private CA (#78); the proxy's
-  forwarded address (#79).
+  forwarded address (#79: the `API_TRUSTED_PROXIES` list of SPEC-008's
+  second Amendment 2026-10-15). From S40 (`docs/handoff-session-40.md`): the
+  dashboard served only behind a TLS proxy that appends or sets
+  `X-Forwarded-For` (#103); the dashboard's security headers (#104).
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
 - Last by dependency.
