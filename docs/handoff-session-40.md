@@ -459,6 +459,97 @@ The draft fixed all six, and took the second list's points on `HEAD`
 requests (which would sign and send nothing), on `500` beside `503`, and
 on the catalog's edge to SPEC-008 and SPEC-013.
 
+### #90: the code
+
+Branch `fix/s40-debt-90-forensic` (PR #20), one commit, rebuilt twice to
+fold the reviews' fixes, CI on each push:
+
+```text
+d44d66d: ts-ci -> success
+9db278f: ts-ci -> success     first review's fixes
+0e9fc10: ts-ci -> success     second review's test fixes
+```
+
+Landed on `main` as `8d3c61d` by `git merge --squash`, behind `git diff
+--cached --quiet <branch>` and `git diff --quiet <branch> HEAD`, each
+stopping the push on a mismatch; PR #20 closed, the branch deleted.
+
+```text
+SHA 8d3c61d: ts-ci -> success
+```
+
+The criteria ran red first, against `main`'s code: 13 of 17 failed for
+the missing behavior. The 4 that passed assert behavior already right: the
+admin's and the analyst's `200`, and no row for a `404`. That red run also
+showed that a `HEAD` request then answered `200`, signing without sending.
+Local gate at the tip: `services/api` 45 files / 264 tests.
+
+Self-review matrix (`services/api/test/forensic-ac-001-003-role-audit.test.ts`):
+
+| Criterion | Test | Verdict |
+|---|---|---|
+| ac_001: a viewer's `403` for its incident, an unknown id and a malformed id, no row | "a viewer's request for ..." | covered (no row of that user at all) |
+| ac_001: the analyst's and the admin's `200` | "an %s's export and report answer 200" | covered |
+| ac_001: `HEAD` answers `404`, no row | "the %s does not answer HEAD ..." | covered (exact `404`, after the first review) |
+| ac_002: the export's row, its columns and `detail` | "an export writes one forensic.export row ..." | covered (the correlation id matched to the logged `reqId`, after the second review) |
+| ac_002: the report's row with the PDF's SHA-256 | "a report writes one forensic.report row ..." | covered |
+| ac_002: an upper-case `:id` recorded lower-cased | "an :id in upper case is recorded lower-cased" | covered (both routes) |
+| ac_002: a `404` writes none | the malformed, unknown and other-org cases | covered |
+| ac_003: no document without its row | "when the row cannot be written ..." | covered, with a control that the refusing app still reads |
+
+Before the reviewer, Claude Code's own matrix had one *weak* verdict (the
+`HEAD` status) and one *missing* (the upper-case `:id`). Both were fixed.
+
+Two passes of the fixed code prompt:
+
+- First pass, fixed:
+  - "no row" counted the forensic actions only, and now counts every row
+    of the user;
+  - `HEAD`'s exact `404`;
+  - the upper-case `:id`;
+  - no row for a malformed or another org's `:id`;
+  - read_ac_006 keeps its viewer for every other route and takes an
+    analyst for the two forensic ones;
+  - a comment naming `buildReport`.
+- First pass, recorded: the migration `0005` comment, which records what
+  the migration did then, is left as it was.
+- Second pass, nothing contradicted. Fixed, in tests and a comment only:
+  - the correlation id is tied to the request's logged `reqId`;
+  - the upper-case `:id` is checked on the report too;
+  - forensic_ac_003 gained a control that its `503` is the audit row's;
+  - `audit.ts`'s `targetId` comment.
+
+  No third pass ran on those test-only fixes.
+- Second pass, recorded:
+  - `source_ip` behind a listed proxy is not exercised on these routes; it
+    is the helper apiauth_ac_018 tests;
+  - a session-less request to the export is not tested for its `401`;
+  - the requester's address in `audit_log`, whose retention no document
+    states (the DPO's record of processing, #95's destination).
+
+Decisions (delegated):
+
+- Anticipated:
+  - **The role gate reuses `makeRequireRole`.** It now takes several
+    roles. Alternative: a second factory.
+  - **`composeReport` returns the PDF with its seal.** `buildReport`
+    stays, as a wrapper for its tests. Alternative: call the export twice,
+    which would sign twice.
+  - **One request context for both route sets.** `requestContext`
+    replaces the auth routes' inline `ctxOf`.
+- Reactive:
+  - **The `HEAD` forms were removed.** Fastify 5 answers `HEAD` on every
+    `GET` route, which here signed without sending (the review of the
+    text).
+  - **The report's row carries its seal and SHA-256.** The report signs
+    too (the review of the text).
+
+The threat model, for Manuel's audit:
+
+- R7 is restated: the key signs what the shared credentials can write
+  (#86, #108).
+- §3 and §7 now record the role gate and the audit rows.
+
 ## Debts
 
 New this session:
@@ -535,6 +626,10 @@ Closed this session:
   `API_TRUSTED_PROXIES` (SPEC-008's second Amendment 2026-10-15). Roadmap
   §F's SPEC lists the addresses for its compose.
 
+- **#90**, by `8d3c61d`: the forensic export and report answer only an admin
+  or an analyst, and each document is recorded with what the key signed
+  (SPEC-009's third Amendment 2026-10-15).
+
 Changed this session:
 
 - **#88**: its server half closed with `b293500`: the ingest server reissues
@@ -553,8 +648,6 @@ Changed this session:
 - **#97**: narrowed by `1697e60`, whose pages forward the session alone, to
   the transport between the dashboard and the api: plain HTTP by default,
   which a login's password and TOTP code now cross too. Roadmap §F.
-- **#90**: its destination is SPEC-009's third Amendment 2026-10-15; it
-  closes with that amendment's code.
 - **#104**: the headers must not include `Referrer-Policy: no-referrer`:
   under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
   same-origin check would refuse every sign-in and sign-out (the fourth
