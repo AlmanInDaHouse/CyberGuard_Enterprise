@@ -201,6 +201,235 @@ api can answer `503` after it has deleted the session, when its audit row
 fails (`services/api/src/auth/service.ts`, `logout`), so items 4 and 7 now
 say the session may live on (A1); its wording points were taken too.
 
+### #79, #83 and #97: the code
+
+Branch `feat/s40-dashboard-login` (PR #19), two commits. It was rebuilt
+three times to fold the reviews' fixes, rebased onto `8be5e36` and then
+`fe59102`, and pushed one commit per push, each with CI:
+
+```text
+75e9837 (api):        ts-ci -> success
+ccf2865 (dashboard):  ts-ci -> success
+b2a155c (api):        ts-ci -> success     rebuilt on 8be5e36, first fixes
+988622b (dashboard):  ts-ci -> success
+1fdadb4 (api):        ts-ci -> success     second fixes
+c69a4fd (dashboard):  ts-ci -> success
+2877169 (api):        ts-ci -> success     rebased on fe59102
+e3192ea (dashboard):  ts-ci -> success     third fixes
+```
+
+Landed on `main` by cherry-pick, one push per commit, each behind `git
+diff --quiet <branch-sha> HEAD`, which stops the push on a mismatch. PR #19
+was closed and the branch deleted, local and on origin:
+
+```text
+SHA c9dad1c (from 2877169): ts-ci -> success
+SHA 1697e60 (from e3192ea): ts-ci -> success
+```
+
+Red before green:
+
+- apiauth_ac_018 against `11d441b`'s api: 16 of 19 failing for the missing
+  list (`expected +0 to be 1`, `expected [Function] to throw an error`).
+  The 3 that passed assert the prior behavior, which the amendment keeps.
+  Of the tests the reviews added, the one that changes behavior failed
+  against the code before its fix: a request with no peer address
+  (`Cannot read properties of undefined (reading 'includes')`). The others
+  strengthen coverage of behavior that was already right.
+- The dashboard's tests against stubs with `main`'s behavior: handlers that
+  answer 501, the pages' whole cookie header, a login view that submits
+  nothing, a sign-out button that does nothing. 74 of 75 failed for the
+  missing behavior. The first run of the dash_ac_003/004 file failed in its
+  collection instead: its 400 cases read the api's helpers before
+  `beforeAll`. It was fixed and ran again, 25 of 25 failing on `501`. The
+  test that passed asserts that the login view shows no notice. Against the
+  code before each round of fixes, the reviews' new tests failed where the
+  behavior changes: 11 after the first round, 3 after the second, 5 after
+  the third.
+
+Local gates at the tips: `services/api` 44 files / 242 tests (it was 43 /
+216); `dashboard` 10 files / 117 tests (it was 3 / 8).
+
+Docker Desktop's engine hung during the rebuild (its API answered 500).
+Manuel said to restart it ("Reinícialo tú"). Claude Code ran `docker
+desktop restart`, and `docker version` then answered with 29.1.2.
+
+#### Self-review: matrices
+
+apiauth_ac_018 (`services/api/test/apiauth-ac-018-source-address.test.ts`):
+
+| Criterion | Test | Verdict |
+|---|---|---|
+| Listed peer, XFF `203.0.113.7`: counted and `source_ip` under it | "a forwarded address is the one counted and recorded" | covered (row count before and after) |
+| An IPv6 entry; `::ffff:203.0.113.9` as `203.0.113.9` | "an IPv6 entry is read in its canonical form, a mapped one as its IPv4 address" | covered (both notations) |
+| Two forwarded addresses counted apart | "failures under two forwarded addresses are counted apart" | covered (429 under one, 401 under the other) |
+| `198.51.100.4, <listed>` under `198.51.100.4` | "the walk passes listed entries and takes the first that is not" | covered |
+| The walk starts from the right | "the walk starts from the right: ..." | covered (second review) |
+| Every entry listed: the leftmost | "with every entry listed, the leftmost is taken" | covered |
+| No header, or a non-IP entry: the peer | "no header, or an entry that is not an IP address, leaves the peer's address" | covered |
+| A failed TOTP confirmation under the forwarded address | "a failed TOTP confirmation is counted under the forwarded address" | covered |
+| Unlisted peer, and unset: counted and recorded under the peer | "...: the peer's address is counted and recorded" | covered (every kind of header, the confirmation and its row) |
+| Refusals; spaces and empty entries | "the list's configuration", "the list's matching" | covered |
+
+dash_ac_003 to 008 (`dashboard/test/`):
+
+| Criterion | Test | Verdict |
+|---|---|---|
+| 003 sign-in: 200, the cookies and attributes, a `cgsess` the read API accepts, no token in the body, `no-store` | `dash-ac-003-004-login-logout.test.ts` "a user with a password and a confirmed TOTP signs in" | covered (real api) |
+| 003 wrong code: 401, no cookie | "a wrong code answers 401 and sets no cookie" | covered (real api) |
+| 003 400 cases, without calling the api | the `test.each` of 400 cases, "a body of exactly 16 KiB is read and sent on" | covered (exact bound, a body cut off) |
+| 003 the api's 429/503; a 200 without its token; no answer | the mapping cases; `dash-ac-003-api-client.test.ts` | covered (the bound and a refused connection on a real socket) |
+| 003 a login revokes the browser's session | "a login from a browser that holds a session revokes it" | covered (real api) |
+| 004 sign-out: deleted, read 401, cookies cleared; `cgcsrf` is the api's token | "a signed-in session signs out...", "a login's cookies sign out..." | covered (real api, round trip) |
+| 004 no longer held: 200; mismatched `cgcsrf`: 502, cookies cleared, session kept | the two cases | covered (real api) |
+| 004 api 503 or no answer; `cgsess` without `cgcsrf` | the cases | covered |
+| 005 refused and passed origins | `dash-ac-005-same-origin.test.ts` | covered (both handlers) |
+| 006 `X-Forwarded-For` passed as received, none when none | `dash-ac-006-client-address.test.ts` | covered (both calls of a login) |
+| 007 the session alone; no header without one | `dash-ac-007-pages.test.tsx` (the pages), `dash-ac-007-session-alone.test.ts` | covered (the pages themselves, second round) |
+| 008 the views | `dash-ac-008-views.test.tsx` | covered |
+
+Before the reviewers, Claude Code's own matrix had two *weak* verdicts. The
+first: dash_ac_007 tested the function the pages use, not the pages. The
+second: the empty entries of the list were checked in the configuration
+only. Both were fixed in the first round.
+
+#### Self-review: the reviewers
+
+Four passes of the fixed code prompt, one reviewer per commit; the fourth
+reviewed the dashboard's commit only.
+In the first pass, one reviewer ran `git checkout` to `75e9837` and back;
+the tree was clean, and the branch and status were checked after each pass.
+
+First pass:
+
+- api:
+  - fixed:
+    - a row count depended on the order of the test files;
+    - the unset and unlisted cases covered one header only;
+    - a request with no peer address threw;
+    - the matching of mapped ranges and host bits had no test.
+  - recorded:
+    - the code refused more ranges than item 1 said. Item 1 was corrected
+      instead (`8be5e36`), since the refusal fails closed.
+- dashboard:
+  - fixed:
+    - `cgcsrf` was never shown to hold the api's token; now a round trip
+      with the real api;
+    - `httpAuthApi` and its bound had no test;
+    - the pages were not tested;
+    - the 403 did not assert cleared cookies;
+    - the 16 KiB bound was tested only above;
+    - a body cut off answered 500 without `no-store`;
+    - the handlers took the first repeated `cgsess` and the pages the last.
+  - recorded:
+    - 502 for a token that is not base64url;
+    - Next's own 405 and OPTIONS answers carry no `no-store`;
+    - the 403 tension between items 4 and 7, which became #107.
+  - wrongly reported:
+    - Next's Server Actions check accepts either header (it reads the first
+      `X-Forwarded-Host` entry, or else `Host`; see *Two corrections*).
+
+Second pass:
+
+- api:
+  - fixed:
+    - no test showed that the walk starts from the right; without it, an
+      implementation that read from the left would pass;
+    - a non-IP entry left of the one taken;
+    - the unlisted peer's confirmation row;
+    - an IPv6 prefix past 128;
+    - the list is parsed before any client opens.
+  - recorded:
+    - a mapped range keeps an IPv6 prefix (`::ffff:192.0.2.0/24` is
+      refused);
+    - prefixes with leading zeros are accepted.
+- dashboard:
+  - fixed:
+    - a `cgsess` that decodes to a control character broke the page's
+      header; a value without a token's shape is now no session, in the
+      pages and the handlers;
+    - the port removal on `X-Forwarded-Host` had no test.
+  - recorded:
+    - the last repeated cookie wins in the dashboard, where the api takes
+      the first; without a `__Host-` prefix a sibling subdomain can set one
+      (#106);
+    - the import of Next's internal `RequestCookies` path, which would break
+      the build, not the runtime, on a move.
+
+Third pass:
+
+- api: nothing blocking. Recorded: the unlisted and unset cases repeat four
+  header shapes rather than all; `source_ip` is asserted for the login's
+  failure rows only; a prefix with leading zeros is accepted.
+- dashboard:
+  - fixed through the contract first (`fe59102`):
+    - the token-shape rule was not in the amendment;
+    - after a sign-out, going back showed the router's cached incident view
+      without asking the server; the sign-out and the login view now drop
+      that cache;
+    - the api's `403` on a logout signed the browser out while the view
+      said only that the request was refused; it is now `502`, which takes
+      the view to the login with its notice. That was #107, opened and
+      closed in this session.
+  - recorded: the malformed-body case is tested on the login only, and a
+    connection reset has no test.
+
+Fourth pass, dashboard:
+
+- nothing contradicted.
+- recorded:
+  - the tests do not assert that the refresh comes after the push, which
+    the code does in the right order; a failed refresh, or Back during its
+    round trip, keeps the old cache;
+  - the login body has no time bound of its own beyond Node's 300 s;
+  - a `Referrer-Policy: no-referrer`, which #104's headers must not set,
+    makes browsers send `Origin: null` and item 2 refuse every sign-in;
+  - the import of Next's internal `RequestCookies`.
+
+#### Decisions (delegated, inside the ADRs)
+
+Anticipated:
+
+- **Landing order.** #79 and #83 land as two commits of one PR, since
+  SPEC-009's login depends on SPEC-008's list. Alternative: two PRs.
+- **The list is read once, at start.** The parsed list is held in
+  `Services.trustedProxies`, and the config check uses the same parser.
+  Alternative: parse per request.
+- **No list keeps the socket's address.** With no list, the source address
+  is the socket's, as before; with a list, it is canonical. Alternative:
+  always canonical, which would change the address the audit records on a
+  dual-stack bind.
+- **Refusals beyond `/0`.** A range that holds every IPv4 or every IPv6
+  address is refused, as is a prefix past its family's length. Item 1 was
+  corrected to say so. Alternative: refuse `/0` alone.
+- **Only base64url tokens become cookies.** The dashboard sets a cookie only
+  from a base64url token, and otherwise answers 502; it reads a cookie value
+  of another shape as no session. Alternative: take the values as they come.
+- **The api's own error code passes through.** The handler passes the api's
+  `error` string, falling back to the status's own code. Alternative: map
+  each status to a fixed code.
+- **The sign-out notice travels in the URL.** The notice reaches `/login`
+  as `?notice=signed-out`, read by a server page. Alternatives: a cookie, or
+  `sessionStorage`.
+- **The login view clears two fields after a failure.** It clears the
+  password and the code. Alternative: keep them.
+- **One cookie parser.** The handlers read cookies with Next's
+  `RequestCookies`, as the pages do. Alternative: the handler's own parser,
+  which disagreed with the pages on a repeated cookie.
+
+Reactive:
+
+- **The api's logout `403` became `502`.** The view takes `502` to the
+  login view with its notice, and the router's cache is dropped there
+  (`fe59102`, third review). Alternatives: keep the `403` and read its
+  body in the view; leave the cookies on a `403`.
+- **The 400 cases became lazy.** They were built at collection time, which
+  read the api's helpers before `beforeAll`.
+- **`role="status"` became `<output>`.** Biome's a11y rule asked for it.
+- **Item 2 matches Next for an empty entry.** An empty first
+  `X-Forwarded-Host` entry reads `Host`, and port 80 or 443 is removed only
+  on the host addressed, so `http://x:443` no longer passes.
+
 ## Debts
 
 New this session:
@@ -239,6 +468,33 @@ New this session:
   by the fourth code review of #88. Destination: the next change to
   `services/ingest/src/cert.ts`: refuse the reissue when the two paths
   resolve to one file.
+- **#106 — The dashboard's cookies carry no `__Host-` prefix.** A sibling
+  subdomain is same-site, so neither `SameSite=Strict` nor SPEC-009's
+  same-origin check stops it from setting `cgsess` or `cgcsrf` with
+  `Domain=<parent>`. Next's cookie parser keeps the last of a repeated
+  cookie, so it can plant a valid pair of its own (a login-CSRF variant) or
+  break the pair the browser holds. `__Host-cgsess` and `__Host-cgcsrf`
+  would close it; the attributes the prefix requires (`Secure`, `Path=/`,
+  no `Domain`) are already set. Surfaced by the second and third code
+  reviews of PR #19. Destination: a SPEC-009 change, with roadmap §F's
+  deployment domain.
+
+Opened and closed this session:
+
+- **#107 — The dashboard's logout answered the api's `403` with `403` after
+  clearing both cookies** (SPEC-009's second Amendment 2026-10-15 as landed
+  in `6aaea20`, items 4 and 7). The view then stayed on the page saying the
+  request was refused, with the browser signed out, the session alive on
+  the server and the router's cached views kept. Surfaced by the third code
+  review of PR #19, before any code shipped it. Closed by `fe59102` (the
+  contract: the api's `403` is answered `502`, which takes the view to the
+  login with its notice) and `1697e60` (the code).
+
+Closed this session:
+
+- **#79**, by `c9dad1c`: the api reads the source address through
+  `API_TRUSTED_PROXIES` (SPEC-008's second Amendment 2026-10-15). Roadmap
+  §F's SPEC lists the addresses for its compose.
 
 Changed this session:
 
@@ -251,13 +507,14 @@ Changed this session:
   it wrote before keeps its mode until a reissue rewrites it. It narrows to
   that and the containers' user, roadmap §F. The threat model's R15 says
   so.
-
-- **#79**: its destination is SPEC-008's second Amendment 2026-10-15,
-  `API_TRUSTED_PROXIES`; it closes with that amendment's code, and roadmap
-  §F's SPEC lists the addresses for its compose.
-- **#83**: SPEC-009's second Amendment 2026-10-15 settles the dashboard's
-  login and logout; its code narrows #83 to the TOTP enrollment and the user
-  management in the dashboard, with #98's invitation. Still required by
-  roadmap §F.
-- **#97**: the same amendment's item 6; its code narrows #97 to the transport
-  between the dashboard and the api, roadmap §F's.
+- **#83**: narrowed by `1697e60`, the dashboard's login and logout
+  (SPEC-009's second Amendment 2026-10-15), to the TOTP enrollment and the
+  user management in the dashboard, with #98's invitation. Still required
+  by roadmap §F.
+- **#97**: narrowed by `1697e60`, whose pages forward the session alone, to
+  the transport between the dashboard and the api: plain HTTP by default,
+  which a login's password and TOTP code now cross too. Roadmap §F.
+- **#104**: the headers must not include `Referrer-Policy: no-referrer`:
+  under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
+  same-origin check would refuse every sign-in and sign-out (the fourth
+  code review of PR #19).
