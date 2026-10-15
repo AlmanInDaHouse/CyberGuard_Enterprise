@@ -174,6 +174,33 @@ passes the header on unchanged and is safe to list behind a listed proxy
 qualifies (A2). Both were fixed with the wording the reviewer proposed;
 no sixth pass ran on those two one-line changes.
 
+A third correction, to SPEC-009's second Amendment, came from the third
+code review of PR #19:
+
+- Item 1, and dash_ac_004 and dash_ac_007: a `cgsess` or `cgcsrf` cookie
+  whose value is not a token (base64url, as the api writes its tokens) is
+  read as absent. The dashboard never sets one, and some values, once
+  decoded, cannot go into a header.
+- Item 3 and dash_ac_003: a `200` whose token is not a token is answered
+  `502`.
+- Item 4 and dash_ac_004: the api's `403` on a logout, a CSRF token that
+  does not match, is answered `502`. Like a `503`, it clears the cookies
+  without the api ending the session, so item 7 takes the browser to the
+  login view with its notice. The handler's `403` is left to item 2's
+  refusal, which changes no cookie.
+- Item 7 and dash_ac_008: the login view, when it opens, and the sign-out,
+  when it navigates, drop the router's cached views. Going back from the
+  login view, after a sign-out or an expired session, on a shared machine,
+  then shows no incident without asking the server.
+
+The fixed SPEC prompt reviewed this correction. It found that the first
+draft left the api's `403` signed out but on the page, with its views
+cached (A1), and that the draft's reason for the token rule was false (A2):
+a tab can go into a header, and a `€` cannot. A second pass found that the
+api can answer `503` after it has deleted the session, when its audit row
+fails (`services/api/src/auth/service.ts`, `logout`), so items 4 and 7 now
+say the session may live on (A1); its wording points were taken too.
+
 ## Debts
 
 New this session:
