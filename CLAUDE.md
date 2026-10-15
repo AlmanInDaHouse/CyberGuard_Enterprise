@@ -16,15 +16,16 @@ What a session does at its start and at its close. It used to arrive in each pro
 2. `git fetch --prune --tags`; `git rev-parse main origin/main` prints the same SHA twice; `git status --porcelain` prints nothing; `git stash list` is empty or each entry is explained by the handoff.
 3. Branches and PRs: `git branch -a`, and the open PRs (`GET /repos/AlmanInDaHouse/CyberGuard_Enterprise/pulls?state=open`, REST as in *CI monitoring*). Each one is named by the handoff.
 4. CI of `main`'s tip: every run for the full SHA is terminal and green (*CI monitoring*).
-5. Catalogs (`docs/adr/README.md`, `docs/specs/README.md`) and the *Known CI debt* table match the handoff's counts.
+5. Catalogs (`docs/adr/README.md`, `docs/specs/README.md`), the *Known CI debt* table and the open count of [docs/debts.md](docs/debts.md) match the handoff's counts.
 6. Where the repo and the handoff disagree, the repo wins: diagnose it and report it before starting the work.
 
 ### At the close
 
-1. Write `docs/handoff-session-<N>.md`: the state, the anchor commits, the decisions taken (*Decision reporting*), the self-reviews (*Compensating controls* §5), the gate outputs (literal lines), the test baselines, the debts, what waits on Manuel, and *How Session N+1 resumes*.
-2. Point `README.md` and `docs/product/roadmap.md` at the new handoff, and update the status of the roadmap phases the session moved.
-3. Write the session-close auto-memory entry and its `MEMORY.md` line, and update or retire the entries the session made untrue (no Obsidian mirror for this project).
-4. Close with `main` pushed, the tree clean and CI `ALL GREEN` on the close SHA. A branch left open is named in the handoff with its reason.
+1. Write `docs/handoff-session-<N>.md`: the state, the anchor commits, the decisions taken (*Decision reporting*), the self-reviews (*Compensating controls* §5), the gate outputs (literal lines), the test baselines, the debts (closed, open at the close with their number, new), what waits on Manuel, and *How Session N+1 resumes*.
+2. Update [docs/debts.md](docs/debts.md), the live debt register, as its *How the register is kept* says: a row for each debt opened, pointing to the handoff's entry; each debt closed moved to *Closed* with the commit that closed it, or the reason when no commit did; each destination changed; and its open count equal to the one the handoff states. The handoffs are records; the register points to them.
+3. Point `README.md` and `docs/product/roadmap.md` at the new handoff, and update the status of the roadmap phases the session moved.
+4. Write the session-close auto-memory entry and its `MEMORY.md` line, and update or retire the entries the session made untrue (no Obsidian mirror for this project).
+5. Close with `main` pushed, the tree clean and CI `ALL GREEN` on the close SHA. A branch left open is named in the handoff with its reason.
 
 The handoff is the session's own until the next session starts: later commits of the same session may complete it. From then on it is a record (Class H) and is not edited.
 
