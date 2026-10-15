@@ -1,7 +1,14 @@
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
+import type { Server as TlsServer } from "node:tls";
 import { pino } from "pino";
 import { buildEnrollApp, buildHeartbeatApp } from "./app.js";
-import { ensureServerCert } from "./cert.js";
+import {
+  SERVER_CHECK_INTERVAL_MS,
+  SERVER_EXPIRY_MARGIN_MS,
+  type ServerIdentity,
+  checkServerCert,
+  ensureServerCert,
+} from "./cert.js";
 import type { Config } from "./config.js";
 import { runMigrations } from "./db/migrate.js";
 import { startProdDetectionDriver } from "./detect/driver.js";
@@ -34,11 +41,38 @@ export interface IngestServer {
 export interface BootLog {
   info(obj: Record<string, unknown>, msg: string): void;
   warn(obj: Record<string, unknown>, msg: string): void;
+  error(obj: Record<string, unknown>, msg: string): void;
 }
 
 export interface StartOptions {
-  /** Where the boot logs before the apps exist; pino at INGEST_LOG_LEVEL by default. */
+  /**
+   * Where the boot logs before the apps exist, and where the server certificate's
+   * checks log at start and while running; pino at INGEST_LOG_LEVEL by default.
+   */
   log?: BootLog;
+  /**
+   * Test seams for the server certificate's checks (SPEC-004 Amendment 2026-10-15
+   * item 10): the clock they and item 7 read, and the running check's interval (24 h).
+   */
+  serverCert?: { now?: () => number; checkIntervalMs?: number };
+}
+
+/** Run `check` every `intervalMs`, one at a time, until `stop()`, which awaits a run in flight. */
+function every(intervalMs: number, check: () => Promise<void>): { stop(): Promise<void> } {
+  let running: Promise<void> | null = null;
+  const timer = setInterval(() => {
+    if (running) return;
+    running = check().finally(() => {
+      running = null;
+    });
+  }, intervalMs);
+  timer.unref();
+  return {
+    async stop() {
+      clearInterval(timer);
+      await running;
+    },
+  };
 }
 
 /** Log why SOAR is idle, at the level the loader chose (SPEC-022 §Operational §1). */
@@ -68,11 +102,26 @@ export async function startIngest(
 
   try {
     const bindHost = config.INGEST_BIND_HOST;
-    const serverIdentity = await ensureServerCert(
+    // SPEC-004 Amendment 2026-10-15 — the pair is classified, and a self-issued one
+    // reissued if it needs it, before the mTLS listener binds.
+    const certPath = config.INGEST_SERVER_CERT_PATH;
+    const keyPath = config.INGEST_SERVER_KEY_PATH;
+    const certChecks = { now: options.serverCert?.now ?? Date.now, log };
+    let serverIdentity: ServerIdentity = await ensureServerCert(
       services.ca,
-      config.INGEST_SERVER_CERT_PATH,
-      config.INGEST_SERVER_KEY_PATH,
+      certPath,
+      keyPath,
+      certChecks,
     );
+    // The secure context's options besides the pair; a reissue while running
+    // replaces the context with these and the new pair.
+    const secureContext = {
+      ca: services.ca.caCertPem,
+      // TLS 1.3 only. Node's default 1.3 suites include the two the agent's
+      // rustls offers (TLS_AES_256_GCM_SHA384 / TLS_CHACHA20_POLY1305_SHA256),
+      // so negotiation succeeds (ADR-0004 / SPEC-003 FR-006).
+      minVersion: "TLSv1.3" as const,
+    };
 
     const logger = { level: config.INGEST_LOG_LEVEL };
     const enrollApp = buildEnrollApp(services, logger);
@@ -80,19 +129,24 @@ export async function startIngest(
     const heartbeatApp = buildHeartbeatApp(
       services,
       {
+        ...secureContext,
         key: serverIdentity.keyPem,
         cert: serverIdentity.certPem,
-        ca: services.ca.caCertPem,
         requestCert: true,
         rejectUnauthorized: true,
-        // TLS 1.3 only. Node's default 1.3 suites include the two the agent's
-        // rustls offers (TLS_AES_256_GCM_SHA384 / TLS_CHACHA20_POLY1305_SHA256),
-        // so negotiation succeeds (ADR-0004 / SPEC-003 FR-006).
-        minVersion: "TLSv1.3",
       },
       logger,
     );
     built.push(heartbeatApp);
+    const heartbeatServer = heartbeatApp.server as unknown as TlsServer;
+    // SPEC-004 Amendment 2026-10-15 item 7 — an expired certificate is not served:
+    // a connection closed before its handshake is one the agent retries, while an
+    // expired certificate makes it exit (SPEC-003 exit 6). The margin covers an
+    // agent whose clock runs ahead of the server's.
+    heartbeatServer.prependListener("connection", (socket: Socket) => {
+      const left = serverIdentity.notAfter.getTime() - certChecks.now();
+      if (left <= SERVER_EXPIRY_MARGIN_MS) socket.destroy();
+    });
 
     await enrollApp.listen({ host: bindHost, port: config.INGEST_ENROLL_PORT });
     await heartbeatApp.listen({ host: bindHost, port: config.INGEST_HEARTBEAT_PORT });
@@ -118,6 +172,40 @@ export async function startIngest(
       "detection driver started",
     );
 
+    // SPEC-004 Amendment 2026-10-15 item 4 — the running check of the certificate
+    // the listener serves; after a reissue each new handshake gets the new pair.
+    const serverCertCheck = every(
+      options.serverCert?.checkIntervalMs ?? SERVER_CHECK_INTERVAL_MS,
+      async () => {
+        try {
+          const next = await checkServerCert(
+            services.ca,
+            serverIdentity,
+            certPath,
+            keyPath,
+            certChecks,
+          );
+          if (!next) return;
+          heartbeatServer.setSecureContext({
+            ...secureContext,
+            key: next.keyPem,
+            cert: next.certPem,
+          });
+          serverIdentity = next;
+        } catch (err) {
+          log.error(
+            {
+              event: "server_cert_reissue_failed",
+              error: err instanceof Error ? err.message : String(err),
+              cert_path: certPath,
+              not_after: serverIdentity.notAfter.toISOString(),
+            },
+            "server certificate reissue failed",
+          );
+        }
+      },
+    );
+
     return {
       enrollUrl: `http://${bindHost}:${enrollPort}`,
       heartbeatUrl: `https://${bindHost}:${heartbeatPort}`,
@@ -126,6 +214,7 @@ export async function startIngest(
         // Stop the driver first: stop() cancels the pending tick and awaits any
         // in-flight pass (bounded), so services.close() below never races a cycle.
         await detectionDriver.stop();
+        await serverCertCheck.stop();
         await Promise.allSettled([enrollApp.close(), heartbeatApp.close()]);
         await services.close();
       },
