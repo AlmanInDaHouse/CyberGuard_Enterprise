@@ -154,12 +154,13 @@ describe("forensic_ac_001 — the role", () => {
     ],
     ["the export of a malformed id", () => "/v1/incidents/not-an-id/forensic-export"],
     ["the report of a malformed id", () => "/v1/incidents/not-an-id/report"],
-  ])("a viewer's request for %s answers 403 and writes no row", async (_name, path) => {
+  ])("a viewer's request for %s answers 403 and writes no forensic row", async (_name, path) => {
     const viewer = await session("viewer");
     const res = await get(app, viewer.token, path());
     expect(res.statusCode).toBe(403);
     expect(res.json()).toEqual({ error: "forbidden" });
-    expect(await anyRows(viewer.userId)).toBe(0);
+    // Its access.denied row is SPEC-008 Amendment 2026-10-16's (apiauth_ac_019).
+    expect(await forensicRows(viewer.userId)).toEqual([]);
   });
 
   test.each(["admin", "analyst"] as const)("an %s's export and report answer 200", async (role) => {

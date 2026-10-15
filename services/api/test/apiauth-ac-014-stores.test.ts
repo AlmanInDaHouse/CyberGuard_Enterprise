@@ -130,7 +130,8 @@ describe.each([
 
 test("an error inside the rate limiter's transaction answers 503", async () => {
   // A counter GET reads (1.5 is under the limit) and INCR refuses ("not an integer"),
-  // so the failure comes inside EXEC, which still resolves.
+  // so the failure comes inside the reservation script, which fails (SPEC-008
+  // Amendment 2026-10-16 item 3).
   const redis = createRedisClient(config.API_REDIS_URL);
   await redis.set("rl:acct:default:wrongtype@ac014.test", "1.5", "EX", 60);
   const app = buildApp(services);

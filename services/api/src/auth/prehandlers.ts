@@ -30,7 +30,7 @@ export function makeRequireSession(services: Services) {
 export function makeRequireRole(...roles: string[]) {
   return async (req: FastifyRequest): Promise<void> => {
     if (!roles.includes(req.authSession?.role ?? "")) {
-      throw new ForbiddenError("insufficient role");
+      throw new ForbiddenError("insufficient role", "role");
     }
   };
 }
@@ -39,7 +39,7 @@ export function makeRequireCsrf() {
   return async (req: FastifyRequest): Promise<void> => {
     const header = req.headers["x-csrf-token"];
     if (!req.authSession || typeof header !== "string" || header !== req.authSession.csrf_token) {
-      throw new ForbiddenError("missing or invalid CSRF token");
+      throw new ForbiddenError("missing or invalid CSRF token", "csrf");
     }
   };
 }
