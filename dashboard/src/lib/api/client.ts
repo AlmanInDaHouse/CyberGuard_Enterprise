@@ -17,8 +17,9 @@ export function apiBaseUrl(env: Record<string, string | undefined> = process.env
   return env.API_BASE_URL ?? "http://127.0.0.1:8081";
 }
 
-/** The production client: forwards the server-side `cgsess` cookie to the read-API
- *  over HTTP, never caching (every read reflects current auth + data). */
+/** The production client: sends the `Cookie` header it is given, the session alone
+ *  (`sessionCookieHeader`, SPEC-009's second Amendment 2026-10-15, item 6), to the
+ *  read-API over HTTP, never caching (every read reflects current auth + data). */
 export function httpApiClient(baseUrl: string): ApiClient {
   return {
     async get(path, cookieHeader) {
