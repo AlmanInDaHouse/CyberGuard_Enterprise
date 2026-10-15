@@ -12,11 +12,16 @@ import { asStore } from "../stores.js";
 import { appendAudit } from "./audit.js";
 import { constantWorkHash, hashPassword, verifyPassword } from "./password.js";
 import {
-  isAllowed,
-  isConfirmAllowed,
-  recordConfirmFailure,
-  recordFailure,
-  resetAccount,
+  confirmFailed,
+  loginFailed,
+  loginSucceeded,
+  passwordChangeFailed,
+  releaseConfirm,
+  releaseLogin,
+  releasePasswordChange,
+  reserveConfirm,
+  reserveLogin,
+  reservePasswordChange,
 } from "./ratelimit.js";
 import {
   type SessionInfo,
@@ -292,90 +297,109 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
   return {
     async login(input, ctx) {
       const email = normalizeEmail(input.email);
-      // Rate-limit gate BEFORE any credential work (real counter, two axes).
-      if (!(await isAllowed(redis, ORG, email, ctx.sourceIp))) {
+      // Rate-limit gate BEFORE any credential work: the attempt reserves its slots on
+      // both counters at once (Amendment 2026-10-16 item 3).
+      if (!(await reserveLogin(redis, ORG, email, ctx.sourceIp))) {
         throw new RateLimitError();
       }
-      const res = await pool.query<AuthUserRow>(
-        `SELECT user_id, org_id, role, status, password_hash, totp_enrolled, authority_version,
+      // The slots settle when the attempt fails (they are kept) or succeeds (they are
+      // given back); an attempt that ends otherwise, in a store failure, gives them back
+      // (Amendment 2026-10-16 item 3).
+      let settled = false;
+      try {
+        const res = await pool.query<AuthUserRow>(
+          `SELECT user_id, org_id, role, status, password_hash, totp_enrolled, authority_version,
                 pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE org_id = $2 AND email = $3`,
-        [config.API_DB_ENC_PASSPHRASE, ORG, email],
-      );
-      const user = res.rows[0];
-      // Single generic negative branch — no user-enumeration, no per-factor oracle.
-      const reject = async (count = true): Promise<never> => {
-        if (count) await recordFailure(redis, ORG, email, ctx.sourceIp);
-        await appendAudit(pool, {
-          userId: user?.user_id ?? null,
-          orgId: user?.org_id ?? ORG,
-          action: "auth.login.fail",
-          outcome: "denied",
-          sourceIp: ctx.sourceIp,
-          correlationId: ctx.correlationId,
-        });
-        throw new AuthError();
-      };
-      if (!user || user.status !== "active") {
-        // The same work as a wrong password (Amendment 2026-10-15 item 11): the decrypt
-        // a found row costs, and the Argon2 verification.
-        if (!user) await decryptLikeARow();
-        await verifyPassword(await constantWorkHash(), input.password);
-        return reject();
-      }
-      if (!(await verifyPassword(user.password_hash, input.password))) return reject();
-      if (!user.totp_enrolled) return reject();
-      if (!verifyTotp(user.totp_secret, input.totp_code)) return reject();
-      // Replay rejection: the accepted code is single-use per user within its window.
-      const firstUse = await redis.set(
-        `totp:replay:${user.user_id}:${input.totp_code}`,
-        "1",
-        "EX",
-        90,
-        "NX",
-      );
-      if (firstUse === null) return reject();
+          [config.API_DB_ENC_PASSPHRASE, ORG, email],
+        );
+        const user = res.rows[0];
+        // Single generic negative branch — no user-enumeration, no per-factor oracle.
+        // A failure keeps its slots, which count it, and restarts their windows; one that
+        // counts no failure gives them back.
+        const reject = async (count = true): Promise<never> => {
+          settled = true;
+          if (count) await loginFailed(redis, ORG, email, ctx.sourceIp);
+          else await releaseLogin(redis, ORG, email, ctx.sourceIp);
+          await appendAudit(pool, {
+            userId: user?.user_id ?? null,
+            orgId: user?.org_id ?? ORG,
+            action: "auth.login.fail",
+            outcome: "denied",
+            sourceIp: ctx.sourceIp,
+            correlationId: ctx.correlationId,
+          });
+          throw new AuthError();
+        };
+        if (!user || user.status !== "active") {
+          // The same work as a wrong password (Amendment 2026-10-15 item 11): the decrypt
+          // a found row costs, and the Argon2 verification.
+          if (!user) await decryptLikeARow();
+          await verifyPassword(await constantWorkHash(), input.password);
+          return reject();
+        }
+        if (!(await verifyPassword(user.password_hash, input.password))) return reject();
+        if (!user.totp_enrolled) return reject();
+        if (!verifyTotp(user.totp_secret, input.totp_code)) return reject();
+        // Replay rejection: the accepted code is single-use per user within its window.
+        const firstUse = await redis.set(
+          `totp:replay:${user.user_id}:${input.totp_code}`,
+          "1",
+          "EX",
+          90,
+          "NX",
+        );
+        if (firstUse === null) return reject();
 
-      const { token, csrfToken } = await createSession(redis, {
-        user_id: user.user_id,
-        org_id: user.org_id,
-        role: user.role,
-      });
-      // Read the row again (Amendment 2026-10-15 item 9): a change that committed since
-      // the first read raised the version, and its deletion may have run before this
-      // session existed. Then this session goes too.
-      const again = await pool.query<{ authority_version: string; status: string }>(
-        "SELECT authority_version, status FROM users WHERE user_id = $1",
-        [user.user_id],
-      );
-      const now = again.rows[0];
-      if (!now || now.authority_version !== user.authority_version || now.status !== "active") {
-        // The credentials were right: the row changed under the login. Its row is
-        // written, and nothing counts against the user's limits.
-        await revokeSession(redis, token);
-        return reject(false);
-      }
-      // Only a login that keeps its session clears the account's failures.
-      await resetAccount(redis, ORG, email);
-      await pool.query("UPDATE users SET last_login_at = now() WHERE user_id = $1", [user.user_id]);
-      await appendAudit(pool, {
-        userId: user.user_id,
-        orgId: user.org_id,
-        action: "auth.login.ok",
-        outcome: "ok",
-        sourceIp: ctx.sourceIp,
-        correlationId: ctx.correlationId,
-      });
-      return {
-        token,
-        csrfToken,
-        session: {
+        const { token, csrfToken } = await createSession(redis, {
           user_id: user.user_id,
           org_id: user.org_id,
           role: user.role,
-          csrf_token: csrfToken,
-        },
-      };
+        });
+        // Read the row again (Amendment 2026-10-15 item 9): a change that committed since
+        // the first read raised the version, and its deletion may have run before this
+        // session existed. Then this session goes too.
+        const again = await pool.query<{ authority_version: string; status: string }>(
+          "SELECT authority_version, status FROM users WHERE user_id = $1",
+          [user.user_id],
+        );
+        const now = again.rows[0];
+        if (!now || now.authority_version !== user.authority_version || now.status !== "active") {
+          // The credentials were right: the row changed under the login. Its row is
+          // written, and nothing counts against the user's limits.
+          await revokeSession(redis, token);
+          return reject(false);
+        }
+        // Only a login that keeps its session clears the account's failures.
+        settled = true;
+        // A give-back Redis cannot take keeps the slots until their window ends, and is
+        // a 503, logged (the first Amendment 2026-10-15 item 14).
+        await loginSucceeded(redis, ORG, email, ctx.sourceIp);
+        await pool.query("UPDATE users SET last_login_at = now() WHERE user_id = $1", [
+          user.user_id,
+        ]);
+        await appendAudit(pool, {
+          userId: user.user_id,
+          orgId: user.org_id,
+          action: "auth.login.ok",
+          outcome: "ok",
+          sourceIp: ctx.sourceIp,
+          correlationId: ctx.correlationId,
+        });
+        return {
+          token,
+          csrfToken,
+          session: {
+            user_id: user.user_id,
+            org_id: user.org_id,
+            role: user.role,
+            csrf_token: csrfToken,
+          },
+        };
+      } catch (err) {
+        if (!settled) await releaseLogin(redis, ORG, email, ctx.sourceIp).catch(() => undefined);
+        throw err;
+      }
     },
 
     async logout(token, ctx) {
@@ -452,37 +476,83 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
       return changeUser(userId, { status }, ctx);
     },
 
+    /**
+     * SPEC-008 §8 and Amendment 2026-10-16 item 2 (debt #100): limited on a per-user
+     * counter of its own, a failure recorded, and the accepted code used up, so the
+     * password change adds no faster way to try codes, and its code opens no session.
+     */
     async changePassword(input, ctx) {
-      const res = await pool.query<{ org_id: string; password_hash: string; totp_secret: string }>(
-        `SELECT org_id, password_hash, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
-         FROM users WHERE user_id = $2`,
-        [config.API_DB_ENC_PASSPHRASE, input.userId],
-      );
-      const u = res.rows[0];
-      if (
-        !u ||
-        !(await verifyPassword(u.password_hash, input.currentPassword)) ||
-        !verifyTotp(u.totp_secret, input.totp_code)
-      ) {
-        throw new AuthError();
+      if (!(await reservePasswordChange(redis, input.userId))) {
+        throw new RateLimitError();
       }
-      const ph = await hashPassword(input.newPassword);
-      await authorityChange(input.userId, async (db) => {
-        await db.query(
-          `UPDATE users
+      // The slots settle when the attempt fails (they are kept) or succeeds (they are
+      // given back); an attempt that ends otherwise, in a store failure, gives them back
+      // (Amendment 2026-10-16 item 3).
+      let settled = false;
+      try {
+        const res = await pool.query<{
+          org_id: string;
+          password_hash: string;
+          totp_secret: string;
+        }>(
+          `SELECT org_id, password_hash, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
+         FROM users WHERE user_id = $2`,
+          [config.API_DB_ENC_PASSPHRASE, input.userId],
+        );
+        const u = res.rows[0];
+        // A failure keeps its slots, restarts their windows and writes its row.
+        const reject = async (): Promise<never> => {
+          settled = true;
+          await passwordChangeFailed(redis, input.userId);
+          await appendAudit(pool, {
+            userId: input.userId,
+            orgId: ctx.session?.org_id ?? u?.org_id ?? ORG,
+            action: "user.password.change",
+            outcome: "denied",
+            sourceIp: ctx.sourceIp,
+            correlationId: ctx.correlationId,
+          });
+          throw new AuthError();
+        };
+        if (
+          !u ||
+          !(await verifyPassword(u.password_hash, input.currentPassword)) ||
+          !verifyTotp(u.totp_secret, input.totp_code)
+        ) {
+          return reject();
+        }
+        // The accepted code is used up, as the login's is (§1.3).
+        const firstUse = await redis.set(
+          `totp:replay:${input.userId}:${input.totp_code}`,
+          "1",
+          "EX",
+          90,
+          "NX",
+        );
+        if (firstUse === null) return reject();
+        const ph = await hashPassword(input.newPassword);
+        await authorityChange(input.userId, async (db) => {
+          await db.query(
+            `UPDATE users
               SET password_hash = $2, authority_version = authority_version + 1, updated_at = now()
             WHERE user_id = $1`,
-          [input.userId, ph],
-        );
-        await appendAudit(db, {
-          userId: input.userId,
-          orgId: ctx.session?.org_id ?? u.org_id,
-          action: "user.password.change",
-          outcome: "ok",
-          sourceIp: ctx.sourceIp,
-          correlationId: ctx.correlationId,
+            [input.userId, ph],
+          );
+          await appendAudit(db, {
+            userId: input.userId,
+            orgId: ctx.session?.org_id ?? u.org_id,
+            action: "user.password.change",
+            outcome: "ok",
+            sourceIp: ctx.sourceIp,
+            correlationId: ctx.correlationId,
+          });
         });
-      });
+        settled = true;
+        await releasePasswordChange(redis, input.userId);
+      } catch (err) {
+        if (!settled) await releasePasswordChange(redis, input.userId).catch(() => undefined);
+        throw err;
+      }
     },
 
     /**
@@ -491,60 +561,73 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
      * the confirmation is no way to try codes against an enrolled user.
      */
     async confirmTotpEnrollment(input, ctx) {
-      if (!(await isConfirmAllowed(redis, input.userId, ctx.sourceIp))) {
+      if (!(await reserveConfirm(redis, input.userId, ctx.sourceIp))) {
         throw new RateLimitError();
       }
-      const res = await pool.query<{
-        user_id: string;
-        org_id: string;
-        totp_enrolled: boolean;
-        totp_secret: string;
-      }>(
-        `SELECT user_id, org_id, totp_enrolled, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
+      // The slots settle when the attempt fails (they are kept) or succeeds (they are
+      // given back); an attempt that ends otherwise, in a store failure, gives them back
+      // (Amendment 2026-10-16 item 3).
+      let settled = false;
+      try {
+        const res = await pool.query<{
+          user_id: string;
+          org_id: string;
+          totp_enrolled: boolean;
+          totp_secret: string;
+        }>(
+          `SELECT user_id, org_id, totp_enrolled, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE user_id = $2`,
-        [config.API_DB_ENC_PASSPHRASE, input.userId],
-      );
-      const u = res.rows[0];
-      const reject = async (): Promise<never> => {
-        await recordConfirmFailure(redis, input.userId, ctx.sourceIp);
+          [config.API_DB_ENC_PASSPHRASE, input.userId],
+        );
+        const u = res.rows[0];
+        const reject = async (): Promise<never> => {
+          settled = true;
+          await confirmFailed(redis, input.userId, ctx.sourceIp);
+          await appendAudit(pool, {
+            userId: u?.user_id ?? null,
+            orgId: u?.org_id ?? ORG,
+            action: "user.totp.enroll",
+            outcome: "denied",
+            sourceIp: ctx.sourceIp,
+            correlationId: ctx.correlationId,
+          });
+          throw new AuthError();
+        };
+        if (!u || u.totp_enrolled) {
+          // The same work as a wrong code (item 12): the decrypt and the TOTP check.
+          if (!u) await decryptLikeARow();
+          verifyTotp(constantWorkSecret, input.totp_code);
+          return reject();
+        }
+        if (!verifyTotp(u.totp_secret, input.totp_code)) return reject();
+        // The accepted code is used up, as the login's is: it cannot open a session.
+        const firstUse = await redis.set(
+          `totp:replay:${u.user_id}:${input.totp_code}`,
+          "1",
+          "EX",
+          90,
+          "NX",
+        );
+        if (firstUse === null) return reject();
+        await pool.query(
+          "UPDATE users SET totp_enrolled = true, updated_at = now() WHERE user_id = $1",
+          [input.userId],
+        );
         await appendAudit(pool, {
-          userId: u?.user_id ?? null,
-          orgId: u?.org_id ?? ORG,
+          userId: input.userId,
+          orgId: u.org_id,
           action: "user.totp.enroll",
-          outcome: "denied",
+          outcome: "ok",
           sourceIp: ctx.sourceIp,
           correlationId: ctx.correlationId,
         });
-        throw new AuthError();
-      };
-      if (!u || u.totp_enrolled) {
-        // The same work as a wrong code (item 12): the decrypt and the TOTP check.
-        if (!u) await decryptLikeARow();
-        verifyTotp(constantWorkSecret, input.totp_code);
-        return reject();
+        settled = true;
+        await releaseConfirm(redis, input.userId, ctx.sourceIp);
+      } catch (err) {
+        if (!settled)
+          await releaseConfirm(redis, input.userId, ctx.sourceIp).catch(() => undefined);
+        throw err;
       }
-      if (!verifyTotp(u.totp_secret, input.totp_code)) return reject();
-      // The accepted code is used up, as the login's is: it cannot open a session.
-      const firstUse = await redis.set(
-        `totp:replay:${u.user_id}:${input.totp_code}`,
-        "1",
-        "EX",
-        90,
-        "NX",
-      );
-      if (firstUse === null) return reject();
-      await pool.query(
-        "UPDATE users SET totp_enrolled = true, updated_at = now() WHERE user_id = $1",
-        [input.userId],
-      );
-      await appendAudit(pool, {
-        userId: input.userId,
-        orgId: u.org_id,
-        action: "user.totp.enroll",
-        outcome: "ok",
-        sourceIp: ctx.sourceIp,
-        correlationId: ctx.correlationId,
-      });
     },
   };
 }

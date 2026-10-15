@@ -1,5 +1,7 @@
 import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import { appendAudit } from "./auth/audit.js";
+import { requestContext } from "./auth/context.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import {
   AuthError,
@@ -13,6 +15,7 @@ import {
 } from "./errors.js";
 import { registerReadRoutes } from "./read/routes.js";
 import type { Services } from "./services.js";
+import { fromStore } from "./stores.js";
 
 type LoggerOpt = FastifyServerOptions["logger"];
 
@@ -46,10 +49,37 @@ export function buildApp(services: Services, logger: LoggerOpt = false): Fastify
   });
   app.register(cookie);
 
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler(async (err, req, reply) => {
     if (err instanceof AuthError) return reply.code(401).send({ error: "unauthorized" });
     if (err instanceof RateLimitError) return reply.code(429).send({ error: "rate_limited" });
-    if (err instanceof ForbiddenError) return reply.code(403).send({ error: "forbidden" });
+    if (err instanceof ForbiddenError) {
+      // SPEC-008 Amendment 2026-10-16 item 1: a role or CSRF refusal of a session's
+      // principal writes its row; the request is refused either way.
+      const session = req.authSession;
+      const reason = err.reason;
+      if (reason && session) {
+        const ctx = requestContext(req, services.trustedProxies);
+        try {
+          await fromStore(() =>
+            appendAudit(services.pg, {
+              userId: session.user_id,
+              orgId: session.org_id,
+              action: "access.denied",
+              outcome: "denied",
+              sourceIp: ctx.sourceIp,
+              correlationId: ctx.correlationId,
+              detail: { reason, route: `${req.method} ${req.routeOptions.url}` },
+            }),
+          );
+        } catch (cause) {
+          // The row cannot be written: every failure of the write is the store's.
+          const store = cause instanceof StoreUnavailableError ? cause.cause : cause;
+          req.log.error({ error: loggable(store) }, "store unavailable");
+          return reply.code(503).send({ error: "unavailable" });
+        }
+      }
+      return reply.code(403).send({ error: "forbidden" });
+    }
     if (err instanceof BadRequestError) return reply.code(400).send({ error: "bad_request" });
     if (err instanceof NotFoundError) return reply.code(404).send({ error: "not_found" });
     if (err instanceof ConflictError) return reply.code(409).send({ error: "conflict" });

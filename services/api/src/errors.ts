@@ -22,9 +22,14 @@ export class RateLimitError extends Error {
   }
 }
 
-/** Authorization / CSRF denied — mapped to 403 (RBAC §5, CSRF §4). */
+/** Authorization / CSRF denied — mapped to 403 (RBAC §5, CSRF §4). A refusal of a known
+ *  principal carries its reason, which the `access.denied` row records (SPEC-008
+ *  Amendment 2026-10-16 item 1). */
 export class ForbiddenError extends Error {
-  constructor(message = "forbidden") {
+  constructor(
+    message = "forbidden",
+    readonly reason?: "role" | "csrf",
+  ) {
     super(message);
     this.name = "ForbiddenError";
   }
