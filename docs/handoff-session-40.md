@@ -638,6 +638,16 @@ From its second list, the draft took:
 
 No fourth pass ran on those changes.
 
+The code's first review (PR #21) found two places where the text and the
+code read differently, and the text was clarified before the code landed:
+
+- A failure whose audit row then fails keeps its slots; only an attempt a
+  store interrupts before its outcome gives them back. A counter that Redis
+  being down puts out of reach keeps them until its window ends.
+- The refused request's row: `503` when it cannot be written. A `500` for
+  another failure was unreachable, since every failure of the write is the
+  store's.
+
 ## Debts
 
 New this session:
