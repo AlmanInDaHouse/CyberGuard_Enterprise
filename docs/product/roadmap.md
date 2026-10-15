@@ -378,9 +378,9 @@ This dependency-ordered document supersedes both for planning.
   its code leaves #83 the TOTP enrollment and user management, #97 the
   transport between the dashboard and the api);
   the agents' certificate renewal (#88; the server certificate's reissue
-  goes first, in the next sweep); a Redis user and a Postgres role per
+  landed in S40, `b293500`); a Redis user and a Postgres role per
   service (#85, #86); TLS on the enrollment listener (#89); non-root
-  containers and the TLS key's file mode (#92); Postgres logging without
+  containers, and a TLS key file written before `b293500` (#92); Postgres logging without
   parameters (#94); per-service grants and retention for the logon and
   connection telemetry (#95, #47); the bootstrap CLI's password off the
   command line (#77); trusting a relay's private CA (#78); the proxy's

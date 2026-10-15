@@ -73,8 +73,51 @@ ba08ff1: ts-ci -> failure (a test's race, below)
 ebb0394: ts-ci -> success
 ```
 
-`ebb0394` waits for the elevated gate (`C:\tmp\s40-gate1.ps1`), which
-Manuel runs.
+Manuel ran the elevated gate on `ebb0394` (`C:\tmp\s40-gate1.ps1`,
+2026-10-15, 20:51 to 20:56). Its logs, literal:
+
+```text
+01-elev    net session: No hay entradas en la lista.
+02-head    ebb0394 / fix/s40-debt-88-server-cert
+03-status  status lines: 0
+05-build   Finished `release` profile [optimized] target(s) in 10.99s
+06-cargo   test auth_ac_012_logons_on_the_real_log ... ok
+           test capture_ac_006_elevated_shutdown_leaves_no_session ... ok
+           test net_ac_008_a_real_connection_is_reported_with_its_probe ... ok
+           test net_ac_009_an_accepted_connection_and_the_filter ... ok
+           test ac_004_cache_hit_terminate_matches_launch_byte_for_byte ... ok
+           test ac_007_parent_pid_only_when_parent_dead_at_child_launch ... ok
+           test ac_009_events_lost_under_deliberate_etw_buffer_pressure ... ok
+08-vitest  ✓ test/servercert-ac-renewal.test.ts (19 tests | 1 skipped) 9077ms
+           ✓ test/detect-ac-001-marquee.test.ts (1 test) 46787ms
+           ✓ test/spec-005-marquee.test.ts (1 test) 40473ms
+           ✓ test/net-ac-010-marquee.test.ts (1 test) 25676ms
+           ✓ test/auth-ac-013-marquee.test.ts (1 test) 25544ms
+           ✓ test/ac-001-marquee.test.ts (1 test) 4570ms
+           detect_ac_001 captured image_file_name — probe: C:\Users\manul\AppData\Local\Temp\cg-detect-probe-IjQGgj\winword.exe; child: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+           spec_005 captured image_file_name — launch: C:\Windows\System32\cmd.exe; terminate: cmd.exe
+           Test Files  73 passed (73)
+                Tests  292 passed | 1 skipped (293)
+10-agent   logman query CGAgent-KernelProcess -ets: No se encontró el Conjunto de recopiladores de datos.
+```
+
+The skipped test is `servercert_ac_008`, which runs only off Windows: it
+sets the key file's mode, which Windows does not keep. The cargo log holds
+no `refused_attempt_reported` line of `net_ac_008` nor `auth_ac_012`'s
+redacted lines, which CLAUDE.md's procedure says they print: libtest keeps
+the output of a test that passes unless it runs with `--nocapture`, and the
+gate does not pass it.
+
+The branch was rebased onto `6aaea20` (docs only) as `44d2ac4`; `git diff
+--quiet ebb0394 44d2ac4 -- services/` returned 0, so the gate covers its
+code. `44d2ac4: ts-ci -> success`. It landed on `main` as `b293500` by
+`git merge --squash`, behind `git diff --cached --quiet <branch>` and `git
+diff --quiet <branch> HEAD`, each stopping the push on a mismatch; PR #18
+was closed and the branch deleted, local and on origin.
+
+```text
+SHA b293500: ts-ci -> success
+```
 
 ### #83, #97 and #79: the contracts
 
@@ -122,6 +165,16 @@ New this session:
   resolve to one file.
 
 Changed this session:
+
+- **#88**: its server half closed with `b293500`: the ingest server reissues
+  its self-issued certificate before it expires (SPEC-004 Amendment
+  2026-10-15). It stays open for the agents' certificates: no renewal and no
+  revocation list, before roadmap §F's installation is called done. The
+  threat model's R5 and its record of the system as built say so.
+- **#92**: since `b293500` ingest writes its TLS key file `0600`; a key file
+  it wrote before keeps its mode until a reissue rewrites it. It narrows to
+  that and the containers' user, roadmap §F. The threat model's R15 says
+  so.
 
 - **#79**: its destination is SPEC-008's second Amendment 2026-10-15,
   `API_TRUSTED_PROXIES`; it closes with that amendment's code, and roadmap

@@ -85,11 +85,11 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 85 | A compromised ingest can forge an api session (shared Redis) | `handoff-session-39.md:666` | Roadmap §F: a Redis user per service. |
 | 86 | Both services act as the Postgres superuser | `handoff-session-39.md:672` | Roadmap §F: a Postgres role per service. |
 | 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676` | A SPEC-002 amendment, with the next agent change under the elevated gate. |
-| 88 | Certificates expire at 90 days; the server's is reused past its expiry | `handoff-session-39.md:683` | First: the server certificate reissued at start (a SPEC-004 amendment); then the agents' renewal before roadmap §F is done. |
+| 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694` | Roadmap §F and a SPEC-004 amendment. |
 | 90 | The forensic export and report: any role, no audit row | `handoff-session-39.md:700` | Sweep: a role check and an audit row. |
 | 91 | Detection rules re-read from disk on every cycle | `handoff-session-39.md:705` | Sweep. |
-| 92 | The containers run as root; ingest's TLS key has the default mode | `handoff-session-39.md:711` | Roadmap §F. |
+| 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md` | Roadmap §F. |
 | 93 | No dependency audit in CI | `handoff-session-39.md:714` | Sweep. |
 | 94 | Encryption passphrases travel as SQL parameters | `handoff-session-39.md:717` | Roadmap §F's Postgres logging. |
 | 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724` | Roadmap §F's grants, and the DPO's record of processing. |
