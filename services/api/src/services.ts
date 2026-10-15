@@ -2,6 +2,7 @@ import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import { Redis } from "ioredis";
 import pg from "pg";
 import { type AuthService, createAuthService } from "./auth/service.js";
+import { type TrustedProxies, parseTrustedProxies } from "./auth/source-address.js";
 import type { Config } from "./config.js";
 import { type ForensicKey, ensureForensicKey } from "./forensic/key.js";
 
@@ -17,7 +18,8 @@ import { type ForensicKey, ensureForensicKey } from "./forensic/key.js";
  * on ClickHouse availability. `forensicKey` is the dedicated Ed25519 evidence-signing
  * key (SPEC-012 / ADR-0016 §5) — the api's FIRST signing key, bootstrapped + decrypted
  * once per process (mirrors how ingest exposes its `ca`, services/ingest/services.ts:35);
- * it is NOT the ingest CA.
+ * it is NOT the ingest CA. `trustedProxies` is `API_TRUSTED_PROXIES`, read once (SPEC-008's
+ * second Amendment 2026-10-15); `null` when it lists nothing.
  */
 export interface Services {
   pg: pg.Pool;
@@ -25,6 +27,7 @@ export interface Services {
   ch: ClickHouseClient;
   auth: AuthService;
   forensicKey: ForensicKey;
+  trustedProxies: TrustedProxies | null;
   close(): Promise<void>;
 }
 
@@ -68,6 +71,7 @@ export function createRedisClient(url: string): Redis {
 }
 
 export async function buildServices(config: Config): Promise<Services> {
+  const trustedProxies = parseTrustedProxies(config.API_TRUSTED_PROXIES);
   const pool = createPgPool(config.API_PG_URL);
   const redis = createRedisClient(config.API_REDIS_URL);
   const ch = createClient({
@@ -88,6 +92,7 @@ export async function buildServices(config: Config): Promise<Services> {
     ch,
     auth,
     forensicKey,
+    trustedProxies,
     // Promise.allSettled (aligns with services/ingest/src/services.ts:45): one
     // rejected close (e.g. pool.end()) must not prevent closing redis + ch.
     async close() {

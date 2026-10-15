@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseTrustedProxies } from "./auth/source-address.js";
 
 /**
  * SPEC-008 §Configuration (auth-core). Validated at startup; the service refuses
@@ -37,6 +38,19 @@ const EnvSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   API_LOG_LEVEL: z.string().default("info"),
+  // The hops whose X-Forwarded-For the api reads (SPEC-008's second Amendment
+  // 2026-10-15, the source address behind a proxy): addresses and CIDR ranges,
+  // comma-separated. Unset or empty, every request's source address is its peer's.
+  API_TRUSTED_PROXIES: z
+    .string()
+    .optional()
+    .superRefine((value, ctx) => {
+      try {
+        parseTrustedProxies(value);
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+      }
+    }),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
