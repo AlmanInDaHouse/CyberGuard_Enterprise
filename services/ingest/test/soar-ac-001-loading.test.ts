@@ -196,6 +196,7 @@ test("the boot logs soar_idle for an empty directory", async () => {
   const log = {
     info: (obj: Record<string, unknown>, msg: string) => lines.push({ level: "info", obj, msg }),
     warn: (obj: Record<string, unknown>, msg: string) => lines.push({ level: "warn", obj, msg }),
+    error: (obj: Record<string, unknown>, msg: string) => lines.push({ level: "error", obj, msg }),
   };
   const empty = mkdtempSync(join(tmpdir(), "cg-pb-empty-"));
   mkdirSync(join(empty, "sub"));
@@ -217,6 +218,7 @@ test("the boot logs soar_idle at warn for a set directory that does not exist", 
   const log = {
     info: (obj: Record<string, unknown>, msg: string) => lines.push({ level: "info", obj, msg }),
     warn: (obj: Record<string, unknown>, msg: string) => lines.push({ level: "warn", obj, msg }),
+    error: (obj: Record<string, unknown>, msg: string) => lines.push({ level: "error", obj, msg }),
   };
   const absent = join(tmpdir(), "cg-pb-mistyped-022");
   const server = await startIngest({ ...config, INGEST_SOAR_PLAYBOOKS_DIR: absent }, { log });
