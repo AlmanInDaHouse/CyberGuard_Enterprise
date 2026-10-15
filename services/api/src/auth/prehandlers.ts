@@ -25,9 +25,11 @@ export function makeRequireSession(services: Services) {
   };
 }
 
-export function makeRequireRole(role: string) {
+/** The session's role is one of `roles`, or a 403 (SPEC-009's third Amendment
+ *  2026-10-15 gates the forensic routes on two). */
+export function makeRequireRole(...roles: string[]) {
   return async (req: FastifyRequest): Promise<void> => {
-    if (req.authSession?.role !== role) {
+    if (!roles.includes(req.authSession?.role ?? "")) {
       throw new ForbiddenError("insufficient role");
     }
   };
