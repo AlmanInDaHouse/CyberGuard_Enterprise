@@ -560,6 +560,59 @@ SPEC-008's `:345` is its amendment's record of the miscitation, and stays.
 A wrong authority, not a moved line: corrected in place, as #84's entry asks
 (`docs/handoff-session-39.md:653`).
 
+### #39 and #40: CGES time
+
+Branch `fix/s41-debts-39-40-cges-time` (PR #27), one commit, rebuilt
+twice to fold its two reviews' points, CI on each push:
+
+```text
+4591985: schema-validation, markdown-lint -> success
+750e8fb: markdown-lint, schema-validation -> success     first review's points
+00ca365: schema-validation, markdown-lint -> success     second review's points
+```
+
+Landed on `main` with `git cherry-pick --ff` behind the tree guard; PR #27
+closed as merged, the branch deleted.
+
+```text
+SHA 00ca365: markdown-lint, schema-validation -> success
+```
+
+- `event.json`'s `time` has `minLength: 1`, which its description already
+  stated (#40).
+- The class files of 1007, 4001 and 3002 give `time` the pattern
+  `^[1-9][0-9]{0,18}$`, what cg-ingest checks, and their five examples carry
+  `time` in nanoseconds, the same instants (#39).
+- `examples-invalid/` holds six events the schema must refuse, each a valid
+  example with one rule broken; `schema-validation` and `task
+  validate-schemas` fail if any validates. Against `main`'s schemas each
+  validated, which is the red run.
+- SPEC-017's Amendment 2026-10-16 states the two tightened constraints, as
+  ADR-0006's Amendment 2026-10-13 asks of a breaking CGES change while CGES
+  is 0.x; no ClickHouse migration follows, since no runtime code reads the
+  JSON Schemas. SPEC-019's out-of-scope line (`:50`) no longer says the
+  examples show ISO 8601.
+
+Two passes of the fixed code prompt:
+
+- First pass. Missing: tests for both debts (CI validated positive examples
+  only); ADR-0006 asks a tightened constraint to land with the ADR or SPEC
+  that states it; SPEC-019:50 became false. All fixed as above. Recorded:
+  ADR-0019 (`:168`, *Consequences*, *Neutral*) says SPEC-020 left the 3002
+  example in ISO 8601; Claude Code reads it as a record of what SPEC-020
+  did, and does not edit it, which would be Manuel's; the examples still
+  differ from the wire in their other members, so #39 stays open for that.
+- Second pass. Weak: one invalid example broke two rules, and the 4001 and
+  3002 patterns and the 19-digit bound had no failing example; fixed with
+  six single-rule examples. The schema README's list of what cg-ingest
+  checks gained `created_time`, the pids and the exit code; the Taskfile
+  loop gained a guard for an empty folder.
+
+Decisions (delegated: a schema-breaking CGES change is on Manuel's list):
+**the two constraints tightened**, so that the schema states what the server
+accepts. Alternative: leave the schema looser than the server, which kept
+an empty or ISO `time` valid for the agent's classes.
+
 ## Debts
 
 New this session:
@@ -594,6 +647,9 @@ New this session:
 
 Changed this session:
 
+- **#39**: narrowed by `00ca365`: the examples of the agent's classes
+  carry `time` in nanoseconds and their class files check it; their other
+  members still differ from the wire's (SPEC-019 `:50`, SPEC-020 `:50`).
 - **#32**: narrowed by `90ee7e7`: a malformed `time`, `created_time`,
   `event_id`, pid or exit code no longer makes a `500`. A POST whose times
   spread over more than 100 days, or whose text member holds a lone
@@ -614,6 +670,8 @@ Changed this session:
 
 Closed this session:
 
+- **#40**, by `00ca365`: `event.json`'s `time` has `minLength: 1`, and
+  `examples-invalid/` checks it.
 - **#84**: the citations of ADR-0002 Rule 4 for strict schemas name the
   threat model's § cg-api, Tampering, or drop the claim.
 - **#82**, by `33a56ba`: a session ends after 8 h without use, and 24 h
@@ -621,8 +679,8 @@ Closed this session:
 - **#93**, by `f876753` to `6d1f393`: the production dependencies past their
   advisories, `dependency-audit.yml`, and the runbook.
 
-**Open at the commit that closes #84: 70** (`docs/debts.md`, which
-matches): 69 at the start, #93, #82 and #84 closed, #111 to #114 new.
+**Open at the commit that closes #40: 69** (`docs/debts.md`, which
+matches): 69 at the start, #93, #82, #84 and #40 closed, #111 to #114 new.
 
 ## What waits on Manuel
 
