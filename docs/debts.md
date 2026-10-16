@@ -23,7 +23,7 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 69** at Session 40's close, the count `docs/handoff-session-40.md` states. Session 40 opened with 66; it added #102 to #106 and #108 to #110, and closed #79, #90, #91, #100 and #101; #107 was opened and closed in the session, and #80 narrowed to its `401` half. `docs/handoff-session-39.md:596` states 67: it counts #70, which ADR-0015's Amendment 2026-10-14 had closed (`25add5b`) before `docs/handoff-session-38.md:1102` recorded it as new. Session 40's review of this register found it.
+**Open: 71** at the commit that closes #93, recorded in `docs/handoff-session-41.md`. Session 41 opened with 69, the count `docs/handoff-session-40.md` states; it closed #93 and added #111, #112 and #113.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
 Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
@@ -40,7 +40,7 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 9 | `buildReport` resolves the incident twice | `handoff-session-26.md:171` | Dedupe the resolution; sweep. |
 | 11 | ADR amendments summarized in the catalog row or in §Dependencies, inconsistently | `handoff-session-26.md:177` | Retrofit of the ADR catalog; sweep. |
 | 12 | Compose basename collision (root stub and `infra/dev/`) | `handoff-session-27.md:140` | Roadmap §F; Part (b) §4. |
-| 13 | Stale `path:line` citations after code moved | `handoff-session-27.md:145`; `handoff-session-28.md:153`; `handoff-session-31.md:137` | A Class-A pass swept by pattern, with #84's SPEC texts; sweep. |
+| 13 | Stale `path:line` citations after code moved | `handoff-session-27.md:145`; `handoff-session-28.md:153`; `handoff-session-31.md:137`; `handoff-session-41.md:301` | A Class-A pass swept by pattern, with #84's SPEC texts; sweep. |
 | 17 | `INGEST_DETECT_*` absent from SPEC-004 §Configuration | `handoff-session-28.md:169` | A SPEC-004 amendment: recorded as owner-STOP under the rules of the time, Claude Code's since 2026-10-10 (CLAUDE.md *Decision authority*). |
 | 20 | No SPEC consolidates the api's configuration surface; no `/health` | `handoff-session-29.md:120` | Roadmap §F's operator configuration surface. |
 | 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143` | A future sweep, not ordered. |
@@ -87,7 +87,6 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694` | Roadmap §F and a SPEC-004 amendment. |
 | 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md:1132` | Roadmap §F. |
-| 93 | No dependency audit in CI | `handoff-session-39.md:714`; `handoff-session-40.md:1147` | PR #23 (`fix/s40-debt-93-dependencies`): the production dependencies past their advisories and `dependency-audit.yml`; closes when it lands, after elevated gate 3. |
 | 94 | Encryption passphrases travel as SQL parameters | `handoff-session-39.md:717` | Roadmap §F's Postgres logging. |
 | 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724` | Roadmap §F's grants, and the DPO's record of processing. |
 | 96 | The dev stack runs NATS without authentication and MinIO with dev root credentials | `handoff-session-39.md:729` | Sweep: removed until a SPEC uses them. |
@@ -102,6 +101,9 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:1069` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
 | 109 | Whoever can write the rules directory and restart ingest changes detection | `handoff-session-40.md:1079` | Roadmap §F's packaging: the rules read-only in the image. |
 | 110 | The development dependencies carry advisories (vitest critical among them) | `handoff-session-40.md:1086` | A later sweep: the test tooling's majors, vitest first. |
+| 111 | `cargo audit` lets two warnings pass: rustls-pemfile unmaintained, in the agent's runtime; chacha20 yanked, in development | `handoff-session-41.md:280` | rustls-pemfile replaced with the next agent change under the elevated gate; chacha20 with #110. |
+| 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:289` | Roadmap §F's packaging, with the release artifacts. |
+| 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:293` | A later sweep: each action pinned by commit SHA. |
 
 ## Closed
 
@@ -145,6 +147,7 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 81 | The TOTP confirmation defeated the second factor | `ee5235a` | `handoff-session-39.md:593` |
 | 90 | The forensic export and report: any role, no audit row | `8d3c61d` | `handoff-session-40.md:1112` |
 | 91 | Detection rules re-read from disk on every cycle | `3da53e3` | `handoff-session-40.md:1122` |
+| 93 | No dependency audit in CI | `f876753` to `6d1f393` (PR #23), and the runbook (S41) | `handoff-session-41.md:310` |
 | 100 | The password change counts no failure and leaves its TOTP code usable | `8bd5bc9` | `handoff-session-40.md:1116` |
 | 101 | The login limiter reads its counters, then counts the failure | `8bd5bc9` | `handoff-session-40.md:1119` |
 | 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:1097` |
