@@ -1,4 +1,6 @@
-# CyberGuard — local development stack (ADR-0003 storage backends).
+# CyberGuard — local development stack: the ADR-0003 stores the code uses
+# (Postgres, ClickHouse, Redis), ingest and the api. ADR-0003's NATS JetStream and
+# MinIO are left out until a SPEC uses them (debt #96).
 # Dev only. Not for production. See infra/dev/README.md.
 
 name: cyberguard-dev
@@ -73,44 +75,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 5s
-
-  nats:
-    image: nats:2.10-alpine
-    restart: unless-stopped
-    networks: [cyberguard-dev]
-    ports:
-      - "127.0.0.1:${CG_NATS_CLIENT_PORT:-4222}:4222"
-      - "127.0.0.1:${CG_NATS_MONITOR_PORT:-8222}:8222"
-    command: ["-js", "-sd", "/data", "-m", "8222"]
-    volumes:
-      - cg_nats_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:8222/healthz"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 5s
-
-  minio:
-    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
-    restart: unless-stopped
-    networks: [cyberguard-dev]
-    ports:
-      # Host 9001/9002 to avoid clash with ClickHouse TCP 9000.
-      - "127.0.0.1:${CG_MINIO_API_PORT:-9001}:9000"
-      - "127.0.0.1:${CG_MINIO_CONSOLE_PORT:-9002}:9001"
-    environment:
-      MINIO_ROOT_USER: ${CG_MINIO_ROOT_USER:-cyberguard}
-      MINIO_ROOT_PASSWORD: ${CG_MINIO_ROOT_PASSWORD:-cyberguard_dev_minio_root}
-    command: ["server", "/data", "--console-address", ":9001"]
-    volumes:
-      - cg_minio_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f -s http://localhost:9000/minio/health/live"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
 
   # SPEC-004 server ingest (TypeScript + Fastify, per ADR-0007). Built from the
   # repo root (context ../.., dockerfile services/ingest/Dockerfile). Connects to
@@ -242,6 +206,4 @@ volumes:
   cg_pg_data:
   cg_ch_data:
   cg_redis_data:
-  cg_nats_data:
-  cg_minio_data:
   cg_ingest_certs:
