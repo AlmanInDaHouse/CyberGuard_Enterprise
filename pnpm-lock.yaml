@@ -109,8 +109,8 @@ importers:
         specifier: ^5.4.2
         version: 5.11.0
       kysely:
-        specifier: ^0.27.5
-        version: 0.27.6
+        specifier: ^0.28.17
+        version: 0.28.17
       otplib:
         specifier: ^12.0.1
         version: 12.0.1
@@ -182,8 +182,8 @@ importers:
         specifier: ^5.4.2
         version: 5.11.0
       kysely:
-        specifier: ^0.27.5
-        version: 0.27.6
+        specifier: ^0.28.17
+        version: 0.28.17
       nodemailer:
         specifier: 8.0.10
         version: 8.0.10
@@ -2385,9 +2385,9 @@ packages:
     resolution: {integrity: sha512-Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg==}
     hasBin: true
 
-  kysely@0.27.6:
-    resolution: {integrity: sha512-FIyV/64EkKhJmjgC0g2hygpBv5RNWVPyNCqSAD7eTCv6eFWNIi4PN1UvdSJGicN/o35bnevgis4Y0UDC0qi8jQ==}
-    engines: {node: '>=14.0.0'}
+  kysely@0.28.17:
+    resolution: {integrity: sha512-nbD8lB9EB3wNdMhOCdx5Li8DxnLbvKByylRLcJ1h+4SkrowVeECAyZlyiKMThF7xFdRz0jSQ2MoJr+wXux2y0Q==}
+    engines: {node: '>=20.0.0'}
 
   lazystream@1.0.1:
     resolution: {integrity: sha512-b94GiNHQNy6JNTrt5w6zNyffMrNkXZb3KTkCZJb2V1xaEGCk093vkZ2jk3tpaeP33/OiXC+WvK9AxUebnf5nbw==}
@@ -5542,7 +5542,7 @@ snapshots:
     dependencies:
       commander: 8.3.0
 
-  kysely@0.27.6: {}
+  kysely@0.28.17: {}
 
   lazystream@1.0.1:
     dependencies:
