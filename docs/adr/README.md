@@ -19,7 +19,7 @@ This directory holds Architecture Decision Records following the [MADR](https://
 |---|---|---|
 | [0001](0001-monorepo-layout.md) | Monorepo layout for CyberGuard | Accepted |
 | [0002](0002-language-per-component.md) | Language per component — amended 2026-10-14: TypeScript is the server-side default; the harness runner and the event firehose keep Go until the event-firehose ADR | Accepted |
-| [0003](0003-polyglot-storage.md) | Polyglot storage | Accepted |
+| [0003](0003-polyglot-storage.md) | Polyglot storage — amended 2026-10-16: the dev stack runs the backends the code uses; NATS JetStream and MinIO join it with the first SPEC that uses them | Accepted |
 | [0004](0004-agent-server-protocol.md) | Agent-Server secure protocol | Accepted |
 | [0005](0005-detection-rules-and-ml-in-parallel.md) | Detection — rules and ML in parallel | Accepted |
 | [0006](0006-cges-ocsf-alignment.md) | CGES alignment with OCSF v1.3 — amended 2026-10-13 (ADR-0020): while CGES is 0.x and no consumer outside the repository reads it, a change keeps the version, additive or breaking | Accepted |

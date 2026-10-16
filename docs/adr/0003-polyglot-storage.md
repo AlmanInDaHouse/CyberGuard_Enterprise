@@ -153,6 +153,14 @@ Breach of any migration threshold above must open a new ADR that supersedes the 
 
 §Retention's Alerts row (`Postgres + ClickHouse | Postgres + ClickHouse`) is superseded for the MVP by [ADR-0012](0012-normalize-before-correlate-pipeline.md) §6: **alerts persist to Postgres only**. Rationale: alerts are mutable triage state (status, assignment, timestamps); an append-only ClickHouse sink would be debt. ADR-0003 remains `Accepted`; this amendment supersedes the Alerts retention row where they differ. **Destination for the ClickHouse sink:** reconsidered if/when historical analytics over alerts (as opposed to over events) becomes a requirement; at that point a warm ClickHouse copy of alerts is added without changing the Postgres system-of-record. Incidents/Cases retention (Postgres) is unchanged.
 
+## Amendment 2026-10-16: the dev stack runs the backends the code uses
+
+**What surfaced it.** Debt #96 (`docs/handoff-session-39.md:729`): the dev compose ran NATS without authentication and MinIO with the compose file's dev root credentials, and nothing in the repository reads or writes either. The change that pays the debt (PR #24) takes both out of `infra/dev/docker-compose.dev.yml` until a SPEC uses them. §Consequences, *Negative*, says: "The local development environment requires all five services to be up for realistic integration testing. Mitigated by `docker-compose.dev.yml`." With that change the dev stack would not meet it.
+
+**The amendment.** That line of §Consequences reads, for the MVP: the local development environment runs the backends the code uses, today PostgreSQL (with pgvector), ClickHouse and Redis. NATS JetStream and MinIO join `docker-compose.dev.yml` with the first SPEC whose code uses them; until then `infra/dev/check-compose.mjs` refuses them, so that neither runs again unused. Nothing else changes: the decision table, the bound of five backends, the rules and the retention model stand, and NATS JetStream remains the event bus and MinIO the artifact store once they are built.
+
+**Effect.** §Decision, §Alternatives considered and §Compliance: none. The four other lines of §Consequences, *Negative*, stand. Roadmap §F's deployment runs the backends its SPEC lists.
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout (defines the components whose data this ADR routes)
