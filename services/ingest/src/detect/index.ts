@@ -13,7 +13,8 @@ import type { DetectConfig, DetectCycleResult } from "./types.js";
  * read, Launch and Terminate alike, duplicates included). Exported so the
  * production driver (driver.ts, ADR-0012 Amendment 2026-06-07) can detect a full
  * batch (`eventsEvaluated === BATCH_LIMIT`) and drain forward — without
- * re-declaring the constant. The cycle body below is unchanged.
+ * re-declaring the constant. The cycle body below evaluates the driver's rule set
+ * when it is handed one (SPEC-016 Amendment 2026-10-16).
  */
 export const BATCH_LIMIT = 1000;
 
@@ -47,7 +48,9 @@ export async function runDetectionCycle(
   notify?: NotifyConfig,
   soar?: SoarConfig,
 ): Promise<DetectCycleResult> {
-  const rules = loadRules(config.rulesDir);
+  // The driver's rule set, loaded once at its start (SPEC-016 Amendment 2026-10-16);
+  // a caller that passes none has the directory read here.
+  const rules = config.rules ?? loadRules(config.rulesDir);
   const cursor = await getCursor(config);
   const { events, cursor: processedThrough } = await readNewEvents(config, cursor, BATCH_LIMIT);
   if (processedThrough === null) {

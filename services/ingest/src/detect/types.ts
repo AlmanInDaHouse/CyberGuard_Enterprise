@@ -33,6 +33,12 @@ export interface DetectConfig {
   orgId: string;
   rulesDir: string;
   /**
+   * The rule set the production driver loaded at its start (SPEC-016 Amendment
+   * 2026-10-16). When it is absent, as in the tests' and the marquee's explicit
+   * cycles, the cycle loads `rulesDir` itself.
+   */
+  rules?: readonly SigmaRule[];
+  /**
    * Overrides SETTLE_MARGIN_MS for tests (SPEC-018 §Operational §2). The
    * production driver leaves it unset (driver.ts buildDetectConfig).
    */

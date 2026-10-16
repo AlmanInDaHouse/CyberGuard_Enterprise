@@ -3,11 +3,12 @@ import type { Config } from "../config.js";
 import type { Services } from "../services.js";
 import { loadRules } from "./engine.js";
 import { BATCH_LIMIT, runDetectionCycle } from "./index.js";
-import type { DetectConfig, DetectCycleResult } from "./types.js";
+import type { DetectConfig, DetectCycleResult, SigmaRule } from "./types.js";
 
 // ADR-0012 Amendment 2026-06-07 — production detection driver (in-process TS
-// scheduler). Adds a PRODUCTION caller for runDetectionCycle without touching
-// its body: the durable per-org detect_watermark row stays the sole cursor (its
+// scheduler). Adds a PRODUCTION caller for runDetectionCycle, which it hands the
+// rule set it loaded at its start (SPEC-016 Amendment 2026-10-16); otherwise the
+// cycle's body is its own: the durable per-org detect_watermark row stays the sole cursor (its
 // (arrived_at, event_id) arrival cursor since SPEC-018 §Data contracts). This
 // does NOT trigger the §1 named-exit (no Go port) — it drives the existing
 // transitional TS slice in prod, gated still on the future event-firehose ADR.
@@ -126,27 +127,29 @@ export function startDetectionDriver(deps: DetectionDriverDeps): DetectionDriver
 }
 
 /**
- * Fail-loud rules check at driver BOOT (NOT first tick): a missing/unreadable
- * rules dir, or a dir with zero rules, must never silently degrade to a 0-alert
- * driver. We throw a clear, actionable error so a future bad packaging fails
- * VISIBLY at startup (the service refuses to start, like an invalid env var)
- * rather than running detection-dark. The escape hatch is the off-switch
- * (INGEST_DETECT_INTERVAL_MS=0), which skips this check entirely.
+ * Load the rule set once, at driver BOOT, and return it (SPEC-016 Amendment
+ * 2026-10-16, debt #91): every cycle evaluates what this returns, so a change to the directory takes the
+ * next start. Fail-loud: a missing/unreadable rules dir, a rule outside the contract,
+ * or a dir with zero rules must never silently degrade to a 0-alert driver. We throw
+ * a clear, actionable error so a bad packaging fails VISIBLY at startup (the service
+ * refuses to start, like an invalid env var) rather than running detection-dark. The
+ * escape hatch is the off-switch (INGEST_DETECT_INTERVAL_MS=0), which skips the load.
  */
-function assertRulesLoadable(rulesDir: string): void {
-  let ruleCount: number;
+function assertRulesLoadable(rulesDir: string): SigmaRule[] {
+  let rules: SigmaRule[];
   try {
-    ruleCount = loadRules(rulesDir).length;
+    rules = loadRules(rulesDir);
   } catch (err) {
     throw new Error(
       `detection driver: cannot load Sigma rules from "${rulesDir}" — point INGEST_DETECT_RULES_DIR at a valid directory, or disable the driver with INGEST_DETECT_INTERVAL_MS=0: ${String(err)}`,
     );
   }
-  if (ruleCount === 0) {
+  if (rules.length === 0) {
     throw new Error(
       `detection driver: 0 rules found in "${rulesDir}" — refusing to start a detection-dark driver. Bundle the rules (Dockerfile COPY rules), set INGEST_DETECT_RULES_DIR, or disable with INGEST_DETECT_INTERVAL_MS=0.`,
     );
   }
+  return rules;
 }
 
 /**
@@ -162,15 +165,14 @@ export function startProdDetectionDriver(
   services: Services,
   log?: DriverLog,
 ): DetectionDriver {
-  if (config.INGEST_DETECT_INTERVAL_MS > 0) {
-    assertRulesLoadable(config.INGEST_DETECT_RULES_DIR);
-  }
+  const rules =
+    config.INGEST_DETECT_INTERVAL_MS > 0 ? assertRulesLoadable(config.INGEST_DETECT_RULES_DIR) : [];
   return startDetectionDriver({
     intervalMs: config.INGEST_DETECT_INTERVAL_MS,
     listOrgs: () => listEnrolledOrgs(services.pool),
     runCycle: (orgId) =>
       runDetectionCycle(
-        buildDetectConfig(config, orgId),
+        { ...buildDetectConfig(config, orgId), rules },
         services.notify ?? undefined,
         services.soar ?? undefined,
       ),
