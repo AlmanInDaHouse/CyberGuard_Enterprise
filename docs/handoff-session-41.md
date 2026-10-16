@@ -546,6 +546,20 @@ second pass ran on those text and comment fixes.
 Decision (reactive): **one refinement for the nanoseconds**, where two
 checks let `BigInt` throw on a value the regex had refused.
 
+### #84: the miscited authority for strict schemas
+
+ADR-0002's Rule 4 makes TypeScript the default for the user-facing layers
+and locks no framework; strict schemas are the threat model's § cg-api,
+Tampering, as SPEC-008's Amendment 2026-10-15 already says (`:345`). The
+citations that named Rule 4 for them now name that line, or drop the claim:
+SPEC-008's header (`:6`), §Operational §1 (`:121`) and its ADR-0002
+reference; SPEC-009's data contracts (`:43`), whose response validation is
+its own choice; and the threat model's Tampering line (`:82`), its
+References entry for ADR-0002, and the as-built note that recorded the debt.
+SPEC-008's `:345` is its amendment's record of the miscitation, and stays.
+A wrong authority, not a moved line: corrected in place, as #84's entry asks
+(`docs/handoff-session-39.md:653`).
+
 ## Debts
 
 New this session:
@@ -600,13 +614,15 @@ Changed this session:
 
 Closed this session:
 
+- **#84**: the citations of ADR-0002 Rule 4 for strict schemas name the
+  threat model's § cg-api, Tampering, or drop the claim.
 - **#82**, by `33a56ba`: a session ends after 8 h without use, and 24 h
   after its login at the latest (SPEC-008's second Amendment 2026-10-16).
 - **#93**, by `f876753` to `6d1f393`: the production dependencies past their
   advisories, `dependency-audit.yml`, and the runbook.
 
-**Open at the commit that records #114: 71** (`docs/debts.md`,
-which matches): 69 at the start, #93 and #82 closed, #111 to #114 new.
+**Open at the commit that closes #84: 70** (`docs/debts.md`, which
+matches): 69 at the start, #93, #82 and #84 closed, #111 to #114 new.
 
 ## What waits on Manuel
 

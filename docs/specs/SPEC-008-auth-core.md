@@ -3,7 +3,7 @@
 - **ID:** SPEC-008
 - **Title:** Auth-core
 - **Status:** Accepted
-- **Depends on:** ADR-0014 (the human-auth MODEL this SPEC realises — local self-hosted identity, opaque-Redis sessions, new `services/api`, 3-role RBAC; not re-decided here), ADR-0003 (storage homes: users / RBAC / audit_log → Postgres, sessions + rate-limit → Redis), ADR-0001 (locates `services/api`), ADR-0002 (`services/api` = TypeScript + Fastify + Zod; Rule 4 strict schemas), SPEC-004 (the ingest scaffold reused as a pattern — `app.ts`, `config.ts`, `migrate.ts`; the enrollment-token issuance capability this SPEC's RBAC authorizes), the [threat model](../security/threat-model.md) § `cg-api` (the binding auth-requirement surface)
+- **Depends on:** ADR-0014 (the human-auth MODEL this SPEC realises — local self-hosted identity, opaque-Redis sessions, new `services/api`, 3-role RBAC; not re-decided here), ADR-0003 (storage homes: users / RBAC / audit_log → Postgres, sessions + rate-limit → Redis), ADR-0001 (locates `services/api`), ADR-0002 (`services/api` = TypeScript + Fastify + Zod, its language table row; strict schemas are the threat model's § cg-api, Tampering), SPEC-004 (the ingest scaffold reused as a pattern — `app.ts`, `config.ts`, `migrate.ts`; the enrollment-token issuance capability this SPEC's RBAC authorizes), the [threat model](../security/threat-model.md) § `cg-api` (the binding auth-requirement surface)
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 - **Created:** 2026-06-01
 - **Last updated:** 2026-06-01
@@ -118,7 +118,7 @@ TTL    = idle timeout (sliding), with an absolute lifetime cap   -- values = NFR
 
 ### 1. Login flow (contract, not code)
 
-`POST /v1/auth/login` body `{ email, password, totp_code }` (Zod-validated, ADR-0002 Rule 4 — no extra fields):
+`POST /v1/auth/login` body `{ email, password, totp_code }` (Zod-validated, strict — no extra fields, as the threat model's § cg-api, Tampering asks):
 
 1. Look up the active user by `(org_id, email)`. **Generic failure for every negative branch** (unknown user, wrong password, wrong/replayed TOTP, disabled user) → `401` with a single opaque message — no user-enumeration, no "which factor failed" oracle (NFR-008-003).
 2. Verify `password` against `password_hash` (Argon2 verify).
@@ -536,7 +536,7 @@ The points decided here:
 
 - [ADR-0014](../adr/0014-human-authentication-model.md) — the human-auth model this SPEC realises (identity §1, session §2, `services/api` §3, RBAC §4); the §Compliance MUSTs (rate-limit, cookies, CI-blocking RBAC, audit) and the §Out of scope CSRF deferral this SPEC closes.
 - [ADR-0003](../adr/0003-polyglot-storage.md) — storage homes: users/RBAC/audit → Postgres (§Decision / §Retention), sessions + rate-limit → Redis (§Decision). No amendment (already routed).
-- [ADR-0001](../adr/0001-monorepo-layout.md) / [ADR-0002](../adr/0002-language-per-component.md) — `services/api` location + TypeScript/Fastify/Zod (`0002` §Context + §Decision row, Rule 4 strict schemas).
+- [ADR-0001](../adr/0001-monorepo-layout.md) / [ADR-0002](../adr/0002-language-per-component.md) — `services/api` location + TypeScript/Fastify/Zod (`0002` §Context + §Decision row).
 - [SPEC-004](SPEC-004-server-ingest-minimal.md) — the ingest scaffold reused as a pattern (`app.ts`, `config.ts`, `migrate.ts`); `cli/issue-token.ts` (the opaque-token CSPRNG pattern and the enrollment-token issuance this SPEC's RBAC authorizes — CLI-only until auth existed).
 - [SPEC-002](SPEC-002-agent-enrollment.md) — agent identity (mTLS/DPAPI); the secret-handling template; the *agent* trust boundary distinct from this human one.
 - [SPEC-009 (forthcoming)] — the read-slice (incident/alert list + detail + drill) gated behind this SPEC's auth; owns the incident/alert RBAC matrix rows.

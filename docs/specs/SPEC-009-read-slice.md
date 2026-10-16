@@ -40,7 +40,7 @@ Each with a named destination:
 
 ## Data contracts
 
-The reads project the existing Postgres tables; **no schema change** (incidents `0005`, alerts `0002`+`0004`). Read-models are response shapes, Zod-validated on the way out (ADR-0002 Rule 4). All reads are **scoped to the session's `org_id`** (§Operational §2).
+The reads project the existing Postgres tables; **no schema change** (incidents `0005`, alerts `0002`+`0004`). Read-models are response shapes, Zod-validated on the way out, a choice of this SPEC (ADR-0002 Rule 4 makes the response types TypeScript and locks no validator). All reads are **scoped to the session's `org_id`** (§Operational §2).
 
 ### 1. `GET /v1/incidents` — list
 

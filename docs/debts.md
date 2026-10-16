@@ -23,7 +23,7 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 71** at the commit that records #114 in `docs/handoff-session-41.md`. Session 41 opened with 69, the count `docs/handoff-session-40.md` states; it closed #93 and #82, and added #111 to #114.
+**Open: 70** at the commit that closes #84, recorded in `docs/handoff-session-41.md`. Session 41 opened with 69, the count `docs/handoff-session-40.md` states; it closed #93, #82 and #84, and added #111 to #114.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
 Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
@@ -40,9 +40,9 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 9 | `buildReport` resolves the incident twice | `handoff-session-26.md:171` | Dedupe the resolution; sweep. |
 | 11 | ADR amendments summarized in the catalog row or in §Dependencies, inconsistently | `handoff-session-26.md:177` | Retrofit of the ADR catalog; sweep. |
 | 12 | Compose basename collision (root stub and `infra/dev/`) | `handoff-session-27.md:140` | Roadmap §F; Part (b) §4. |
-| 13 | Stale `path:line` citations after code moved | `handoff-session-27.md:145`; `handoff-session-28.md:153`; `handoff-session-31.md:137`; `handoff-session-41.md:594` | A Class-A pass swept by pattern, with #84's SPEC texts; sweep. |
+| 13 | Stale `path:line` citations after code moved | `handoff-session-27.md:145`; `handoff-session-28.md:153`; `handoff-session-31.md:137`; `handoff-session-41.md:608` | A Class-A pass swept by pattern, with #84's SPEC texts; sweep. |
 | 17 | `INGEST_DETECT_*` absent from SPEC-004 §Configuration | `handoff-session-28.md:169` | A SPEC-004 amendment: recorded as owner-STOP under the rules of the time, Claude Code's since 2026-10-10 (CLAUDE.md *Decision authority*). |
-| 20 | No SPEC consolidates the api's configuration surface; no `/health` | `handoff-session-29.md:120`; `handoff-session-41.md:592` | Roadmap §F's operator configuration surface. |
+| 20 | No SPEC consolidates the api's configuration surface; no `/health` | `handoff-session-29.md:120`; `handoff-session-41.md:606` | Roadmap §F's operator configuration surface. |
 | 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143` | A future sweep, not ordered. |
 | 24 | No per-org configurable detection window | `handoff-session-31.md:155` | Roadmap §F. |
 | 25 | The detection cycle opens a client per call | `handoff-session-31.md:158`; `handoff-session-34.md:295` | None recorded. |
@@ -50,8 +50,8 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 27 | `ac-001-marquee` flake | `handoff-session-31.md:167`; `handoff-session-32.md:185` | Diagnosis first; sweep. |
 | 29 | The Terminate carries no path | `handoff-session-32.md:190` | The next agent phase that touches the created-time cache. |
 | 30 | Real-ETW tests not tried on the hosted Windows runner | `handoff-session-32.md:196` | Sweep. |
-| 31 | An event's `time` not bounded at ingest; widened to 1007's `event_id` and pids | `handoff-session-33.md:157`; `handoff-session-35.md:565`; `handoff-session-41.md:587` | Its shape half done (`90ee7e7`). Its bound against arrival: Manuel's decision, a lateness horizon (ADR-0012, SPEC-018 Open question 2), with evidence on the agent's ETW clock. |
-| 32 | A 500 that is not connectivity is resent without bound | `handoff-session-33.md:160`; `handoff-session-41.md:583` | None recorded; since `90ee7e7` a malformed time, id, pid or exit code no longer makes one, but times over more than 100 days or a lone surrogate still do. |
+| 31 | An event's `time` not bounded at ingest; widened to 1007's `event_id` and pids | `handoff-session-33.md:157`; `handoff-session-35.md:565`; `handoff-session-41.md:601` | Its shape half done (`90ee7e7`). Its bound against arrival: Manuel's decision, a lateness horizon (ADR-0012, SPEC-018 Open question 2), with evidence on the agent's ETW clock. |
+| 32 | A 500 that is not connectivity is resent without bound | `handoff-session-33.md:160`; `handoff-session-41.md:597` | None recorded; since `90ee7e7` a malformed time, id, pid or exit code no longer makes one, but times over more than 100 days or a lone surrogate still do. |
 | 35 | The driver's drain ceiling | `handoff-session-33.md:172` | None recorded. |
 | 37 | `detect_ac_001` runs a single cycle | `handoff-session-33.md:178` | Drain until a cycle returns fewer rows than the limit. |
 | 38 | The forensic evidence unit carries no `class_uid` | `handoff-session-34.md:310` | A precondition of any rule that cites an event other than a process event (ADR-0018 §9, SPEC-019 §Out of scope). |
@@ -79,7 +79,6 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 78 | No operator setting trusts a relay's private CA | `handoff-session-39.md:608` | Roadmap §F's SPEC. |
 | 80 | A request refused for want of a session writes no audit row | `handoff-session-39.md:623`; `handoff-session-40.md:1143` | Manuel's reading of ADR-0014 §Compliance (`adr/0014-human-authentication-model.md:98`); its `403` half closed by `8bd5bc9`. |
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
-| 84 | Six places cite ADR-0002 Rule 4 for Zod schemas | `handoff-session-39.md:653` | The SPEC texts, with #13. |
 | 85 | A compromised ingest can forge an api session (shared Redis) | `handoff-session-39.md:666` | Roadmap §F: a Redis user per service. |
 | 86 | Both services act as the Postgres superuser | `handoff-session-39.md:672` | Roadmap §F: a Postgres role per service. |
 | 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676` | A SPEC-002 amendment, with the next agent change under the elevated gate. |
@@ -100,10 +99,10 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:1069` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
 | 109 | Whoever can write the rules directory and restart ingest changes detection | `handoff-session-40.md:1079` | Roadmap §F's packaging: the rules read-only in the image. |
 | 110 | The development dependencies carry advisories (vitest critical among them) | `handoff-session-40.md:1086` | A later sweep: the test tooling's majors, vitest first. |
-| 111 | `cargo audit` lets two warnings pass: rustls-pemfile unmaintained, in the agent's runtime; chacha20 yanked, in development | `handoff-session-41.md:562` | rustls-pemfile replaced with the next agent change under the elevated gate; chacha20 with #110. |
-| 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:571` | Roadmap §F's packaging, with the release artifacts. |
-| 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:575` | A later sweep: each action pinned by commit SHA. |
-| 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:553` | With #32. |
+| 111 | `cargo audit` lets two warnings pass: rustls-pemfile unmaintained, in the agent's runtime; chacha20 yanked, in development | `handoff-session-41.md:576` | rustls-pemfile replaced with the next agent change under the elevated gate; chacha20 with #110. |
+| 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:585` | Roadmap §F's packaging, with the release artifacts. |
+| 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:589` | A later sweep: each action pinned by commit SHA. |
+| 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:567` | With #32. |
 
 ## Closed
 
@@ -145,10 +144,11 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 76 | Two untested statements of SPEC-022 | `a8deda8` | `handoff-session-39.md:586` |
 | 79 | Behind a reverse proxy, the api reads the proxy's address | `c9dad1c` | `handoff-session-40.md:1108` |
 | 81 | The TOTP confirmation defeated the second factor | `ee5235a` | `handoff-session-39.md:593` |
-| 82 | A session lasted 8 h from its login, not 8 h idle within 24 h | `33a56ba` | `handoff-session-41.md:603` |
+| 82 | A session lasted 8 h from its login, not 8 h idle within 24 h | `33a56ba` | `handoff-session-41.md:619` |
+| 84 | Six places cited ADR-0002 Rule 4 for Zod schemas | Corrected in place (S41) | `handoff-session-41.md:617` |
 | 90 | The forensic export and report: any role, no audit row | `8d3c61d` | `handoff-session-40.md:1112` |
 | 91 | Detection rules re-read from disk on every cycle | `3da53e3` | `handoff-session-40.md:1122` |
-| 93 | No dependency audit in CI | `f876753` to `6d1f393` (PR #23), and the runbook (S41) | `handoff-session-41.md:605` |
+| 93 | No dependency audit in CI | `f876753` to `6d1f393` (PR #23), and the runbook (S41) | `handoff-session-41.md:621` |
 | 100 | The password change counts no failure and leaves its TOTP code usable | `8bd5bc9` | `handoff-session-40.md:1116` |
 | 101 | The login limiter reads its counters, then counts the failure | `8bd5bc9` | `handoff-session-40.md:1119` |
 | 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:1097` |
