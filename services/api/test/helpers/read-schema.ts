@@ -19,7 +19,7 @@ import type { Config } from "../../src/config.js";
  * The ClickHouse blocker that sank option (a') is avoided faithfully: we run
  * ingest's Postgres migration FILES via our OWN Kysely Migrator — NOT ingest's
  * `runMigrations`, which couples a ClickHouse bootstrap
- * (`services/ingest/src/db/migrate.ts:83`/`:86`, `bootstrapClickHouse`, private).
+ * (`services/ingest/src/db/migrate.ts:84`/`:87`, `bootstrapClickHouse`, private).
  * The migration files are pure Postgres (they import only `kysely`); ClickHouse is
  * never touched. Resolution of their `kysely` import relies on the pnpm workspace
  * (hoisted/symlinked into `services/ingest/node_modules`) — the (B) enabler.

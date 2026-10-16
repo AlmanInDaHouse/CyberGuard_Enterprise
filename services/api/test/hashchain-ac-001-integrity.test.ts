@@ -13,7 +13,7 @@ import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-s
 //
 // The signature is verified against the key obtained OUT-OF-BAND from the service
 // (services.forensicKey.publicKeyRaw), NOT the embedded one — the correct pattern per
-// §Compliance line 108 (the embedded pubkey is a convenience, not a trust root). The test
+// §Compliance line 107 (the embedded pubkey is a convenience, not a trust root). The test
 // also asserts the embedded pubkey equals that out-of-band key.
 
 let services: Awaited<ReturnType<typeof buildServices>>;

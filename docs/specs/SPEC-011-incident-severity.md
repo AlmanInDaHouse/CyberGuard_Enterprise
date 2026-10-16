@@ -3,18 +3,18 @@
 - **ID:** SPEC-011
 - **Title:** Incident severity aggregation — `severity_id` = MAX of member alerts
 - **Status:** Accepted
-- **Depends on:** SPEC-007 (the `incidents` table, the `INSERT … ON CONFLICT … DO UPDATE` upsert, `IncidentGroupingInput`, and the triage-preservation invariant this SPEC re-words — `services/ingest/src/detect/incidents.ts:43-60`, `:70-90`); SPEC-006 / ADR-0012 §6 (`alerts.severity_id smallint NOT NULL`, OCSF ordinal 0–6 — `services/ingest/src/db/migrations/0002_alerts.ts:29,50`); SPEC-009 (the read-models extended — `services/api/src/read/types.ts:16-38`); SPEC-010 (this SPEC realises its named deferral *"Severity / score aggregation per incident … A future read/scoring increment"*, `docs/specs/SPEC-010-forensic-event-drill.md:32`); ADR-0013 §1 (event-time windowing — unchanged).
+- **Depends on:** SPEC-007 (the `incidents` table, the `INSERT … ON CONFLICT … DO UPDATE` upsert, `IncidentGroupingInput`, and the triage-preservation invariant this SPEC re-words — `services/ingest/src/detect/incidents.ts:43-60`, `:102-125`); SPEC-006 / ADR-0012 §6 (`alerts.severity_id smallint NOT NULL`, OCSF ordinal 0–6 — `services/ingest/src/db/migrations/0002_alerts.ts:29,50`); SPEC-009 (the read-models extended — `services/api/src/read/types.ts:16-42`); SPEC-010 (this SPEC realises its named deferral *"Severity / score aggregation per incident … A future read/scoring increment"*, `docs/specs/SPEC-010-forensic-event-drill.md:32`); ADR-0013 §1 (event-time windowing — unchanged).
 - **No new ADR.** This SPEC opens no service and no trust boundary: the aggregation lives entirely inside the existing detection write-path (`services/ingest/src/detect/`) and the existing read-slice (`services/api/src/read/`). It adds a column, an upsert clause, and a read-model field — the kind of additive change ADR-0011's per-class jurisprudence and the SPEC-only workflow already cover.
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
 
-An incident groups N alerts (SPEC-007), but today it carries **no severity of its own**: the `incidents` table stores `cg_mitre` and `alert_ids` but no severity/score column (`services/ingest/src/db/migrations/0005_incidents.ts:23-44`), and severity lives only per-alert (`alerts.severity_id`, `0002_alerts.ts:29`). The SOC's incident list (`docs/product/blueprint.md:556` — *"Incidents | Active cases | Severity, hosts, MITRE, age"*) names severity as a first-class incident attribute, and SPEC-010 explicitly **deferred** incident severity with a named destination (`SPEC-010:32`). This SPEC is that increment: derive an incident's severity from its member alerts and surface it through the read-slice.
+An incident groups N alerts (SPEC-007), but today it carries **no severity of its own**: the `incidents` table stores `cg_mitre` and `alert_ids` but no severity/score column (`services/ingest/src/db/migrations/0005_incidents.ts:23-44`), and severity lives only per-alert (`alerts.severity_id`, `0002_alerts.ts:29`). The SOC's incident list (`docs/product/blueprint.md:558` — *"Incidents | Active cases | Severity, hosts, MITRE, age"*) names severity as a first-class incident attribute, and SPEC-010 explicitly **deferred** incident severity with a named destination (`SPEC-010:32`). This SPEC is that increment: derive an incident's severity from its member alerts and surface it through the read-slice.
 
 Two findings ground the design (forensic audit, Sessions 20–21):
 
 1. **The CGES contract already models incident `severity_id`.** The canonical wire example carries `"severity_id": 5` on an incident (`schemas/cges/v0.1/examples/06_incident_grouped.json:11`), even though the JSON-Schema class does not yet declare it (`schemas/cges/v0.1/classes/incident.json:8-56`, `additionalProperties: true` permits it) and the Postgres table omits it. Adopting the **OCSF ordinal 0–6** scale — identical to `alerts.severity_id` (`0002_alerts.ts:50`, `CHECK severity_id BETWEEN 0 AND 6`) — closes this schema-vs-wire divergence rather than inventing a new scale.
-2. **The blueprint prescribes no derivation semantics.** It lists incident severity as a *display* attribute (`blueprint.md:556`) and describes the incident phase only as *"Groups related alerts"* (`blueprint.md:390`) — there is no max/weighted/count rule anywhere. The blueprint's lone numeric use, a playbook example `incident.severity >= 8` (`blueprint.md:423`), is on a scale inconsistent with the OCSF 0–6 ordinal and is **out of scope** (see below). The aggregation semantics are therefore a design decision, taken here and ratified by Manuel.
+2. **The blueprint prescribes no derivation semantics.** It lists incident severity as a *display* attribute (`blueprint.md:558`) and describes the incident phase only as *"Groups related alerts"* (`blueprint.md:390`) — there is no max/weighted/count rule anywhere. The blueprint's lone numeric use, a playbook example `incident.severity >= 8` (`blueprint.md:423`), is on a scale inconsistent with the OCSF 0–6 ordinal and is **out of scope** (see below). The aggregation semantics are therefore a design decision, taken here and ratified by Manuel.
 
 ## Scope
 
@@ -32,7 +32,7 @@ Two findings ground the design (forensic audit, Sessions 20–21):
 - **A visual `Severity` column in the incidents table UI** (`dashboard/src/components/incidents-table.tsx`). The datum is delivered through the read-model and the dashboard wire-type, so the UI can render it whenever; the column is a cosmetic increment, not a data dependency. **Destination:** a dashboard polish increment.
 - **Any 0–1 continuous incident score.** Alerts carry both an ordinal `severity_id` and a continuous `final_score` (`0002_alerts.ts:29,38`); this SPEC aggregates only the **ordinal severity**. An incident-level score (and its aggregation policy) is a separate scoring increment. **Destination:** a future read/scoring SPEC.
 - **Reconciling the blueprint's `incident.severity >= 8` playbook scale** (`blueprint.md:423`) with the OCSF 0–6 ordinal. The blueprint example is internally inconsistent with the alert severity scale; harmonising the two is a blueprint-level correction. **Destination:** a blueprint reconciliation pass.
-- **`cg_mitre` aggregation.** `cg_mitre` stays **frozen-at-creation** (first writer wins — `incidents.ts:85`, preserved on conflict); this SPEC does not touch it. The asymmetry (severity recomputes, `cg_mitre` does not) is deliberate and documented in §4. **Destination:** a `cg_mitre`-union SPEC if ever wanted.
+- **`cg_mitre` aggregation.** `cg_mitre` stays **frozen-at-creation** (first writer wins — `incidents.ts:119`, preserved on conflict); this SPEC does not touch it. The asymmetry (severity recomputes, `cg_mitre` does not) is deliberate and documented in §4. **Destination:** a `cg_mitre`-union SPEC if ever wanted.
 - **Per-org / weighted severity policy.** MVP is unconditional MAX. **Destination:** a configurable-aggregation increment (mirrors the per-org scoring-weights deferral, `scorer.ts:3-5`).
 
 ## Data contracts
@@ -45,11 +45,11 @@ Two findings ground the design (forensic audit, Sessions 20–21):
 
 ### 2. `IncidentGroupingInput.severityId` (the grouping input)
 
-`IncidentGroupingInput` (`services/ingest/src/detect/types.ts:97-104`) gains `severityId: number` — **required, non-nullable**, the same OCSF 0–6 ordinal. Its source is the matched rule's `severity_id`, which is always present and non-null on the path that reaches grouping: `RuleMatch.severityId: number` (`types.ts:87`) ← `cg.severity_id` parsed as `z.number().int().min(0).max(6)` (`services/ingest/src/detect/engine.ts:55`), and `upsertIncident` only fires after a successful `upsertAlert` whose `severity_id` column is `NOT NULL` + range-checked (`services/ingest/src/detect/index.ts:39-45`). So `GREATEST` never receives `NULL`.
+`IncidentGroupingInput` (`services/ingest/src/detect/types.ts:150-163`) gains `severityId: number` — **required, non-nullable**, the same OCSF 0–6 ordinal. Its source is the matched rule's `severity_id`, which is always present and non-null on the path that reaches grouping: `RuleMatch.severityId: number` (`types.ts:140`) ← `cg.severity_id` parsed as `z.number().int().min(0).max(6)` (`services/ingest/src/detect/engine.ts:103`), and `upsertIncident` only fires after a successful `upsertAlert` whose `severity_id` column is `NOT NULL` + range-checked (`services/ingest/src/detect/index.ts:66-83`). So `GREATEST` never receives `NULL`.
 
 ### 3. Read-model: `IncidentListItem` / `IncidentDetail` (the read surface)
 
-Both `services/api/src/read/types.ts` shapes gain `severity_id: number` (`IncidentListItem` `:16-25`, `IncidentDetail` `:27-38`); the Postgres reads project the column (`listIncidents` `queries.ts:89-92`, `getIncidentDetail` `:164-165`). The dashboard's decoupled wire-contract (`dashboard/src/lib/api/types.ts:21-43`) mirrors the field additively — the routes declare **no Fastify response schema** (`services/api/src/read/routes.ts:24-54`), so the projected field reaches the JSON unstripped. This is **additive**: no existing read-model field changes, and no consumer assumed an incident severity before this SPEC (forensic audit, Session 20).
+Both `services/api/src/read/types.ts` shapes gain `severity_id: number` (`IncidentListItem` `:16-27`, `IncidentDetail` `:29-42`); the Postgres reads project the column (`listIncidents` `queries.ts:144-147`, `getIncidentDetail` `:223-224`). The dashboard's decoupled wire-contract (`dashboard/src/lib/api/types.ts:21-47`) mirrors the field additively — the routes declare **no Fastify response schema** (`services/api/src/read/routes.ts:68-93`), so the projected field reaches the JSON unstripped. This is **additive**: no existing read-model field changes, and no consumer assumed an incident severity before this SPEC (forensic audit, Session 20).
 
 ## Operational
 
@@ -79,9 +79,9 @@ ALTER TABLE incidents ADD CONSTRAINT incidents_severity_range CHECK (severity_id
 
 ### 2. Grouping input population
 
-In `runDetectionCycle` (`services/ingest/src/detect/index.ts:45-51`), the `IncidentGroupingInput` literal gains `severityId: match.severityId` — `match` (a `RuleMatch`) is already in scope (it feeds `upsertAlert` two lines up, `:38`), so no new plumbing is needed.
+In `runDetectionCycle` (`services/ingest/src/detect/index.ts:73-83`), the `IncidentGroupingInput` literal gains `severityId: match.severityId` — `match` (a `RuleMatch`) is already in scope (it feeds `upsertAlert` two lines up, `:66`), so no new plumbing is needed.
 
-### 3. Upsert — the three additions as one unit (`services/ingest/src/detect/incidents.ts:70-90`)
+### 3. Upsert — the three additions as one unit (`services/ingest/src/detect/incidents.ts:102-125`)
 
 The `INSERT … ON CONFLICT … DO UPDATE` gains, atomically:
 
@@ -89,7 +89,7 @@ The `INSERT … ON CONFLICT … DO UPDATE` gains, atomically:
 - its bound parameter in `VALUES`,
 - `severity_id = GREATEST(incidents.severity_id, excluded.severity_id)` in the `DO UPDATE SET`, alongside the existing `alert_ids` CASE and `updated_at = now()`.
 
-`GREATEST(incidents.severity_id, excluded.severity_id)` follows the exact `incidents.<col>` (current row) vs `excluded.<col>` (incoming INSERT values) reference pattern the existing `alert_ids` CASE already uses (`incidents.ts:76-77`).
+`GREATEST(incidents.severity_id, excluded.severity_id)` follows the exact `incidents.<col>` (current row) vs `excluded.<col>` (incoming INSERT values) reference pattern the existing `alert_ids` CASE already uses (`incidents.ts:108-109`).
 
 ### 4. The re-worded invariant (`services/ingest/src/detect/incidents.ts:43-60`)
 
@@ -122,7 +122,7 @@ Per ADR-0005 §Harness obligation.
 
 | Risk | Mitigation |
 | --- | --- |
-| **Dangling `alert_ids`** (an incident referencing alert ids with no matching `alerts` row) ⇒ backfill `MAX(...)` returns `NULL` ⇒ step (c) `SET NOT NULL` fails ⇒ the whole migration rolls back. | Production incidents are always created from a just-persisted alert and only ever accrete real alert ids (`index.ts:38-45`; FK-faithful per alert, Convention #12), so `MAX` is non-null in a faithful DB. The migration is **fail-loud by design** — a NULL surfaces real data corruption rather than masking it. A `COALESCE(..., 0)` fallback was rejected: it would silently invent a severity for a corrupt incident. **Flagged for Manuel:** confirm fail-loud is the desired posture, or request a COALESCE fallback. |
+| **Dangling `alert_ids`** (an incident referencing alert ids with no matching `alerts` row) ⇒ backfill `MAX(...)` returns `NULL` ⇒ step (c) `SET NOT NULL` fails ⇒ the whole migration rolls back. | Production incidents are always created from a just-persisted alert and only ever accrete real alert ids (`index.ts:66-73`; FK-faithful per alert, Convention #12), so `MAX` is non-null in a faithful DB. The migration is **fail-loud by design** — a NULL surfaces real data corruption rather than masking it. A `COALESCE(..., 0)` fallback was rejected: it would silently invent a severity for a corrupt incident. **Flagged for Manuel:** confirm fail-loud is the desired posture, or request a COALESCE fallback. |
 | Severity recomputes but `cg_mitre` stays frozen-first — an apparent inconsistency in how N-alert fields combine. | Deliberate and documented (§4 + §Out of scope). `cg_mitre.tactics` is part of the `grouping_key`, so all members already share it; `techniques` freezing is a known, separately-destined choice. Severity is the field whose SOC meaning *requires* the running max. |
 | The visual `Severity` column is omitted, so the SOC list does not yet show the new datum. | Additive: the read-model and the dashboard wire-type carry `severity_id`; the UI column is a cosmetic follow-up with no data dependency (§Out of scope). |
 | Making `severity_id` / `severityId` required ripples into existing test fixtures and grouping-input literals. | Intentional: severity is always present, so a required field is the faithful contract. The affected literals (`incident-ac-002/003/005`, `dash-ac-002` fixtures) are updated in the same change — a typecheck-enforced, mechanical, additive edit. |
@@ -146,11 +146,11 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 ## References
 
-- [SPEC-007](SPEC-007-incident-grouping-mvp.md) — the `incidents` table, the upsert, `IncidentGroupingInput`, and the triage-preservation invariant (`services/ingest/src/detect/incidents.ts:43-60`, `:70-90`) this SPEC extends and re-words.
-- [SPEC-009](SPEC-009-read-slice.md) — the read-models (`services/api/src/read/types.ts:16-38`) and routes (`read/routes.ts:24-54`) this SPEC extends additively.
+- [SPEC-007](SPEC-007-incident-grouping-mvp.md) — the `incidents` table, the upsert, `IncidentGroupingInput`, and the triage-preservation invariant (`services/ingest/src/detect/incidents.ts:43-60`, `:102-125`) this SPEC extends and re-words.
+- [SPEC-009](SPEC-009-read-slice.md) — the read-models (`services/api/src/read/types.ts:16-42`) and routes (`read/routes.ts:68-93`) this SPEC extends additively.
 - [SPEC-010](SPEC-010-forensic-event-drill.md) — `:32` (the deferred *"Severity / score aggregation per incident"* this SPEC realises).
-- [SPEC-006](SPEC-006-detection-mvp.md) / [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) §6 — `alerts.severity_id` OCSF 0–6 (`0002_alerts.ts:29,50`), `RuleMatch.severityId` (`detect/types.ts:87`), the scorer's severity/score independence.
+- [SPEC-006](SPEC-006-detection-mvp.md) / [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) §6 — `alerts.severity_id` OCSF 0–6 (`0002_alerts.ts:29,50`), `RuleMatch.severityId` (`detect/types.ts:140`), the scorer's severity/score independence.
 - [ADR-0013](../adr/0013-event-time-incident-windowing.md) — event-time windowing (unchanged by this SPEC).
 - `services/ingest/src/db/migrations/0004_alerts_event_time.ts:22-30` — the add-nullable → backfill → set-NOT-NULL migration precedent this SPEC mirrors.
 - `schemas/cges/v0.1/examples/06_incident_grouped.json:11` / `classes/incident.json:8-56` — the wire example carrying `severity_id` vs. the schema that omits it (the divergence this SPEC closes).
-- [Blueprint](../product/blueprint.md) — `:556` (incident severity as a display attribute), `:390` (incident phase = grouping only), `:423` (the out-of-scope `>= 8` playbook scale).
+- [Blueprint](../product/blueprint.md) — `:558` (incident severity as a display attribute), `:390` (incident phase = grouping only), `:423` (the out-of-scope `>= 8` playbook scale).

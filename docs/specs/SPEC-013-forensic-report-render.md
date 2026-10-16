@@ -3,7 +3,7 @@
 - **ID:** SPEC-013
 - **Title:** Forensic report render (escalón 4 — per-incident PDF, composing the SPEC-010/011/012 read-layer outputs as a module in `services/api`)
 - **Status:** Accepted
-- **Depends on:** SPEC-010 (the drill `EventTimeline` / `TimelineEvent` rendered as the timeline, `services/api/src/read/types.ts:57-72`); SPEC-011 (the incident `severity_id` aggregation in the header, `types.ts:34-35`); SPEC-012 (the evidence hash-chain seal — `chain_root` / `root_signature` / `forensic_pubkey` — the report transcribes, `services/api/src/forensic/export.ts:32-42`); ADR-0015 (the read-only ClickHouse reader the drill, hence the report's timeline, uses — reused unchanged). Also SPEC-009 (the `IncidentDetail` read-model — `severity_id` / `cg_mitre` / `title` / `status` / `assigned_to` / `alerts[]`, `services/api/src/read/queries.ts:161-193`); ADR-0007 (the TypeScript-language precedent that fixes the render in `services/api`, not the blueprint's aspirational Go service).
+- **Depends on:** SPEC-010 (the drill `EventTimeline` / `TimelineEvent` rendered as the timeline, `services/api/src/read/types.ts:57-72`); SPEC-011 (the incident `severity_id` aggregation in the header, `types.ts:34-35`); SPEC-012 (the evidence hash-chain seal — `chain_root` / `root_signature` / `forensic_pubkey` — the report transcribes, `services/api/src/forensic/export.ts:32-42`); ADR-0015 (the read-only ClickHouse reader the drill, hence the report's timeline, uses — reused unchanged). Also SPEC-009 (the `IncidentDetail` read-model — `severity_id` / `cg_mitre` / `title` / `status` / `assigned_to` / `alerts[]`, `services/api/src/read/queries.ts:216-252`); ADR-0007 (the TypeScript-language precedent that fixes the render in `services/api`, not the blueprint's aspirational Go service).
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -36,7 +36,7 @@ Each names its destination:
 - **HTML and JSON report formats** — dropped: no pure-JS HTML→PDF without Chromium (the ratified constraint), and JSON is already the SPEC-012 forensic-export response.
 - **A standalone Go forensic service** (`blueprint.md:393`'s *"Go + headless Chromium"*) — superseded; the render is a TS module in `services/api` per ADR-0007 + ratification.
 - **Out-of-band trust anchoring of the forensic public key** — unchanged: SPEC-012 §Open questions 1. The report **transcribes** SPEC-012's seal and therefore inherits its exact property — **integrity verifiable under a trusted key, NOT authenticity against a compromised server**. The report does **not** resolve it (see §Open questions).
-- **The AI-generated incident summary** (`services/forensic/README.md:12`) — not part of the MVP PDF promise; a later increment.
+- **The AI-generated incident summary** (`services/forensic/README.md:10`) — not part of the MVP PDF promise; a later increment.
 - **The dependency edit + render module + route code + the PDF-extraction test dependency** — the implementation gate (a later commit); this SPEC is the doc layer only.
 
 ## Data contracts
@@ -46,7 +46,7 @@ The report **composes** two already-produced read-layer outputs for one incident
 ### Sources (transcribed / rendered, unchanged)
 
 - **`ForensicExport`** (SPEC-012, `services/api/src/forensic/export.ts:32-42`) via `buildForensicExport(services, orgId, incidentId)` (`export.ts:44-64`): `{ incident_id, events: TimelineEvent[] (total order time ASC, event_id ASC), chain_root (hex), root_signature (base64url), forensic_pubkey (base64url) }`.
-- **`IncidentDetail`** (SPEC-009 / SPEC-011, `services/api/src/read/types.ts:29-42`) via `getIncidentDetail(services.pg, orgId, incidentId)` (`services/api/src/read/queries.ts:161-193`): `{ incident_id, agent_id, status, title, severity_id, cg_mitre {tactics[],techniques[]} | null, window_start, assigned_to, created_at, updated_at, alerts: ResolvedAlert[] }`.
+- **`IncidentDetail`** (SPEC-009 / SPEC-011, `services/api/src/read/types.ts:29-42`) via `getIncidentDetail(services.pg, orgId, incidentId)` (`services/api/src/read/queries.ts:216-252`): `{ incident_id, agent_id, status, title, severity_id, cg_mitre {tactics[],techniques[]} | null, window_start, assigned_to, created_at, updated_at, alerts: ResolvedAlert[] }`.
 
 Both are invokable from one handler with what `services` exposes today (`pg`, `ch`, `forensicKey` — `services/api/src/services.ts:18-28`); both are org-scoped and return `null → 404`.
 
@@ -133,6 +133,6 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 - [SPEC-012](SPEC-012-forensic-evidence-hashchain.md) — the evidence hash-chain seal the report transcribes (`chain_root` / `root_signature` / `forensic_pubkey`); the inherited trust-anchoring Open question. Code: `services/api/src/forensic/export.ts:32-42` (`ForensicExport`), `:44-64` (`buildForensicExport`).
 - [SPEC-010](SPEC-010-forensic-event-drill.md) — the drill `EventTimeline` / `TimelineEvent` rendered as the timeline (`services/api/src/read/types.ts:57-72`).
 - [SPEC-011](SPEC-011-incident-severity.md) — the incident `severity_id` in the header (`types.ts:34-35`).
-- [SPEC-009](SPEC-009-read-slice.md) — the `IncidentDetail` read-model the header / MITRE / alerts come from (`services/api/src/read/queries.ts:161-193`).
+- [SPEC-009](SPEC-009-read-slice.md) — the `IncidentDetail` read-model the header / MITRE / alerts come from (`services/api/src/read/queries.ts:216-252`).
 - [ADR-0015](../adr/0015-readonly-clickhouse-reader-in-api.md) — the read-only ClickHouse reader the drill (hence the report's timeline) uses, reused unchanged.
 - [ADR-0007](../adr/0007-ingest-language-typescript-mvp.md) — the precedent that a planned-Go server component lands in TypeScript; fixes the render language as TS in `services/api`.
