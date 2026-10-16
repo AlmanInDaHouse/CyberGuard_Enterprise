@@ -26,6 +26,7 @@ import {
 import {
   type SessionInfo,
   createSession,
+  peekSession,
   resolveSession as resolveSessionRedis,
   revokeAllForUser,
   revokeSession,
@@ -403,7 +404,7 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
     },
 
     async logout(token, ctx) {
-      const sess = await resolveSessionRedis(redis, token);
+      const sess = await peekSession(redis, token);
       await revokeSession(redis, token);
       await appendAudit(pool, {
         userId: sess?.user_id ?? null,

@@ -126,6 +126,9 @@ export interface SeedSession {
   orgId?: string;
   csrfToken?: string;
   ttlSeconds?: number;
+  /** The entry's issued_at; now by default. SPEC-008's second Amendment 2026-10-16
+   *  caps a session 24 h after it. */
+  issuedAt?: string;
 }
 
 /** Seed an opaque session directly into Redis (cgsess:<token>), the format
@@ -134,13 +137,14 @@ export interface SeedSession {
 export async function seedSession(config: Config, s: SeedSession): Promise<void> {
   const redis = new Redis(config.API_REDIS_URL);
   try {
+    const issuedAt = s.issuedAt ?? new Date().toISOString();
     const payload = JSON.stringify({
       user_id: s.userId,
       org_id: s.orgId ?? "default",
       role: s.role,
       csrf_token: s.csrfToken ?? `csrf-${s.token}`,
-      issued_at: "2026-06-01T00:00:00.000Z",
-      last_seen: "2026-06-01T00:00:00.000Z",
+      issued_at: issuedAt,
+      last_seen: issuedAt,
     });
     await redis.set(`cgsess:${s.token}`, payload, "EX", s.ttlSeconds ?? 3600);
   } finally {
