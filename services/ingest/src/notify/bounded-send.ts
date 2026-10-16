@@ -7,19 +7,20 @@ import type { NotifyMailer, NotifyMessage } from "./index.js";
 // close() leaves a busy connection open), so each send opens its own SMTPConnection
 // and closes it at its time limit: no send outlives its bound.
 //
-// nodemailer is CJS; its lib/ modules load through createRequire, as transport.ts
-// loads the package.
+// nodemailer's lib/ modules load through createRequire, as transport.ts loads the
+// package; for `require`, 10.1.1's exports map gives each its CommonJS build.
 
 interface SmtpConnection {
-  // Two fields private to nodemailer 8.0.10, which package.json pins exactly (debt
+  // Two fields private to nodemailer 10.1.1, which package.json pins exactly (debt
   // #75), and `secure` below, public but undocumented; soar_ac_006 fails on another
   // release, and its HELO, mechanism and TLS cases fail if any of the three changes.
   /**
    * The AUTH mechanisms nodemailer matched in the last EHLO reply, among PLAIN, LOGIN,
    * CRAM-MD5 and XOAUTH2. Only that reply fills it (after STARTTLS, the one after
-   * TLS): on HELO it stays empty while `allowsAuth` is set to true. Its match is a
-   * prefix (PLAIN-CLIENTTOKEN counts as PLAIN), so it only says that AUTH came in
-   * an EHLO reply.
+   * TLS): on HELO it stays empty while `allowsAuth` is set to true. 10.1.1 matches
+   * whole tokens of an AUTH line; 8.0.10 matched a prefix, so PLAIN-CLIENTTOKEN
+   * counted as PLAIN there. The send reads it only to know that AUTH came in an
+   * EHLO reply, and reads the names from `_ehloLines` itself.
    */
   _supportedAuth: string[];
   /** The lines of the last EHLO reply, without their reply codes. */

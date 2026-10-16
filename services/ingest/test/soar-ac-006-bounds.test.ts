@@ -270,7 +270,7 @@ test("the installed nodemailer is the release whose private fields the send read
   const { version } = createRequire(import.meta.url)("nodemailer/package.json") as {
     version: string;
   };
-  expect(version).toBe("8.0.10");
+  expect(version).toBe("10.1.1");
 });
 
 test("the bounded send authenticates only when the server offers AUTH, and only over TLS", async () => {
@@ -412,8 +412,11 @@ test("a server that refuses EHLO is reached by HELO and gets no credentials", as
 
 test("a server that advertises only mechanisms the send does not use gets no credentials", async () => {
   // XOAUTH2 alone made nodemailer's login read an OAuth token that is not there,
-  // and the TypeError ended the process. nodemailer also reads a name that only
-  // starts a token (PLAIN-CLIENTTOKEN) as that mechanism.
+  // and the TypeError ended the process; nodemailer lists XOAUTH2, so that case
+  // reaches the send's own reading of the AUTH line. nodemailer 8.0.10 also read a
+  // name that only starts a token (PLAIN-CLIENTTOKEN) as that mechanism; 10.1.1
+  // reads whole tokens and lists none there, so that case stops before the send's
+  // reading, and guards against a release that reads prefixes again.
   for (const offerAuth of ["GSSAPI XOAUTH2", "PLAIN-CLIENTTOKEN OAUTHBEARER LOGINX"]) {
     const smtp = await fakeSmtp({ offerAuth });
     try {
