@@ -845,6 +845,178 @@ Decision (anticipated):
 The threat model, for Manuel's audit: R8 and §4 now record a rule set
 loaded at the start.
 
+### The register and #88: decisions
+
+Delegated (Manuel, 2026-10-15):
+
+- **#88: an expired certificate is not served** (SPEC-004 Amendment
+  2026-10-15 item 7). While the certificate the server holds expires within
+  ten minutes or has expired, the mTLS listener closes connections before the
+  handshake: an agent retries a closed connection, and exits 6 on an expired
+  certificate (`agent/cg-agent/src/tls.rs:258`). Alternative: serve it, which
+  turns a recoverable outage into a manual restart of every agent.
+- **#88: the renewal while running, the adoption of another instance's pair,
+  the narrowed "operator-provided"** (items 1, 4, 9): beyond Manuel's order
+  (reissue at start). Alternative: start only, which leaves a server that is
+  not restarted within 30 days to expire.
+
+Anticipated:
+
+- **The register's form**: one table of open debts and one of closed, each
+  row pointing to its handoff entry. Alternative: copying each entry's text,
+  which would drift from the records.
+
+Reactive:
+
+- **#70 closed in the register** (`25add5b`, ADR-0015 Amendment
+  2026-10-14): handoff-38 recorded it as new after its amendment had landed;
+  handoff-39 inherited it.
+- **#88's `notBefore` an hour back**: the third review of the text found that
+  a reissue valid from a minute back makes an agent whose clock lags by up to
+  5 minutes exit 6.
+- **#88's classification parses as OpenSSL does**: the second code review
+  found that `@peculiar/x509` reads a file's first PEM block of any label, so
+  a file whose key block comes first, which served before, would stop the
+  start.
+- **ts-ci's first failure on `ba08ff1`**: a test took its snapshot of the
+  log before an `await` that a 100 ms check could run during, on the slower
+  runner. Fixed in the test (`settledAfter`); not in the code.
+
+### The register and #88: self-reviews
+
+#### The register
+
+One pass of the fixed SPEC prompt on the working tree. List A: #70 listed as
+open though closed by `25add5b`; #38's destination naming §B3; #4's title
+contradicting CLAUDE.md; two destinations no handoff records (#26, #46). All
+fixed. From List B, also fixed: the legend of *Entry* for closed rows, #21's
+widening, destinations worded as the records word them, #33's two commits,
+path bases, "Sweep" defined by the latest handoff, CLAUDE.md's "or the reason
+when no commit did" and "with their number".
+
+#### SPEC-004 Amendment 2026-10-15
+
+Four passes of the fixed SPEC prompt on the working tree:
+
+- Pass 1, 4 in List A: ac_005's clock moved 61 days reissues at every check;
+  an unreadable key beside a self-issued certificate given two answers; an
+  operator's files dropped while running overwritten; a false premise about a
+  server certificate as the agent's anchor. All fixed.
+- Pass 2, 3 in List A: several instances (a renewal by one left the others
+  serving their old pair); the anchor argument; "changes only near its
+  expiry". All fixed; from List B, an expired certificate served (B1, which
+  became item 7).
+- Pass 3, 3 in List A: item cross-references renumbered; the one-minute
+  backdate against the ±5-minute skew; FR-008 in the expiry window. All
+  fixed.
+- Pass 4, 1 in List A: a self-issued certificate whose files changed aged into
+  item 7 logging only `warn`. Fixed (`server_cert_expired` at `error`). Pass
+  4's fixes had no fifth pass; each answers an item of pass 4.
+
+#### #88's code
+
+Contract: SPEC-004 Amendment 2026-10-15.
+
+| Criterion | Test (`services/ingest/test/servercert-ac-renewal.test.ts`) | Verdict |
+|---|---|---|
+| servercert_ac_001 | expired, reissued at start | covered |
+| servercert_ac_002 | 10 days left | covered |
+| servercert_ac_003 | 60 days kept; the round trip of the server's own pair | covered |
+| servercert_ac_004 | two operator pairs, a CA-signed pair for another host, a key-first file | covered |
+| servercert_ac_005 | reissued while running, TLS 1.2 refused by version | covered |
+| servercert_ac_006 | another key, no key | covered |
+| servercert_ac_007 | running, at start, no pair to keep, unparsable | covered |
+| servercert_ac_008 | first issuance and reissue (Linux, ts-ci) | covered |
+| servercert_ac_009 | operator files while running, then expired | covered |
+| servercert_ac_010 | adoption; self-issued files that cannot be adopted | covered |
+| servercert_ac_011 | three at start, a restart, a running operator pair | covered |
+| FR-008 after a swap | none | weak: the swap passes `ca`; it would fail closed |
+
+Four passes of the fixed code prompt (security code: a pass after each
+pass's fixes):
+
+- Pass 1 (`ba08ff1`): ac_007's unparsable case and ac_008's reissue half weak;
+  the key's newness and the TLS 1.2 refusal's cause unasserted; a planted
+  link at the key's `.tmp`. Fixed: the tests, and `wx` on the temporary files
+  (`4d833cf`).
+- Pass 2 (`4d833cf`): the parse of an operator's file differed from
+  OpenSSL's; a private key left in a `.tmp` after a failed write. Fixed, with
+  a key-first file test red against `4d833cf` ("Data does not match to
+  Certificate ASN1 schema") (`41a8b2b`).
+- Pass 3 (`41a8b2b`): no round trip of the server's own pair; the SAN
+  constants could drift; the profile unasserted; ac_007's `not_after`. Fixed
+  (`ebb0394`).
+- Pass 4 (`ebb0394`): no List 1 or List 2 item. List 3, recorded: the
+  running check's catch-all labels a failed swap `server_cert_reissue_failed`;
+  `writePair`'s extras (`wx`, cleanup, the certificate's `0644`); a
+  certificate and key path that are one file (debt #105); key mismatch takes
+  precedence over expiry at start; a read-then-write window against an
+  operator's write; adoption accepts a `notBefore` in the future (item 2
+  leaves it uncovered); FR-008 after a swap, `digitalSignature`, fixed waits.
+
+### #93: the dependencies and their audit (open, PR #23)
+
+`pnpm audit --prod` found 52 advisories in the production dependencies:
+2 critical (next), 31 high and 19 moderate. The production dependencies
+are next, fastify with find-my-way and fast-uri, kysely and nodemailer.
+The contract of this fix is the defect statement: debt #93
+(`docs/handoff-session-39.md:714`) and this audit. Branch
+`fix/s40-debt-93-dependencies` (PR #23), one commit per push, each with
+CI:
+
+```text
+4895da9  next 15.5.28                                ts-ci -> success
+1105c07  fastify 5.12.7, fast-uri 3.1.8              ts-ci -> success
+aab07dd  kysely 0.28.17                              ts-ci -> success
+9d5bfa9  nodemailer 10.1.1 (pinned exactly)          ts-ci -> success
+5a4209c  pnpm.overrides for next's postcss and
+         styled-jsx's browserslist                   ts-ci -> success
+c91de2d  dependency-audit.yml                        dependency-audit -> failure
+4fbce0c  h2 0.4.20, quinn-proto 0.11.19,
+         rustls 0.23.46 (Cargo.lock)                 markdown-lint, dependency-audit,
+                                                     ts-ci, rust-ci -> success
+```
+
+- `pnpm audit --prod` now reports none.
+- nodemailer 10.1.1 keeps the three fields the bounded send reads
+  (`_supportedAuth`, `_ehloLines`, `secure`), and soar_ac_006 passes on it.
+- The new workflow's first run (`c91de2d`) failed in its cargo job, and
+  diagnosis read its log. cargo audit found ten advisories in `Cargo.lock`,
+  two of them high, in quinn-proto 0.11.14. `4fbce0c` moves h2, quinn-proto
+  and rustls within their semver ranges.
+- The local Rust gate on it:
+  - `cargo fmt --check` OK;
+  - `cargo clippy -D warnings` OK;
+  - `cargo test --all`: 66 binaries, 126 passed, 0 failed, 7 ignored (the
+    elevated ones).
+
+  Its first run was stopped by the host's memory pressure. Manuel said to
+  run it again ("si, hazlo todo tu"), and it ran with `-j 1`.
+
+The branch changes the agent's TLS crates and ingest's fastify, kysely and
+nodemailer at run time, so it lands only after the elevated gate, which
+Manuel runs: `C:\tmp\s40-gate3.ps1`, on the branch at `4fbce0c`. It is the
+open branch at this close, and the first step of Session 41.
+
+Not reviewed yet by the fixed code prompt: the review runs in Session 41,
+before the landing. The decisions are Claude Code's (dependency versions
+inside the accepted ADRs):
+
+- Anticipated:
+  - **One commit per upgrade.** The fastify, kysely and nodemailer steps
+    each move one runtime dependency, so that a regression points at one
+    upgrade. Alternative: one commit for every upgrade.
+  - **Overrides for next's pinned postcss and styled-jsx's browserslist.**
+    Each is lifted within its major. Alternative: wait for a next release
+    that lifts them.
+  - **The audit fails on high or critical, production only.** Weekly too,
+    so that an advisory published after a release is seen. Alternative:
+    every severity, or every dependency, which would leave CI red until the
+    development dependencies' majors move (#110).
+- Reactive:
+  - **The agent's three crates.** They were updated after the new
+    workflow's first run.
+
 ## Debts
 
 New this session:
@@ -911,6 +1083,15 @@ New this session:
   R8's residual. Destination: roadmap §F's packaging, the rules read-only in
   the image.
 
+- **#110 — The development dependencies carry advisories.** After PR #23,
+  `pnpm audit` still reports 53 in development dependencies only: 3
+  critical in vitest (the dashboard's 2.x; fixed in 3.2.6 and 4.1.11), and
+  others in testcontainers' undici and dockerode, markdownlint-cli2's
+  markdown-it and js-yaml, jsdom's form-data, vite and tsx's esbuild. None
+  ships in an image, but they run on developers' machines and in CI.
+  Destination: a later sweep, the test tooling's majors (vitest across the
+  three workspaces first), with markdownlint-cli2 following CI's action.
+
 Opened and closed this session:
 
 - **#107 — The dashboard's logout answered the api's `403` with `403` after
@@ -963,15 +1144,113 @@ Changed this session:
   want of a session, which waits for Manuel's reading of ADR-0014
   §Compliance (`docs/adr/0014-human-authentication-model.md:98`); see *What
   waits on Manuel*. Its `403` half closed with that commit.
+- **#93**: its destination is PR #23 (`fix/s40-debt-93-dependencies`): the
+  production dependencies past their advisories and `dependency-audit.yml`.
+  It closes when the branch lands, after elevated gate 3.
 - **#104**: the headers must not include `Referrer-Policy: no-referrer`:
   under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
   same-origin check would refuse every sign-in and sign-out (the fourth
   code review of PR #19).
 
+## Debts at the close
+
+Closed this session:
+
+- **#79**, by `c9dad1c`.
+- **#90**, by `8d3c61d`.
+- **#91**, by `3da53e3`.
+- **#100** and **#101**, by `8bd5bc9`.
+- **#107**, opened and closed, by `fe59102` (the contract) and `1697e60`
+  (the code).
+- **#70**, closed by `25add5b` in Session 38, was recorded open until this
+  session's register found it.
+
+Narrowed:
+
+- **#80** to its `401` half;
+- **#83** to the TOTP enrollment and user management;
+- **#88** to the agents' certificates;
+- **#92** to the containers' user and an old key file;
+- **#97** to the transport.
+
+New: #102, #103, #104, #105, #106, #108, #109 and #110; #107 opened and
+closed.
+
+**Open at the close: 69** (`docs/debts.md`, which matches). By number: 4, 5,
+7, 8, 9, 11, 12, 13, 17, 20, 21, 24, 25, 26, 27, 29, 30, 31, 32, 35, 37, 38,
+39, 40, 42, 46, 47, 50, 51, 52, 53, 54, 55, 56, 58, 59, 61, 62, 64, 65, 66,
+73, 77, 78, 80, 82, 83, 84, 85, 86, 87, 88, 89, 92, 93, 94, 95, 96, 97, 98,
+99, 102, 103, 104, 105, 106, 108, 109, 110. The register's rows hold each
+one's entry and destination.
+
+## Decisions
+
+Manuel's decisions this session, in chat:
+
+- His opening message, 2026-10-15 (see *Start*), set the order and the
+  delegation.
+- 2026-10-16, when Docker Desktop's engine hung: "Reinícialo tú".
+- 2026-10-16, after the Rust gate was stopped by memory pressure: "si,
+  hazlo todo tu, pero si queda algo mas alla de hacer prefiero que se
+  cierre ya completamente esta sesion con todo bien hecho".
+
+The decisions Claude Code took, anticipated and reactive, are recorded by
+item:
+
+- the register and #88: *The register and #88: decisions*.
+- #79, #83, #97: *#79, #83 and #97: the code*, *Decisions (delegated,
+  inside the ADRs)*.
+- #90: *#90: the code*.
+- #80, #100, #101: *#80, #100 and #101: the code*.
+- #91: *#91: the code*.
+- #93: the section above.
+
+Each delegated owner point (the deployment contract, the security posture,
+a public API contract) is recorded as delegated in its SPEC amendment's
+*Decision*. No ADR was written or changed.
+
+## Gate outputs and baselines
+
+The elevated gates' literal lines are in their sections:
+
+- gate 1, on `ebb0394` (#88), in *#88*;
+- gate 2, on `24271d3` (#91), in *#91: the code*.
+
+Gate 3, for PR #23, has not run.
+
+Baselines at this close's `main`:
+
+- `services/api`: 46 files, 282 tests.
+- `services/ingest`, unelevated: 74 files, of which 69 passed, 4 failed
+  (the capture marquees, the agent's exit code 9, as expected) and 1
+  skipped; 290 tests passed, 2 skipped.
+- `services/ingest`, elevated (gate 2): 74 files, 295 passed, 1 skipped
+  (`servercert_ac_008`, which runs only off Windows).
+- `dashboard`: 10 files, 117 tests.
+- Rust:
+  - `cargo test --all`: 126 passed, 7 ignored (on the PR #23 branch, whose
+    agent code is `main`'s);
+  - `cargo test -- --ignored`: 7 of 7 (gate 2).
+
+Catalogs: ADR 21, SPEC 21 (amendments only). Known CI debt: none.
+
+## State at the close
+
+`main` = `origin/main`, the tree clean, no stash.
+
+One branch is open, `fix/s40-debt-93-dependencies` at `4fbce0c` (PR #23):
+CI green on every commit since `4fbce0c`; it waits for elevated gate 3 and
+its review.
+
+Docker Desktop was restarted once, with Manuel's yes. No `CGAgent` session
+was left by either gate.
+
 ## What waits on Manuel
 
-This section is begun mid-session; the close completes it.
-
+- **Elevated gate 3, for PR #23.** In an elevated PowerShell, first check
+  out the branch (`git checkout fix/s40-debt-93-dependencies`), then run
+  `powershell -NoProfile -ExecutionPolicy Bypass -File
+  C:\tmp\s40-gate3.ps1`. Session 41's first step prepares the tree for it.
 - **The `401` half of debt #80: a reading of ADR-0014.** ADR-0014
   §Compliance (`docs/adr/0014-human-authentication-model.md:98`) says "All
   authentication events and role assignments MUST be audit-logged". The
@@ -987,3 +1266,57 @@ This section is begun mid-session; the close completes it.
   of those writes its row. A session check is the use of an authentication
   already made. SPEC-008's Amendment 2026-10-16 leaves it open until his
   answer.
+- **The threat model, for his audit.** It is Manuel's; this session changed
+  it under his delegation:
+  - §3: the source address, the refused requests' rows, the password
+    change's limit, the reservation;
+  - §4 and R8: the rule set loaded at the start;
+  - §7 and R7: the forensic role and rows;
+  - §9, R13 and R16: the dashboard's login and logout;
+  - R5 and R15: the server certificate.
+
+  The departure from §9's "Fastify-issued CSRF tokens on every mutation"
+  is recorded in SPEC-009's second Amendment 2026-10-15.
+- **The count in handoff-39.** It stated 67 open debts. The register found
+  66: it counted #70, closed in Session 38 by `25add5b`.
+- **A deployment note for roadmap §F.** The api's login now runs Redis
+  `EVAL`, so a per-service Redis user (#85) needs `@scripting`.
+
+## How Session 41 resumes
+
+1. *Session protocol* §At the start. Expected:
+   - `main` = `origin/main` at this file's last commit; tree clean; no
+     stash;
+   - one branch and one PR open: `fix/s40-debt-93-dependencies`, PR #23,
+     at `4fbce0c`;
+   - catalogs ADR 21 / SPEC 21; Known CI debt zero; `docs/debts.md` open
+     count 69;
+   - `logman query -ets` lists no `CGAgent` session.
+2. **PR #23 first.**
+   - Run the fixed code prompt's review on `93127fc..4fbce0c` (its
+     contract: debt #93 and the audit statement in *#93* above) and fold
+     its fixes.
+   - Check out the branch, so that Manuel's tree is at its tip, and ask him
+     to run `C:\tmp\s40-gate3.ps1`, updating its header's SHA if the
+     review moved the tip.
+   - On a green gate, land it one commit at a time by cherry-pick, behind
+     the guard, CI green on each.
+   - Close #93, and record `dependency-audit.yml` in CLAUDE.md's
+     *Environment facts*: its weekly run on `main` makes a new advisory a
+     red run to fix.
+3. The sweep, in this order:
+   - #96: NATS and MinIO out of the dev stack, with the Taskfile, the
+     README and `check-compose`;
+   - #82: the session's sliding idle lifetime with an absolute cap, a
+     SPEC-008 change;
+   - #31: an event's time bounded against its arrival, with 1007's
+     `event_id` and pids, a SPEC-017 amendment, under the elevated gate;
+   - #13 with #84: the stale citations, swept by pattern;
+   - then #30, #39, #40, #27, #8, #9, #11, and #110 (the test tooling's
+     majors).
+4. Roadmap §F, criterion 7. Its SPEC decides Part (b) §2–§4 (delegated) and
+   carries the deployment's items: #85, #86, #89, #92, #94, #95, #77, #78,
+   #79's list, #103, #104, #106, #108 and #109. ADR amendments go to Manuel
+   for his "sí".
+5. #87 goes with the next agent change under the elevated gate. §B2 and §B3
+   stay parked until a SPEC-021 text arrives.
