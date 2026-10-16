@@ -35,7 +35,7 @@ This dependency-ordered document supersedes both for planning.
   non-elevated suite is at 57 as predicted.
 - Does: merge `feat/detection-prod-driver` — the in-process TS scheduler
   that gives `runDetectionCycle` its first production caller
-  (`services/ingest/src/detect/index.ts:31`).
+  (`services/ingest/src/detect/index.ts:46`).
 - Unblocks: criteria 1 / 2 / 4 stop being test-validated and run in a
   standing stack.
 - Blocked by: elevated `detect_ac_001` marquee green on the branch tip
@@ -226,7 +226,7 @@ This dependency-ordered document supersedes both for planning.
     Contract: ADR-0018 and SPEC-019 (Accepted). SPEC-019 also carries
     what both classes share: the agent's event types, the widening of
     `class_uid: z.literal(1007)`
-    (`services/ingest/src/schemas.ts:44`) to a union, and the widening
+    (`services/ingest/src/schemas.ts:54`) to a union, and the widening
     of `cges_events`.
   - Login — logons, successful and failed. Contract: ADR-0019 and
     SPEC-020 (Accepted, S35); landed. The source is the Windows Security
@@ -247,7 +247,7 @@ This dependency-ordered document supersedes both for planning.
   schema-only). No document defers an authentication provider.
 - Schemas ready: `schemas/cges/v0.1/classes/4001_network_activity.json`,
   `schemas/cges/v0.1/classes/3002_authentication.json`, both in
-  `schemas/cges/v0.1/event.json:105,106`.
+  `schemas/cges/v0.1/event.json:106,107`.
 - After D, not a phase yet: DNS, the first network follow-up. It needs
   another provider and a CGES class that does not exist (ADR-0018
   §Alternatives considered A3).
@@ -294,9 +294,9 @@ This dependency-ordered document supersedes both for planning.
   negative and the need for the server-side look-back.
 - Blocked by: B1, G and D.
 - Why a separate phase (S27 verification): the wired Kernel-Process
-  provider (keyword 0x10, `agent/cg-agent/src/etw/session.rs:114`) does
+  provider (keyword 0x10, `agent/cg-agent/src/etw/session.rs:162`) does
   NOT expose CommandLine or a usable UserSID in ProcessStart. The agent
-  already TRIES both (`session.rs:217-218`, each `unwrap_or_default()`)
+  already TRIES both (`session.rs:413-414`, each `unwrap_or_default()`)
   but the manifest carries neither property, so both resolve to EMPTY —
   absent, not present-but-empty (documented:
   `rules/windows/office_spawns_script_host.yml:8-9`;
@@ -344,7 +344,7 @@ This dependency-ordered document supersedes both for planning.
   criterion left.
 - Does: one playbook executor on the incident-create seam. The seam
   exists: a create-only branch fires in `runDetectionCycle`
-  (`services/ingest/src/detect/index.ts:77`) beside
+  (`services/ingest/src/detect/index.ts:87`) beside
   `notifyIncidentCreated`. SOAR attaches there as a second optional
   carrier, same fire-and-forget contract.
 - Unblocks: criterion 6.
@@ -356,7 +356,7 @@ This dependency-ordered document supersedes both for planning.
 - Precedent to copy: the email fire-and-forget
   (`docs/specs/SPEC-014-incident-notification.md`,
   `docs/adr/0017-incident-email-notification.md`; call site
-  `services/ingest/src/detect/index.ts:77-84`).
+  `services/ingest/src/detect/index.ts:87-94`).
 
 ### F — Installation / deployment (criterion 7)
 

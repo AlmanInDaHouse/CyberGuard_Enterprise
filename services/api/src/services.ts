@@ -13,11 +13,11 @@ import { type ForensicKey, ensureForensicKey } from "./forensic/key.js";
  * SPEC-008 implementation backed by both. `ch` is the read-only ClickHouse reader
  * (ADR-0015 / SPEC-010) the forensic event drill uses to read cges_events; it is a
  * singleton built once per process (the request-path pattern,
- * services/ingest/src/services.ts:24-33 + routes/heartbeat.ts:55). It is lazy
+ * services/ingest/src/services.ts:46-51 + routes/heartbeat.ts:151). It is lazy
  * (no connection until the first query), so the Postgres read routes do not depend
  * on ClickHouse availability. `forensicKey` is the dedicated Ed25519 evidence-signing
  * key (SPEC-012 / ADR-0016 §5) — the api's FIRST signing key, bootstrapped + decrypted
- * once per process (mirrors how ingest exposes its `ca`, services/ingest/services.ts:35);
+ * once per process (mirrors how ingest exposes its `ca`, services/ingest/src/services.ts:53);
  * it is NOT the ingest CA. `trustedProxies` is `API_TRUSTED_PROXIES`, read once (SPEC-008's
  * second Amendment 2026-10-15); `null` when it lists nothing.
  */
@@ -83,7 +83,7 @@ export async function buildServices(config: Config): Promise<Services> {
   const auth = createAuthService(pool, redis, config);
   // SPEC-012 §Data contracts §4 — bootstrap (first run) or decrypt-on-load the dedicated
   // forensic Ed25519 signing key from Postgres (mirrors ingest's ensureCa at
-  // services/ingest/services.ts:35). Requires the 0003_forensic_key migration. No close
+  // services/ingest/src/services.ts:53). Requires the 0003_forensic_key migration. No close
   // handle: the key is in-memory CryptoKey material, not a pooled connection.
   const forensicKey = await ensureForensicKey(pool, config.API_FORENSIC_PASSPHRASE);
   return {
@@ -93,7 +93,7 @@ export async function buildServices(config: Config): Promise<Services> {
     auth,
     forensicKey,
     trustedProxies,
-    // Promise.allSettled (aligns with services/ingest/src/services.ts:45): one
+    // Promise.allSettled (aligns with services/ingest/src/services.ts:74): one
     // rejected close (e.g. pool.end()) must not prevent closing redis + ch.
     async close() {
       await Promise.allSettled([pool.end(), redis.quit(), ch.close()]);

@@ -11,7 +11,7 @@ import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-s
 // a verifier using the embedded key validates root_signature, and the export (and the whole
 // response) NEVER contains the private key.
 //
-// NOTE (§Compliance line 108): verifying against the embedded key is the AC's literal check
+// NOTE (§Compliance line 107): verifying against the embedded key is the AC's literal check
 // of cryptographic consistency. It is NOT an endorsement of the verify-against-embedded
 // anti-pattern — a real auditor anchors the key out-of-band (the deferred Open question).
 

@@ -3,7 +3,7 @@
 - **ID:** SPEC-012
 - **Title:** Forensic evidence hash-chain over the canonicalized drill output (escalón 3 — implements ADR-0016)
 - **Status:** Accepted
-- **Depends on:** ADR-0016 (the model this SPEC implements — evidence unit = canonicalized drill output, per-event chain, on-demand snapshot, dedicated api Ed25519 key, JCS discipline); SPEC-010 (the drill output `EventTimeline` that is the evidence, and its `(time, event_id)` total-order amendment — `services/api/src/read/queries.ts:268`, `:252`, `:262`, `:259`, `:251`); SPEC-011 / SPEC-007 (the incident the evidence is scoped to — its grouped alerts + aggregated severity); SPEC-003 (the JCS / RFC 8785 canonicalization + Ed25519 signing discipline reused, `services/ingest/src/jcs.ts`).
+- **Depends on:** ADR-0016 (the model this SPEC implements — evidence unit = canonicalized drill output, per-event chain, on-demand snapshot, dedicated api Ed25519 key, JCS discipline); SPEC-010 (the drill output `EventTimeline` that is the evidence, and its `(time, event_id)` total-order amendment — `services/api/src/read/queries.ts:333`, `:315`, `:326`, `:323`, `:314`); SPEC-011 / SPEC-007 (the incident the evidence is scoped to — its grouped alerts + aggregated severity); SPEC-003 (the JCS / RFC 8785 canonicalization + Ed25519 signing discipline reused, `services/ingest/src/jcs.ts`).
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -12,14 +12,14 @@ ADR-0016 fixed the **model** for forensic evidence integrity (escalón 3 of the 
 
 This SPEC fixes the **mechanics** ADR-0016 deferred to its implementing SPEC: the genesis seed, the chain concatenation, the timestamp treatment, the canonicalization library wiring, the forensic-key table shape, and the export/verify contract. It does **not** re-debate the model (ratified in ADR-0016).
 
-The evidence is deterministic in content by construction: the drill reads ClickHouse with `FINAL` (`queries.ts:259`) + de-duplicates event ids with a TS `Set` (`queries.ts:251`), and SPEC-010's amendment pins a **total order `(time, event_id)`** (`queries.ts:262`). The threat boundary is the one ADR-0016 §Context recorded: tamper-evidence is **relative to the event store at snapshot time, under a no-rewrite assumption** (a `ReplacingMergeTree` re-ingest of the same `event_id` with a later `arrived_at` would change the hash by RMT mechanics, not malice; strong write-once immutability is out of scope here).
+The evidence is deterministic in content by construction: the drill reads ClickHouse with `FINAL` (`queries.ts:323`) + de-duplicates event ids with a TS `Set` (`queries.ts:314`), and SPEC-010's amendment pins a **total order `(time, event_id)`** (`queries.ts:326`). The threat boundary is the one ADR-0016 §Context recorded: tamper-evidence is **relative to the event store at snapshot time, under a no-rewrite assumption** (a `ReplacingMergeTree` re-ingest of the same `event_id` with a later `arrived_at` would change the hash by RMT mechanics, not malice; strong write-once immutability is out of scope here).
 
 ## Scope
 
 ### In scope
 
 1. **The chain computation** over a snapshot's canonicalized evidence (the math in §Data contracts §2).
-2. **Canonicalization wiring in `services/api`** — adopt the `canonicalize` npm package (RFC 8785 / JCS, `^2.0.0`, the same version `services/ingest` already depends on, `services/ingest/package.json:28`) as an **api dependency** plus a **thin local wrapper**. The api does **NOT** import `services/ingest/src/jcs.ts` (ingest-coupled; `@cyberguard/api` does not depend on `@cyberguard/ingest`, which exports no entry point). **No shared canonicalization package is extracted in this session** (see §Out of scope).
+2. **Canonicalization wiring in `services/api`** — adopt the `canonicalize` npm package (RFC 8785 / JCS, `^2.0.0`, the same version `services/ingest` already depends on, `services/ingest/package.json:29`) as an **api dependency** plus a **thin local wrapper**. The api does **NOT** import `services/ingest/src/jcs.ts` (ingest-coupled; `@cyberguard/api` does not depend on `@cyberguard/ingest`, which exports no entry point). **No shared canonicalization package is extracted in this session** (see §Out of scope).
 3. **The dedicated forensic Ed25519 key** in `services/api`, **encrypted at rest with pgcrypto** — a single-row table mirroring the ingest `ca` precedent (`services/ingest/src/db/migrations/0001_initial.ts:10-16`; `services/ingest/src/ca.ts:85-88`, `:101`). pgcrypto is already enabled in the api Postgres (`services/api/src/db/migrations/0001_users.ts:15`).
 4. **The on-demand snapshot export** — the canonicalized evidence + the chain root + the Ed25519 `root_signature` + the **embedded** forensic public key (§Data contracts §3).
 5. **External verification** — recompute the chain from the exported evidence and Ed25519-verify `chain_N` against a given public key (§Data contracts §4).
@@ -39,7 +39,7 @@ Each names its destination:
 
 ### 1. The evidence unit
 
-`evidence_n` is the **`n`-th `TimelineEvent`** of the SPEC-010 drill output (`services/api/src/read/types.ts:57-67`), in the **total order `(time ASC, event_id ASC)`** (SPEC-010 Amendment 2026-06-06). `n` indexes the events; the chain **accumulates per event** (ADR-0016 §3). `EventTimeline = { incident_id, events: TimelineEvent[] }` is constructed at `queries.ts:268` (empty-case `:252`).
+`evidence_n` is the **`n`-th `TimelineEvent`** of the SPEC-010 drill output (`services/api/src/read/types.ts:57-67`), in the **total order `(time ASC, event_id ASC)`** (SPEC-010 Amendment 2026-06-06). `n` indexes the events; the chain **accumulates per event** (ADR-0016 §3). `EventTimeline = { incident_id, events: TimelineEvent[] }` is constructed at `queries.ts:333` (empty-case `:315`).
 
 `canonical(evidence_n)` is the **JCS (RFC 8785)** serialization of `evidence_n` via the `canonicalize` package — byte-for-byte reproducible.
 
@@ -134,7 +134,7 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 Two forward-looking statements in the original text are superseded by the implementation (authorized in chat; CLAUDE.md §SPEC amendment workflow — the STOP that surfaced the staleness is the ratification). Where the original text is a point-in-time record it stays: §Ratification record item 6 (*"doc-only this gate"*) accurately describes the gate at which SPEC-012 was **accepted**; this amendment supersedes it only where current state differs.
 
-- **`canonicalize` is now a current api dependency.** `services/api/package.json:29` carries `canonicalize ^2.0.0`, added with the **gate A+B** chain landing (`services/api/src/forensic/canonical.ts` imports it) — no longer "a later implementation gate". The §Out of scope bullet that listed the dependency edit + the implementation code as deferred is removed; §References is corrected in place.
+- **`canonicalize` is now a current api dependency.** `services/api/package.json:30` carries `canonicalize ^2.0.0`, added with the **gate A+B** chain landing (`services/api/src/forensic/canonical.ts` imports it) — no longer "a later implementation gate". The §Out of scope bullet that listed the dependency edit + the implementation code as deferred is removed; §References is corrected in place.
 - **The forensic-key implementation landed in gate C** (this session): `services/api/src/db/migrations/0003_forensic_key.ts` (the single-row, pgcrypto at-rest table), `src/forensic/key.ts` (`ensureForensicKey` — the dedicated Ed25519 key), `src/forensic/export.ts` (`buildForensicExport` — chain head + `root_signature` + embedded pubkey), and the `GET /v1/incidents/:id/forensic-export` route.
 
 **Still out of scope** (unchanged by this amendment): out-of-band trust anchoring of the forensic public key (§Open questions 1), the shared-canonicalization-package extraction, PDF/HTML render, and MinIO physical at-rest.
@@ -142,9 +142,9 @@ Two forward-looking statements in the original text are superseded by the implem
 ## References
 
 - [ADR-0016](../adr/0016-forensic-evidence-hash-chain.md) — the model this SPEC implements (evidence unit, per-event chain, on-demand snapshot, dedicated api key, JCS discipline, RMT threat boundary).
-- [SPEC-010](SPEC-010-forensic-event-drill.md) — the drill `EventTimeline` that is the evidence; the `(time, event_id)` total-order amendment (`## Amendment 2026-06-06`). Code: `services/api/src/read/queries.ts:268` / `:252` (construction), `:262` (order), `:259` (`FINAL`), `:251` (`Set` dedup); `types.ts:57-67` (`TimelineEvent`).
+- [SPEC-010](SPEC-010-forensic-event-drill.md) — the drill `EventTimeline` that is the evidence; the `(time, event_id)` total-order amendment (`## Amendment 2026-06-06`). Code: `services/api/src/read/queries.ts:333` / `:315` (construction), `:326` (order), `:323` (`FINAL`), `:314` (`Set` dedup); `types.ts:57-67` (`TimelineEvent`).
 - [SPEC-011](SPEC-011-incident-severity.md) / [SPEC-007](SPEC-007-incident-grouping-mvp.md) — the incident scope of the evidence.
 - [SPEC-003](SPEC-003-mtls-signed-envelope.md) — the JCS + Ed25519 discipline reused; `services/ingest/src/jcs.ts` (the `canonicalize` usage api mirrors but does not import).
-- `services/ingest/package.json:28` (`canonicalize ^2.0.0`, the package api adopts as its own dep); `services/api/package.json:29` (`canonicalize ^2.0.0`, added with the gate A+B chain landing — see Amendment 2026-06-06).
+- `services/ingest/package.json:29` (`canonicalize ^2.0.0`, the package api adopts as its own dep); `services/api/package.json:30` (`canonicalize ^2.0.0`, added with the gate A+B chain landing — see Amendment 2026-06-06).
 - `services/ingest/src/ca.ts:85-88` / `:101` + `services/ingest/src/db/migrations/0001_initial.ts:10-16` — the single-row, pgcrypto-encrypted key-at-rest pattern the forensic-key table mirrors; `services/api/src/db/migrations/0001_users.ts:15` (pgcrypto already enabled in the api Postgres).
 - [Blueprint](../product/blueprint.md) — `:33` (the *"auditable"* promise), `:527-535` (the hash-chain scheme; `:531` the `timestamp_n` term this SPEC folds into the evidence).
