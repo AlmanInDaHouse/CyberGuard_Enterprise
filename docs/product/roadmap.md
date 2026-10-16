@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-40.md](../handoff-session-40.md)).
+([handoff-session-41.md](../handoff-session-41.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 

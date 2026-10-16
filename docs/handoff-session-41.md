@@ -662,6 +662,65 @@ the passages that the amendment restates; the quote in full; what the
 audit row records; the drill's own ClickHouse read reused; the catalog's
 wording. No second pass ran on these changes.
 
+### #9: the code
+
+Branch `fix/s41-debt-9-report-one-read` (PR #29), one commit, rebuilt once
+to fold its first review's points, CI on each push:
+
+```text
+50d93ea: ts-ci -> success
+3f15192: ts-ci -> success     the first review's points
+```
+
+Landed on `main` with `git cherry-pick --ff` behind the tree guard; PR #29
+closed as merged, the branch deleted.
+
+```text
+SHA 3f15192: ts-ci -> success
+```
+
+`services/api/src/read/queries.ts` resolves an incident and its alert rows
+in one function (`readIncidentRows`) that `getIncidentDetail`, the drill's
+`getIncidentEventTimeline` and the report's `readIncidentForReport` share;
+`eventTimelineOf` is the drill's ClickHouse read by event ids.
+`services/api/src/forensic/export.ts` splits `sealTimeline`, SPEC-012's
+chain and signature, out of `buildForensicExport`. `composeReport` reads
+once, reads the events that read's alerts name, and seals them. The PDF's
+timeline lines print each event's `agent_id`.
+
+report_ac_006 ran red first against `main`'s sources: the seal carried the
+late alert's event (2 events, where the alert table listed 1). Local gate
+at the tip: `services/api` 48 files, 295 tests.
+
+Self-review matrix (`services/api/test/report-ac-006-one-read.test.ts`): the
+alert table and the timeline of the first read, the late alert in neither,
+`Timeline (1 event)`, the event's agent, the PDF's chain head, the chain
+recomputed, the signature verified with the server's key, one read of the
+incident's row and one of its alerts: covered. Claude Code's own matrix had
+none weak.
+
+Two passes of the fixed code prompt (security code: a pass after the
+fixes):
+
+- First pass, nothing contradicted. Fixed: the test now asserts the PDF's
+  own timeline, the event's agent and the printed chain head under the race,
+  not only the returned seal; two comments in `report.ts` described the
+  two reads.
+- Second pass, nothing blocking. Recorded: `sealTimeline` is now an
+  exported function that signs whatever timeline an in-process caller hands
+  it, where the key signed only a timeline read by `buildForensicExport`;
+  today both callers pass timelines read from the stores, and both routes
+  keep the role gate and the audit row. The drill's Postgres read now selects
+  the incident's full row and orders the alerts, with the same output. The
+  read counter in the test sees `pool.query` only. Of the integrity block,
+  the race case checks the chain head; report_ac_002 checks the rest.
+
+Decisions (Claude Code's, inside SPEC-012 and SPEC-013): **one resolution of
+the incident, shared** by the detail, the drill and the report, where the
+alternative was a second, report-only query; **`sealTimeline` exported**,
+where the alternative was passing a timeline into `buildForensicExport`,
+which would have made the export itself sign a caller's timeline.
+
 ## Debts
 
 New this session:
@@ -719,6 +778,8 @@ Changed this session:
 
 Closed this session:
 
+- **#9**, by `3f15192`: the report reads the incident once and seals that
+  read's timeline (SPEC-013 Amendment 2026-10-16).
 - **#40**, by `00ca365`: `event.json`'s `time` has `minLength: 1`, and
   `examples-invalid/` checks it.
 - **#84**: the citations of ADR-0002 Rule 4 for strict schemas name the
@@ -728,8 +789,9 @@ Closed this session:
 - **#93**, by `f876753` to `6d1f393`: the production dependencies past their
   advisories, `dependency-audit.yml`, and the runbook.
 
-**Open at the commit that closes #40: 69** (`docs/debts.md`, which
-matches): 69 at the start, #93, #82, #84 and #40 closed, #111 to #114 new.
+**Open at the close: 68** (`docs/debts.md`, which matches): 69 at the
+start; #93, #82, #84, #40 and #9 closed; #111, #112, #113 and #114 new;
+the debts #31, #32 and #39 narrowed; #13 held open with PR #28.
 
 ## What waits on Manuel
 
@@ -754,6 +816,12 @@ matches): 69 at the start, #93, #82, #84 and #40 closed, #111 to #114 new.
   opening prompt kept a slot for it, which reached the session unfilled.
   Recommendation, as handoff-40's: a request with no session is not an
   authentication event, and #80 closes.
+- **Whether an anchor-only edit to an ADR is his.** Debt #13's sweep (PR
+  #28) corrects line numbers only, never a claim. CLAUDE.md gives an ADR
+  amendment to Manuel and an anchor-drift pass to a Class-A sweep, and does
+  not say which an ADR's anchor is. Recommendation: Claude Code's, as for
+  any other document, since the decision the ADR records does not change.
+  Until he answers, PR #28 waits, as rule b asks.
 - **cargo-audit on the *Approved local toolchain*.** Without it, a
   `Cargo.lock` change is checked by its pull request's CI alone (CLAUDE.md,
   *Local pre-commit gate*). Installing it is his to approve.
@@ -761,3 +829,98 @@ matches): 69 at the start, #93, #82, #84 and #40 closed, #111 to #114 new.
   delegation: *Dependency review* (`:204`) and R12 (#93); the record of the
   system as built, *Cross-cutting* (#93) and §3's session lifetime (#82); R9's
   destination (#31).
+
+## Decisions
+
+Manuel's decisions this session, in chat:
+
+- 2026-10-16, the opening message: the order and the delegation (*Start*).
+- 2026-10-16, after gate 3: "termino lee logs".
+- 2026-10-16, after gate 1: "terminó".
+
+Claude Code's decisions, anticipated and reactive, are recorded with each
+item under *Progress*. The delegated ones (Manuel's list, decided for an
+enterprise buyer under his 2026-10-15 delegation, restated on 2026-10-16):
+
+- #93's runbook: what it binds (*#93: the close*);
+- #82: what counts as a session's use, and the per-org lifetime deferred
+  (SPEC-008's second Amendment 2026-10-16);
+- #31: what the server accepts of an element (SPEC-017's Amendment
+  2026-10-16); its bound against arrival was handed back to Manuel;
+- #39 and #40: two CGES constraints tightened.
+
+No ADR was written or changed; ADR-0003's amendment waits for his "sí".
+
+## Gate outputs and baselines
+
+The elevated gates' literal lines are in their sections:
+
+- gate 3 of Session 40, run in this session on `6d1f393` (#93), in *#93:
+  the rebuild and the landing*;
+- gate 1, on `90ee7e7` (#31), in *#31: the code, its shape half*.
+
+Baselines at this close's `main`:
+
+- `services/api`: 48 files, 295 tests.
+- `services/ingest`, unelevated, at `90ee7e7`: 75 files, 69 passed, 5
+  failed and 1 skipped; 308 tests passed, 5 failed and 2 skipped. The five
+  failures are the four capture marquees (the agent's exit code 9, as
+  expected) and one case of `rules_ac_007`, a ClickHouse timeout under
+  memory pressure, which passed alone (3/3) and in gate 1.
+- `services/ingest`, elevated (gate 1): 75 files, 314 passed, 1 skipped
+  (`servercert_ac_008`, which runs only off Windows).
+- `dashboard`: 10 files, 117 tests.
+- Rust: `cargo test --all` 66 binaries, 126 passed, 7 ignored;
+  `cargo test -- --ignored` 7 of 7 (gate 1).
+- `task validate-schemas`: 8 examples and the playbook valid, 6 invalid
+  examples refused.
+
+Catalogs: ADR 21, SPEC 21 (amendments only). Known CI debt: none.
+
+Two tests failed once under the host's memory pressure and passed alone:
+`rules_ac_007` (a ClickHouse query timeout) and `apiauth_ac_014` (a
+statement Postgres should cancel at 5 s). The host runs other projects'
+containers and Kubernetes beside Docker Desktop. Not a debt yet: one more
+failure of either opens one.
+
+## State at the close
+
+`main` = `origin/main`, the tree clean, no stash. Three branches are
+open, each with its reason:
+
+- `adr/s41-0003-dev-stack` (`b0b1bbf`, no PR, NOT YET RATIFIED): ADR-0003's
+  amendment, waiting for Manuel's "sí".
+- `fix/s41-debt-96-dev-stack` (PR #24, `bf4893c`, CI green, reviewed):
+  #96, landing after that amendment; it needs a rebase onto `main`.
+- `fix/s41-debt-13-anchors` (PR #28, `23d9c1b`, CI green, reviewed): #13,
+  waiting for the whole pattern (*What waits on Manuel*); it needs a rebase,
+  and its anchors into `services/api/src/read/queries.ts` re-verified, since
+  #9 moved that file's lines.
+
+Docker Desktop was started at the opening, and not restarted. No `CGAgent`
+session was left by either gate.
+
+## How Session 42 resumes
+
+1. *Session protocol* §At the start. Expected:
+   - `main` = `origin/main` at this file's last commit; tree clean; no
+     stash;
+   - the three branches above, and PRs #24 and #28 open;
+   - catalogs ADR 21 / SPEC 21; Known CI debt zero; `docs/debts.md` open
+     count 68;
+   - `logman query -ets` lists no `CGAgent` session;
+   - the weekly `dependency-audit` run, if one ran on `main`'s tip, green.
+2. Manuel's answers, if he gave them: ADR-0003's "sí" (land the ADR, then
+   rebase and land PR #24, and close #96); the ADR-anchor question (finish
+   PR #28 with the ADRs' anchors and the two gate-path comments, the latter
+   riding the next elevated gate); the containers on `0.0.0.0`; #31's bound
+   against arrival; #80's `401` half.
+3. The sweep, in this order: #27 (diagnosis first), #30, #8, #11, #110 (the
+   test tooling's majors, vitest first), then #111's chacha20 half with
+   #110.
+4. Roadmap §F, criterion 7. Its SPEC decides Part (b) §2–§4 (delegated) and
+   carries the deployment's items: #85, #86, #89, #92, #94, #95, #77, #78,
+   #79's list, #103, #104, #106, #108, #109, #112. ADR amendments go to
+   Manuel for his "sí".
+5. #87 and #111's rustls-pemfile half go with the next agent change under
+   the elevated gate. §B2 and §B3 stay parked until a SPEC-021 text arrives.
