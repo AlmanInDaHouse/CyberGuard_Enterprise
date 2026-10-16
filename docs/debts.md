@@ -23,7 +23,7 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 68** at the commit that records #100's and #101's closure in `docs/handoff-session-40.md`. Session 40 opened with 66; it added #102 to #106 and #108, and closed #79, #90, #100 and #101; #107 was opened and closed in the session, and #80 narrowed to its `401` half. `docs/handoff-session-39.md:596` states 67: it counts #70, which ADR-0015's Amendment 2026-10-14 had closed (`25add5b`) before `docs/handoff-session-38.md:1102` recorded it as new. Session 40's review of this register found it.
+**Open: 68** at the commit that records #91's closure and #109 in `docs/handoff-session-40.md`. Session 40 opened with 66; it added #102 to #106, #108 and #109, and closed #79, #90, #91, #100 and #101; #107 was opened and closed in the session, and #80 narrowed to its `401` half. `docs/handoff-session-39.md:596` states 67: it counts #70, which ADR-0015's Amendment 2026-10-14 had closed (`25add5b`) before `docs/handoff-session-38.md:1102` recorded it as new. Session 40's review of this register found it.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
 Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
@@ -77,30 +77,30 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 73 | ADR-0021 §2 says `ajv-cli` reads JSON | `handoff-session-38.md:1127` | An ADR-0021 amendment, for Manuel's "sí". |
 | 77 | The bootstrap CLI takes the password on its command line | `handoff-session-39.md:602` | Roadmap §F's SPEC. |
 | 78 | No operator setting trusts a relay's private CA | `handoff-session-39.md:608` | Roadmap §F's SPEC. |
-| 80 | A request refused for want of a session writes no audit row | `handoff-session-39.md:623`; `handoff-session-40.md:875` | Manuel's reading of ADR-0014 §Compliance (`adr/0014-human-authentication-model.md:98`); its `403` half closed by `8bd5bc9`. |
+| 80 | A request refused for want of a session writes no audit row | `handoff-session-39.md:623`; `handoff-session-40.md:962` | Manuel's reading of ADR-0014 §Compliance (`adr/0014-human-authentication-model.md:98`); its `403` half closed by `8bd5bc9`. |
 | 82 | A session lasts 8 h from its login, not 8 h idle within 24 h | `handoff-session-39.md:636` | Sweep: SPEC-008's NFR or the code. |
-| 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:868` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
+| 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:955` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
 | 84 | Six places cite ADR-0002 Rule 4 for Zod schemas | `handoff-session-39.md:653` | The SPEC texts, with #13. |
 | 85 | A compromised ingest can forge an api session (shared Redis) | `handoff-session-39.md:666` | Roadmap §F: a Redis user per service. |
 | 86 | Both services act as the Postgres superuser | `handoff-session-39.md:672` | Roadmap §F: a Postgres role per service. |
 | 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676` | A SPEC-002 amendment, with the next agent change under the elevated gate. |
-| 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:859` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
+| 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:946` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694` | Roadmap §F and a SPEC-004 amendment. |
-| 91 | Detection rules re-read from disk on every cycle | `handoff-session-39.md:705`; `handoff-session-40.md:879` | SPEC-016's Amendment 2026-10-16: the rule set loaded at the driver's start; closes with its code, after the elevated gate. |
-| 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md:864` | Roadmap §F. |
+| 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md:951` | Roadmap §F. |
 | 93 | No dependency audit in CI | `handoff-session-39.md:714` | Sweep. |
 | 94 | Encryption passphrases travel as SQL parameters | `handoff-session-39.md:717` | Roadmap §F's Postgres logging. |
 | 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724` | Roadmap §F's grants, and the DPO's record of processing. |
 | 96 | The dev stack runs NATS without authentication and MinIO with dev root credentials | `handoff-session-39.md:729` | Sweep: removed until a SPEC uses them. |
-| 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:872` | Roadmap §F. |
+| 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:959` | Roadmap §F. |
 | 98 | Admins set users' passwords and receive their TOTP secret | `handoff-session-39.md:737` | A later SPEC-008 change: an invitation the user completes. |
 | 99 | One process holds the internet-facing listeners and the CA's key | `handoff-session-39.md:741` | An ADR separating the CA, for Manuel's "sí". |
-| 102 | The api's login deletes no prior session | `handoff-session-40.md:775` | A later SPEC-008 change: the login deletes the session its cookie names. |
-| 103 | Without a proxy in front of the dashboard, a client chooses the address the api counts | `handoff-session-40.md:785` | Roadmap §F: the dashboard only behind a TLS proxy that appends or sets `X-Forwarded-For`. |
-| 104 | The dashboard sends no security headers (CSP, HSTS) | `handoff-session-40.md:796`; `handoff-session-40.md:882` | Roadmap §F; not `Referrer-Policy: no-referrer`, which would make SPEC-009's same-origin check refuse every sign-in. |
-| 105 | A certificate and key path that name one file lose the key at a reissue | `handoff-session-40.md:798` | The next change to `services/ingest/src/cert.ts`. |
-| 106 | The dashboard's cookies carry no `__Host-` prefix | `handoff-session-40.md:809` | A SPEC-009 change, with roadmap §F's deployment domain. |
-| 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:820` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
+| 102 | The api's login deletes no prior session | `handoff-session-40.md:852` | A later SPEC-008 change: the login deletes the session its cookie names. |
+| 103 | Without a proxy in front of the dashboard, a client chooses the address the api counts | `handoff-session-40.md:862` | Roadmap §F: the dashboard only behind a TLS proxy that appends or sets `X-Forwarded-For`. |
+| 104 | The dashboard sends no security headers (CSP, HSTS) | `handoff-session-40.md:873`; `handoff-session-40.md:966` | Roadmap §F; not `Referrer-Policy: no-referrer`, which would make SPEC-009's same-origin check refuse every sign-in. |
+| 105 | A certificate and key path that name one file lose the key at a reissue | `handoff-session-40.md:875` | The next change to `services/ingest/src/cert.ts`. |
+| 106 | The dashboard's cookies carry no `__Host-` prefix | `handoff-session-40.md:886` | A SPEC-009 change, with roadmap §F's deployment domain. |
+| 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:897` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
+| 109 | Whoever can write the rules directory and restart ingest changes detection | `handoff-session-40.md:907` | Roadmap §F's packaging: the rules read-only in the image. |
 
 ## Closed
 
@@ -140,9 +140,10 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 74 | SMTP credentials in clear text without TLS | `0e398e6` | `handoff-session-39.md:588` |
 | 75 | nodemailer's private fields on an unpinned release | `b560665` | `handoff-session-39.md:587` |
 | 76 | Two untested statements of SPEC-022 | `a8deda8` | `handoff-session-39.md:586` |
-| 79 | Behind a reverse proxy, the api reads the proxy's address | `c9dad1c` | `handoff-session-40.md:843` |
+| 79 | Behind a reverse proxy, the api reads the proxy's address | `c9dad1c` | `handoff-session-40.md:927` |
 | 81 | The TOTP confirmation defeated the second factor | `ee5235a` | `handoff-session-39.md:593` |
-| 90 | The forensic export and report: any role, no audit row | `8d3c61d` | `handoff-session-40.md:847` |
-| 100 | The password change counts no failure and leaves its TOTP code usable | `8bd5bc9` | `handoff-session-40.md:851` |
-| 101 | The login limiter reads its counters, then counts the failure | `8bd5bc9` | `handoff-session-40.md:854` |
-| 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:832` |
+| 90 | The forensic export and report: any role, no audit row | `8d3c61d` | `handoff-session-40.md:931` |
+| 91 | Detection rules re-read from disk on every cycle | `3da53e3` | `handoff-session-40.md:941` |
+| 100 | The password change counts no failure and leaves its TOTP code usable | `8bd5bc9` | `handoff-session-40.md:935` |
+| 101 | The login limiter reads its counters, then counts the failure | `8bd5bc9` | `handoff-session-40.md:938` |
+| 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:916` |

@@ -395,7 +395,7 @@ This dependency-ordered document supersedes both for planning.
   that `Host`; the dashboard's security headers (#104, without
   `Referrer-Policy: no-referrer`); `__Host-` names for the dashboard's
   cookies (#106); a ClickHouse user per service, the api's read-only
-  (#108).
+  (#108); the detection rules read-only in the image (#109).
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
 - Last by dependency.

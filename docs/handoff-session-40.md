@@ -768,6 +768,83 @@ From its second list, the draft took:
 - the dormant broken file that stops ingest at the next start;
 - ADR-0012's call.
 
+### #91: the code
+
+Branch `fix/s40-debt-91-rules-at-start` (PR #22), one commit, rebuilt once
+to fold its review's fixes:
+
+```text
+d7f3443: ts-ci -> success
+24271d3: ts-ci -> success     the review's fixes
+```
+
+rules_ac_007 ran red first, against `main`'s code. Its first case failed
+(`expected false to be true`): a rule file removed after the start took
+effect at once. Its case for a broken start passed, as that check already
+existed. The local gate at the tip is green but for the four capture
+marquees, which fail unelevated with the agent's exit code 9, as CLAUDE.md
+expects.
+
+The elevated gate, run by Manuel on `24271d3` (`C:\tmp\s40-gate2.ps1`,
+2026-10-16, 02:04 to 02:09). Its logs, literal:
+
+```text
+01-elev    net session: No hay entradas en la lista.
+02-head    24271d3 / fix/s40-debt-91-rules-at-start
+03-status  status lines: 0
+05-build   Finished `release` profile [optimized] target(s) in 10.04s
+06-cargo   test auth_ac_012_logons_on_the_real_log ... ok
+           test capture_ac_006_elevated_shutdown_leaves_no_session ... ok
+           test net_ac_008_a_real_connection_is_reported_with_its_probe ... ok
+           test net_ac_009_an_accepted_connection_and_the_filter ... ok
+           test ac_004_cache_hit_terminate_matches_launch_byte_for_byte ... ok
+           test ac_007_parent_pid_only_when_parent_dead_at_child_launch ... ok
+           test ac_009_events_lost_under_deliberate_etw_buffer_pressure ... ok
+08-vitest  ✓ test/detect-ac-001-marquee.test.ts (1 test) 46655ms
+           ✓ test/spec-005-marquee.test.ts (1 test) 40593ms
+           ✓ test/net-ac-010-marquee.test.ts (1 test) 25484ms
+           ✓ test/auth-ac-013-marquee.test.ts (1 test) 25536ms
+           ✓ test/rules-ac-007-loaded-at-start.test.ts (3 tests) 10870ms
+           ✓ test/ac-001-marquee.test.ts (1 test) 4670ms
+           detect_ac_001 captured image_file_name — probe: C:\Users\manul\AppData\Local\Temp\cg-detect-probe-Ee15Y6\winword.exe; child: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+           spec_005 captured image_file_name — launch: C:\Windows\System32\cmd.exe; terminate: cmd.exe
+           Test Files  74 passed (74)
+                Tests  295 passed | 1 skipped (296)
+10-agent   logman query CGAgent-KernelProcess -ets: No se encontró el Conjunto de recopiladores de datos.
+```
+
+The skipped test is `servercert_ac_008`, which runs only off Windows.
+
+Landed on `main` as `3da53e3` by `git merge --squash`, behind the two tree
+guards; PR #22 closed, the branch deleted.
+
+```text
+SHA 3da53e3: ts-ci -> success
+```
+
+Self-review:
+
+- Claude Code's matrix: rules_ac_007's three cases covered (a valid
+  change, a broken file, a broken start).
+- One pass of the fixed code prompt found nothing contradicted. Fixed:
+  - the rename that left SPEC-016 §2 citing a removed function (the name
+    `assertRulesLoadable` kept);
+  - two stale comments;
+  - the off switch, tested.
+
+  Recorded: the broken start's message names no file (as before); the
+  test's driver cycles every enrolled org, as the suite's servers do. No
+  second pass ran on those fixes, which change no behavior.
+
+Decision (anticipated):
+
+- **The loaded rule set rides `DetectConfig.rules`.** The driver passes
+  it, and a caller without one loads the directory. Alternative: a fourth
+  parameter of `runDetectionCycle`.
+
+The threat model, for Manuel's audit: R8 and §4 now record a rule set
+loaded at the start.
+
 ## Debts
 
 New this session:
@@ -827,6 +904,13 @@ New this session:
   Destination: roadmap §F, a ClickHouse user per service, the api's
   read-only.
 
+- **#109 — Whoever can write the rules directory and restart ingest
+  changes detection.** Debt #91's code loads the rule set once, at the
+  driver's start, so the directory's writer needs a restart too. A file
+  planted meanwhile lies dormant until that start refuses it. Threat model
+  R8's residual. Destination: roadmap §F's packaging, the rules read-only in
+  the image.
+
 Opened and closed this session:
 
 - **#107 — The dashboard's logout answered the api's `403` with `403` after
@@ -854,6 +938,9 @@ Closed this session:
 - **#101**, by `8bd5bc9`: every limited attempt reserves its slots in one Redis
   script before its credentials are checked (item 3).
 
+- **#91**, by `3da53e3`: the production driver loads its rule set once, at
+  its start (SPEC-016's Amendment 2026-10-16), after elevated gate 2.
+
 Changed this session:
 
 - **#88**: its server half closed with `b293500`: the ingest server reissues
@@ -876,9 +963,6 @@ Changed this session:
   want of a session, which waits for Manuel's reading of ADR-0014
   §Compliance (`docs/adr/0014-human-authentication-model.md:98`); see *What
   waits on Manuel*. Its `403` half closed with that commit.
-- **#91**: its destination is SPEC-016's Amendment 2026-10-16, the rule
-  set loaded at the driver's start; it closes with its code, after the
-  elevated gate.
 - **#104**: the headers must not include `Referrer-Policy: no-referrer`:
   under it browsers send `Origin: null` on a same-origin POST, and SPEC-009's
   same-origin check would refuse every sign-in and sign-out (the fourth
