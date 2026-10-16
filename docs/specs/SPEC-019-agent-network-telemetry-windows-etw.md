@@ -47,7 +47,7 @@ Each item has its destination in brackets.
 - Validating or bounding an event's `time` [debt #31, unchanged: a network event's `time` goes through the same conversion].
 - Sampling, rate-limiting or aggregating connection events, and a share of the ring reserved per class [§Open questions 2].
 - Version negotiation between agent and server [not planned; §Operational §9 gives the upgrade order].
-- Aligning the examples under `schemas/cges/v0.1/examples/` with the wire: they show `time` in ISO 8601 for every class, 1007 included, and are not wire elements [a debt recorded in the S34 handoff].
+- Aligning the examples under `schemas/cges/v0.1/examples/` with the wire: they are not wire elements, and their members differ from the wire's; their `time` follows the wire since SPEC-017 Amendment 2026-10-16 [a debt recorded in the S34 handoff].
 - Capture on non-Windows platforms [ADR-0002 Rule 2; post-MVP].
 
 ## Data contracts

@@ -31,13 +31,16 @@ schemas/cges/v0.1/
 │   ├── 4001_network_activity.json       OCSF class UID 4001 (category 4 Network Activity)
 │   ├── alert.json                       CGES-specific (category_uid 10, class_uid 10001)
 │   └── incident.json                    CGES-specific (category_uid 10, class_uid 10002)
-└── examples/
-    ├── 01_process_start.json            class 1007
-    ├── 02_network_connection.json       class 4001
-    ├── 03_auth_login_success.json       class 3002
-    ├── 04_alert_rule_source.json        alert with detection_source = "rule"
-    ├── 05_alert_ml_source.json          alert with detection_source = "ml" + cg_raw_ref
-    └── 06_incident_grouped.json         incident grouping alerts 04 and 05
+├── examples/
+│   ├── 01_process_start.json            class 1007
+│   ├── 02_network_connection.json       class 4001
+│   ├── 02_process_terminate.json        class 1007, a Terminate
+│   ├── 03_auth_login_success.json       class 3002
+│   ├── 03_process_start_unresolved_parent.json  class 1007, its parent unresolved
+│   ├── 04_alert_rule_source.json        alert with detection_source = "rule"
+│   ├── 05_alert_ml_source.json          alert with detection_source = "ml" + cg_raw_ref
+│   └── 06_incident_grouped.json         incident grouping alerts 04 and 05
+└── examples-invalid/                    events the schema must refuse; CI fails if one validates
 ```
 
 ## Conventions
@@ -49,7 +52,7 @@ schemas/cges/v0.1/
 > **Note (gotcha):** classes under `classes/` use `additionalProperties: true` **even for CGES-specific classes** (`alert`, `incident`). This is a deliberate workaround for the `oneOf` wrapping in [`event.json`](event.json) — strict `additionalProperties: false` on a class file breaks event-level field resolution, because the class sub-schema would reject the common top-level fields (`cg_agent`, `cg_org`, `time`, etc.) that belong to the wrapping event schema. Do **not** "fix" this to `false` unless you are also refactoring the `event.json` `oneOf` pattern. See Session 3 Vuelta 2 closure notes.
 
 - Required fields are listed explicitly. No implicit optional/required.
-- Timestamps use `format: date-time` (RFC 3339 / ISO 8601 UTC with milliseconds). Server-side ±5 min skew validation lives in `cg-ingest`, not in the schema (see ADR-0004 §Server validation order).
+- An event's `time` is string-encoded Unix nanoseconds, UTC, for Process Activity (1007), Network Activity (4001) and Authentication (3002), as the agent sends it, and ISO 8601 for the other classes. `event.json` takes any non-empty string, and the three class files give `time` the pattern of decimal digits without a leading 0 (debts #39, #40). `process.created_time` is string-encoded nanoseconds too (`objects/process.json`). The other timestamps, such as `cg_ingested_at`, use `format: date-time` (RFC 3339 / ISO 8601 UTC with milliseconds). What the server checks beyond the schema lives in `cg-ingest`: the ±5 min skew of an envelope's `sent_at` (SPEC-004 FR-010 step 3); an element's `time`, and a process's `created_time`, below 2^63 with at most 19 digits; and a process event's pids and exit code within their columns (SPEC-017 Amendment 2026-10-16).
 - `event_id` is UUIDv7 (RFC 9562). Pattern enforced at the schema level.
 - `raw_data` (inline) and `cg_raw_ref` (MinIO offload) are mutually exclusive; the `oneOf` constraint in `event.json` enforces this.
 
@@ -75,7 +78,7 @@ The canonical validator is [ajv-cli](https://github.com/ajv-validator/ajv-cli) w
 task validate-schemas
 ```
 
-The target invokes `ajv-cli` via `npx`, registers all `common/`, `objects/` and `classes/` files with `-r`, and validates every example under `examples/` against `event.json`.
+The target invokes `ajv-cli` via `npx`, registers all `common/`, `objects/` and `classes/` files with `-r`, validates every example under `examples/` against `event.json`, and fails if any event under `examples-invalid/` validates.
 
 ### CI
 

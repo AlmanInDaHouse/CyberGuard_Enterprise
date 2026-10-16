@@ -63,6 +63,33 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Refuse every invalid example
+        # Debts #39 and #40: each file under examples-invalid/ breaks one rule of the
+        # schema, and the job fails if any of them validates.
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          invalid=(schemas/cges/v0.1/examples-invalid/*.json)
+          if [ ${#invalid[@]} -eq 0 ]; then
+            echo "No invalid examples found under schemas/cges/v0.1/examples-invalid/. Failing."
+            exit 1
+          fi
+          for f in "${invalid[@]}"; do
+            if ajv validate \
+              --spec=draft2020 \
+              -c ajv-formats \
+              -s schemas/cges/v0.1/event.json \
+              -r "schemas/cges/v0.1/common/*.json" \
+              -r "schemas/cges/v0.1/objects/*.json" \
+              -r "schemas/cges/v0.1/classes/*.json" \
+              -d "$f" \
+              --strict=false > /dev/null 2>&1; then
+              echo "$f validated, but must be refused"
+              exit 1
+            fi
+            echo "$f refused, as it must be"
+          done
+
       - name: Validate every SOAR playbook
         # SPEC-022 §Operational §8 — ajv-cli reads YAML data files. The loader's own
         # policy (unique ids, placeholders, no live agent.isolate) runs in ts-ci.
