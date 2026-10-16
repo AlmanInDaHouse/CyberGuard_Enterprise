@@ -330,6 +330,80 @@ Two passes of the fixed SPEC prompt on the working tree:
   (`:35`), the cost of the option it chose, which leaves the lifetime to
   SPEC-008 (`:104`): not amended. No third pass ran on these fixes.
 
+### #82: the code
+
+Branch `fix/s41-debt-82-session-lifetime` (PR #25), one commit, rebuilt
+once to fold its first review's points, CI on each push:
+
+```text
+03e0f35: ts-ci, markdown-lint -> success
+33a56ba: ts-ci, markdown-lint -> success     the first review's points
+```
+
+Landed on `main` with `git cherry-pick --ff` behind `git diff --quiet
+<branch-sha> HEAD`, under the SHA its CI ran on; GitHub closed PR #25 as
+merged, and the branch was deleted.
+
+```text
+SHA 33a56ba: markdown-lint, ts-ci -> success
+```
+
+`resolveSession` (`services/api/src/auth/session.ts`) rewrites the entry
+at each use with `SET ... PX ... XX`, deletes an entry past its cap or that
+it cannot read, and lets a Redis error through as the session check's
+`503`; the logout reads its session for the audit row without a second
+use (`peekSession`). The test harness's `seedSession` writes the current
+time as `issued_at`, which a 24 h cap needs. SPEC-009's logout clause
+and the threat model's §3 sentence say the sliding lifetime.
+
+apiauth_ac_022 ran red first against `main`'s code: 6 of 9 failed for the
+missing behavior. The 3 that passed assert behavior kept: the login's 8 h,
+no revoked session brought back, the logout. One case first passed by
+accident (the seed's 1 h time-to-live equalled the hour left to the cap);
+it was made to lower the time-to-live first, and failed. Local gates at
+the tip: `services/api` 47 files, 294 tests (it was 46, 282); `dashboard`
+10 files, 117 tests.
+
+Self-review matrix (`services/api/test/apiauth-ac-022-session-lifetime.test.ts`):
+
+| Criterion | Test | Verdict |
+|---|---|---|
+| A login's entry lives 8 h | "a login's entry lives 8 h" | covered |
+| An idle session used gets 8 h again; `last_seen` in the request | "a use of a session idle for 7 h 59 min ..." | covered (the other fields unchanged, after the review) |
+| 23 h after its login: the hour left; `issued_at` kept | "a use of a session issued 23 h ago ..." | covered |
+| A refused request is a use | "a request the role check refuses ...", "a request the CSRF check refuses ..." | covered |
+| Past the cap, or `issued_at` unreadable: `401`, deleted | "a session issued 24 h and one second ago ...", "... not a time ...", "... no issued_at ...", "... not a JSON object ..." | covered |
+| A revoked session not brought back | "a use does not bring back a session deleted ..." | covered (the session module, a racing client) |
+| The logout ends it | "a logout still ends the session" | covered |
+| A failed rewrite or delete: `503` | "a rewrite Redis fails answers 503 ..." | covered |
+
+Claude Code's own matrix had one *missing*, an entry with no `issued_at`,
+added before the first review.
+
+Two passes of the fixed code prompt (security code: a pass after the
+fixes):
+
+- First pass, nothing blocking. Fixed: the logout re-resolved its session,
+  a second use (now `peekSession`); an entry that is not a JSON object
+  answered `500` and stayed (now `401` and deleted); tests for a CSRF
+  refusal as a use and for the fields a rewrite keeps; the threat model's
+  sentence names the per-org setting's absence. Recorded: a Redis that
+  refuses writes but allows `DEL` makes a logout answer `503` before its
+  delete; an `issued_at` in the future is accepted.
+- Second pass, nothing blocking; it checked that dropping `XX`, the cap
+  or the rewrite, or rewriting `issued_at`, each fails a test. Recorded:
+  the `503` case asserts the status only; `Date.parse` reads `"2026"` as a
+  time; an `issued_at` far in the future is refreshed with no cap;
+  `revokeAllForUser` still parses each entry unguarded, so an entry that is
+  not JSON, which only a Redis writer can put there, makes a role, status or
+  password change answer `503`. Each needs a writer to the shared Redis
+  (R2, #85).
+
+Decisions (anticipated, Claude Code's inside SPEC-008): `peekSession` for
+the logout, where the alternative was passing the request's session down;
+an unreadable entry deleted, like an unreadable `issued_at`, where the
+alternative was a `500`.
+
 ## Debts
 
 New this session:
@@ -366,8 +440,11 @@ Changed this session:
 
 Closed this session:
 
+- **#82**, by `33a56ba`: a session ends after 8 h without use, and 24 h
+  after its login at the latest (SPEC-008's second Amendment 2026-10-16).
 - **#93**, by `f876753` to `6d1f393`: the production dependencies past their
   advisories, `dependency-audit.yml`, and the runbook.
 
-**Open at the commit that closes #93: 71** (`docs/debts.md`, which
-matches): 69 at the start, #93 closed, #111, #112 and #113 new.
+**Open at the commit that records #82's closure: 70** (`docs/debts.md`,
+which matches): 69 at the start, #93 and #82 closed, #111, #112 and #113
+new.
