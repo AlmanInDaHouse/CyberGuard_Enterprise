@@ -40,9 +40,9 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 9 | `buildReport` resolves the incident twice | `handoff-session-26.md:171` | Dedupe the resolution; sweep. |
 | 11 | ADR amendments summarized in the catalog row or in §Dependencies, inconsistently | `handoff-session-26.md:177` | Retrofit of the ADR catalog; sweep. |
 | 12 | Compose basename collision (root stub and `infra/dev/`) | `handoff-session-27.md:140` | Roadmap §F; Part (b) §4. |
-| 13 | Stale `path:line` citations after code moved | `handoff-session-27.md:145`; `handoff-session-28.md:153`; `handoff-session-31.md:137`; `handoff-session-41.md:301` | A Class-A pass swept by pattern, with #84's SPEC texts; sweep. |
+| 13 | Stale `path:line` citations after code moved | `handoff-session-27.md:145`; `handoff-session-28.md:153`; `handoff-session-31.md:137`; `handoff-session-41.md:360` | A Class-A pass swept by pattern, with #84's SPEC texts; sweep. |
 | 17 | `INGEST_DETECT_*` absent from SPEC-004 §Configuration | `handoff-session-28.md:169` | A SPEC-004 amendment: recorded as owner-STOP under the rules of the time, Claude Code's since 2026-10-10 (CLAUDE.md *Decision authority*). |
-| 20 | No SPEC consolidates the api's configuration surface; no `/health` | `handoff-session-29.md:120` | Roadmap §F's operator configuration surface. |
+| 20 | No SPEC consolidates the api's configuration surface; no `/health` | `handoff-session-29.md:120`; `handoff-session-41.md:358` | Roadmap §F's operator configuration surface. |
 | 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143` | A future sweep, not ordered. |
 | 24 | No per-org configurable detection window | `handoff-session-31.md:155` | Roadmap §F. |
 | 25 | The detection cycle opens a client per call | `handoff-session-31.md:158`; `handoff-session-34.md:295` | None recorded. |
@@ -101,9 +101,9 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:1069` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
 | 109 | Whoever can write the rules directory and restart ingest changes detection | `handoff-session-40.md:1079` | Roadmap §F's packaging: the rules read-only in the image. |
 | 110 | The development dependencies carry advisories (vitest critical among them) | `handoff-session-40.md:1086` | A later sweep: the test tooling's majors, vitest first. |
-| 111 | `cargo audit` lets two warnings pass: rustls-pemfile unmaintained, in the agent's runtime; chacha20 yanked, in development | `handoff-session-41.md:280` | rustls-pemfile replaced with the next agent change under the elevated gate; chacha20 with #110. |
-| 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:289` | Roadmap §F's packaging, with the release artifacts. |
-| 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:293` | A later sweep: each action pinned by commit SHA. |
+| 111 | `cargo audit` lets two warnings pass: rustls-pemfile unmaintained, in the agent's runtime; chacha20 yanked, in development | `handoff-session-41.md:337` | rustls-pemfile replaced with the next agent change under the elevated gate; chacha20 with #110. |
+| 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:346` | Roadmap §F's packaging, with the release artifacts. |
+| 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:350` | A later sweep: each action pinned by commit SHA. |
 
 ## Closed
 
@@ -147,7 +147,7 @@ Session N resumes* (at `9ad6ca6`, `docs/handoff-session-39.md:771-776`);
 | 81 | The TOTP confirmation defeated the second factor | `ee5235a` | `handoff-session-39.md:593` |
 | 90 | The forensic export and report: any role, no audit row | `8d3c61d` | `handoff-session-40.md:1112` |
 | 91 | Detection rules re-read from disk on every cycle | `3da53e3` | `handoff-session-40.md:1122` |
-| 93 | No dependency audit in CI | `f876753` to `6d1f393` (PR #23), and the runbook (S41) | `handoff-session-41.md:310` |
+| 93 | No dependency audit in CI | `f876753` to `6d1f393` (PR #23), and the runbook (S41) | `handoff-session-41.md:369` |
 | 100 | The password change counts no failure and leaves its TOTP code usable | `8bd5bc9` | `handoff-session-40.md:1116` |
 | 101 | The login limiter reads its counters, then counts the failure | `8bd5bc9` | `handoff-session-40.md:1119` |
 | 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:1097` |

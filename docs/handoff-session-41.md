@@ -273,6 +273,63 @@ the audit (B8; neither holds an override today); the security README's
 page), and its agent-session log an `Error:` line above the message; the
 lines above show what pnpm printed, as handoff-40 did.
 
+### #96: PR #24, waiting on ADR-0003
+
+Branch `fix/s41-debt-96-dev-stack` (PR #24), one commit: NATS and MinIO out
+of the dev compose, `.env.example`, the README and the Taskfile, and
+`check-compose.mjs` refusing them until a SPEC uses them. Its review (the
+fixed code prompt) found that ADR-0003 §Consequences says "The local
+development environment requires all five services to be up", which the
+change makes false. An ADR amendment is Manuel's: it is on the
+owner-review branch `adr/s41-0003-dev-stack` (`b0b1bbf`, NOT YET
+RATIFIED), and #96 lands after it. This section is completed when it lands.
+
+### #82: the contract
+
+SPEC-008's second Amendment 2026-10-16, *the session's idle lifetime and
+its cap*, lands first as a document. Every request that passes the session
+check rewrites the entry: `last_seen` now, and a time-to-live of 8 h or the
+time left until 24 h after `issued_at`, whichever is shorter. A session
+past its cap is deleted and answers `401`; the rewrite is `SET ... XX`, so
+it never brings back a revoked session. The values are NFR-008-002's
+defaults; its per-org setting stays an open question, with debt #20.
+
+Decisions (delegated: the deployment contract and the security posture,
+recorded in the amendment's *Decision* with their alternatives): what counts
+as a use (every request that passes the session check, refused ones
+included); the per-org setting deferred to roadmap §F's settings; `SET ...
+XX`; a session past its cap deleted; an unreadable `issued_at` ending the
+session.
+
+For Manuel's audit, when the code lands: the threat model's §3 sentence
+"Sessions are opaque random tokens in Redis, not signed, and last a fixed
+8 h (debt #82)" becomes the sliding 8 h within a 24 h cap; and a token in
+use works for up to 24 h after its login, where it worked for 8 h.
+
+Two passes of the fixed SPEC prompt on the working tree:
+
+- First pass, List A, four points, all fixed: what counts as a use (item 1
+  and the *Decision* disagreed on a refused request); the first Amendment
+  2026-10-15 item 9's "one Redis read", not listed in *Effect*; item 1
+  citing §Operational §5 for the session check; an api `cgcsrf` cookie that
+  does not exist. From List B, taken: the earlier references to "Amendment
+  2026-10-16" meaning the first; SPEC-009's fixed 8 h clause; the security
+  cost; a store failure in the rewrite; milliseconds; the handoff named; the
+  password change among the deletions; the race test's seam; the README's
+  "whichever is shorter". Recorded: the test harness's fixed `issued_at`
+  (`services/api/test/helpers/db.ts`), which the code commit changes.
+- Second pass, List A, two points, both fixed: this record did not yet list
+  the threat model's change; the new text for SPEC-009 left out the cap
+  and the deletions. From List B, taken: criteria for an unchanged
+  `issued_at`, a refused request as a use, and a failed rewrite or delete;
+  `503` over `401` for a failed delete; the per-org setting kept as an open
+  question; the cookies' wording; the cost of a Redis that refuses writes;
+  "writes once"; "not a time"; the catalog's delegation and edge; the race
+  case outside "the real api"; the alternatives of three more decisions; no
+  audit row for an expiry. Recorded: ADR-0014's "one O(1) Redis read"
+  (`:35`), the cost of the option it chose, which leaves the lifetime to
+  SPEC-008 (`:104`): not amended. No third pass ran on these fixes.
+
 ## Debts
 
 New this session:
@@ -298,6 +355,8 @@ New this session:
 
 Changed this session:
 
+- **#20**: SPEC-008's per-org session lifetime joins it, with Open
+  question 2 (SPEC-008's second Amendment 2026-10-16, item 4).
 - **#13**: SPEC-022's third Amendment (`:398`) names nodemailer 8.0.10 for
   the `ESOCKET` code of a certificate it cannot verify; since `fb74bca` the
   release is 10.1.1, which reports it the same way. A citation for the

@@ -480,6 +480,58 @@ Alternatives:
   - a refused request of a known principal writes a row.
 - Debts #100 and #101 close with the code that implements this amendment. Debt #80 narrows with it to its `401` half, which waits for Manuel's reading of ADR-0014 (item 1).
 
+## Amendment 2026-10-16: the session's idle lifetime and its cap
+
+This is SPEC-008's second amendment of 2026-10-16. A reference to "SPEC-008 Amendment 2026-10-16" written before it, in this SPEC, other documents or code comments, means the first, *Amendment 2026-10-16: refused requests, the password change, the limiter's reservation*. This amendment is a document change: until the code that implements it lands, the api behaves as *What surfaced it* says.
+
+**What surfaced it.** Debt #82 (`docs/handoff-session-39.md:636`). §Data contracts §3 gives the session entry a "TTL = idle timeout (sliding), with an absolute lifetime cap", and NFR-008-002 recommends "idle 8 h / absolute 24 h, per-org configurable". The api sets the entry's time-to-live to 8 h at login and never changes it (`services/api/src/auth/session.ts`, `createSession`; `resolveSession` only reads the entry). A session therefore ends 8 h after its login, whether it was used or not: an analyst working a shift is signed out at its eighth hour, and nothing caps a lifetime because nothing extends one. `last_seen` is written at login and never again.
+
+**Amendment.**
+
+1. **A session ends after 8 h without use, and 24 h after its login at the latest.** Every request that passes the session check (the first Amendment 2026-10-15, item 1) is a use, whatever the route then answers: a read, a change, the logout, and a request the role or CSRF check then refuses. At a use, the api rewrites the entry with `last_seen` set to the request's time and its time-to-live set, in milliseconds, to 8 h or to the time left until 24 h after `issued_at`, whichever is shorter. A session with no time left, or whose `issued_at` is missing or not a time the api can read, is no session: the request answers `401`, as for a missing one, and the entry is deleted. `issued_at` never changes: a use rewrites `last_seen` and the time-to-live only.
+2. **A use never brings back a revoked session.** The rewrite replaces the entry only if it still exists (Redis `SET ... XX`). A logout, a role change, a password change or an account disable that deletes the entry between the read and the rewrite stays done: the request that read it completes, as it did before this amendment, and the next one finds no session (auth_ac_005's invariant is unchanged).
+3. **A store failure is the session check's.** A rewrite or a delete that Redis fails is a failure of the session check, which the first Amendment 2026-10-15, item 14, answers `503`: a session past its cap whose delete fails answers `503`, not `401`.
+4. **The values are fixed, 8 h and 24 h**, NFR-008-002's recommended defaults. Its "per-org configurable" is not built: the api has no per-org settings at all, and which settings an org or the operator of a deployment sets is roadmap §F's SPEC to decide, with the api's configuration surface (debt #20). Open question 2 stays open on that point, deferred, and reopens when that SPEC lists the api's settings. The login's `issued_at` is the api's clock; instances that share Redis and disagree on the time move the cap by their difference.
+5. **The cookies are unchanged.** The cookies that carry the tokens, the api's `cgsess` and the dashboard's `cgsess` and `cgcsrf`, are set without `Max-Age` or `Expires`: they are the browser session's, and the server's entry decides how long they work.
+
+**Decision.** The lifetime is the one SPEC-008 already states; this amendment makes the code meet it rather than restating the NFR as the fixed 8 h the code had, which would sign out a user in the middle of a shift and leave `last_seen` meaningless. What it costs:
+
+- A token that keeps being used now works for up to 24 h after its login, where it worked for 8 h. The cap bounds a stolen cookie's window, and revocation (§Operational §2) ends a session at once.
+- Each request a session passes now writes to Redis, and the logout and the password change write twice. A Redis that serves reads and refuses writes (full under `noeviction`, or a read-only replica) now answers `503` on every session-guarded request, where it served them.
+- Concurrent uses of one session may write `last_seen` out of order: it is the time of a recent use.
+- A session that ends at its idle time or its cap writes no audit row, as an idle session never did. §Data contracts §2's "session revoke" is a deletion someone asks for.
+
+The points decided here:
+
+- **What counts as a use**: every request that passes the session check, reads and refused requests included. Alternative: only a request the route then serves, which needs a second hook after the handler, and would end the session of an analyst whose last requests were refused.
+- **Per-org configuration deferred** (item 4): which settings the operator of a deployment sets is the deployment contract, Manuel's, delegated by him on 2026-10-15 ("Lo que dependa de mí, decídelo tú en beneficio del proyecto", the opening of Session 40) and again at the opening of Session 41 (`docs/handoff-session-41.md`). Decided for an enterprise buyer: the defaults now, the setting with the operator's surface. Alternative: an environment variable now, one value for every org, before §F decides which settings an org has. Reopen when roadmap §F's SPEC lists the api's settings.
+- **The rewrite is `SET ... XX`**, one command. Alternatives: `WATCH` and `MULTI`, which retry under contention, or a Lua script, which would move the cap's arithmetic into Redis.
+- **A session past its cap is deleted** when a request presents it. Alternative: let its time-to-live end it, which already falls at the cap, and which leaves nothing to delete but the case of an entry written before this amendment.
+- **An `issued_at` the api cannot read ends the session.** Alternative: serve it as issued now, which would give it a fresh 24 h.
+
+**Acceptance criteria.** CI-able, against the real api, its Postgres and its Redis, but for the race case, which runs the session module itself. The tests move a session in time by editing its entry's `issued_at` and time-to-live, not by waiting.
+
+- **apiauth_ac_022 (the session's lifetime).**
+  - A login's entry has a time-to-live of 8 h, within five seconds.
+  - A session whose time-to-live was lowered to 60 s, as after 7 h 59 min idle, is used by an authorized request: it answers `200`, its time-to-live is 8 h again, within five seconds, and its `last_seen` falls between the request's start and its end.
+  - A session issued 23 h ago is used: the time-to-live becomes the hour left to its cap, within five seconds, not 8 h. Its `issued_at` is unchanged, and a second use gives it no more than the hour left.
+  - A request the role check refuses, a viewer's `POST /v1/users` (`403`), is a use: its session's time-to-live is 8 h again.
+  - A session issued 24 h and one second ago answers `401` on an authorized route, and its entry is gone; so does an entry whose `issued_at` is not a time.
+  - A session deleted after the api read its entry, and before the use's rewrite, is not recreated (item 2's `XX`). The test runs the session module against a Redis client that deletes the entry once its read returns.
+  - The logout of a session still ends it: the next request answers `401`.
+  - A rewrite that Redis fails answers `503`; so does the delete of a session past its cap.
+
+**Effect.**
+
+- §Data contracts §3: the TTL line holds as written; the values are item 4's, and `last_seen` is the time of the last use.
+- NFR-008-002: met, but for "per-org configurable", which Open question 2 keeps open (item 4).
+- §Operational §2 and auth_ac_005: unchanged (item 2).
+- The first Amendment 2026-10-15, item 9: "the session check one Redis read" becomes a read and a rewrite, or a delete past the cap; revocation stays the deletion of the entries. ADR-0014's "one O(1) Redis read" (`docs/adr/0014-human-authentication-model.md:35`) is the cost it weighed for the option it chose, and ADR-0014 leaves the session's lifetime to this SPEC (`:104`): it is not amended.
+- SPEC-009's second Amendment 2026-10-15, item 4, says a session the dashboard could not end lives "a fixed 8 hours as built (debt #82)"; when the code lands, it lives until 8 h without use or 24 h after its login end it, unless a role, status or password change deletes it first. The code that implements this amendment updates that clause.
+- The threat model's §3 sentence "Sessions are opaque random tokens in Redis, not signed, and last a fixed 8 h (debt #82)" becomes the sliding 8 h within a 24 h cap, when the code lands. The threat model is Manuel's; `docs/handoff-session-41.md` lists the change for his audit.
+- Backward-compatible for a client: a session ends no earlier than before (8 h after its last use is never earlier than 8 h after its login), but for item 4's clock difference.
+- Debt #82 closes with the code that implements this amendment; the per-org setting joins debt #20.
+
 ## References
 
 - [ADR-0014](../adr/0014-human-authentication-model.md) — the human-auth model this SPEC realises (identity §1, session §2, `services/api` §3, RBAC §4); the §Compliance MUSTs (rate-limit, cookies, CI-blocking RBAC, audit) and the §Out of scope CSRF deferral this SPEC closes.
