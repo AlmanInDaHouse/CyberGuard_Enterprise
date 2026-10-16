@@ -613,6 +613,55 @@ Decisions (delegated: a schema-breaking CGES change is on Manuel's list):
 accepts. Alternative: leave the schema looser than the server, which kept
 an empty or ISO `time` valid for the agent's classes.
 
+### #13: PR #28, open until the pattern can be swept whole
+
+A read-only inventory checked 623 `path:line` citations in the living
+documents and code comments and found 207 stale, most from a few moves (the
+ClickHouse DDL into `clickhouse-bootstrap.ts`, the detection module, the
+read layer and the configs growing). Branch `fix/s41-debt-13-anchors`
+(PR #28, `23d9c1b`, CI green: ts-ci, markdown-lint) corrects those in the
+SPECs, the roadmap and the api's comments, each verified against its
+target, only the number changed.
+
+Its review found every changed anchor right, and the sweep partial: the
+same anchors stay stale in the ADRs (ADR-0014, 0015, 0016, 0017, 0020,
+0021), in SPEC-014 (`:17`, `:96`, `index.ts:24`) and SPEC-008 (`:103`,
+`:245`, `config.ts:13`, beside sentences no longer true), and in two
+comments on the elevated gate's paths (`agent/cg-agent/src/etw/session_stub.rs`,
+`services/ingest/src/detect/types.ts`). CLAUDE.md's rule b says anchor
+drift is swept by pattern, never piecemeal, so the branch does not land
+alone: it waits for Manuel's reading of whether an anchor-only edit to an
+ADR is his (*What waits on Manuel*), and lands with the ADRs' anchors and
+the two comments, the latter riding the next elevated gate. Also left: the
+citations whose sentence is no longer true (SPEC-007 `:160`, SPEC-008
+`:103`, `:245`, SPEC-010 `:119`, `:121`, SPEC-014 `:45`), which need their
+sentences rewritten, not their anchors; SPEC-010 `:13` and `:45`, which its
+Amendment 2026-10-15 redirects by name; and the compose file's, until #96
+lands.
+
+### #9: the contract
+
+SPEC-013's Amendment 2026-10-16, *one read of the incident for the report*,
+lands first as a document. `composeReport` read the incident and its
+alerts twice, once for the PDF's header and alert table and once, inside
+`buildForensicExport`, for the timeline it seals; an alert a detection
+cycle adds between the two makes the alert table list N alerts while the
+seal covers the events of N + 1. The report now reads once, builds both
+from that read, and seals that timeline with the export's own sealing step.
+Debt #9 was recorded as a duplicate read of no consequence; the race makes
+it a custody question.
+
+One pass of the fixed SPEC prompt. List A, two points, fixed: SC-RPT-006
+was missing, so §Test scenarios was no longer one-to-one; §Report
+sections 3 lists each event's `agent_id`, which the PDF does not print
+(the code that implements the amendment prints it). From List B, taken:
+the seal is over the full events the PDF lists a projection of; the
+auditor compares the PDF with the sealed export; the criterion counts the
+alerts' read too and verifies with the server's key, not the embedded one;
+the passages that the amendment restates; the quote in full; what the
+audit row records; the drill's own ClickHouse read reused; the catalog's
+wording. No second pass ran on these changes.
+
 ## Debts
 
 New this session:

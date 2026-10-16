@@ -127,6 +127,36 @@ Load-bearing decisions for Manuel's gate (recommended-default-and-rationale patt
 
 **Effect.** report_ac_001 to report_ac_005 are unchanged; the `503` case is SPEC-009's read_ac_007. Status stays **Accepted**.
 
+## Amendment 2026-10-16: one read of the incident for the report
+
+This amendment is a document change: until the code that implements it lands, the report behaves as *What surfaced it* says.
+
+**What surfaced it.** Debt #9 (`docs/handoff-session-26.md:171`, "Double incident-resolution in `buildReport`"), recorded then as a duplicate read of no consequence at the report's scale. `composeReport` (`services/api/src/forensic/report.ts`) reads the incident and its alerts twice: `getIncidentDetail` for the header, the MITRE section and the alert table, then `buildForensicExport`, through `getIncidentEventTimeline`, for the timeline and the seal. A detection cycle can add an alert to the incident between the two reads (`upsertIncident` appends to `alert_ids`). The PDF then lists N alerts while its timeline and its seal cover the events of N + 1. An auditor who compares the PDF's alert table with the sealed export finds events that no listed alert names: a question of custody, not of speed.
+
+**Amendment.** §Data contracts, *Sources*, and §Compliance:
+
+1. **One read.** The report reads the incident and its alerts once, org-scoped. Its `IncidentDetail` and its timeline are both built from that read: the timeline holds the events the read's alerts name (`source_events`), read by the drill's own ClickHouse query (SPEC-010: its org scope, `FINAL`, deduplication and total order).
+2. **The seal over that timeline.** The seal is computed over the report's timeline by the export's own sealing step: SPEC-012's chain and the forensic key, as `buildForensicExport` computes them, over the timeline that `buildForensicExport` would have read at the moment of the report's read. §Compliance's "transcribe SPEC-012's seal (`chain_root` / `root_signature` / `forensic_pubkey`) verbatim from `buildForensicExport`" reads: from that sealing step, over the events the PDF lists (the full `TimelineEvent` of each, of which §Report sections 3 prints a projection). The report still never re-derives a chain or re-signs outside that step, and the PDF's integrity block equals the seal of the events it lists.
+3. **Nothing else changes.** The export route reads and seals as before. The report's audit row records what it sealed: the events' count, the chain head and the PDF's SHA-256 (SPEC-009's third Amendment 2026-10-15). The route's answers are unchanged.
+
+**Decision.** Claude Code's, inside SPEC-012 and SPEC-013: the report's sections agree with one another by construction. Alternatives: one Postgres transaction at `REPEATABLE READ` around both reads, which keeps two resolutions of the same rows; or a re-read that compares the two alert sets and retries, which bounds nothing.
+
+**Acceptance criteria.** CI-able, against the real api, Postgres and ClickHouse; SC-RPT-006 is its scenario, so §Test scenarios' one-to-one holds.
+
+- **report_ac_006 (one read)**, SC-RPT-006: a test passes `composeReport` a Postgres client that adds an alert to the incident right after the report's first read of it, as a detection cycle would.
+  - The PDF's alert table lists the alerts of that first read, and its timeline and seal cover exactly their events; the late alert and its events appear in neither.
+  - The seal's chain head is the chain of the events it carries, and its signature verifies with the server's forensic public key, not the one the document embeds (SPEC-012 §Compliance).
+  - The report reads the incident's row once, and its alerts once.
+
+**Effect.**
+
+- §Data contracts: "composes two already-produced read-layer outputs" and *Sources* (`buildForensicExport`, `getIncidentDetail`) now describe one read and the sealing step over it (items 1 and 2); "re-derives nothing" holds.
+- §Report sections 3 and 5, SC-RPT-002, report_ac_002 and the *Risks* row on seal drift: their `ForensicExport` and `buildForensicExport` read as the sealing step's output over the report's own read (item 2). Without a concurrent change it equals a `buildForensicExport` call, as before.
+- §Report sections 3 lists each event's `agent_id`, which the PDF's timeline did not print; the code that implements this amendment prints it.
+- SPEC-012 and SPEC-010: unchanged; the chain, the key and the drill's read are theirs.
+- Debt #9 closes with the code that implements this amendment.
+- Status stays **Accepted**.
+
 ## References
 
 - [Blueprint](../product/blueprint.md) — `:750` (the MVP *"Incident PDF export"* promise this SPEC fulfils), `:33` (the *"exportable forensic report"* title promise), `:393` (the `report` pipeline stage — note the **realized stack is TS + `@react-pdf/renderer` in `services/api`**, NOT the aspirational *"Go + headless Chromium or WeasyPrint"* the blueprint names; superseded by ADR-0007 + ratification).
