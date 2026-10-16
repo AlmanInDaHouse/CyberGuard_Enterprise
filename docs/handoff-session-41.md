@@ -458,12 +458,101 @@ Recorded as a new debt, #114: a heartbeat whose own `body.sent_at` cannot be
 converted is answered `503` and resent without bound. No third pass ran on
 these fixes.
 
+### #31: the code, its shape half
+
+Branch `fix/s41-debt-31-event-shape` (PR #26), one commit, rebuilt once to
+fold its review's points, CI on each push:
+
+```text
+59edb61: ts-ci, markdown-lint -> success
+90ee7e7: ts-ci, markdown-lint -> success     the review's points
+```
+
+`services/ingest/src/schemas.ts` checks an element's `time` and a non-null
+`created_time` in one refinement (`/^[1-9][0-9]{0,18}$/`, then `BigInt`
+below 2^63), so that `BigInt` only reads digits; a 1007 `event_id` as a
+UUID, its pids within `UInt32` and its `exit_code` within `Int32`. The
+first implementation put the regex and the bound in two checks: zod runs a
+refinement after a failed regex, and `BigInt("1.5e18")` threw (a `500`),
+which the green run caught.
+
+capture_ac_014 ran red first against `main`'s code: all 18 cases failed
+for the missing behavior, 9 stored with `200` and 9 answered `500`.
+capture_ac_015 passed before the code, as the amendment says: it guards the
+edges. Local gate at the tip: typecheck, lint, build and entrypoints OK;
+vitest 75 files, 308 passed, 2 skipped, 4 failed (the capture marquees,
+exit code 9, unelevated). `rules_ac_007` failed once in that run on a
+ClickHouse query timeout under memory pressure, and passed alone (3/3) and
+in the elevated gate.
+
+Elevated gate 1, run by Manuel on `90ee7e7` (`C:\tmp\s41-gate1.ps1`,
+2026-10-16, 16:15 to 16:20). Its logs, as pnpm and cargo printed them:
+
+```text
+01-elev    net session: No hay entradas en la lista.
+02-head    90ee7e7 / fix/s41-debt-31-event-shape
+03-status  status lines: 0
+05-build   Finished `release` profile [optimized] target(s) in 9.94s
+06-cargo   test auth_ac_012_logons_on_the_real_log ... ok
+           test capture_ac_006_elevated_shutdown_leaves_no_session ... ok
+           test net_ac_008_a_real_connection_is_reported_with_its_probe ... ok
+           test net_ac_009_an_accepted_connection_and_the_filter ... ok
+           test ac_004_cache_hit_terminate_matches_launch_byte_for_byte ... ok
+           test ac_007_parent_pid_only_when_parent_dead_at_child_launch ... ok
+           test ac_009_events_lost_under_deliberate_etw_buffer_pressure ... ok
+08-vitest  ✓ test/servercert-ac-renewal.test.ts (19 tests | 1 skipped) 8431ms
+           ✓ test/detect-ac-001-marquee.test.ts (1 test) 46856ms
+           ✓ test/spec-005-marquee.test.ts (1 test) 40520ms
+           ✓ test/net-ac-010-marquee.test.ts (1 test) 25582ms
+           ✓ test/capture-ac-014-015-event-shape.test.ts (19 tests) 1734ms
+           ✓ test/auth-ac-013-marquee.test.ts (1 test) 25586ms
+           ✓ test/rules-ac-007-loaded-at-start.test.ts (3 tests) 9956ms
+           ✓ test/ac-001-marquee.test.ts (1 test) 4543ms
+           detect_ac_001 captured image_file_name — probe: C:\Users\manul\AppData\Local\Temp\cg-detect-probe-Wat0Sj\winword.exe; child: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+           spec_005 captured image_file_name — launch: C:\Windows\System32\cmd.exe; terminate: cmd.exe
+           Test Files  75 passed (75)
+                Tests  314 passed | 1 skipped (315)
+10-agent   logman query CGAgent-KernelProcess -ets: No se encontró el Conjunto de recopiladores de datos.
+```
+
+The skipped test is `servercert_ac_008`, which runs only off Windows. The
+release build was a no-op: the agent's sources and `Cargo.lock` are gate
+3's.
+
+Landed on `main` with `git cherry-pick --ff` behind `git diff --quiet
+<branch-sha> HEAD`, under the SHA its CI and the gate ran on; GitHub closed
+PR #26 as merged, and the branch was deleted.
+
+```text
+SHA 90ee7e7: markdown-lint, ts-ci -> success
+```
+
+Self-review matrix (`services/ingest/test/capture-ac-014-015-event-shape.test.ts`):
+every case of capture_ac_014 and capture_ac_015 covered, each asserting the
+status, the body, no `cges_events` row and no heartbeat (014), or each value
+as stored (015).
+
+One pass of the fixed code prompt, nothing contradicted in the criteria.
+Fixed: the amendment's *Effect* said a malformed element no longer makes a
+`500`, but a lone surrogate in a member checked only as a string still does
+(ClickHouse refuses it); the text now says so, in the same commit, with the
+heartbeat's `sequence_number` and `uptime_seconds` of 1e21 or more joining
+debt #114; the threat model's §2 said "unbounded" twice; a doc comment cut off
+from its schema. Recorded: no positive control for the 4001 and 3002
+baselines in the file (the reviewer's probe showed them valid);
+capture_ac_015 leaves a row dated 2262 in the suite's shared ClickHouse. No
+second pass ran on those text and comment fixes.
+
+Decision (reactive): **one refinement for the nanoseconds**, where two
+checks let `BigInt` throw on a value the regex had refused.
+
 ## Debts
 
 New this session:
 
-- **#114 — A heartbeat whose own `body.sent_at` cannot be converted is
-  answered `503`, which the agent resends without bound.** The inner
+- **#114 — A heartbeat whose own `body.sent_at` cannot be converted, or
+  whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered
+  `503`, which the agent resends without bound.** The inner
   `sent_at` is checked only as non-empty (`services/ingest/src/schemas.ts`);
   `toChDateTime` throws inside the heartbeats insert's `try`, which answers
   `503 unavailable` (`services/ingest/src/routes/heartbeat.ts`). Only an
@@ -491,8 +580,12 @@ New this session:
 
 Changed this session:
 
-- **#31**: SPEC-017's Amendment 2026-10-16 takes its shape half; when its
-  code lands, #31 narrows to the bound against arrival, whose destination
+- **#32**: narrowed by `90ee7e7`: a malformed `time`, `created_time`,
+  `event_id`, pid or exit code no longer makes a `500`. A POST whose times
+  spread over more than 100 days, or whose text member holds a lone
+  surrogate, still does (SPEC-017 Amendment 2026-10-16, *Effect*).
+- **#31**: SPEC-017's Amendment 2026-10-16 takes its shape half (`90ee7e7`,
+  after elevated gate 1); #31 narrows to the bound against arrival, whose destination
   is now Manuel's decision: a lateness horizon, which ADR-0012 and
   SPEC-018 decided against for the MVP, with evidence on the agent's ETW
   clock first. The threat model's R9 says so.
