@@ -283,7 +283,7 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 - `cg-ingest`, TypeScript, one process: the enrollment listener over plain HTTP (SPEC-004), the agents' mTLS listener, the CA, detection (ADR-0012), incidents, the email notification (SPEC-014) and SOAR (ADR-0021).
 - `cg-api`, TypeScript: human auth (SPEC-008), the read API (SPEC-009), and the forensic drill, export and report (SPEC-010, SPEC-012, SPEC-013) as a module.
 - The dashboard, Next.js.
-- Postgres, ClickHouse and Redis. NATS and MinIO run in the dev stack and nothing uses them. There is no `cg-pipeline`, `cg-ml` or `cg-forensic` service, no bus, no Loki.
+- Postgres, ClickHouse and Redis. NATS and MinIO are not run, the dev stack included, until a SPEC uses them (debt #96). There is no `cg-pipeline`, `cg-ml` or `cg-forensic` service, no bus, no Loki.
 
 **Where the system differs from the plan.** Each item names the section and what is built; the open risks it raises are numbered R1–R16 below.
 
@@ -330,8 +330,6 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 - **R15 — The containers run as root, and a TLS key file ingest wrote before SPEC-004 Amendment 2026-10-15 keeps the default file mode** until a reissue rewrites it `0600` (debt #92). Destination: roadmap §F.
 
 - **R16 — Without a proxy in front of the dashboard, a client chooses the address the api counts.** When the dashboard is listed in `API_TRUSTED_PROXIES` and nothing in front of it appends or sets `X-Forwarded-For`, any client that reaches the dashboard can evade the per-IP login limit or spend a chosen address's attempts; the per-account limit is unaffected (debt #103). Destination: roadmap §F, the dashboard only behind a TLS proxy that appends or sets the header.
-
-The dev stack also runs NATS without authentication and MinIO with the dev root credentials of the compose file, which nothing uses (debt #96). Destination: a later sweep, removing them until a SPEC uses them.
 
 **Effect on other sections.** None is restated. The amendments of 2026-10-13 and 2026-10-14 stand, the first as ADR-0020's design (§1 above); their citations of `infra/dev/docker-compose.dev.yml:200` and `:207` now fall a few lines above the lines they meant (the Postgres URL is at `:203`, the ClickHouse user at `:210`), anchor drift for the citation sweep (debt #13).
 

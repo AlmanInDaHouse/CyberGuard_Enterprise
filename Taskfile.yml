@@ -51,8 +51,8 @@ tasks:
         done
 
   # ------------------------------------------------------------------
-  # dev: local infrastructure (PG + pgvector / ClickHouse / Redis /
-  # NATS JetStream / MinIO) per ADR-0003. See infra/dev/README.md.
+  # dev: local infrastructure (PG + pgvector / ClickHouse / Redis, the
+  # ADR-0003 stores the code uses) with ingest and the api. See infra/dev/README.md.
   # ------------------------------------------------------------------
   dev:up:
     desc: "Bring the local dev stack up (detached). Requires infra/dev/.env."
@@ -60,12 +60,12 @@ tasks:
       - sh: 'test -f infra/dev/.env'
         msg: "infra/dev/.env not found. Run: cp infra/dev/.env.example infra/dev/.env"
     cmds:
-      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env up -d
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env up -d --remove-orphans
 
   dev:down:
     desc: "Stop and remove dev containers. Named volumes are preserved; use dev:reset-data for a clean slate."
     cmds:
-      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env down
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env down --remove-orphans
 
   dev:ps:
     desc: "Show status of dev containers."
@@ -78,11 +78,11 @@ tasks:
       - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env logs -f --tail=100 {{.svc}}
 
   dev:health:
-    desc: "Print healthcheck status per service. Exits non-zero if any service is not healthy."
+    desc: "Print the three stores' healthcheck status. Exits non-zero if any is not healthy."
     cmds:
       - |
         overall=0
-        for svc in postgres clickhouse redis nats minio; do
+        for svc in postgres clickhouse redis; do
           cid=$(docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env ps -q "$svc" 2>/dev/null)
           if [ -z "$cid" ]; then
             status="missing"
@@ -95,9 +95,9 @@ tasks:
         exit $overall
 
   dev:reset-data:
-    desc: "DESTRUCTIVE — stop containers AND remove named volumes (cg_pg_data, cg_ch_data, cg_redis_data, cg_nats_data, cg_minio_data). Use only when you mean to start from scratch."
+    desc: "DESTRUCTIVE — stop containers AND remove named volumes (cg_pg_data, cg_ch_data, cg_redis_data, cg_ingest_certs). Use only when you mean to start from scratch."
     cmds:
-      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env down -v
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env down -v --remove-orphans
 
   reset-data:
     desc: "Wipe local data volumes."
