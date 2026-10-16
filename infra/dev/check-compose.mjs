@@ -8,7 +8,10 @@
 // - every service names its image by a digest, or by a tag other than `latest`, or
 //   is built from the repository;
 // - ClickHouse is pinned to a patch release (debt #36), and each test backend named
-//   on the command line starts the same image.
+//   on the command line starts the same image;
+// - neither NATS nor MinIO runs until a SPEC uses them (debt #96): the stack ran NATS
+//   without authentication and MinIO with its dev root credentials, and nothing used
+//   either.
 //
 // check-compose.test.mjs runs it against compose files it breaks on purpose.
 //
@@ -39,6 +42,9 @@ for (const [name, service] of services) {
         `${name}: port ${port.published ?? "?"}->${port.target} is published on ${port.host_ip ?? "every interface"}, not 127.0.0.1`,
       );
     }
+  }
+  if (/^(nats|minio)$/i.test(name) || /(^|\/)(nats|minio)(:|@|$)/i.test(service.image ?? "")) {
+    failures.push(`${name}: NATS and MinIO stay out of the dev stack until a SPEC uses them (debt #96)`);
   }
   if (service.image === undefined) {
     if (service.build === undefined) failures.push(`${name}: neither an image nor a build`);

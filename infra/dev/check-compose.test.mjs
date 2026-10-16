@@ -81,6 +81,18 @@ test("an image with no tag, or tagged latest, is refused; a digest is not", () =
   assert.equal(check(pinned).status, 0);
 });
 
+test("NATS or MinIO, by service name or by image, is refused", () => {
+  const nats = render();
+  nats.services.nats = { image: "nats:2.10-alpine" };
+  refuses(nats, /nats: NATS and MinIO stay out of the dev stack until a SPEC uses them/);
+  const minio = render();
+  minio.services.objects = { image: "minio/minio:RELEASE.2024-10-13T13-34-11Z" };
+  refuses(minio, /objects: NATS and MinIO stay out of the dev stack/);
+  const named = render();
+  named.services.minio = { build: { context: "." } };
+  refuses(named, /minio: NATS and MinIO stay out of the dev stack/);
+});
+
 test("a service with neither an image nor a build is refused", () => {
   const c = render();
   c.services.ingest = {};
