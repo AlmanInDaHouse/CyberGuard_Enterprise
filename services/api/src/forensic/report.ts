@@ -1,16 +1,17 @@
 import { Document, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { type ReactElement, createElement as h } from "react";
-import { getIncidentDetail } from "../read/queries.js";
+import { eventTimelineOf, readIncidentForReport } from "../read/queries.js";
 import type { IncidentDetail, ResolvedAlert, TimelineEvent } from "../read/types.js";
 import type { Services } from "../services.js";
-import { type ForensicExport, buildForensicExport } from "./export.js";
+import { type ForensicExport, sealTimeline } from "./export.js";
 
 // SPEC-013 — the forensic report render (escalón 4). GATE 1: the render module only; the HTTP
 // route GET /v1/incidents/:id/report is gate 2. The PDF is BUILT programmatically via
 // @react-pdf/renderer using React.createElement (NO JSX — tsconfig is untouched), NOT converted
 // from HTML. React is confined to THIS module and consumed only through renderToBuffer. The
-// report COMPOSES the read-layer outputs (getIncidentDetail + buildForensicExport) and
-// TRANSCRIBES the SPEC-012 seal verbatim — it never re-derives the chain or re-signs. The
+// report COMPOSES one read of the incident (its detail and the events its alerts name) and
+// the SPEC-012 seal of those events, computed by the export's own sealing step — it never
+// re-derives the chain or re-signs outside it (SPEC-013 Amendment 2026-10-16). The
 // forensic PRIVATE key is never referenced (the export carries only pubkey + signature).
 
 /**
@@ -63,7 +64,7 @@ function eventLine(e: TimelineEvent, i: number): ReactElement {
   const ppid = e.process_parent_pid === null ? "—" : String(e.process_parent_pid);
   return line(
     `ev-${i}`,
-    `${e.event_time}  ${e.process_name}  pid=${e.process_pid} ppid=${ppid} act=${e.activity_id}  ${e.image_file_name}`,
+    `${e.event_time}  ${e.process_name}  pid=${e.process_pid} ppid=${ppid} act=${e.activity_id}  agent=${e.agent_id}  ${e.image_file_name}`,
   );
 }
 
@@ -124,10 +125,10 @@ export async function renderReport(detail: IncidentDetail, exp: ForensicExport):
 }
 
 /**
- * Compose + render a per-incident forensic PDF. Fetches `IncidentDetail` (header / MITRE /
- * alerts) + `ForensicExport` (timeline + transcribed seal) — both org-scoped; returns null when
- * the incident does not exist or is cross-org (the gate-2 route maps null → 404). The seal is
- * transcribed from `buildForensicExport`, never re-derived.
+ * Compose + render a per-incident forensic PDF from one org-scoped read of the incident:
+ * `IncidentDetail` (header / MITRE / alerts) and the events its alerts name, sealed by the
+ * export's sealing step (`composeReport`). Returns null when the incident does not exist or
+ * is cross-org (the gate-2 route maps null → 404).
  */
 export async function buildReport(
   services: Pick<Services, "pg" | "ch" | "forensicKey">,
@@ -146,13 +147,13 @@ export async function composeReport(
   orgId: string,
   incidentId: string,
 ): Promise<{ pdf: Buffer; seal: ForensicExport } | null> {
-  const detail = await getIncidentDetail(services.pg, orgId, incidentId);
-  if (!detail) {
+  // SPEC-013 Amendment 2026-10-16: one read of the incident and its alerts; the alert
+  // table and the sealed timeline both come from it.
+  const read = await readIncidentForReport(services.pg, orgId, incidentId);
+  if (!read) {
     return null;
   }
-  const exp = await buildForensicExport(services, orgId, incidentId);
-  if (!exp) {
-    return null;
-  }
-  return { pdf: await renderReport(detail, exp), seal: exp };
+  const timeline = await eventTimelineOf(services.ch, orgId, incidentId, read.eventIds);
+  const exp = await sealTimeline(services, timeline);
+  return { pdf: await renderReport(read.detail, exp), seal: exp };
 }

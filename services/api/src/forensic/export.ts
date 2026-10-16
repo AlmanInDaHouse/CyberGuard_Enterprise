@@ -1,5 +1,5 @@
 import { getIncidentEventTimeline } from "../read/queries.js";
-import type { TimelineEvent } from "../read/types.js";
+import type { EventTimeline, TimelineEvent } from "../read/types.js";
 import type { Services } from "../services.js";
 import { computeChain, toHex } from "./hashchain.js";
 
@@ -50,7 +50,18 @@ export async function buildForensicExport(
   if (!timeline) {
     return null;
   }
+  return sealTimeline(services, timeline);
+}
 
+/**
+ * SPEC-012's seal over a timeline: the chain of its events and the forensic key's signature
+ * of the chain head. The step the export and the report share, so that a report seals the
+ * timeline of its own read (SPEC-013 Amendment 2026-10-16).
+ */
+export async function sealTimeline(
+  services: Pick<Services, "forensicKey">,
+  timeline: EventTimeline,
+): Promise<ForensicExport> {
   const chainN = await computeChain(timeline.events); // 32 bytes; N=0 → SHA-256("")
   const signature = await services.forensicKey.sign(chainN);
 

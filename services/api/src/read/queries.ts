@@ -213,11 +213,16 @@ function mapAlert(a: AlertRow): ResolvedAlert {
 const ALERT_COLS =
   "alert_id, title, severity_id, status, rule_id, cg_mitre, event_time, final_score::float8 AS final_score, source_events";
 
-export async function getIncidentDetail(
+/**
+ * The incident's row and its alert rows, org-scoped: the one resolution the detail, the
+ * drill and the report share (SPEC-013 Amendment 2026-10-16). Null when the incident does
+ * not exist or is another org's.
+ */
+async function readIncidentRows(
   pool: Pool,
   orgId: string,
   id: string,
-): Promise<IncidentDetail | null> {
+): Promise<{ inc: IncidentDetailRow; alerts: AlertRow[] } | null> {
   const ir = await fromStore(() =>
     pool.query<IncidentDetailRow>(
       `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre, window_start,
@@ -236,6 +241,10 @@ export async function getIncidentDetail(
       [inc.alert_ids, orgId],
     ),
   );
+  return { inc, alerts: ar.rows };
+}
+
+function detailOf(inc: IncidentDetailRow, alerts: AlertRow[]): IncidentDetail {
   return {
     incident_id: inc.incident_id,
     agent_id: inc.agent_id,
@@ -247,8 +256,36 @@ export async function getIncidentDetail(
     assigned_to: inc.assigned_to,
     created_at: inc.created_at.toISOString(),
     updated_at: inc.updated_at.toISOString(),
-    alerts: ar.rows.map(mapAlert),
+    alerts: alerts.map(mapAlert),
   };
+}
+
+/** The event ids the alerts name, flattened and deduplicated in TS (SPEC-010). */
+function sourceEventIds(alerts: AlertRow[]): string[] {
+  return [...new Set(alerts.flatMap((a) => a.source_events))];
+}
+
+export async function getIncidentDetail(
+  pool: Pool,
+  orgId: string,
+  id: string,
+): Promise<IncidentDetail | null> {
+  const read = await readIncidentRows(pool, orgId, id);
+  return read && detailOf(read.inc, read.alerts);
+}
+
+/**
+ * The report's read (SPEC-013 Amendment 2026-10-16): the incident's detail and the event ids
+ * its alerts name, both from one read, so that the PDF's alert table and the timeline it
+ * seals cannot disagree.
+ */
+export async function readIncidentForReport(
+  pool: Pool,
+  orgId: string,
+  id: string,
+): Promise<{ detail: IncidentDetail; eventIds: string[] } | null> {
+  const read = await readIncidentRows(pool, orgId, id);
+  return read && { detail: detailOf(read.inc, read.alerts), eventIds: sourceEventIds(read.alerts) };
 }
 
 interface TimelineRow {
@@ -295,23 +332,21 @@ export async function getIncidentEventTimeline(
   orgId: string,
   id: string,
 ): Promise<EventTimeline | null> {
-  const ir = await fromStore(() =>
-    pool.query<{ alert_ids: string[] }>(
-      "SELECT alert_ids FROM incidents WHERE incident_id = $1 AND org_id = $2",
-      [id, orgId],
-    ),
-  );
-  const inc = ir.rows[0];
-  if (!inc) return null;
+  const read = await readIncidentRows(pool, orgId, id);
+  if (!read) return null;
+  return eventTimelineOf(ch, orgId, id, sourceEventIds(read.alerts));
+}
 
-  const ar = await fromStore(() =>
-    pool.query<AlertRow>(
-      `SELECT ${ALERT_COLS} FROM alerts
-     WHERE alert_id = ANY($1::uuid[]) AND org_id = $2`,
-      [inc.alert_ids, orgId],
-    ),
-  );
-  const eventIds = [...new Set(ar.rows.flatMap((a) => a.source_events))];
+/**
+ * SPEC-010's read of an incident's events from ClickHouse, by the event ids its alerts
+ * name: org-scoped, `FINAL`, in total order (time ASC, event_id ASC). No ids, no events.
+ */
+export async function eventTimelineOf(
+  ch: ClickHouseClient,
+  orgId: string,
+  id: string,
+  eventIds: string[],
+): Promise<EventTimeline> {
   if (eventIds.length === 0) return { incident_id: id, events: [] };
 
   const rs = await fromStore(() =>
