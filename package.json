@@ -8,6 +8,13 @@
     "markdownlint-cli2": "0.22.1"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"],
+    "overrides": {
+      "next>postcss": "^8.5.23",
+      "postcss>nanoid": "^3.3.18",
+      "postcss>source-map-js": "^1.2.2",
+      "browserslist": "^4.28.7",
+      "baseline-browser-mapping": "^2.11.0"
+    }
   }
 }
