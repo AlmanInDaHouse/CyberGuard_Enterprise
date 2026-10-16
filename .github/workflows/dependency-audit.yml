@@ -1,0 +1,82 @@
+name: dependency-audit
+
+# Debt #93 (threat model R12): the dependencies are audited against the public
+# advisory databases on every change to them, and every week, so that an advisory
+# published after a release is seen too.
+# - pnpm: the production dependencies only. A high or critical advisory fails the
+#   run; a moderate or low one is counted in the summary line and passes. The
+#   development dependencies are not audited (debt #110).
+# - cargo: every crate Cargo.lock holds, the agent's development dependencies and
+#   crates never compiled included. Any vulnerability advisory fails the run,
+#   whatever its severity; an unmaintained, unsound or yanked crate is printed as a
+#   warning and passes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "services/*/package.json"
+      - "dashboard/package.json"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "agent/**/Cargo.toml"
+      - ".github/workflows/dependency-audit.yml"
+  pull_request:
+    paths:
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "services/*/package.json"
+      - "dashboard/package.json"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "agent/**/Cargo.toml"
+      - ".github/workflows/dependency-audit.yml"
+  schedule:
+    # Mondays, 06:17 UTC.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pnpm-audit:
+    name: pnpm audit (production)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          # As in ts-ci: the default cache resolves pnpm before corepack enables it.
+          package-manager-cache: false
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      # Audits the lockfile; no install is needed.
+      - name: pnpm audit --prod --audit-level=high
+        run: pnpm audit --prod --audit-level=high
+
+  cargo-audit:
+    name: cargo audit (the agent)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain (reads rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: cargo audit
+        run: cargo audit
