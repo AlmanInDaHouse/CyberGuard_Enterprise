@@ -21,17 +21,27 @@ const AgentBlockSchema = z.object({
   agent_hostname: z.string().min(1),
 });
 
+/**
+ * Unix nanoseconds UTC as 1 to 19 decimal digits without a leading 0, below 2^63, what
+ * the `DateTime64(9)` columns hold (SPEC-017 Amendment 2026-10-16): `BigInt` alone would
+ * read "0x10" and "". One refinement, so that `BigInt` only ever sees digits.
+ */
+const NanosSchema = z.string().refine((v) => /^[1-9][0-9]{0,18}$/.test(v) && BigInt(v) < 2n ** 63n);
+
+/** A pid that fits the `UInt32` columns (SPEC-017 Amendment 2026-10-16). */
+const PidSchema = z.number().int().min(0).max(4_294_967_295);
+
 /** SPEC-005 CGES Process sub-object (event.process) per ADR-0011 + γ DDL. */
 const CgesProcessSchema = z.object({
-  pid: z.number().int().nonnegative(),
+  pid: PidSchema,
   uid: z.string().min(1),
   name: z.string().min(1),
   /** Always present; null on AC-004 cache-miss; string-encoded nanos otherwise. */
-  created_time: z.string().nullable(),
+  created_time: NanosSchema.nullable(),
   /** Absent on AC-005 Launch path; integer on Terminate. */
-  exit_code: z.number().int().optional(),
+  exit_code: z.number().int().min(-2_147_483_648).max(2_147_483_647).optional(),
   /** Null on AC-007 PPID unresolvable; integer otherwise. */
-  parent_pid: z.number().int().nonnegative().nullable(),
+  parent_pid: PidSchema.nullable(),
   command_line: z.string(),
   subject_user_sid: z.string(),
   image_file_name: z.string(),
@@ -39,14 +49,14 @@ const CgesProcessSchema = z.object({
 
 /** SPEC-005 CGES Process Activity event shape (envelope.events[] element). */
 const CgesProcessActivitySchema = z.object({
-  event_id: z.string().min(1),
+  event_id: z.string().uuid(),
   /** Strict literal per OCSF Process Activity + ADR-0006 + ADR-0011. */
   class_uid: z.literal(1007),
   /** Launch=1, Terminate=2 per ADR-0011 §3 CGES wire allow-list. */
   activity_id: z.union([z.literal(1), z.literal(2)]),
   process: CgesProcessSchema,
   /** String-encoded Unix nanoseconds UTC; avoids IEEE 754 precision loss. */
-  time: z.string(),
+  time: NanosSchema,
 });
 
 /** SPEC-019 network endpoint: a valid IP address in text and a TCP port. */
@@ -68,7 +78,7 @@ const CgesNetworkActivitySchema = z.object({
   /** Open, the only activity the agent emits (ADR-0018 §2). */
   activity_id: z.literal(1),
   /** String-encoded Unix nanoseconds UTC, as for class 1007 (ADR-0018 §6). */
-  time: z.string(),
+  time: NanosSchema,
   src_endpoint: NetworkEndpointSchema,
   dst_endpoint: NetworkEndpointSchema,
   connection_info: z.object({
@@ -78,7 +88,7 @@ const CgesNetworkActivitySchema = z.object({
   actor: z.object({
     process: z.object({
       /** Fits the UInt32 `process_pid` column (SPEC-019 Amendment 2026-10-10). */
-      pid: z.number().int().min(0).max(4_294_967_295),
+      pid: PidSchema,
       uid: z.string().min(1).optional(),
     }),
   }),
@@ -93,7 +103,7 @@ const CgesAuthenticationBase = {
   /** Logon, the only activity the agent emits (ADR-0019 §2). */
   activity_id: z.literal(1),
   /** String-encoded Unix nanoseconds UTC, as for classes 1007 and 4001 (ADR-0019 §4). */
-  time: z.string(),
+  time: NanosSchema,
   /** `name` and `domain` are as Windows wrote them, `-`, or `<withheld>` (SPEC-020 §Operational §3). */
   user: z.object({
     uid: z.string().min(1),
