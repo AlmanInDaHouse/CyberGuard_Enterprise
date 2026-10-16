@@ -404,10 +404,72 @@ the logout, where the alternative was passing the request's session down;
 an unreadable entry deleted, like an unreadable `issued_at`, where the
 alternative was a `500`.
 
+### #31: the contract, its shape half
+
+SPEC-017's Amendment 2026-10-16, *an event's time, id, pids and exit code
+at ingest*, lands first as a document. An element's `time`, and a non-null
+`created_time`, are 1 to 19 decimal digits below 2^63, what the
+`DateTime64(9)` columns hold; a 1007 `event_id` is a UUID, its pids fit
+`UInt32` and its `exit_code` `Int32`. Any other value makes the POST `400`
+as a whole, as SPEC-019 refuses an invalid element. Today such values are
+stored dated 1970 (`BigInt` reads `"0x10"` and `""`), stored wrapped, or
+answered `500`, which the agent resends without bound (#32).
+
+The first draft also bounded an element's `time` against its arrival: 5
+minutes ahead and 7 days behind, the elements outside dropped with a `warn`
+line and the POST answered `200`. The fixed SPEC prompt's first pass found
+that half outside Claude Code's authority, and it was taken out:
+
+- a bound behind arrival is a lateness horizon, which ADR-0012 (`:300`) and
+  SPEC-018's owner decision 2 rule out;
+- dropping elements under a `200` changes what ADR-0004 and ADR-0009 §1 call
+  acceptance;
+- the agent's times come from an ETW session clocked by the performance
+  counter, so an honest agent's times might drift from the server's after
+  its system clock is corrected, and the window would drop them unseen.
+
+Debt #31 narrows to that half when the code lands; *What waits on Manuel* carries
+it. The pass's other List A points, fixed: *What surfaced it* said a bad
+`time` is always a `500` (`BigInt` stores `"0x10"` and `""` as 1970); 2^64
+let through values the columns cannot hold (2^63 now); the partition count
+of the window, gone with it. From List B, taken: criteria that fail before
+the fix (`parent_pid` -1 was already refused; `"0x10"`, `" 1"` and 2^63
+added); `exit_code`, unbounded against `Int32`; the catalog's placement and
+its SPEC-005 edge; SPEC-017's header.
+
+For Manuel's audit, when the code lands: the threat model's §2 record of
+the system as built gains these checks; R9 stands.
+
+The second pass of the fixed SPEC prompt, on the narrowed text, found five
+List A points, all fixed: the register and R9 still named the bound
+against arrival as #31's next sweep step (both now say it is Manuel's);
+this record pointed at a *What waits on Manuel* section it did not yet
+have (now below); the ETW clock claim held for processes and connections,
+not logons, whose time is the Security log's `TimeCreated`; "stored
+wrapped" was false from 1e21 up, which fails the insert; and a `time`
+whose conversion error reads like a lost connection is answered `503`, not
+`500`. From List B, taken: the pattern without a leading 0, as CGES writes
+`created_time`; SPEC-005 AC-004's signed 64-bit bound; 2^63 for 4001 and
+3002, `"0"` and `"0123"` among the refused times; the upper edges in
+capture_ac_015, which already holds before the code and guards the edges;
+the out-of-scope pointers of SPEC-018, SPEC-019 and SPEC-020; SPEC-017's
+header and its status line; the delegation naming the API contract.
+Recorded as a new debt, #114: a heartbeat whose own `body.sent_at` cannot be
+converted is answered `503` and resent without bound. No third pass ran on
+these fixes.
+
 ## Debts
 
 New this session:
 
+- **#114 — A heartbeat whose own `body.sent_at` cannot be converted is
+  answered `503`, which the agent resends without bound.** The inner
+  `sent_at` is checked only as non-empty (`services/ingest/src/schemas.ts`);
+  `toChDateTime` throws inside the heartbeats insert's `try`, which answers
+  `503 unavailable` (`services/ingest/src/routes/heartbeat.ts`). Only an
+  authenticated agent can send one, and it blocks its own delivery.
+  Surfaced by the review of SPEC-017's Amendment 2026-10-16. Destination:
+  with #32.
 - **#111 — `cargo audit` lets two warnings pass, one in the agent's
   runtime.** rustls-pemfile 2.2.0 is unmaintained (RUSTSEC-2025-0134); it
   is a direct dependency of `cg-agent`, which reads its certificates with it
@@ -429,6 +491,11 @@ New this session:
 
 Changed this session:
 
+- **#31**: SPEC-017's Amendment 2026-10-16 takes its shape half; when its
+  code lands, #31 narrows to the bound against arrival, whose destination
+  is now Manuel's decision: a lateness horizon, which ADR-0012 and
+  SPEC-018 decided against for the MVP, with evidence on the agent's ETW
+  clock first. The threat model's R9 says so.
 - **#20**: SPEC-008's per-org session lifetime joins it, with Open
   question 2 (SPEC-008's second Amendment 2026-10-16, item 4).
 - **#13**: SPEC-022's third Amendment (`:398`) names nodemailer 8.0.10 for
@@ -445,6 +512,36 @@ Closed this session:
 - **#93**, by `f876753` to `6d1f393`: the production dependencies past their
   advisories, `dependency-audit.yml`, and the runbook.
 
-**Open at the commit that records #82's closure: 70** (`docs/debts.md`,
-which matches): 69 at the start, #93 and #82 closed, #111, #112 and #113
-new.
+**Open at the commit that records #114: 71** (`docs/debts.md`,
+which matches): 69 at the start, #93 and #82 closed, #111 to #114 new.
+
+## What waits on Manuel
+
+- **ADR-0003's Amendment 2026-10-16, for his "sí".** On the owner-review
+  branch `adr/s41-0003-dev-stack` (`b0b1bbf`, NOT YET RATIFIED):
+  §Consequences' "The local development environment requires all five
+  services to be up" becomes "the dev stack runs the backends the code
+  uses; NATS JetStream and MinIO join it with the first SPEC that uses
+  them". Debt #96's change (PR #24, green and reviewed) lands after it.
+- **The dev stack's containers on this machine.** The `cyberguard-dev-*`
+  containers were created before the compose bound its ports to
+  `127.0.0.1` (debt #18), and still publish them on every interface, with
+  the dev passwords. Recreating them from the compose keeps their volumes;
+  he chooses whether Claude Code does it.
+- **#31's other half: an event's time bounded against its arrival.** A
+  bound behind arrival is a lateness horizon, which ADR-0012 and SPEC-018
+  decided against for the MVP; a bound ahead needs evidence that an honest
+  agent's ETW times track the server's clock. Recommendation: no backward
+  bound in the MVP; a forward bound once a gate measures the agent's clock
+  after a system clock correction.
+- **The `401` half of #80: his reading of ADR-0014 §Compliance (`:98`).** The
+  opening prompt kept a slot for it, which reached the session unfilled.
+  Recommendation, as handoff-40's: a request with no session is not an
+  authentication event, and #80 closes.
+- **cargo-audit on the *Approved local toolchain*.** Without it, a
+  `Cargo.lock` change is checked by its pull request's CI alone (CLAUDE.md,
+  *Local pre-commit gate*). Installing it is his to approve.
+- **The threat model, for his audit.** This session changed it under his
+  delegation: *Dependency review* (`:204`) and R12 (#93); the record of the
+  system as built, *Cross-cutting* (#93) and §3's session lifetime (#82); R9's
+  destination (#31).

@@ -10,6 +10,7 @@
   - ADR-0004 and ADR-0011 — amended in place on 2026-10-04 (the wire shape; the realized field names and the Win32 form).
   - ADR-0009 §1 and §3 — at-least-once delivery and the ephemeral ring, implemented here.
   - ADR-0010 §1 — the elevated-process privilege model; exit code 9.
+  - SPEC-005, SPEC-019 and SPEC-020 — their event elements amended **by scope** by the Amendment 2026-10-16 (the shape the server accepts).
   - `docs/product/roadmap.md` — §G, the phase this SPEC is the contract for; §H, a destination named below.
 - **Authors:** Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
@@ -189,6 +190,58 @@ The first two are work that SPEC-005 and this SPEC already require, and §6 is r
 **Amendment.** §Operational §1 gains a bullet after its second: after any failed start that reached `trace.start()`, a pump thread that ends before it reports included, `EtwSession::open` and `open_excluding` stop the session of the agent's name before they return the failure. A start refused before the session exists, as `StartTraceW` may refuse a user outside Administrators and Performance Log Users, leaves nothing to stop; nor does a pump thread that could not be spawned (`session.rs:239-242` at `abde0a5`), which never reached `StartTraceW`. A stop that ends a session is logged at `info` and one that fails at `warn`; the start's failure is returned all the same. **capture_ac_001** adds, on Windows, from a host where no session of the agent's name is running: after `EtwSession::open` returns a failure for privilege, and after the real binary exits 9, no ETW session of the agent's name exists.
 
 **Effect.** The exit codes, the stderr lines and the wire are unchanged; the log gains the `info` or `warn` line of the stop. The stop already followed every failure of a start that reached `trace.start()` except a failure for privilege and a pump thread that ended before its report. A stop by name ended, unelevated, a session the same user had started: `logman stop` did it in S37, and refused, unelevated, one that an elevated agent had started (`docs/handoff-session-37.md`, the side effects under *Progress*); hence the criterion's precondition. The assertions this amendment adds to capture_ac_001 check the agent's own stop by name, unelevated. They run wherever a start fails for privilege: developer-local unelevated, and on the Windows `rust-ci` runner if its start fails there, its ETW privilege being still untested (Open questions 1). The fix is `abde0a5`. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it closes a gap that the privilege failure of SPEC-005 AC-002 left, and touches nothing on Manuel's list. Status stays **Accepted**.
+
+## Amendment 2026-10-16: an event's time, id, pids and exit code at ingest
+
+This amendment is a document change: until the code that implements it lands, the server behaves as *What surfaced it* says.
+
+**What surfaced it.** Debt #31 (`docs/handoff-session-33.md:157`, widened by `docs/handoff-session-35.md:565`), threat model R9. The server checks an element's `time` only as a string (`services/ingest/src/schemas.ts`) and converts it with JavaScript's `BigInt` (`services/ingest/src/routes/heartbeat.ts`, `stringNanosToChDateTime`), so:
+
+- A `time` that `BigInt` reads though it is not decimal digits (`""`, `" 1 "`, `"0x10"`, `"0b11"`) is stored, dated 1970, and the POST is answered `200`.
+- A `time` of `"-1"`, or one at or above 2^63 nanoseconds (`cges_events.time`, a `DateTime64(9, 'UTC')`, holds up to 2^63 - 1), fails the insert, and one that `BigInt` cannot read at all fails the conversion. The POST is answered `500`, or `503` when the error's message reads like a lost connection (`isConnectivityError`), and the agent resends a POST so answered until it is delivered (§Operational §3): one such element stops its agent's delivery (debt #32). A `process.created_time` that is not `null` goes the same way, into a column of the same type.
+- For class 1007, `event_id` is checked only as non-empty, and a value that is not a UUID fails the insert. `process.pid` and `parent_pid` are checked only as non-negative integers, and `process.exit_code` only as an integer: a value beyond the `UInt32` or `Int32` column is stored wrapped, and one of 1e21 or more, which JSON writes in exponent form, fails the insert. Class 4001 already checks its `event_id` and its pid (SPEC-019 Amendment 2026-10-10), and class 3002 its `event_id` (SPEC-020).
+
+**Amendment.** §Operational §7, the server: an element of `body.events` is also refused when
+
+1. its `time` is not 1 to 19 decimal digits, the first not 0, whose value is below 2^63, whatever its class; or its `process.created_time`, when not `null`, is not. The digits without a leading 0 are the pattern CGES gives `created_time` (`schemas/cges/v0.1/objects/process.json`);
+2. for class 1007, its `event_id` is not a UUID; its `process.pid` or `process.parent_pid` (when not `null`) lies outside 0 to 4294967295; or its `process.exit_code` (when present) lies outside -2147483648 to 2147483647.
+
+As for any other invalid element, the POST is answered `400 { error: "invalid_request" }` as a whole and stores nothing, the heartbeat included (SPEC-019 §Operational §6, and net_ac_002 as its Amendment 2026-10-10 states it). An honest agent does not send such an element: it renders `time` and `created_time` from an unsigned 64-bit count of nanoseconds since 1970 (`agent/cg-agent/src/etw/types.rs`, `agent/cg-agent/src/logon/mod.rs`), which SPEC-005 AC-004 requires to fit a signed 64-bit integer, true until the year 2262; its `event_id` is a UUIDv7; its pids are `u32` and its exit code an `i32` (`agent/cg-agent/src/cges/emit.rs`). A host clock past 2262 makes the agent's conversion saturate, and that batch is refused.
+
+**What this amendment does not do.** It does not bound an element's `time` against its arrival, the other half of #31, and that half's destination changes: it is Manuel's decision.
+
+- A bound behind arrival is a lateness horizon. ADR-0012 states the system has none ("with no lateness horizon", `docs/adr/0012-normalize-before-correlate-pipeline.md:300`), and SPEC-018 decided against one for the MVP (owner decision 2), keeping it as its Open question 2 with a reopen condition.
+- Dropping elements while answering `200` changes what ADR-0004 and ADR-0009 §1 call acceptance.
+- The process and network events' times come from an ETW session clocked by the performance counter (ferrisetw's `ClientContext = 1`), and the logons' from the Security log's `TimeCreated`. Whether an honest agent's ETW times can drift from the server's after its system clock is corrected is not known, so a bound ahead of arrival needs that evidence first.
+
+**Decision.** Claude Code's, inside SPEC-017 and SPEC-019's rule for an invalid element. It breaks a public API contract and sets what the server accepts from an agent, the security posture, both on Manuel's list (CLAUDE.md *Decision authority*); he delegated them on 2026-10-15 ("Lo que dependa de mí, decídelo tú en beneficio del proyecto", the opening of Session 40), restated at the opening of Session 41 (`docs/handoff-session-41.md`).
+
+- **Below 2^63, not 2^64**, what the columns hold, so that no value the check passes can fail the insert. Alternative: 2^64, the agent's type, which leaves a `500` between the two.
+- **Decimal digits without a leading 0**, not what `BigInt` reads, so that a value is stored as the number it reads as, and as CGES writes it. Alternative: `BigInt`'s reading, which stores `"0x10"` as 16.
+- **The POST refused as a whole**, as SPEC-019 refuses any invalid element. Alternative: dropping the element alone, which would hide a defect or a forgery no honest agent produces.
+
+**Acceptance criteria.** CI-able, against the real server, Postgres, Redis and ClickHouse, with a signed POST from an enrolled test identity.
+
+- **capture_ac_014 (the shape).** Each of these makes its POST `400 invalid_request` and stores nothing, its valid element and the heartbeat included:
+  - a 1007 `time` of `"0x10"`, `" 1"`, `"-1"`, `"0"`, `"0123"`, `"9223372036854775808"` (2^63) or 20 digits;
+  - a 4001 `time` of `"1.5e18"` or of 2^63, and a 3002 `time` of `""` or of 2^63;
+  - a 1007 `created_time` of `"x"`, and one of 2^63;
+  - a 1007 `event_id` of `"not-a-uuid"`;
+  - a 1007 `pid` of 4294967296, and a `parent_pid` of 4294967296;
+  - a 1007 Terminate whose `exit_code` is 2147483648, and one whose `exit_code` is -2147483649.
+- **capture_ac_015 (the edges pass).** A POST whose elements carry a `time` and a `created_time` of `"9223372036854775807"` (2^63 - 1), a `pid` and a `parent_pid` of 4294967295, and `exit_code`s of -2147483648 and 2147483647 is answered `200`, and each is stored with the value it carried. This already holds before the code: it guards the edges against a bound set one too tight.
+
+**Effect.**
+
+- §Operational §7: "Nothing else changes on the server" is replaced by the two items above.
+- SPEC-005 by scope: its event shape gains the checks of `time`, `created_time`, `event_id`, the pids and `exit_code`.
+- SPEC-019 and SPEC-020 by scope: their elements' `time` gains item 1's check. Their other checks, and SPEC-019 §Operational §6's refusal of the POST, are unchanged.
+- SPEC-018 (`:51`), SPEC-019 (`:47`) and SPEC-020 (`:49`) leave "validating or bounding an event's `time`" to #31: the validating half is done here, the bounding half stays #31. SPEC-018's lateness horizon is unchanged.
+- Existing tests are unchanged: their elements carry decimal times below 2^63 with no leading 0.
+- The threat model's §2 record of the system as built, when the code lands: an element's time, 1007 `event_id`, pids and exit code are checked. R9 stands, since the agent still sets its events' time with no bound against arrival, and its destination becomes Manuel's decision. The threat model is Manuel's; `docs/handoff-session-41.md` lists the change for his audit.
+- Debt #31 narrows, when the code lands, to the bound against arrival, Manuel's to decide. Debt #32 narrows: a malformed element no longer makes a `500`; a POST whose times spread over more than 100 days still does, failing ClickHouse's limit of partitions per insert (`cges_events` is partitioned by day of `time`); and a heartbeat whose own `body.sent_at` cannot be converted is answered `503` and resent the same way (debt #114).
+- Not backward-compatible for a client that sent such elements: their POST is now `400`, where it was stored, stored wrapped or answered `500`. The code runs in the capture path, so it lands after the elevated gate (CLAUDE.md, *Developer-local SPEC-005 marquee validation* §5).
+- Status stays **Accepted**.
 
 ## References
 
