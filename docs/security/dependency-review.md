@@ -71,8 +71,8 @@ added:
 - its licence is compatible with the workspace's Apache-2.0;
 - its maintainers and releases are active;
 - `pnpm audit` reports nothing against it, run locally, and neither does
-  `cargo audit`, which runs in the pull request's CI (it is not installed
-  locally);
+  `cargo audit`, run locally (cargo-audit 0.22.2, on CLAUDE.md's *Approved
+  local toolchain* since Session 42) and in the pull request's CI;
 - an install script runs only if the package is listed in the root
   `package.json`'s `pnpm.onlyBuiltDependencies`; a crate's build script
   (`build.rs`) always runs when the agent builds, so a new crate's is read

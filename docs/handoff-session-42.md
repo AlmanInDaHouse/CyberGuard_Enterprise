@@ -160,3 +160,24 @@ This session changed it as follows:
 
 The threat model's changes that handoff-41 listed for his audit (#93, #82
 and #31) still wait for him too.
+
+## Local environment operations
+
+- **cargo-audit 0.22.2 installed**, with Manuel's approval of 2026-10-18:
+  `CARGO_INCREMENTAL=0 cargo install cargo-audit --locked --version 0.22.2 -j 2`.
+  Verified: `cargo audit --version` printed `cargo-audit-audit 0.22.2`, and
+  `cargo audit` at the repository root printed the two warnings CI prints
+  (rustls-pemfile unmaintained, chacha20 yanked; debt #111) and "2 allowed
+  warnings found". CLAUDE.md's *Approved local toolchain* gains its row, and
+  the *Local pre-commit gate*'s *Dependencies* step runs it.
+- **The dev stack's stores recreated on `127.0.0.1`**, as Manuel chose,
+  after #96 landed (`cd9b3c8`):
+  `docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env up -d --force-recreate --remove-orphans postgres clickhouse redis`.
+  Verified: `docker ps` lists `cyberguard-dev-postgres-1`
+  (`127.0.0.1:15432`), `-redis-1` (`127.0.0.1:16379`) and `-clickhouse-1`
+  (`127.0.0.1:8123`, `127.0.0.1:9000`), each `healthy`; the NATS and MinIO
+  containers were removed as orphans. Their volumes
+  (`cyberguard-dev_cg_nats_data`, `cyberguard-dev_cg_minio_data`) and the
+  other volumes stay. Manuel's `infra/dev/.env`, which is not tracked, still
+  holds the NATS and MinIO variables, now unused. Docker Desktop was not
+  restarted.
