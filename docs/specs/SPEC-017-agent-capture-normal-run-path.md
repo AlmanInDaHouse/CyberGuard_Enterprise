@@ -244,6 +244,33 @@ As for any other invalid element, the POST is answered `400 { error: "invalid_re
 - Not backward-compatible for a client that sent such elements: their POST is now `400`, where it was stored, stored wrapped or answered `500`. The code runs in the capture path, so it lands after the elevated gate (CLAUDE.md, *Developer-local SPEC-005 marquee validation* §5).
 - Status stays **Accepted**.
 
+## Amendment 2026-10-19: an event's time against its arrival
+
+**What surfaced it.** Debt #31's other half. The Amendment 2026-10-16 checks an element's `time` for its shape only, and gave its bound against arrival to Manuel (*What this amendment does not do*).
+
+**Amendment.**
+
+1. **No bound behind arrival in the MVP.** An element whose `time` lies far before its arrival is accepted, as now, unless its POST's times spread over more than 100 days, which still fails the insert (debt #32; the Amendment 2026-10-16, *Effect*). A bound behind arrival would keep late events from detection, which is a lateness horizon. ADR-0012 states the system has none (`docs/adr/0012-normalize-before-correlate-pipeline.md:300`), and SPEC-018 decided against one for the MVP and keeps it open with its reopen condition (Open question 2). An agent that was offline delivers the events its buffer kept, and detection reads them by their arrival.
+2. **No bound ahead of arrival until it is measured.** The agent's process and network times come from an ETW session clocked by the performance counter (the Amendment 2026-10-16), and its logons' from the Security log's `TimeCreated`. Before a bound ahead of arrival is specified, a measurement answers what an honest agent's times do when its host's system clock is corrected while the agent runs. It steps a test host's clock by a known amount, in each direction, during a capture, and records the offset of each class's times from the server's arrival. Its steps stay inside the window the server already holds the envelope's `sent_at` to (ADR-0004, ±5 min of the server's clock): beyond it every envelope is refused, whatever its events' times.
+
+   The bound is specified with that measurement, and so is what happens to an element beyond it. One option is to refuse its POST, as the Amendment 2026-10-16 refuses a malformed element. The other is to store it with its arrival as the time that places it, which would change what partitions the events and what places them in the incident windows. ADR-0003 (Rule 2) and ADR-0013 decide those, so that change would go to Manuel as an ADR amendment.
+
+Until then R9 stands in the threat model: the agent sets its events' time, which places them in ClickHouse's partitions and in the incident windows.
+
+**Decision.** Decided by Manuel on 2026-10-19, in chat: "Sin cota atrás; adelante tras medir (Recommended)", his answer to the question that put the bound to him with three options. Its reason: no event of an honest agent is refused or dropped for its time on a guess. The other options were:
+
+- a bound ahead of arrival of 5 minutes now, which could refuse an honest agent's events after its clock is corrected, by an amount no one has measured;
+- leaving #31 as it was, with nothing decided.
+
+A bound behind arrival, of 7 days for instance, contradicts ADR-0012 and SPEC-018, and would drop what a returning agent's buffer kept.
+
+**Effect.**
+
+- No code changes; the server behaves as the Amendment 2026-10-16 says.
+- The Amendment 2026-10-16's *What this amendment does not do* gave the bound to Manuel; he decided it here.
+- The threat model's R9: its destination becomes the measurement and the bound ahead of arrival, with no bound behind it in the MVP.
+- Debt #31 narrows to the bound ahead of arrival, after the measurement. Changing a test host's system clock is a change to that host, which waits for Manuel's OK when the measurement is run.
+
 ## References
 
 - [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) — the capture specification this SPEC realises and amends by scope.

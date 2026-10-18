@@ -532,6 +532,56 @@ The points decided here:
 - Backward-compatible for a client: a session ends no earlier than before (8 h after its last use is never earlier than 8 h after its login), but for item 4's clock difference.
 - Debt #82 closes with the code that implements this amendment; the per-org setting joins debt #20.
 
+## Amendment 2026-10-19: a request with no session is not an authentication event
+
+**What surfaced it.** Debt #80's `401` half (`docs/handoff-session-39.md:623`; narrowed by the first Amendment 2026-10-16, item 1). A request refused for want of a session writes no `audit_log` row, and ADR-0014 §Compliance (`docs/adr/0014-human-authentication-model.md:98`) says "All authentication events and role assignments MUST be audit-logged". The first Amendment 2026-10-16 left to Manuel whether such a request is an authentication event, and kept the behavior until he read it.
+
+**Amendment.**
+
+1. **A request with no session writes no row.** A request the session check refuses with `401` writes no `audit_log` row. That holds for a request with no session cookie, for one whose token names no entry, and for one whose entry the session check ends: past its cap, or with an `issued_at` the api cannot read (the second Amendment 2026-10-16, item 1), or not a JSON object (`services/api/src/auth/session.ts`). Such a request is not an authentication event in ADR-0014 §Compliance's sense. It presents no password or code, only a token that opens no session.
+2. **The authentication events, and their rows.** They are the attempts to open a session or to change a credential, which present a password or a code, and the end of a session its user asks for:
+   - a login: `auth.login.ok`, or `auth.login.fail` when it fails (§Operational §1);
+   - a TOTP confirmation, `user.totp.enroll`, and a password change, `user.password.change`: outcome `denied` when it fails (the first Amendment 2026-10-15, item 12; the first Amendment 2026-10-16, item 2);
+   - a logout, `auth.logout`, of a session that passes the session and CSRF checks.
+
+   Some attempts are refused before they are weighed, and write no row of their own action, as built:
+   - a body that fails its schema (`400`, the first Amendment 2026-10-15, item 2) and an attempt the limiter refuses (`429`, the first Amendment 2026-10-16, item 3) write none;
+   - a password change or a logout that the CSRF check refuses writes the `access.denied` row of the first Amendment 2026-10-16, item 1.
+3. **What records a refused request.** The api's request log, at its default level (`info`), records its method, URL, status and request id (the first Amendment 2026-10-16, item 1). How long that log is kept is the deployment's, which roadmap §F decides.
+
+**Decision.** Decided by Manuel on 2026-10-19, in chat: "Ninguna fila; cierra #80 (Recommended)". It was his answer to the question that put him the reading of ADR-0014 §Compliance with three options. With the recommendation he was given the reasons:
+
+- a request with no session presents no credential;
+- the attempts that present one write their rows, a failure included;
+- a row for each `401` could be written without limit, by any client that reaches the api, into a table the api only appends to.
+
+The other options:
+
+- **A row only when the api knows the principal.** That is an entry it ends at its cap or for an unreadable `issued_at`, whose `user_id` it reads before the delete. The entry's time-to-live already ends at the cap, so such an entry is rare: one written before the second Amendment 2026-10-16, or a clock difference between instances. A session that ends at its cap writes no row (the second Amendment 2026-10-16, *Decision*).
+- **A row for each `401`**, which would need a limiter of its own.
+
+ADR-0014 is not amended: this reads its §Compliance.
+
+**Acceptance criteria.** CI-able, against the real api and its stores.
+
+- **apiauth_ac_023 (no row for a request with no session).** A request to a session-guarded route answers `401` and writes no `audit_log` row:
+  - with a token that names no entry;
+  - with an entry issued 24 h and one second ago, which is then gone;
+  - with an entry whose `issued_at` is not a time;
+  - with an entry that has no `issued_at`;
+  - with an entry that is not a JSON object.
+
+  The request with no cookie is apiauth_ac_019's case, unchanged. Each case holds before its test lands: the test pins the behavior as built, so it cannot be seen to fail first.
+
+**Effect.**
+
+- The first Amendment 2026-10-16, item 1: the `401` it left open is settled here, and its apiauth_ac_019 case stands. It gave as a reason that such a request "has no principal to record". Since the second Amendment 2026-10-16, the api reads the `user_id` of an entry it ends at its cap or for an unreadable `issued_at` before it deletes it; item 1 above does not rest on that reason.
+- The second Amendment 2026-10-16: item 1 above restates, for the request that finds its session ended, its *Decision* that a session ending at its idle time or its cap writes no row.
+- The threat model's §3 sentence "one refused for want of a session writes none, pending Manuel's reading of ADR-0014 (#80)" now gives this reason.
+- Roadmap §F's list gains the retention of the api's request log (item 3).
+- No change to the api's code. The test that implements apiauth_ac_023 lands after this amendment.
+- Debt #80 closes with this amendment.
+
 ## References
 
 - [ADR-0014](../adr/0014-human-authentication-model.md) — the human-auth model this SPEC realises (identity §1, session §2, `services/api` §3, RBAC §4); the §Compliance MUSTs (rate-limit, cookies, CI-blocking RBAC, audit) and the §Out of scope CSRF deferral this SPEC closes.
