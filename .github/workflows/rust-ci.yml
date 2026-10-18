@@ -67,3 +67,8 @@ jobs:
 
       - name: cargo test
         run: cargo test --all
+
+      # PROBE, debt #30 (not to land): do the real-ETW tests run on the hosted runner?
+      - name: cargo test --ignored (probe)
+        continue-on-error: true
+        run: cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1
