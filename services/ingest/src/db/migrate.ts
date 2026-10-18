@@ -24,7 +24,7 @@ const MIGRATION_LOCK_KEY = 4_927_004;
  * paths, which fail on Windows ESM (`ERR_UNSUPPORTED_ESM_URL_SCHEME`); this
  * keeps the same drop-a-file-in-the-folder convention but is cross-platform.
  */
-function folderMigrationProvider(migrationFolder: string): MigrationProvider {
+export function folderMigrationProvider(migrationFolder: string): MigrationProvider {
   return {
     async getMigrations(): Promise<Record<string, Migration>> {
       const entries = (await fs.readdir(migrationFolder))

@@ -1,7 +1,4 @@
-import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
+import { Kysely, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
@@ -15,6 +12,12 @@ import {
   lastArrivedRow,
 } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
+import {
+  createPgDatabase,
+  dropPgDatabase,
+  ingestMigrationProvider,
+  pgDatabaseUrl,
+} from "./helpers/throwaway.js";
 
 // SPEC-018 late_ac_006 — cursor storage and upgrade (§Data contracts, §Operational
 // §6). (1) Migration 0007 on a THROWAWAY database (the shared one is at latest and
@@ -25,41 +28,12 @@ import { detectConfig } from "./helpers/detect.js";
 // an existing row; the next cycle re-reads them, writes no second alert, and
 // leaves the cursor on the last row read.
 
-const INGEST_MIGRATIONS = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../src/db/migrations",
-);
 const THROWAWAY_DB = "cyberguard_late_ac_006";
 
 const ORG = "late-ac-006";
 const AGENT = globalThis.crypto.randomUUID();
 const WINWORD = "C:\\Program Files\\Microsoft Office\\root\\Office16\\winword.exe";
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
-
-// Mirrors migrate.ts: import each migration file via a file:// URL (cross-platform ESM).
-function ingestMigrationProvider(): MigrationProvider {
-  return {
-    async getMigrations(): Promise<Record<string, Migration>> {
-      const entries = (await fs.readdir(INGEST_MIGRATIONS))
-        .filter((f) => /\.(?:js|mjs|ts)$/.test(f) && !f.endsWith(".d.ts"))
-        .sort();
-      const migrations: Record<string, Migration> = {};
-      for (const file of entries) {
-        const name = file.replace(/\.(?:js|mjs|ts)$/, "");
-        migrations[name] = (await import(
-          pathToFileURL(path.join(INGEST_MIGRATIONS, file)).href
-        )) as Migration;
-      }
-      return migrations;
-    },
-  };
-}
-
-function throwawayUrl(baseUrl: string): string {
-  const u = new URL(baseUrl);
-  u.pathname = `/${THROWAWAY_DB}`;
-  return u.toString();
-}
 
 interface ColumnRow {
   column_name: string;
@@ -78,26 +52,15 @@ let config: Config;
 
 beforeAll(async () => {
   config = inject("ingestConfig");
-  const admin = new pg.Pool({ connectionString: config.INGEST_PG_URL });
-  try {
-    await admin.query(`DROP DATABASE IF EXISTS ${THROWAWAY_DB} WITH (FORCE)`);
-    await admin.query(`CREATE DATABASE ${THROWAWAY_DB}`);
-  } finally {
-    await admin.end();
-  }
+  await createPgDatabase(config.INGEST_PG_URL, THROWAWAY_DB);
 });
 
 afterAll(async () => {
-  const admin = new pg.Pool({ connectionString: config.INGEST_PG_URL });
-  try {
-    await admin.query(`DROP DATABASE IF EXISTS ${THROWAWAY_DB} WITH (FORCE)`);
-  } finally {
-    await admin.end();
-  }
+  await dropPgDatabase(config.INGEST_PG_URL, THROWAWAY_DB);
 });
 
 test("late_ac_006: migration 0007 starts an existing cursor at the beginning, applies twice, and its down restores last_time", async () => {
-  const pool = new pg.Pool({ connectionString: throwawayUrl(config.INGEST_PG_URL) });
+  const pool = new pg.Pool({ connectionString: pgDatabaseUrl(config.INGEST_PG_URL, THROWAWAY_DB) });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const migrator = new Migrator({ db, provider: ingestMigrationProvider() });

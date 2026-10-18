@@ -1,10 +1,13 @@
-import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
+import { Kysely, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
+import {
+  createPgDatabase,
+  dropPgDatabase,
+  ingestMigrationProvider,
+  pgDatabaseUrl,
+} from "./helpers/throwaway.js";
 
 // SPEC-011 incident_severity_ac_004 — migration 0006 backfill correctness + ordering.
 //
@@ -19,59 +22,18 @@ import type { Config } from "../src/config.js";
 // — an out-of-order migration would have failed on the NULL rows. CI-able (Postgres
 // only, same testcontainers backend as the rest of the suite).
 
-const INGEST_MIGRATIONS = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../src/db/migrations",
-);
 const THROWAWAY_DB = "cyberguard_sev_backfill";
 const LEDGER = "sev_backfill_kysely_migration";
-
-// Mirrors `migrate.ts` / `read-schema.ts`: import each migration file via a file://
-// URL (cross-platform ESM), keeping the drop-a-file-in-the-folder convention.
-function ingestMigrationProvider(): MigrationProvider {
-  return {
-    async getMigrations(): Promise<Record<string, Migration>> {
-      const entries = (await fs.readdir(INGEST_MIGRATIONS))
-        .filter((f) => /\.(?:js|mjs|ts)$/.test(f) && !f.endsWith(".d.ts"))
-        .sort();
-      const migrations: Record<string, Migration> = {};
-      for (const file of entries) {
-        const name = file.replace(/\.(?:js|mjs|ts)$/, "");
-        migrations[name] = (await import(
-          pathToFileURL(path.join(INGEST_MIGRATIONS, file)).href
-        )) as Migration;
-      }
-      return migrations;
-    },
-  };
-}
-
-function throwawayUrl(baseUrl: string): string {
-  const u = new URL(baseUrl);
-  u.pathname = `/${THROWAWAY_DB}`;
-  return u.toString();
-}
 
 let config: Config;
 
 beforeAll(async () => {
   config = inject("ingestConfig");
-  const admin = new pg.Pool({ connectionString: config.INGEST_PG_URL });
-  try {
-    await admin.query(`DROP DATABASE IF EXISTS ${THROWAWAY_DB} WITH (FORCE)`);
-    await admin.query(`CREATE DATABASE ${THROWAWAY_DB}`);
-  } finally {
-    await admin.end();
-  }
+  await createPgDatabase(config.INGEST_PG_URL, THROWAWAY_DB);
 });
 
 afterAll(async () => {
-  const admin = new pg.Pool({ connectionString: config.INGEST_PG_URL });
-  try {
-    await admin.query(`DROP DATABASE IF EXISTS ${THROWAWAY_DB} WITH (FORCE)`);
-  } finally {
-    await admin.end();
-  }
+  await dropPgDatabase(config.INGEST_PG_URL, THROWAWAY_DB);
 });
 
 async function seedAgent(pool: pg.Pool, agentId: string): Promise<void> {
@@ -131,7 +93,7 @@ async function seedIncidentPre0006(
 }
 
 test("incident_severity_ac_004: 0006 backfills each incident's severity_id to MAX(its alerts)", async () => {
-  const pool = new pg.Pool({ connectionString: throwawayUrl(config.INGEST_PG_URL) });
+  const pool = new pg.Pool({ connectionString: pgDatabaseUrl(config.INGEST_PG_URL, THROWAWAY_DB) });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const migrator = new Migrator({

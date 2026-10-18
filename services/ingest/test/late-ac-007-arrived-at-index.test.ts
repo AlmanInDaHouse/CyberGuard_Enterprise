@@ -1,7 +1,12 @@
-import { type ClickHouseClient, createClient } from "@clickhouse/client";
+import type { ClickHouseClient } from "@clickhouse/client";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { runMigrations } from "../src/db/migrate.js";
+import {
+  bootstrapChDatabase,
+  createChDatabase,
+  dropChDatabase,
+  withChClient,
+} from "./helpers/throwaway.js";
 
 // SPEC-018 late_ac_007 — the bootstrap gives cges_events the minmax skip index
 // ix_arrived_at (§Data contracts, §Operational §7): on a new table, and on a table
@@ -28,25 +33,8 @@ interface TableRow {
 
 let config: Config;
 
-function client(database: string): ClickHouseClient {
-  return createClient({
-    url: config.INGEST_CH_URL,
-    username: config.INGEST_CH_USER,
-    password: config.INGEST_CH_PASSWORD,
-    database,
-  });
-}
-
-async function withClient<T>(
-  database: string,
-  fn: (ch: ClickHouseClient) => Promise<T>,
-): Promise<T> {
-  const ch = client(database);
-  try {
-    return await fn(ch);
-  } finally {
-    await ch.close();
-  }
+function withClient<T>(database: string, fn: (ch: ClickHouseClient) => Promise<T>): Promise<T> {
+  return withChClient(config, database, fn);
 }
 
 async function indices(database: string): Promise<IndexRow[]> {
@@ -91,8 +79,8 @@ async function showCreate(database: string): Promise<string> {
 }
 
 /** The real bootstrap, pointed at `database`. */
-async function bootstrap(database: string): Promise<void> {
-  await runMigrations({ ...config, INGEST_CH_DB: database });
+function bootstrap(database: string): Promise<void> {
+  return bootstrapChDatabase(config, database);
 }
 
 const EXPECTED_INDEX: IndexRow = {
@@ -110,16 +98,11 @@ const EXPECTED_TABLE: TableRow = {
 
 beforeAll(async () => {
   config = inject("ingestConfig");
-  await withClient(config.INGEST_CH_DB, async (ch) => {
-    await ch.command({ query: `DROP DATABASE IF EXISTS ${THROWAWAY_DB}` });
-    await ch.command({ query: `CREATE DATABASE ${THROWAWAY_DB}` });
-  });
+  await createChDatabase(config, THROWAWAY_DB);
 });
 
 afterAll(async () => {
-  await withClient(config.INGEST_CH_DB, async (ch) => {
-    await ch.command({ query: `DROP DATABASE IF EXISTS ${THROWAWAY_DB}` });
-  });
+  await dropChDatabase(config, THROWAWAY_DB);
 });
 
 test("late_ac_007: the bootstrap adds ix_arrived_at to a new table and to one without it; a second bootstrap changes nothing", async () => {

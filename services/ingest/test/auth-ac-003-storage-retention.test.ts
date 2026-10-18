@@ -1,7 +1,12 @@
-import { type ClickHouseClient, createClient } from "@clickhouse/client";
+import type { ClickHouseClient } from "@clickhouse/client";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { runMigrations } from "../src/db/migrate.js";
+import {
+  bootstrapChDatabase,
+  createChDatabase,
+  dropChDatabase,
+  withChClient,
+} from "./helpers/throwaway.js";
 
 // SPEC-020 auth_ac_003 — storage migration and retention (§Data contracts,
 // §Operational §8). After the bootstrap cges_events has the eleven Authentication
@@ -48,21 +53,8 @@ const TTL_CLAUSE =
 
 let config: Config;
 
-async function withClient<T>(
-  database: string,
-  fn: (ch: ClickHouseClient) => Promise<T>,
-): Promise<T> {
-  const ch = createClient({
-    url: config.INGEST_CH_URL,
-    username: config.INGEST_CH_USER,
-    password: config.INGEST_CH_PASSWORD,
-    database,
-  });
-  try {
-    return await fn(ch);
-  } finally {
-    await ch.close();
-  }
+function withClient<T>(database: string, fn: (ch: ClickHouseClient) => Promise<T>): Promise<T> {
+  return withChClient(config, database, fn);
 }
 
 /** The eleven columns of `database`.cges_events, in table order. */
@@ -93,8 +85,8 @@ async function showCreate(database: string): Promise<string> {
   });
 }
 
-async function bootstrap(database: string): Promise<void> {
-  await runMigrations({ ...config, INGEST_CH_DB: database });
+function bootstrap(database: string): Promise<void> {
+  return bootstrapChDatabase(config, database);
 }
 
 /** A minimal row of `classUid` whose arrived_at is `ageDays` days old. */
@@ -115,16 +107,11 @@ function row(classUid: number, ageDays: number): Record<string, unknown> {
 
 beforeAll(async () => {
   config = inject("ingestConfig");
-  await withClient(config.INGEST_CH_DB, async (ch) => {
-    await ch.command({ query: `DROP DATABASE IF EXISTS ${THROWAWAY_DB}` });
-    await ch.command({ query: `CREATE DATABASE ${THROWAWAY_DB}` });
-  });
+  await createChDatabase(config, THROWAWAY_DB);
 });
 
 afterAll(async () => {
-  await withClient(config.INGEST_CH_DB, async (ch) => {
-    await ch.command({ query: `DROP DATABASE IF EXISTS ${THROWAWAY_DB}` });
-  });
+  await dropChDatabase(config, THROWAWAY_DB);
 });
 
 test("auth_ac_003: the bootstrap adds the eleven columns and the class-3002 time-to-live", async () => {

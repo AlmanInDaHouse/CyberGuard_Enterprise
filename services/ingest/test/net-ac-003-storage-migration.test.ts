@@ -1,7 +1,12 @@
-import { type ClickHouseClient, createClient } from "@clickhouse/client";
+import type { ClickHouseClient } from "@clickhouse/client";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { runMigrations } from "../src/db/migrate.js";
+import {
+  bootstrapChDatabase,
+  createChDatabase,
+  dropChDatabase,
+  withChClient,
+} from "./helpers/throwaway.js";
 
 // SPEC-019 net_ac_003 — storage migration (§Data contracts, §Operational §7). After
 // the bootstrap cges_events has the six Network Activity columns with their types
@@ -31,21 +36,8 @@ const NETWORK_COLUMNS = EXPECTED_COLUMNS.map((c) => c.name);
 
 let config: Config;
 
-async function withClient<T>(
-  database: string,
-  fn: (ch: ClickHouseClient) => Promise<T>,
-): Promise<T> {
-  const ch = createClient({
-    url: config.INGEST_CH_URL,
-    username: config.INGEST_CH_USER,
-    password: config.INGEST_CH_PASSWORD,
-    database,
-  });
-  try {
-    return await fn(ch);
-  } finally {
-    await ch.close();
-  }
+function withClient<T>(database: string, fn: (ch: ClickHouseClient) => Promise<T>): Promise<T> {
+  return withChClient(config, database, fn);
 }
 
 /** The six network columns of `database`.cges_events, in table order. */
@@ -76,22 +68,17 @@ async function showCreate(database: string): Promise<string> {
   });
 }
 
-async function bootstrap(database: string): Promise<void> {
-  await runMigrations({ ...config, INGEST_CH_DB: database });
+function bootstrap(database: string): Promise<void> {
+  return bootstrapChDatabase(config, database);
 }
 
 beforeAll(async () => {
   config = inject("ingestConfig");
-  await withClient(config.INGEST_CH_DB, async (ch) => {
-    await ch.command({ query: `DROP DATABASE IF EXISTS ${THROWAWAY_DB}` });
-    await ch.command({ query: `CREATE DATABASE ${THROWAWAY_DB}` });
-  });
+  await createChDatabase(config, THROWAWAY_DB);
 });
 
 afterAll(async () => {
-  await withClient(config.INGEST_CH_DB, async (ch) => {
-    await ch.command({ query: `DROP DATABASE IF EXISTS ${THROWAWAY_DB}` });
-  });
+  await dropChDatabase(config, THROWAWAY_DB);
 });
 
 test("net_ac_003: the bootstrap adds the six network columns to a new table and to one without them", async () => {
