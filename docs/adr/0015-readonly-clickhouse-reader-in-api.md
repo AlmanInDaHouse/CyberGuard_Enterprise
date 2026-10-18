@@ -9,21 +9,21 @@
 
 The product promise is *"… an exportable forensic report on the first incident"* (`docs/product/blueprint.md:33`). The forensic report's first dependency is a **drill from an incident down to the raw events** that produced its alerts. A read-only audit (this session) established the repo-grounded facts that force one boundary decision before that drill can be specified:
 
-- **The join key is already wired on both sides.** `alerts.source_events uuid[] NOT NULL` holds the raw event ids (`services/ingest/src/db/migrations/0002_alerts.ts:34`, *">= 1 cges_events.event_id"*), and `cges_events.event_id` is `UUID` and the trailing component of the ClickHouse `ORDER BY (org_id, time, event_id)` key (`services/ingest/src/db/migrate.ts:137`, `:153`). The drill is **data-unblocked** — the value-match is version-agnostic (`docs/specs/SPEC-009-read-slice.md:34`).
+- **The join key is already wired on both sides.** `alerts.source_events uuid[] NOT NULL` holds the raw event ids (`services/ingest/src/db/migrations/0002_alerts.ts:34`, *">= 1 cges_events.event_id"*), and `cges_events.event_id` is `UUID` and the trailing component of the ClickHouse `ORDER BY (org_id, time, event_id)` key (`services/ingest/src/db/clickhouse-bootstrap.ts:54`, `:70`). The drill is **data-unblocked** — the value-match is version-agnostic (`docs/specs/SPEC-009-read-slice.md:34`).
 - **`services/api` reads no ClickHouse today.** The api dependency container wires only Postgres + Redis (`services/api/src/services.ts:11-16`); `config.ts` declares only `API_PG_URL` + `API_REDIS_URL` (`services/api/src/config.ts:8-20`); `@clickhouse/client` is not an api dependency; the api migration applier comment states *"api is Postgres + Redis only"* (`services/api/src/db/migrate.ts:21`). The only ClickHouse-capable service is `services/ingest`.
 - **SPEC-009 deliberately cut the drill, naming this exact blocker.** `docs/specs/SPEC-009-read-slice.md:34`: *"… cut by UI cost + it would add the first ClickHouse client to `services/api` (today pg+redis only). Destination: a read-depth increment."* This ADR settles the boundary the increment needs — **where the new ClickHouse read lives** — before its SPEC specifies the mechanics, the same single-layer discipline ADR-0013/ADR-0014 followed.
-- **Two ClickHouse client patterns coexist in `ingest`.** A **singleton injected in `Services`** (`services/ingest/src/services.ts:24-33`), used in the **request-path** (the heartbeat route destructures `ch` from `services` — `services/ingest/src/routes/heartbeat.ts:55`), and a **factory-per-call** that opens+closes per invocation (`services/ingest/src/detect/read-model.ts:39-46`), used only by the **background** detection cycle (`services/ingest/src/detect/index.ts:24-27`).
-- **The human/agent trust boundary is split (ADR-0014 §3).** `services/api` is the user-facing boundary; `services/ingest` is the agent-mTLS boundary (`services/api/src/app.ts:11-12`). The human session + RBAC primitives (`makeRequireSession`, org-scope) live **only** in `services/api` (`services/api/src/auth/prehandlers.ts`). There is **no** inter-service network call between api and ingest today (audit: grep of `services/api/src` for `fetch(`/`http.request`/`INGEST_` → no matches); they share only the one Postgres instance (`services/api/src/db/migrate.ts:15-21`).
+- **Two ClickHouse client patterns coexist in `ingest`.** A **singleton injected in `Services`** (`services/ingest/src/services.ts:42-51`), used in the **request-path** (the heartbeat route destructures `ch` from `services` — `services/ingest/src/routes/heartbeat.ts:151`), and a **factory-per-call** that opens+closes per invocation (`services/ingest/src/detect/read-model.ts:69-76`), used only by the **background** detection cycle (`services/ingest/src/detect/index.ts:46-55`).
+- **The human/agent trust boundary is split (ADR-0014 §3).** `services/api` is the user-facing boundary; `services/ingest` is the agent-mTLS boundary (`services/api/src/app.ts:34-35`). The human session + RBAC primitives (`makeRequireSession`, org-scope) live **only** in `services/api` (`services/api/src/auth/prehandlers.ts`). There is **no** inter-service network call between api and ingest today (audit: grep of `services/api/src` for `fetch(`/`http.request`/`INGEST_` → no matches); they share only the one Postgres instance (`services/api/src/db/migrate.ts:15-21`).
 
 ## Decision
 
 ### 1. `services/api` acquires a read-only ClickHouse client
 
-`services/api` gains a ClickHouse client used **exclusively for reads** of `cges_events`, to serve the incident→events drill. `services/ingest` retains **sole ownership of writes** to `cges_events` (the agent → ingest → ClickHouse path) and of the table's DDL bootstrap (`services/ingest/src/db/migrate.ts:86-155`). The api never writes, alters, or creates ClickHouse objects.
+`services/api` gains a ClickHouse client used **exclusively for reads** of `cges_events`, to serve the incident→events drill. `services/ingest` retains **sole ownership of writes** to `cges_events` (the agent → ingest → ClickHouse path) and of the table's DDL bootstrap (`services/ingest/src/db/clickhouse-bootstrap.ts:10-134`). The api never writes, alters, or creates ClickHouse objects.
 
 ### 2. The client is a singleton on `Services` — the request-path pattern
 
-The reader is a **singleton injected in the api `Services` container**, built once per process in `buildServices` from `API_CH_*` config (mirroring `services/ingest/src/config.ts:7-13` + `services/ingest/src/services.ts:24-33`) and closed symmetrically in `Services.close()`. This is the **request-path** pattern (the precedent is the ingest heartbeat route, which uses the injected `ch` in response to an incoming request — `services/ingest/src/routes/heartbeat.ts:55`), not the factory-per-call pattern (`read-model.ts:39-46`), which is ingest's **background** detection pattern (open+close per cycle) and is unfit for a synchronous `GET`.
+The reader is a **singleton injected in the api `Services` container**, built once per process in `buildServices` from `API_CH_*` config (mirroring `services/ingest/src/config.ts:44-51` + `services/ingest/src/services.ts:42-51`) and closed symmetrically in `Services.close()`. This is the **request-path** pattern (the precedent is the ingest heartbeat route, which uses the injected `ch` in response to an incoming request — `services/ingest/src/routes/heartbeat.ts:151`), not the factory-per-call pattern (`read-model.ts:69-76`), which is ingest's **background** detection pattern (open+close per cycle) and is unfit for a synchronous `GET`.
 
 ### 3. The cross-store join is served by the api reading both stores
 
@@ -50,7 +50,7 @@ Use the `read-model.ts:39-46` factory (open a client, query, `ch.close()` in `fi
 
 - **The drill's last structural blocker is removed.** SPEC-009:34 named "no CH client in api" as the cut reason while confirming the data is unblocked; this ADR adds exactly that reader.
 - **Trust boundaries preserved.** api stays the user-facing reader; ingest stays the agent-facing writer; no inter-service network hop; the human session auth stays in api.
-- **Canonical patterns reused.** Singleton-in-`Services` (request-path, `heartbeat.ts:55`); `API_CH_*` config as a 1:1 mirror of `INGEST_CH_*` (`ingest/config.ts:7-13`); symmetric `ch.close()` in `Services.close()` (`ingest/services.ts:45`).
+- **Canonical patterns reused.** Singleton-in-`Services` (request-path, `heartbeat.ts:151`); `API_CH_*` config as a 1:1 mirror of `INGEST_CH_*` (`ingest/config.ts:44-51`); symmetric `ch.close()` in `Services.close()` (`ingest/services.ts:74`).
 
 ### Negative
 
@@ -65,8 +65,8 @@ Use the `read-model.ts:39-46` factory (open a client, query, `ch.close()` in `fi
 
 ## Compliance
 
-- The api ClickHouse client MUST be **read-only in use**: the api MUST NOT issue `INSERT` / `ALTER` / `CREATE` / `DROP` against ClickHouse. `ingest` owns writes and the `cges_events` DDL bootstrap (`migrate.ts:86-155`).
-- The reader MUST be a **singleton on `Services`** (the request-path pattern, `heartbeat.ts:55`), built from `API_CH_*` and closed in `Services.close()`.
+- The api ClickHouse client MUST be **read-only in use**: the api MUST NOT issue `INSERT` / `ALTER` / `CREATE` / `DROP` against ClickHouse. `ingest` owns writes and the `cges_events` DDL bootstrap (`clickhouse-bootstrap.ts:10-134`).
+- The reader MUST be a **singleton on `Services`** (the request-path pattern, `heartbeat.ts:151`), built from `API_CH_*` and closed in `Services.close()`.
 - The Postgres read routes MUST NOT depend on ClickHouse availability: the client is lazy; a ClickHouse outage fails **only** the drill route, never boot or the Postgres reads.
 - No new ClickHouse migration or table may be authored in `services/api`; the api reads ingest's `cges_events` as the source of truth.
 
@@ -110,7 +110,7 @@ When this ADR is ratified Proposed→Accepted, the same commit:
 - [SPEC-010](../specs/SPEC-010-forensic-event-drill.md) — the mechanics this ADR's boundary enables (route, query, read-model, AC).
 - [ADR-0003](0003-polyglot-storage.md) — homes events in ClickHouse; consumed (read) here, not amended.
 - [ADR-0014](0014-human-authentication-model.md) — the human/agent boundary split (§3) this ADR preserves; the session/RBAC primitives the drill route reuses live in `services/api`.
-- `services/ingest/src/services.ts:24-33` + `routes/heartbeat.ts:55` — the singleton-in-`Services` request-path pattern §2 adopts.
-- `services/ingest/src/detect/read-model.ts:39-46` — the factory-per-call background pattern §2 rejects for the request path.
-- `services/ingest/src/db/migrate.ts:86-155` — ingest's ownership of the `cges_events` write/DDL this ADR does not touch.
+- `services/ingest/src/services.ts:42-51` + `routes/heartbeat.ts:151` — the singleton-in-`Services` request-path pattern §2 adopts.
+- `services/ingest/src/detect/read-model.ts:69-76` — the factory-per-call background pattern §2 rejects for the request path.
+- `services/ingest/src/db/clickhouse-bootstrap.ts:10-134` — ingest's ownership of the `cges_events` write/DDL this ADR does not touch.
 - [Blueprint](../product/blueprint.md) §2 (`:33` the forensic-report promise the drill serves).

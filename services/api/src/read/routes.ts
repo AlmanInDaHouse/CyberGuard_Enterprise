@@ -93,7 +93,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   });
 
   // SPEC-010 — the forensic event drill (step 1): incident → raw cges_events
-  // timeline. Nested resource (precedent: auth/routes.ts:63 /v1/users/:id/role); the
+  // timeline. Nested resource (precedent: auth/routes.ts:92-93 /v1/users/:id/role); the
   // first read that crosses the Postgres→ClickHouse boundary (ADR-0015 — services.ch).
   // Same session preHandler + org-scope; read-only (no role gate, no CSRF, NFR-009-004).
   // 404 mirrors the detail handler above (malformed :id / not-found / cross-org).
@@ -116,7 +116,7 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   // 404 mirrors the detail/events handlers (malformed :id / not-found / cross-org).
   // The export shape carries NO private-key field, so this route can never serialize
   // the forensic private key. The embedded pubkey is a convenience, NOT a trust root
-  // (SPEC-012 §Compliance line 108) — out-of-band anchoring is the deferred Open-Q.
+  // (SPEC-012 §Compliance line 107) — out-of-band anchoring is the deferred Open-Q.
   app.get(
     "/v1/incidents/:id/forensic-export",
     { onRequest: [requireSession, requireForensicRole], exposeHeadRoute: false },

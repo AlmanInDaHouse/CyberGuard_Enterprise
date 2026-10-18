@@ -5,7 +5,7 @@
 //! the secure path then sends heartbeats only (SPEC-017 §Operational §1).
 //! Linux developers can build + run the agent for non-ETW code paths
 //! without it crashing at the secure_storage hard-stop (debug builds
-//! tolerate non-Windows per `secure_storage.rs:14`
+//! tolerate non-Windows per `secure_storage.rs:16`
 //! `cfg(all(not(windows), not(debug_assertions)))`).
 //!
 //! Release builds: compile_error per the `secure_storage.rs` precedent.

@@ -20,7 +20,7 @@ The 2026-06-07 amendment left that gate intact
 
 ## Blueprint §15 is misaligned — superseded here for planning
 
-The Blueprint §15 phase roadmap (`docs/product/blueprint.md:638-689`) no
+The Blueprint §15 phase roadmap (`docs/product/blueprint.md:638-694`) no
 longer describes delivery order: Forensics (its Phase 5) shipped before
 SOAR (its Phase 4) and before detection/agent completion.
 The per-session Phase 3.x–Phase 6 tracker (engineering-notes) is retired:
@@ -35,7 +35,7 @@ This dependency-ordered document supersedes both for planning.
   non-elevated suite is at 57 as predicted.
 - Does: merge `feat/detection-prod-driver` — the in-process TS scheduler
   that gives `runDetectionCycle` its first production caller
-  (`services/ingest/src/detect/index.ts:31`).
+  (`services/ingest/src/detect/index.ts:46`).
 - Unblocks: criteria 1 / 2 / 4 stop being test-validated and run in a
   standing stack.
 - Blocked by: elevated `detect_ac_001` marquee green on the branch tip
@@ -59,7 +59,7 @@ This dependency-ordered document supersedes both for planning.
 - Does: land the packaging branch (`feat/ingest-container-packaging`
   @03005f0) — already-written, pushed WIP that was falling out of the
   record.
-- Work: apply the `services/ingest/Dockerfile:31` fix
+- Work: apply the `services/ingest/Dockerfile:34` fix
   (`COPY --from=build /repo/rules` → `COPY rules`); reconcile the
   `docker-compose.dev.yml` + `.env.example` comments (branch @03005f0)
   that already describe the corrected line.
@@ -226,7 +226,7 @@ This dependency-ordered document supersedes both for planning.
     Contract: ADR-0018 and SPEC-019 (Accepted). SPEC-019 also carries
     what both classes share: the agent's event types, the widening of
     `class_uid: z.literal(1007)`
-    (`services/ingest/src/schemas.ts:44`) to a union, and the widening
+    (`services/ingest/src/schemas.ts:54`) to a union, and the widening
     of `cges_events`.
   - Login — logons, successful and failed. Contract: ADR-0019 and
     SPEC-020 (Accepted, S35); landed. The source is the Windows Security
@@ -247,7 +247,7 @@ This dependency-ordered document supersedes both for planning.
   schema-only). No document defers an authentication provider.
 - Schemas ready: `schemas/cges/v0.1/classes/4001_network_activity.json`,
   `schemas/cges/v0.1/classes/3002_authentication.json`, both in
-  `schemas/cges/v0.1/event.json:105,106`.
+  `schemas/cges/v0.1/event.json:106,107`.
 - After D, not a phase yet: DNS, the first network follow-up. It needs
   another provider and a CGES class that does not exist (ADR-0018
   §Alternatives considered A3).
@@ -294,9 +294,9 @@ This dependency-ordered document supersedes both for planning.
   negative and the need for the server-side look-back.
 - Blocked by: B1, G and D.
 - Why a separate phase (S27 verification): the wired Kernel-Process
-  provider (keyword 0x10, `agent/cg-agent/src/etw/session.rs:114`) does
+  provider (keyword 0x10, `agent/cg-agent/src/etw/session.rs:162`) does
   NOT expose CommandLine or a usable UserSID in ProcessStart. The agent
-  already TRIES both (`session.rs:217-218`, each `unwrap_or_default()`)
+  already TRIES both (`session.rs:413-414`, each `unwrap_or_default()`)
   but the manifest carries neither property, so both resolve to EMPTY —
   absent, not present-but-empty (documented:
   `rules/windows/office_spawns_script_host.yml:8-9`;
@@ -344,7 +344,7 @@ This dependency-ordered document supersedes both for planning.
   criterion left.
 - Does: one playbook executor on the incident-create seam. The seam
   exists: a create-only branch fires in `runDetectionCycle`
-  (`services/ingest/src/detect/index.ts:77`) beside
+  (`services/ingest/src/detect/index.ts:87`) beside
   `notifyIncidentCreated`. SOAR attaches there as a second optional
   carrier, same fire-and-forget contract.
 - Unblocks: criterion 6.
@@ -356,7 +356,7 @@ This dependency-ordered document supersedes both for planning.
 - Precedent to copy: the email fire-and-forget
   (`docs/specs/SPEC-014-incident-notification.md`,
   `docs/adr/0017-incident-email-notification.md`; call site
-  `services/ingest/src/detect/index.ts:77-84`).
+  `services/ingest/src/detect/index.ts:87-94`).
 
 ### F — Installation / deployment (criterion 7)
 

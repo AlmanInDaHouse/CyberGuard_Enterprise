@@ -9,7 +9,7 @@ import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-s
 // SPEC-012 hashchain_ac_003 (SC-HC-003) — the `(time, event_id)` total order is
 // LOAD-BEARING. Two events with the SAME `time` but distinct `event_id` come back
 // from the drill in `event_id` ASC order regardless of INSERT order (SPEC-010
-// Amendment 2026-06-06 / Pieza A `queries.ts:262`), and the chain over the drill
+// Amendment 2026-06-06 / Pieza A `queries.ts:361`), and the chain over the drill
 // output is the canonical-order chain — which DIFFERS from the reverse order, so the
 // tiebreaker is what makes the chain reproducible. Real backend (Postgres +
 // ClickHouse drill).

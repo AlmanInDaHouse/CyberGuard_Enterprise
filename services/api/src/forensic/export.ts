@@ -19,9 +19,9 @@ import { computeChain, toHex } from "./hashchain.js";
 //
 // For an incident whose drill resolves to ZERO events, N = 0 and chain_N = chain_0 =
 // SHA-256("") (computeChain's empty-input return, hashchain.ts:50) — a well-defined
-// empty-evidence root (SPEC-012 §Data contracts §2 line 59).
+// empty-evidence root (SPEC-012 §Data contracts §2 line 58).
 //
-// ANTI-PATTERN GUARD (SPEC-012 §Compliance line 108): `forensic_pubkey` is embedded for
+// ANTI-PATTERN GUARD (SPEC-012 §Compliance line 107): `forensic_pubkey` is embedded for
 // CONVENIENCE, NOT as a trust root. A verifier MUST check `root_signature` against a key it
 // trusts OUT-OF-BAND; verifying against the embedded key ALONE is a forbidden anti-pattern
 // (a compromised server could re-sign with its own key and embed the matching pubkey, so the

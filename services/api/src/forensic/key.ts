@@ -63,7 +63,7 @@ async function loadForensicKey(pool: Pool, passphrase: string): Promise<Forensic
  * NON-extractable private CryptoKey (both paths return via loadForensicKey).
  *
  * Requires the `0003_forensic_key` migration to have run (the production entrypoint runs
- * migrations before buildServices, server.ts:21-24; the test harness in global-setup).
+ * migrations before buildServices, server.ts:22-25; the test harness in global-setup).
  */
 export async function ensureForensicKey(pool: Pool, passphrase: string): Promise<ForensicKey> {
   const existing = await loadForensicKey(pool, passphrase);

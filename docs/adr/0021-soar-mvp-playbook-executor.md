@@ -9,7 +9,7 @@
 
 MVP criterion 6 is "1 SOAR playbook operational (dry-run + notification, no destructive actions yet)" (`docs/product/blueprint.md:751`). Roadmap §E makes it the next phase. Manuel delegated the decisions pending on him on 2026-10-14, and B2 and B3 are parked (`docs/product/roadmap.md`). The repository fixes much of the ground already:
 
-1. **Where an incident is created.** `runDetectionCycle` creates incidents in `services/ingest/src/detect/index.ts`. Right after `upsertIncident` reports a create (`incident.created`, `index.ts:77`; the `xmax = 0` signal of `services/ingest/src/detect/incidents.ts`), it calls `notifyIncidentCreated` (SPEC-014). ADR-0017 §2 made that call the pipeline's first external side effect: after the commit, outside the transaction, fire-and-forget, never failing the cycle. No other code learns of a new incident. An incident whose severity rises later, through SPEC-011's MAX on update, sends no create.
+1. **Where an incident is created.** `runDetectionCycle` creates incidents in `services/ingest/src/detect/index.ts`. Right after `upsertIncident` reports a create (`incident.created`, `index.ts:87`; the `xmax = 0` signal of `services/ingest/src/detect/incidents.ts`), it calls `notifyIncidentCreated` (SPEC-014). ADR-0017 §2 made that call the pipeline's first external side effect: after the commit, outside the transaction, fire-and-forget, never failing the cycle. No other code learns of a new incident. An incident whose severity rises later, through SPEC-011's MAX on update, sends no create.
 2. **No bus.** The Blueprint's SOAR is a Go service, `cg-soar` (`docs/product/blueprint.md:110`), and the threat model triggers it from NATS subjects (`docs/security/threat-model.md:109`). The bus does not exist and waits for the event-firehose ADR, which also decides that workload's language and component boundary (ADR-0007 §Compliance, `docs/adr/0007-ingest-language-typescript-mvp.md:86`). `services/soar/` and `playbooks/` hold only READMEs.
 3. **The action policy is decided.** ADR-0005 §Action policy by reversibility (`docs/adr/0005-detection-rules-and-ml-in-parallel.md:37-45`) sorts actions:
    - reversible: tag, notify, …;
@@ -33,7 +33,7 @@ SOAR is a TypeScript module, `services/ingest/src/soar/`, called from `runDetect
 - its failure is logged and never reaches the cycle;
 - there is no retry.
 
-Like SPEC-014's send (`index.ts:78`), the run is awaited, so it delays the cycle. That is the concern for which ADR-0017 rejected blocking the cycle until a send ends (its A2). Here §4's bounds limit the delay, and A7 defers the queue that would remove it.
+Like SPEC-014's send (`index.ts:88`), the run is awaited, so it delays the cycle. That is the concern for which ADR-0017 rejected blocking the cycle until a send ends (its A2). Here §4's bounds limit the delay, and A7 defers the queue that would remove it.
 
 It is triggered by `incident.created` only, the one event the seam knows. The severity it sees is the incident's at creation. The Blueprint's separate Go service is not built. The module lives on the transitional seam ADR-0012 §1 placed in ingest, and if the event-firehose ADR moves the cycle elsewhere, the module moves with it, as ADR-0017's notification does (`docs/adr/0017-incident-email-notification.md:69`). ADR-0002's Amendment 2026-10-14 makes TypeScript the server-side default, which this module relies on.
 
@@ -80,7 +80,7 @@ The design follows from the threat model's mitigations:
   - the step's time is inside that form.
 
   The chain is unsigned. It shows an edit that does not recompute it, and nothing more.
-- **What resists whom.** The trigger and the chain hold against a writer that goes through the application. The owner of the database can bypass both. In the dev stack, ingest and the api share one Postgres user, the image's superuser (`infra/dev/docker-compose.dev.yml:132`, `:200`). Resisting that owner needs a separate role or an external anchor (§Out of scope).
+- **What resists whom.** The trigger and the chain hold against a writer that goes through the application. The owner of the database can bypass both. In the dev stack, ingest and the api share one Postgres user, the image's superuser (`infra/dev/docker-compose.dev.yml:96`, `:167`). Resisting that owner needs a separate role or an external anchor (§Out of scope).
 - **Bounds.**
   - A playbook has at most 10 steps.
   - A step has at most 15 s, and a run at most 30 s. A step cut by either is `failed`.
