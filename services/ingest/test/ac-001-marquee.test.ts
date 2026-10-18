@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
@@ -46,16 +47,31 @@ test.skipIf(process.platform === "win32" && !isElevatedWindows())(
     // The agent persisted its server-assigned identity; read its agent_id back.
     const identity = JSON.parse(readFileSync(join(agent.identityDir, "identity.json"), "utf8")) as {
       agent_id: string;
+      agent_pubkey_fingerprint: string;
     };
 
+    // SPEC-004 AC-001 (a): the row's pubkey is the agent's. identity.json carries the
+    // SHA-256 of the agent's 32-byte public key, in lowercase hex (SPEC-002).
     const agentRow = await getAgent(config, identity.agent_id);
     expect(agentRow, "Postgres agents row exists").not.toBeNull();
     expect(agentRow?.pubkey.length, "stored pubkey is 32 bytes").toBe(32);
+    expect(
+      createHash("sha256")
+        .update(agentRow?.pubkey ?? Buffer.alloc(0))
+        .digest("hex"),
+      "stored pubkey is the agent's",
+    ).toBe(identity.agent_pubkey_fingerprint);
     expect(agentRow?.last_seen, "last_seen set by the heartbeat").not.toBeNull();
 
+    // SPEC-004 AC-001 (b): a row with sequence_number 1 and status online, looked up by
+    // both, not taken as the first row by arrived_at. ClickHouse stamps arrived_at
+    // (DEFAULT now64(3)) and the agent heartbeats every second, and on Docker Desktop
+    // that clock at times steps back by more than a second (debt #41), which puts a
+    // later heartbeat first (debt #27).
     const heartbeats = await getHeartbeats(config, identity.agent_id);
-    expect(heartbeats.length, "at least one ClickHouse heartbeat row").toBeGreaterThanOrEqual(1);
-    expect(heartbeats[0]?.sequence_number, "first heartbeat sequence_number = 1").toBe("1");
-    expect(heartbeats[0]?.status, "status online").toBe("online");
+    expect(
+      heartbeats.some((h) => h.sequence_number === "1" && h.status === "online"),
+      "a heartbeat with sequence_number 1 and status online",
+    ).toBe(true);
   },
 );
