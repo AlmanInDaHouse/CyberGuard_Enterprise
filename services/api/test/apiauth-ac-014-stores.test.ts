@@ -161,24 +161,44 @@ describe("Postgres", () => {
   });
 
   test("a statement that runs 5 s on the api's pool is cancelled by Postgres", async () => {
-    const started = Date.now();
-    const err = await pool.query("SELECT pg_sleep(6)").then(
-      () => null,
-      (e: unknown) => e,
-    );
-    // 57014 is Postgres cancelling the statement, so the server's bound ended it, and
-    // before the client's 6 s. Postgres times it on the Docker VM's clock, which steps
-    // by up to about 2.4 s (debt #41, handoff-38), so the host sees it from about 2.5 s.
-    expect((err as { code?: string } | null)?.code).toBe("57014");
-    const elapsed = Date.now() - started;
-    expect(elapsed).toBeGreaterThanOrEqual(2500);
-    expect(elapsed).toBeLessThan(6000);
+    // Postgres times the statement on the Docker VM's clock, which runs apart from the
+    // host's: it steps by up to about 2.4 s (debt #41, handoff-38), and it lost about 1 s
+    // in a 5 s statement in S42 (debt #116). The client's 6 s leave the server's 5 s a
+    // margin of 1 s; an attempt that the client's read timeout ended while the VM's clock
+    // fell more than 0.5 s behind the host's shows nothing about the bound, and it is
+    // tried again, up to three times. Any other outcome is asserted.
+    const vmNow = async () =>
+      Date.parse((await pool.query("SELECT clock_timestamp()::text AS t")).rows[0].t);
+    for (let attempt = 1; ; attempt++) {
+      // Each clock is read right after the other, so the two spans start and end together.
+      const vmStarted = await vmNow();
+      const hostStarted = Date.now();
+      const started = Date.now();
+      const err = await pool.query("SELECT pg_sleep(6)").then(
+        () => null,
+        (e: unknown) => e,
+      );
+      const elapsed = Date.now() - started;
+      const code = (err as { code?: string } | null)?.code;
+      if ((err as { message?: string } | null)?.message === "Query read timeout" && attempt < 3) {
+        const vmSpan = (await vmNow()) - vmStarted;
+        const hostSpan = Date.now() - hostStarted;
+        if (hostSpan - vmSpan > 500) continue;
+      }
+      // 57014 is Postgres cancelling the statement, so the server's bound ended it, and
+      // before the client's 6 s; the host sees it from about 2.5 s.
+      expect(code).toBe("57014");
+      expect(elapsed).toBeGreaterThanOrEqual(2500);
+      expect(elapsed).toBeLessThan(6000);
+      return;
+    }
   });
 
   test("a read on which the pool's bound cancels a statement answers 503", async () => {
     // Before the route's own query, the same bounded pool runs one that outlasts the
-    // bound; Postgres cancels it (57014), and that failure reaches the route as the
-    // store's. The route's query itself is never sent.
+    // bound; Postgres cancels it (57014), or the client's 6 s end it when the Docker VM's
+    // clock falls behind (debt #116), and either failure reaches the route as the store's.
+    // The route's query itself is never sent.
     const slow = {
       query: async (...args: Parameters<pg.Pool["query"]>) => {
         await pool.query("SELECT pg_sleep(6)");

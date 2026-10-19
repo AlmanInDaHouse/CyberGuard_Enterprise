@@ -195,3 +195,13 @@ New:
   Amendment 2026-10-19). Surfaced by the fixed SPEC prompt's review of
   that amendment. Destination: an amendment to ADR-0010, for Manuel's
   "sí".
+- **#116 — apiauth_ac_014's Postgres case fails when the Docker VM's clock
+  falls behind.** The case races Postgres's 5 s `statement_timeout`, timed
+  on the VM's clock, against the client's 6 s `query_timeout`, timed on the
+  host's. A probe of twelve 5 s statements measured the VM counting 5.01 s
+  while the host counted 5.96 s, twice; with a lag past the 1 s margin the
+  client's timeout fires first, and its error, "Query read timeout", has no
+  code. It failed so once in S41 (`docs/handoff-session-41.md:880`) and
+  twice in S42, once under vitest 2 and once under vitest 4. Destination:
+  the test reads the VM's clock around the statement and tries again an
+  attempt the client's timeout ended while the VM fell behind (PR #35).
