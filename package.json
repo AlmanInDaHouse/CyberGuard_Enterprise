@@ -14,7 +14,10 @@
       "postcss>nanoid": "^3.3.18",
       "postcss>source-map-js": "^1.2.2",
       "browserslist": "^4.28.7",
-      "baseline-browser-mapping": "^2.11.0"
+      "baseline-browser-mapping": "^2.11.0",
+      "markdownlint-cli2>js-yaml": "5.4.1",
+      "markdownlint-cli2>markdown-it": "14.3.1",
+      "markdownlint-cli2>smol-toml": "1.9.0"
     }
   }
 }

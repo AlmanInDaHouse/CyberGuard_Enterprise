@@ -3,9 +3,10 @@ name: dependency-audit
 # Debt #93 (threat model R12): the dependencies are audited against the public
 # advisory databases on every change to them, and every week, so that an advisory
 # published after a release is seen too.
-# - pnpm: the production dependencies only. A high or critical advisory fails the
-#   run; a moderate or low one is counted in the summary line and passes. The
-#   development dependencies are not audited (debt #110).
+# - pnpm: the production dependencies, where a high or critical advisory fails the
+#   run and a moderate or low one is counted in the summary line and passes; and
+#   every dependency, development ones included, where a critical advisory fails
+#   the run (debt #110).
 # - cargo: every crate Cargo.lock holds, the agent's development dependencies and
 #   crates never compiled included. Any vulnerability advisory fails the run,
 #   whatever its severity; an unmaintained, unsound or yanked crate is printed as a
@@ -62,6 +63,25 @@ jobs:
       # Audits the lockfile; no install is needed.
       - name: pnpm audit --prod --audit-level=high
         run: pnpm audit --prod --audit-level=high
+
+  pnpm-audit-all:
+    name: pnpm audit (every dependency, critical)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: pnpm audit --audit-level=critical
+        run: pnpm audit --audit-level=critical
 
   cargo-audit:
     name: cargo audit (the agent)

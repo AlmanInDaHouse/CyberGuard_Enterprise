@@ -8,13 +8,15 @@ covers the third-party packages the repository locks: `pnpm-lock.yaml` for
 
 ## The audit in CI
 
-[`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) runs two
+[`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) runs three
 jobs:
 
 - `pnpm audit --prod --audit-level=high` reads `pnpm-lock.yaml`. It audits the
   production dependencies of the three workspaces. A high or critical advisory
   fails the run; a moderate or low one is counted in the summary line and
   passes.
+- `pnpm audit --audit-level=critical` reads it too, over every dependency,
+  development ones included: a critical advisory fails the run (debt #110).
 - `cargo audit` (cargo-audit 0.22.2) reads `Cargo.lock`, every crate the
   workspace locks, the agent's development dependencies with them. Any
   vulnerability advisory fails the run, whatever its severity; an unmaintained,
@@ -83,11 +85,23 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
 
 ## What is not covered
 
-- **The pnpm development dependencies** (the test tooling, the linters) are
-  not audited in CI; `pnpm audit` without `--prod` lists them (debt #110).
-  Since Session 42 (vitest 4, testcontainers 12) what it lists lies in
-  markdownlint-cli2, whose version follows CI's markdownlint action, and in
-  tailwindcss 3's postcss-selector-parser, fixed in tailwindcss's next major.
+- **The pnpm development dependencies** (the test tooling, the linters) fail
+  CI only on a critical advisory; `pnpm audit` without `--prod` lists the
+  rest (debt #110). Since Session 43 it lists three:
+  - braces, high, with no fixed release, through the micromatch of
+    markdownlint-cli2 and of the dashboard's tailwindcss 3 (its chokidar and
+    fast-glob); it expands globs this repository writes;
+  - katex, low, which markdownlint loads through micromark's math extension
+    and whose renderer it never calls;
+  - tailwindcss 3's postcss-selector-parser, moderate, fixed in tailwindcss's
+    next major.
+
+  markdownlint-cli2 follows the engine of CI's markdownlint action (0.23.2,
+  under `markdownlint-cli2-action@v24`). Three of the children it pins
+  exactly are overridden in the lock (js-yaml 5.4.1, markdown-it 14.3.1,
+  smol-toml 1.9.0), which the root devDependency runs; CI's action bundles
+  its own copies of them, unpatched, and so does a fresh `npx`. They parse
+  only this repository's Markdown and configuration.
   The agent's development crates are: `cargo audit` reads the whole
   `Cargo.lock`.
 - **A malicious release with no advisory.** The lockfiles pin each version
