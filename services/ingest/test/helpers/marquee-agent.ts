@@ -106,10 +106,12 @@ function liveAgents(): Set<ChildProcess> {
 
 /**
  * Once a marquee's agent has exited (Windows): stop the agent's ETW
- * sessions and return the names still running. While another marquee's
- * agent runs — this one outlived a test that failed before it awaited the
- * run — the name is that agent's, whose start reclaimed this one's
- * session, so nothing is stopped.
+ * sessions and return the names still running. While another marquee agent
+ * of the same file runs — this one outlived a test that failed before it
+ * awaited the run — the name is that agent's, whose start reclaimed this
+ * one's session, so nothing is stopped. An agent its file leaves running
+ * ends with the file's process, and the suite's teardown stops the session
+ * it leaves (`global-setup.ts`).
  */
 export function stopSessionsAfterExit(
   othersRunning: boolean,
