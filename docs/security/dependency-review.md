@@ -112,9 +112,10 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
 - **Licences** are checked when a dependency is added, by hand. No tool checks
   the licences of transitive dependencies, and no SBOM is produced (debt
   #112).
-- **The warnings `cargo audit` lets pass**: an unmaintained crate the agent
-  reads its certificates with (rustls-pemfile, debt #111). A crate yanked
-  later passes the same way, as chacha20 0.10.0, in the agent's development
-  dependencies, did until Session 42.
+- **The warnings `cargo audit` lets pass**: an unmaintained, unsound or
+  yanked crate passes with a warning, as chacha20 0.10.0, in the agent's
+  development dependencies, did until Session 42, and rustls-pemfile,
+  unmaintained, which the agent read its certificates with, until Session 43
+  (debt #111). Since then `cargo audit` prints none; a new one is a debt.
 - **The GitHub Actions the workflows use** are pinned by major tag, not by
   commit (debt #113).

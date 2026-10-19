@@ -15,6 +15,7 @@
 use crate::errors::TlsError;
 use crate::identity::Identity;
 use ed25519_dalek::pkcs8::EncodePrivateKey as _;
+use rustls::pki_types::pem::PemObject as _;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -51,9 +52,7 @@ pub fn build_client_config(
     identity: &Identity,
 ) -> Result<rustls::ClientConfig, TlsError> {
     let mut roots = rustls::RootCertStore::empty();
-    let mut reader = std::io::BufReader::new(trust_anchor_pem);
-    for entry in rustls_pemfile::certs(&mut reader) {
-        let cert = entry.map_err(|e| TlsError::ClientConfig(format!("trust anchor PEM: {e}")))?;
+    for cert in certificates_from_pem(trust_anchor_pem, "trust anchor")? {
         roots
             .add(cert)
             .map_err(|e| TlsError::ClientConfig(format!("add trust anchor: {e}")))?;
@@ -64,11 +63,8 @@ pub fn build_client_config(
         ));
     }
 
-    let mut cert_reader = std::io::BufReader::new(identity.client_certificate_pem.as_bytes());
-    let client_chain: Vec<rustls::pki_types::CertificateDer<'static>> =
-        rustls_pemfile::certs(&mut cert_reader)
-            .collect::<Result<_, _>>()
-            .map_err(|e| TlsError::ClientConfig(format!("client cert PEM: {e}")))?;
+    let client_chain =
+        certificates_from_pem(identity.client_certificate_pem.as_bytes(), "client cert")?;
     if client_chain.is_empty() {
         return Err(TlsError::ClientConfig(
             "client certificate PEM is empty".to_string(),
@@ -89,6 +85,38 @@ pub fn build_client_config(
         .with_root_certificates(roots)
         .with_client_auth_cert(client_chain, key_der)
         .map_err(|e| TlsError::ClientConfig(format!("client auth: {e}")))
+}
+
+/// The certificates of a PEM document, in their order; sections of any
+/// other kind are skipped. `what` names the document in the error.
+fn certificates_from_pem(
+    pem: &[u8],
+    what: &str,
+) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, TlsError> {
+    rustls::pki_types::CertificateDer::pem_slice_iter(pem)
+        .collect::<Result<_, _>>()
+        .map_err(|e| TlsError::ClientConfig(format!("{what} PEM: {}", pem_error_text(&e))))
+}
+
+/// A PEM error's text: a missing section end, an illegal section start and a
+/// base64 failure as rustls-pemfile worded them, a marker as text rather than
+/// the bytes the pki-types `Display` prints; any other kind as pki-types words
+/// it (debt #111).
+fn pem_error_text(e: &rustls::pki_types::pem::Error) -> String {
+    use rustls::pki_types::pem::Error;
+    match e {
+        Error::MissingSectionEnd { end_marker } => {
+            format!(
+                "section end {:?} missing",
+                String::from_utf8_lossy(end_marker)
+            )
+        }
+        Error::IllegalSectionStart { line } => {
+            format!("illegal section start: {:?}", String::from_utf8_lossy(line))
+        }
+        Error::Base64Decode(err) => err.clone(),
+        other => other.to_string(),
+    }
 }
 
 /// Outcome of one secure send attempt.
@@ -276,4 +304,64 @@ fn parse_status(buf: &[u8]) -> Option<u16> {
     let mut parts = line.split_whitespace();
     let _http = parts.next()?;
     parts.next()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::certificates_from_pem;
+    use crate::errors::TlsError;
+
+    fn self_signed(cn: &str) -> rcgen::Certificate {
+        let key = rcgen::KeyPair::generate().expect("key");
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("params");
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, cn);
+        params.self_signed(&key).expect("self-signed")
+    }
+
+    #[test]
+    fn every_certificate_in_order() {
+        let (a, b) = (self_signed("a"), self_signed("b"));
+        let pem = format!("{}{}", a.pem(), b.pem());
+        let certs = certificates_from_pem(pem.as_bytes(), "trust anchor").expect("parsed");
+        assert_eq!(certs.len(), 2);
+        assert_eq!(certs[0].as_ref(), a.der().as_ref());
+        assert_eq!(certs[1].as_ref(), b.der().as_ref());
+    }
+
+    #[test]
+    fn other_sections_and_text_are_skipped() {
+        let a = self_signed("a");
+        let key = rcgen::KeyPair::generate().expect("key");
+        let pem = format!("issued for the test\n{}{}", key.serialize_pem(), a.pem());
+        let certs = certificates_from_pem(pem.as_bytes(), "trust anchor").expect("parsed");
+        assert_eq!(certs.len(), 1);
+        assert_eq!(certs[0].as_ref(), a.der().as_ref());
+        let only_key = key.serialize_pem();
+        let none = certificates_from_pem(only_key.as_bytes(), "trust anchor").expect("parsed");
+        assert!(none.is_empty());
+    }
+
+    fn pem_error(pem: &str) -> String {
+        match certificates_from_pem(pem.as_bytes(), "client cert") {
+            Err(TlsError::ClientConfig(msg)) => msg,
+            other => panic!("expected a PEM error for {pem:?}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_malformed_certificate_is_an_error_naming_the_document() {
+        assert_eq!(
+            pem_error("-----BEGIN CERTIFICATE-----\nMIIB\n"),
+            "client cert PEM: section end \"CERTIFICATE\" missing"
+        );
+        let base64 = pem_error("-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n");
+        let detail = base64
+            .strip_prefix("client cert PEM: ")
+            .expect("the document named");
+        assert!(!detail.is_empty(), "{base64}");
+        assert!(!detail.starts_with("base64 decode error"), "{base64}");
+        assert!(!detail.contains('['), "a marker printed as bytes: {base64}");
+    }
 }
