@@ -85,6 +85,9 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
 
 - **The pnpm development dependencies** (the test tooling, the linters) are
   not audited in CI; `pnpm audit` without `--prod` lists them (debt #110).
+  Since Session 42 (vitest 4, testcontainers 12) what it lists lies in
+  markdownlint-cli2, whose version follows CI's markdownlint action, and in
+  tailwindcss 3's postcss-selector-parser, fixed in tailwindcss's next major.
   The agent's development crates are: `cargo audit` reads the whole
   `Cargo.lock`.
 - **A malicious release with no advisory.** The lockfiles pin each version
@@ -96,7 +99,8 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
   the licences of transitive dependencies, and no SBOM is produced (debt
   #112).
 - **The warnings `cargo audit` lets pass**: an unmaintained crate the agent
-  reads its certificates with (rustls-pemfile), and a yanked one in its
-  development dependencies (chacha20) (debt #111).
+  reads its certificates with (rustls-pemfile, debt #111). A crate yanked
+  later passes the same way, as chacha20 0.10.0, in the agent's development
+  dependencies, did until Session 42.
 - **The GitHub Actions the workflows use** are pinned by major tag, not by
   commit (debt #113).

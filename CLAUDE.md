@@ -138,7 +138,7 @@ The agent installs and configures ONLY tools that are declared prerequisites of 
 | Task (go-task) | Project build runner per ADR-0001 §Decision. | Session 1 |
 | Docker Desktop | Runtime for `infra/dev/docker-compose.dev.yml` per ADR-0003. | Session 4 |
 | Rust toolchain (rustup, rustc, cargo, rustfmt, clippy) | Compiler and tooling for the `cg-agent` crate per ADR-0002 §Decision and SPEC-001. Pinned by `rust-toolchain.toml`. | Session 5 |
-| Node.js 22 LTS | Runtime for the `services/ingest/` TypeScript service per ADR-0007 and SPEC-004. The Dockerfile and `ts-ci` pin Node 22; local dev tolerates ≥22 (verified on 24). | Session 8 |
+| Node.js 22 LTS | Runtime for the `services/ingest/` TypeScript service per ADR-0007 and SPEC-004. The Dockerfile and `ts-ci` pin Node 22; local dev needs 22.22 or later, the floor of the test tooling since Session 42 (testcontainers 12), and is verified on 24. | Session 8 |
 | pnpm (via Corepack) | Package manager for the TypeScript workspace (`services/ingest/`, `services/api/` and `dashboard/`) per ADR-0007. Activated with `corepack enable`; version pinned by `packageManager` in `package.json`. | Session 8 |
 | cargo-audit | The local mirror of `dependency-audit.yml`'s `cargo audit` job (*Local pre-commit gate*, *Dependencies*). Installed with `cargo install cargo-audit --locked --version 0.22.2`, the version the workflow pins; it reads `Cargo.lock` and fetches the RustSec advisory database to `~/.cargo/advisory-db`. Approved by Manuel on 2026-10-18 (`docs/handoff-session-42.md`). | Session 42 |
 
