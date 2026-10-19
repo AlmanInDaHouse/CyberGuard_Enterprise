@@ -93,9 +93,10 @@ export function stopEtwSessions(names: readonly string[], logman: Logman = runLo
 }
 
 /**
- * The marquee agents still running. vitest runs the test files in one
- * process (`singleFork`) but evaluates this module once per file, so the
- * set lives on `globalThis`.
+ * The marquee agents still running. vitest runs each test file in a
+ * process of its own (`vitest.config.ts`), so the set holds one file's
+ * agents; it lives on `globalThis`, whatever the number of times the file
+ * evaluates this module.
  */
 function liveAgents(): Set<ChildProcess> {
   const g = globalThis as { __cgMarqueeLiveAgents?: Set<ChildProcess> };

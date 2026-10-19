@@ -16,8 +16,9 @@ export default defineConfig({
     // (the same pattern as services/api) — give it room.
     testTimeout: 120_000,
     hookTimeout: 180_000,
-    // Single fork: the data-access test shares one set of containers.
+    // One test file at a time, each in a process of its own: the data-access
+    // test shares one set of containers.
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
   },
 });

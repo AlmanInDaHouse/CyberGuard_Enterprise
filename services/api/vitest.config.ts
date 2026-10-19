@@ -9,8 +9,9 @@ export default defineConfig({
     // Integration tests spin up testcontainers; give them room.
     testTimeout: 120_000,
     hookTimeout: 180_000,
-    // Single fork: the suite shares one set of containers.
+    // One test file at a time, each in a process of its own: the suite shares
+    // one set of containers.
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
   },
 });

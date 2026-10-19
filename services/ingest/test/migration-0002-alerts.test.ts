@@ -15,7 +15,7 @@ const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
 // that enables the rest, it does NOT clear the Known CI debt.
 //
 // Every assertion runs inside a BEGIN/ROLLBACK so nothing persists in the
-// shared (singleFork) Postgres. Inserts that need a valid FK create their agent
+// Postgres the suite shares. Inserts that need a valid FK create their agent
 // row inside the same transaction (also rolled back).
 
 let client: pg.Client;

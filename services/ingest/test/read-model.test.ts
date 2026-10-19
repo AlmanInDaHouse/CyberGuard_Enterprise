@@ -15,7 +15,7 @@ const ID_PREFIX = globalThis.crypto.randomUUID().slice(0, 8);
 // stay RED (NotImplemented), because the detect_ac go through runDetectionCycle
 // (5e) — 5b does NOT clear the Known CI debt. Also exercises migrations 0003 +
 // 0007 (detect_watermark table + cursor start). Each test uses a distinct org_id so it
-// only sees its own events in the shared (singleFork) ClickHouse.
+// only sees its own events in the ClickHouse the suite shares.
 
 let config: Config;
 

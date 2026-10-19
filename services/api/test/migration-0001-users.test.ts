@@ -11,7 +11,7 @@ import type { Config } from "../src/config.js";
 // the controls; it does not implement them.
 //
 // Every assertion runs inside BEGIN/ROLLBACK so nothing persists in the shared
-// (singleFork) Postgres.
+// Postgres the suite shares.
 
 let client: pg.Client;
 const PASSPHRASE = "test-api-passphrase"; // matches backends.ts API_DB_ENC_PASSPHRASE
