@@ -44,9 +44,10 @@ jobs:
 
   # SPEC-017 capture_ac_013: the agent's Windows code (ETW session,
   # side-channel helpers, DPAPI, path translation) is compiled, linted and
-  # tested here. The tests that need real ETW (an elevated process) are
-  # #[ignore]d and run in the elevated developer-local gate (SPEC-017 §Open
-  # questions 1); the rest run as they do on Linux.
+  # tested here. The tests that need real ETW or the real Security log (an
+  # elevated process) are #[ignore]d in `cargo test --all`, and run in a step
+  # of their own, as the runner's built-in Administrator (SPEC-017, the second
+  # Amendment 2026-10-19). The elevated developer-local gate runs them too.
   check-windows:
     name: cargo fmt + clippy + test (windows)
     runs-on: windows-latest
@@ -67,3 +68,6 @@ jobs:
 
       - name: cargo test
         run: cargo test --all
+
+      - name: "cargo test, the #[ignore]d real-ETW and Security-log tests"
+        run: cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1
