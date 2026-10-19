@@ -10,8 +10,9 @@ MD013: false
 # (e.g. an ADR amendment's `### Context` / `### Decision` alongside the
 # document's top-level `## Context` / `## Decision`). markdownlint core 0.40.0
 # (markdownlint-cli2-action@v23 engine) renamed the legacy `allow_different_nesting`
-# option to `siblings_only`; the legacy key is now silently ignored, so this MUST
-# read `siblings_only` for the intent to hold under the v23 engine.
+# option to `siblings_only`; the legacy key is silently ignored, so this MUST
+# read `siblings_only` for the intent to hold, under v23 and under the v24 engine
+# (markdownlint-cli2 0.23.2, markdownlint core 0.41.1) CI runs since Session 43.
 MD024:
   siblings_only: true
 
