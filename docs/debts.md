@@ -23,7 +23,7 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 66** during Session 42, which closed #96 and #80. Session 41 closed with 68, the count `docs/handoff-session-41.md` states; Session 42's close sets this line to the count its handoff states.
+**Open: 67** during Session 42, which closed #96 and #80 and opened #115. Session 41 closed with 68, the count `docs/handoff-session-41.md` states; Session 42's close sets this line to the count its handoff states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
 Session N resumes* (at Session 41's close, `docs/handoff-session-41.md:918-920`);
@@ -99,6 +99,7 @@ Session N resumes* (at Session 41's close, `docs/handoff-session-41.md:918-920`)
 | 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:746` | Roadmap §F's packaging, with the release artifacts. |
 | 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750` | A later sweep: each action pinned by commit SHA. |
 | 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:728` | With #32. |
+| 115 | ADR-0010 still reads the runner's ETW-open privilege as unvalidated in CI | `handoff-session-42.md:189` | An amendment to ADR-0010, for Manuel's "sí". |
 
 ## Closed
 

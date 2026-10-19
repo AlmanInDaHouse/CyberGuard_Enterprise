@@ -271,6 +271,42 @@ A bound behind arrival, of 7 days for instance, contradicts ADR-0012 and SPEC-01
 - The threat model's R9: its destination becomes the measurement and the bound ahead of arrival, with no bound behind it in the MVP.
 - Debt #31 narrows to the bound ahead of arrival, after the measurement. Changing a test host's system clock is a change to that host, which waits for Manuel's OK when the measurement is run.
 
+## Amendment 2026-10-19: the real-ETW tests in CI
+
+This is SPEC-017's second amendment of 2026-10-19. A reference to "SPEC-017 Amendment 2026-10-19" written before it means the first, *Amendment 2026-10-19: an event's time against its arrival*. This amendment is a document change: until the workflow change that implements item 1 lands, `rust-ci` runs none of these tests.
+
+**What surfaced it.** Debt #30 (`docs/handoff-session-32.md:196`) and Open question 1: whether the hosted Windows runner can open the agent's sessions, now that `rust-ci` has its Windows job. A probe answered it: pull request #31, closed without landing, added, after the Windows job's `cargo test --all`, a step running `cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1` that could not fail the job. In the run of its commit (`0c47945`, job 117804210704, 2026-10-18 at 22:11 UTC), all seven tests passed:
+
+- `auth_ac_012`, the real Security log;
+- `capture_ac_006`, its elevated case;
+- `net_ac_008` and `net_ac_009`;
+- `process_ac_004`, the cache hit, `process_ac_007` and `process_ac_009`.
+
+None passes by skipping: each fails when it cannot open its session or its subscription, through an `expect` or through an assertion that the agent heartbeats within 10 s. The job's log has the seven `... ok` lines. The job runs as the runner's built-in Administrator (CLAUDE.md, *Environment facts*).
+
+**Amendment.**
+
+1. **`rust-ci`'s Windows job runs the real-ETW tests.** After `cargo test --all`, it runs `cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1`, which fails the job when a test fails. These are the tests that need real ETW, the real Security log and elevation.
+2. **They stay `#[ignore]`d.** `cargo test --all` runs none of them, on Linux or on an unelevated Windows.
+3. **The elevated gate is unchanged.** It still runs them on the developer's machine, with the vitest marquees. The marquees stay out of CI: the hosted Windows runner has no container runtime for testcontainers (ADR-0010 §Decision part 3, Amendment 2026-05-29).
+
+**Acceptance criteria.** capture_ac_013 now reads: `cargo test --all` is green on Linux and on unelevated Windows; the tests that need real ETW or the real Security log run in `rust-ci`'s Windows job and in the elevated gate, and are green in both; `rust-ci` has a Windows job (format, lint, the tests, and the real-ETW tests); `ts-ci` runs on `agent/**`.
+
+**Decision.** Open question 1 set the rule: "if the runner can open the session, move the ETW tests into CI". It is Claude Code's, inside SPEC-017 and ADR-0010. Alternatives:
+
+- leave them to the elevated gate alone, where a regression in capture is found only when Manuel runs it;
+- run them in CI without failing the job, which shows a red test as green.
+
+The cost is the step's time, 25 s in the probe's run. A real-ETW test that flakes on the hosted runner, or an update of the runner's image that changes what a test needs (the Security log's audit policy, for `auth_ac_012`), turns `rust-ci` red on the commit that meets it: the hard rule on failures then applies (CLAUDE.md, *CI monitoring*). What a failing test prints reaches the job's log: data about the runner, its sessions, its connections and its logons, the logons redacted as SPEC-020 prints them; none is about a person.
+
+**Effect.**
+
+- Open question 1: resolved, and debt #30 closes with the workflow change that implements item 1.
+- §Risks, its row "The Windows CI job cannot run the ETW tests": the risk did not occur.
+- The Amendment 2026-10-13's *Effect* says the assertions it adds to capture_ac_001 run on the Windows `rust-ci` runner "if its start fails there, its ETW privilege being still untested". The start succeeds there, so they run developer-local, unelevated, only.
+- ADR-0010, Amendment 2026-05-29, constraint 2, records the runner's ETW-open privilege as untested in CI; the run above tests it for the agent's own tests. ADR-0010 named the SPEC-005 marquee in CI as the validation point of that assumption (§Decision part 3), and constraint 1, no container runtime, still keeps the marquee out of CI. ADR-0010 is not amended: the evidence is recorded here. Its *Consequences* (`docs/adr/0010-agent-privilege-model-mvp.md:97`) still read the assumption as unvalidated until the marquee's first run in CI, which does not come; correcting that is an amendment to ADR-0010, which waits for Manuel (debt #115).
+- CLAUDE.md, *Environment facts*, the *Windows CI job* of the *Local pre-commit gate*, and *Developer-local SPEC-005 marquee validation*, both its introduction, which says the privilege model "has not been validated on `runneradmin`", and its §4: the tests are `#[ignore]`d and run in the elevated gate, as before, and in CI's Windows job too. The workflow change states it there, and in `.github/workflows/README.md` and the comment on `rust-ci.yml`'s Windows job.
+
 ## References
 
 - [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) — the capture specification this SPEC realises and amends by scope.

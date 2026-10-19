@@ -181,3 +181,17 @@ and #31) still wait for him too.
   other volumes stay. Manuel's `infra/dev/.env`, which is not tracked, still
   holds the NATS and MinIO variables, now unused. Docker Desktop was not
   restarted.
+
+## Debts
+
+New:
+
+- **#115 — ADR-0010 still reads the runner's ETW-open privilege as
+  unvalidated.** Its *Consequences*
+  (`docs/adr/0010-agent-privilege-model-mvp.md:97`) say the CI assumption
+  is unvalidated until the SPEC-005 marquee's first run in CI, which does
+  not come (its Amendment 2026-05-29). The agent's own real-ETW and
+  Security-log tests passed on `windows-latest` (SPEC-017, the second
+  Amendment 2026-10-19). Surfaced by the fixed SPEC prompt's review of
+  that amendment. Destination: an amendment to ADR-0010, for Manuel's
+  "sí".
