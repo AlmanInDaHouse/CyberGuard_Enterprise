@@ -23,9 +23,9 @@ Active development, past the bootstrap phase. Built and in the tree: the Rust en
 | 1 | 10 detection rules | **Delivered** (SPEC-016): ten rules, each with a wired fixture and a CI scenario, evaluated over the events a deployed agent captures (SPEC-017). |
 | 2 | Windows agent: processes / network / logins | **Delivered** — processes (SPEC-005), TCP connections opened (SPEC-019) and logons succeeded and failed (SPEC-020), captured on the agent's normal run path (SPEC-017). |
 | 6 | 1 SOAR playbook | **Delivered** (SPEC-022): `pb_high_severity_containment` runs on each new incident of severity High or more from a rule, records the agent's isolation in dry-run and emails the SOC, with a write-once, hash-chained execution record read at `GET /v1/incidents/:id/playbook-executions` (ADR-0021). |
-| 7 | Installation docs (< 30 min) | **Pending** — owner-STOP deployment contract. |
+| 7 | Installation docs (< 30 min) | **Pending** — the contract is proposed (ADR-0022 with five amendments, SPEC-023, on `adr/s43-f-deployment`) and waits for Manuel's "sí"; then roadmap §F's four SPECs and a timed installation. |
 
-On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07), over events read in arrival order (SPEC-018); on the agent side, process, network and logon capture run on the agent's normal secure path (SPEC-017). The latest session handoff, [`docs/handoff-session-42.md`](docs/handoff-session-42.md), is the canonical current state.
+On the server side, criteria **1 / 4** run in a standing stack (detection → incident → notify), driven by the in-process detection driver (ADR-0012 Amendment 2026-06-07), over events read in arrival order (SPEC-018); on the agent side, process, network and logon capture run on the agent's normal secure path (SPEC-017). The latest session handoff, [`docs/handoff-session-43.md`](docs/handoff-session-43.md), is the canonical current state.
 
 The remaining MVP work — phases ordered by technical dependency, plus the owner-STOP decisions gating them — is the work order in [`docs/product/roadmap.md`](docs/product/roadmap.md).
 

@@ -23,10 +23,10 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 63** at Session 42's close, the count `docs/handoff-session-42.md` states.
+**Open: 64** at Session 43's close, the count `docs/handoff-session-43.md` states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 42's close, `docs/handoff-session-42.md:668-670`);
+Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -73,7 +73,7 @@ Session N resumes* (at Session 42's close, `docs/handoff-session-42.md:668-670`)
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
 | 85 | A compromised ingest can forge an api session (shared Redis) | `handoff-session-39.md:666` | Roadmap §F: a Redis user per service. |
 | 86 | Both services act as the Postgres superuser | `handoff-session-39.md:672` | Roadmap §F: a Postgres role per service. |
-| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676` | A SPEC-002 amendment, with the next agent change under the elevated gate. |
+| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; proposed in ADR-0022 (S43, waiting on Manuel's "sí"). #111's agent change under gate 1 went without it. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694` | Roadmap §F and a SPEC-004 amendment. |
 | 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md:1132` | Roadmap §F. |
@@ -89,13 +89,14 @@ Session N resumes* (at Session 42's close, `docs/handoff-session-42.md:668-670`)
 | 106 | The dashboard's cookies carry no `__Host-` prefix | `handoff-session-40.md:1058` | A SPEC-009 change, with roadmap §F's deployment domain. |
 | 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:1069` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
 | 109 | Whoever can write the rules directory and restart ingest changes detection | `handoff-session-40.md:1079` | Roadmap §F's packaging: the rules read-only in the image. |
-| 110 | The development dependencies carry advisories: since S42, markdownlint-cli2's and tailwindcss 3's | `handoff-session-40.md:1086`; `handoff-session-42.md:610` | markdownlint-cli2 with CI's action; tailwindcss's next major; an audit of the development dependencies in CI. |
-| 111 | `cargo audit` lets rustls-pemfile pass, unmaintained, in the agent's runtime (chacha20's half: `fe06426`, S42) | `handoff-session-41.md:737` | rustls-pemfile replaced with the next agent change under the elevated gate. |
+| 110 | The development dependencies carry advisories: since S43, braces, katex and tailwindcss 3's postcss-selector-parser | `handoff-session-40.md:1086`; `handoff-session-42.md:610`; `handoff-session-43.md:517` | tailwindcss's next major (postcss-selector-parser; braces through its chokidar and fast-glob); braces and katex in markdownlint-cli2 when a fixed release falls within their parents' ranges. CI audits every dependency for a critical advisory since `0e26dd7`. |
+| 111 | `cargo audit` lets rustls-pemfile pass, unmaintained, in the agent's runtime (chacha20's half: `fe06426`, S42) | `handoff-session-41.md:737` | PR #37 (`16d5c33`, CI green) replaces it; it lands after elevated gate 1. |
 | 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:746` | Roadmap §F's packaging, with the release artifacts. |
 | 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750` | A later sweep: each action pinned by commit SHA. |
 | 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:728` | With #32. |
-| 115 | ADR-0010 still reads the runner's ETW-open privilege as unvalidated in CI | `handoff-session-42.md:568` | An amendment to ADR-0010, for Manuel's "sí". |
-| 117 | Sentences in ADRs and SPECs the code has outgrown, which #13's sweep left | `handoff-session-42.md:587` | A pass that classifies each, record or live claim; the ADRs' live claims to Manuel with #115's. |
+| 115 | ADR-0010 still reads the runner's ETW-open privilege as unvalidated in CI | `handoff-session-42.md:568` | ADR-0010's and ADR-0008's Amendments 2026-10-19, with SPEC-005's, on `adr/s43-115-runner-privilege`, waiting on Manuel's "sí". |
+| 118 | The SPEC-005 marquee's budget log differs from SPEC-005 (`within_budget`, a clock started before enrollment) | `handoff-session-43.md:535` | The next change to the marquee. |
+| 119 | The enrollment contract's texts differ from the code where SPEC-023 does not touch them (ADR-0004, SPEC-002, SPEC-003, SPEC-004) | `handoff-session-43.md:541` | F4, the renewal SPEC of roadmap §F, which rewrites the enrollment contract. |
 
 ## Closed
 
@@ -155,3 +156,4 @@ Session N resumes* (at Session 42's close, `docs/handoff-session-42.md:668-670`)
 | 101 | The login limiter reads its counters, then counts the failure | `8bd5bc9` | `handoff-session-40.md:1119` |
 | 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:1097` |
 | 116 | apiauth_ac_014's Postgres case fails when the Docker VM's clock falls behind the host's | `57845d4`, opened and closed in S42 | `handoff-session-42.md:577` |
+| 117 | Sentences in ADRs and SPECs the code has outgrown, which #13's sweep left | No commit: classified, each a record (Class H-inline) or superseded by an amendment (S43) | `handoff-session-43.md:272` |

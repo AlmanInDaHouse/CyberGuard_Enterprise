@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-42.md](../handoff-session-42.md)).
+([handoff-session-43.md](../handoff-session-43.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -360,6 +360,25 @@ This dependency-ordered document supersedes both for planning.
 
 ### F — Installation / deployment (criterion 7)
 
+- **Status: CONTRACT PROPOSED** (S43, 2026-10-19). ADR-0022 (Proposed) with
+  co-located amendments to ADR-0001, ADR-0003, ADR-0004, ADR-0016 and
+  ADR-0019, and SPEC-023 (Proposed), on the owner-review branch
+  `adr/s43-f-deployment` (`docs/handoff-session-43.md`). They decide the
+  deployment-contract points of Part (b) §2–§4 under Manuel's delegation,
+  and wait for his "sí". The phase is four SPECs, in this order:
+  - F1, SPEC-023: the server's installation (the bundle, the configuration
+    and secrets, a credential per service, the proxy, the agents' TLS, the
+    images and the release, the forensic anchor, retention);
+  - F2: the agent's installer and service mode (ADR-0010 §Decision part 2),
+    with its key custody (#87);
+  - F3: the dashboard's missing pages (TOTP enrollment and users, #83 and
+    #98; the login deleting the prior session, #102; the agents and the
+    enrollment tokens; the alerts; the export and the report; the playbook
+    records; the password change);
+  - F4: the agents' certificate renewal (#88), with the rest of #89.
+
+  Criterion 7 is delivered by a timed installation after F1 to F4
+  (SPEC-023 deploy_ac_020); the first public release waits for F2 to F4.
 - Does: a production compose, operator runbook, config/secrets surface,
   TLS/CA provisioning, published images, and dashboard in compose. Today
   only the dev stack exists (`infra/dev/docker-compose.dev.yml`, "not for
