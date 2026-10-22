@@ -108,6 +108,14 @@ Chosen.
 - If ferrisetw releases a 1.3+ that includes `events_lost()` and `stop_if_exist`, the agent migrates the side-channel callsites to the upstream API and the helper module shrinks or disappears. The migration is a follow-up SPEC amendment under SPEC-005 (or its successor that introduces the change), not a new ADR — the *decision* this ADR records is *which* crate; a fresh release of the same crate does not supersede that decision.
 - This ADR does not pre-decide ETW consumption for non-Windows platforms (Linux audit, macOS Endpoint Security Framework). When those platforms land, they open their own ADRs.
 
+## Amendment 2026-10-19: the CI gate's question is answered
+
+**What surfaced it.** Debt #115 (`docs/handoff-session-42.md:568`), which the review of debt #30's workflow change extended to this line (`docs/handoff-session-42.md:200-201`). §Consequences, *Neutral*, says that the Phase 0 CI gate (whether `windows-latest`'s `runneradmin` can open the Kernel-Process provider) was skipped and carried as a risk into ADR-0010, and that "The first execution of the SPEC-005 AC-001 marquee in CI is the free first-use validation". AC-001 left CI on 2026-05-27, when `72432e4` removed the Windows workflow that was to run it (Path D, recorded by ADR-0010's Amendment 2026-05-29); the only dispatch of that workflow had failed before any test ran (`docs/handoff-session-15.md:52`). Tests of `rust-ci`'s Windows job have opened the agent's session on the runner since Session 32 (2026-10-09), but they passed whether or not it opened, so no run asserted the answer. It was asserted in Session 42 by the agent's seven tests that need real ETW or the real Security log: six of them open the Kernel-Process provider through ferrisetw, the seventh reads only the Security log, and all seven pass on `windows-latest`; `rust-ci`'s Windows job runs them since `acb0654` (SPEC-017's second Amendment 2026-10-19).
+
+**The amendment.** That line of §Consequences, *Neutral*, reads: the Phase 0 CI gate's question is answered; the hosted runner opens the Kernel-Process provider through ferrisetw in `rust-ci`'s Windows job, whose real-ETW tests fail the job when they cannot (ADR-0010 Amendment 2026-10-19). The SPEC-005 AC-001 marquee does not run in CI: the hosted Windows runner offered testcontainers no container runtime when it was measured, on 2026-05-27.
+
+**Effect.** §Decision, §Alternatives considered and §Compliance: none; ferrisetw stays the crate, and the six tests that answer the question consume ETW through it. Proposed by Claude Code on 2026-10-19, at Manuel's request of that day (debt #115), and ratified by Manuel on 2026-10-23, in chat: "Sí, ratifico", his answer to the question that put this amendment to him. Status stays `Accepted`.
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout. The agent lives at `agent/cg-agent/`; ETW code goes under it.

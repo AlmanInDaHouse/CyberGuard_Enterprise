@@ -417,7 +417,7 @@ This dependency-ordered document supersedes both for planning.
   (#108); the detection rules read-only in the image (#109). From S42: the
   retention of the api's request log, which records the requests refused
   for want of a session (SPEC-008 Amendment 2026-10-19, item 3).
-- Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:120` (packaging
+- Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:132` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
 - Last by dependency.
 

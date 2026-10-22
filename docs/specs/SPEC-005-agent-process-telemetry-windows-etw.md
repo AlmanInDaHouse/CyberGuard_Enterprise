@@ -280,6 +280,14 @@ Each entry will record the recommended-default-and-rationale pattern established
 - ADR-0008 §Decision part 2 names the helper `stop_zombie(session_name) -> Result<StopOutcome, u32>`, while the code has `reclaim_zombie(session_name) -> Result<bool, u32>` (`agent/cg-agent/src/etw/events_lost_impl.rs:127`). That is the other half of #64. The ADR stays as written: the code takes its names at the next change to `agent/cg-agent/src/etw/` that runs the elevated gate.
 - Status stays **Accepted**.
 
+## Amendment 2026-10-19: AC-001 is not the CI privilege validation
+
+**What surfaced it.** Debt #115 (`docs/handoff-session-42.md:568`), which the review of debt #30's workflow change extended to this paragraph (`docs/handoff-session-42.md:200-201`). AC-001's last paragraph says that it "is the first-use validation of whether `windows-latest`'s `runneradmin` carries the same effective ETW-open privileges as a locally-elevated user", and that the choice between ADR-0010's fallback paths "is deferred until the contradiction surfaces". AC-001 has run in no CI since 2026-05-27, when Path D took the marquee out of CI, and ADR-0010's Amendment 2026-05-29 recorded the choice: Fallback path 2. The privilege was then validated by other tests (ADR-0010 Amendment 2026-10-19).
+
+**Amendment.** That paragraph reads: the CI privilege assumption of ADR-0010 §Decision part 3 is validated by the agent's tests that need real ETW or the real Security log, which `rust-ci`'s Windows job runs (SPEC-017's second Amendment 2026-10-19; ADR-0010 Amendment 2026-10-19). AC-001 runs developer-local in the elevated gate, by Fallback path 2, because the hosted Windows runner offered testcontainers no container runtime when it was measured, on 2026-05-27.
+
+**Effect.** AC-001's five conditions and its 45-second budget are unchanged, and so are the other criteria. This amends AC-001's and NFR-005-004's "visible in the CI run output", and §Motivation's "elapsed-time logging in CI": `marquee_elapsed_seconds` is visible in the vitest output of the suite's Windows runs, all developer-local since 2026-05-27, and AC-001 passes only in the elevated gate's. It is a vitest test of `services/ingest` (`services/ingest/test/spec-005-marquee.test.ts`), not one of the Rust integration tests under `agent/cg-agent/tests/` that §Scope and §Acceptance criteria's opening map every criterion to; those two statements are amended by scope for AC-001. This amendment lands with ADR-0010's and ADR-0008's of the same day, after Manuel's ratification of theirs, on 2026-10-23. Status stays `Accepted`.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout. Places `agent/cg-agent/`, `services/ingest/`, `schemas/cges/v0.1/`, `docs/specs/`, `docs/adr/`, `docs/spikes/`.
