@@ -21,7 +21,8 @@ function isConnectivityError(e: unknown): boolean {
 }
 
 /**
- * `POST /v1/agents/enroll` (plain HTTP) + `GET /health`. SPEC-004 FR-003–FR-007:
+ * `POST /v1/agents/enroll` + `GET /health`, on the enroll listener (over TLS unless
+ * INGEST_ENROLL_TLS=false, SPEC-023 §Operational §6). SPEC-004 FR-003–FR-007:
  * validate the single-use token, issue an Ed25519 client cert, persist the
  * agent — token consumption and the agents insert in one transaction.
  */
