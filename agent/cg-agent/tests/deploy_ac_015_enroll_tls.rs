@@ -95,6 +95,32 @@ async fn deploy_ac_015_enrollment_without_a_trust_anchor_is_refused() {
     );
 }
 
+#[tokio::test]
+async fn deploy_ac_015_an_empty_trust_anchor_path_is_refused() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = write_config(dir.path(), "https://127.0.0.1:9", false);
+    let toml = std::fs::read_to_string(&path)
+        .expect("read agent.toml")
+        .replacen(
+            "[server]
+",
+            "[server]
+trust_anchor_path = ''
+",
+            1,
+        );
+    std::fs::write(&path, toml).expect("write agent.toml");
+
+    let err = cg_agent::config::load_from_path(&path).expect_err("an empty anchor path");
+    assert!(
+        matches!(&err, ConfigError::Invalid(m) if m == "server.trust_anchor_path must be non-empty"),
+        "{err:?}"
+    );
+
+    let out = run_binary(&path).await;
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deploy_ac_015_enrolls_against_a_certificate_its_anchor_issued() {
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);

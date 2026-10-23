@@ -297,6 +297,14 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
         }
     }
 
+    // An empty trust anchor path names no file: a configuration fault (exit 2),
+    // not a TLS one found when the file is read (exit 6).
+    if config.server.trust_anchor_path.as_deref() == Some("") {
+        return Err(ConfigError::Invalid(
+            "server.trust_anchor_path must be non-empty".to_string(),
+        ));
+    }
+
     // SPEC-003 §Configuration: when the secure path is configured, the
     // server URL must be https, the canonical form must be JCS, and the
     // minimum TLS version must be 1.3.

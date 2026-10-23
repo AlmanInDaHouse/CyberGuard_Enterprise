@@ -1,9 +1,10 @@
+import "reflect-metadata";
 import { X509Certificate as NodeX509 } from "node:crypto";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:tls";
-import type * as x509 from "@peculiar/x509";
+import * as x509 from "@peculiar/x509";
 import { afterAll, afterEach, beforeAll, expect, inject, test } from "vitest";
 import type { ServerCa } from "../src/ca.js";
 import type { Config } from "../src/config.js";
@@ -121,6 +122,33 @@ test("after a restart with another list, the certificate is reissued with that l
   expect(sans(cert)).toEqual(["DNS:agents.example.test"]);
 });
 
+test("a list in another order is reissued with its first name as the CN", async () => {
+  const paths = certDir();
+  const first = await start(paths, ["a.example.test", "b.example.test"]);
+  await first.close();
+  open.pop();
+  await start(paths, ["b.example.test", "a.example.test"]);
+  expect(subjectParts(onDisk(paths.cert))).toEqual(["CN=b.example.test", SELF_ISSUED_O].sort());
+});
+
+test("an IPv6 address is carried as given, and a restart with the same list keeps the pair", async () => {
+  const paths = certDir();
+  const names = ["cg.example.test", "::ffff:10.0.0.5", "2001:db8::1"];
+  const first = await start(paths, names);
+  const serial = onDisk(paths.cert).serialNumber;
+  const ips = new x509.X509Certificate(readFileSync(paths.cert, "utf8"))
+    .getExtension(x509.SubjectAlternativeNameExtension)
+    ?.names.toJSON()
+    .filter((n) => n.type === "ip")
+    .map((n) => n.value);
+  // ::ffff:10.0.0.5 is ::ffff:a00:5 in hexadecimal, not ::ffff:10.
+  expect(ips).toEqual(["::ffff:a00:5", "2001:db8::1"]);
+  await first.close();
+  open.pop();
+  await start(paths, names);
+  expect(onDisk(paths.cert).serialNumber).toBe(serial);
+});
+
 test("a self-issued pair of the earlier profile is kept with the default names, and reissued with others", async () => {
   // SPEC-004's profile: CN=localhost, SANs localhost and 127.0.0.1, no O.
   const legacy = await pairWithDaysLeft(caSigner(ca), 80);
@@ -158,11 +186,14 @@ test.skipIf(process.platform === "win32")(
   async () => {
     const paths = certDir();
     const first = await start(paths, ["cg.example.test"]);
+    const serial = onDisk(paths.cert).serialNumber;
     await first.close();
     open.pop();
     chmodSync(paths.key, 0o644);
     await start(paths, ["cg.example.test"]);
     expect(statSync(paths.key).mode & 0o777).toBe(0o600);
+    // The mode is set on the pair kept, not by a reissue.
+    expect(onDisk(paths.cert).serialNumber).toBe(serial);
   },
 );
 

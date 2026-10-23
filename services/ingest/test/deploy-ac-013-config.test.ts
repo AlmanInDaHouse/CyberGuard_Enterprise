@@ -219,6 +219,12 @@ test.each([
   ["-bad.example.test"],
   [`${"a".repeat(64)}.example.test`],
   [Array.from({ length: 21 }, (_, i) => `h${i}.example.test`).join(",")],
+  // A mistyped address is no DNS name: no top-level domain is digits alone.
+  ["10.0.0.256"],
+  ["1.2.3"],
+  ["010.0.0.5"],
+  // A zone belongs to the host, and a certificate has no place for it.
+  ["fe80::1%eth0"],
 ])("INGEST_SERVER_NAMES=%j is refused", (value) => {
   expectRefused({ ...validEnv(), INGEST_SERVER_NAMES: value }, "INGEST_SERVER_NAMES");
 });
@@ -229,6 +235,11 @@ test("the server names default to localhost and 127.0.0.1; DNS names, IPv4 and I
     loadConfig({ ...validEnv(), INGEST_SERVER_NAMES: "cg.example.test, 10.0.0.5 ,::1,fe80::1" })
       .INGEST_SERVER_NAMES,
   ).toEqual(["cg.example.test", "10.0.0.5", "::1", "fe80::1"]);
+  // An IPv6 address in its hexadecimal form, the one the certificate encodes faithfully.
+  expect(
+    loadConfig({ ...validEnv(), INGEST_SERVER_NAMES: "::FFFF:10.0.0.5,2001:DB8:0::1" })
+      .INGEST_SERVER_NAMES,
+  ).toEqual(["::ffff:a00:5", "2001:db8::1"]);
   const twenty = Array.from({ length: 20 }, (_, i) => `h${i}.example.test`);
   expect(
     loadConfig({ ...validEnv(), INGEST_SERVER_NAMES: twenty.join(",") }).INGEST_SERVER_NAMES,

@@ -92,18 +92,39 @@ const MAX_SERVER_NAMES = 20;
 /** A DNS name: labels of letters, digits and inner hyphens, 1 to 63 each, 253 in all. */
 const DNS_LABEL = /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$/;
 
+/** A label of digits alone: no top-level domain is one, so a name ending in one is a
+ *  mistyped address (`10.0.0.256`, `1.2.3`), not a DNS name. */
+const NUMERIC_LABEL = /^\d+$/;
+
 /** Why a list of server names is refused, or null when it is a list of 1 to 20 DNS names
- *  and IPv4 or IPv6 addresses. The reasons name no entry. */
+ *  and IPv4 or IPv6 addresses, an IPv6 address without a zone. The reasons name no entry. */
 function serverNamesProblem(names: string[]): string | null {
   if (names.length === 0 || names.every((n) => n === "")) return "must name at least one host";
   if (names.length > MAX_SERVER_NAMES) return `must name at most ${MAX_SERVER_NAMES} hosts`;
   for (const name of names) {
-    if (isIP(name) !== 0) continue;
-    if (name.length > 253 || !name.split(".").every((label) => DNS_LABEL.test(label))) {
+    const ip = isIP(name);
+    if (ip === 4) continue;
+    if (ip === 6) {
+      // A zone (`fe80::1%eth0`) is the host's own, and a certificate has no place for it.
+      if (name.includes("%")) return "each entry must be a DNS name or an IP address";
+      continue;
+    }
+    const labels = name.split(".");
+    if (
+      name.length > 253 ||
+      !labels.every((label) => DNS_LABEL.test(label)) ||
+      NUMERIC_LABEL.test(labels[labels.length - 1] ?? "")
+    ) {
       return "each entry must be a DNS name or an IP address";
     }
   }
   return null;
+}
+
+/** An IPv6 address in the one form a URL prints it (lowercase, compressed, in hexadecimal),
+ *  the form the certificate's SAN encodes faithfully; any other name as given. */
+function canonicalServerName(name: string): string {
+  return isIP(name) === 6 ? new URL(`http://[${name}]/`).hostname.slice(1, -1) : name;
 }
 
 /** Whether two paths name one file: one canonical path, or one file on disk (a hard link). */
@@ -177,7 +198,7 @@ const Fields = z.object({
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: reason });
         return z.NEVER;
       }
-      return names;
+      return names.map(canonicalServerName);
     }),
   // SPEC-023 §Operational §6 — the enrollment listener serves HTTPS with the server
   // certificate; `false` keeps plain HTTP, for the test suites that post to it in clear.
