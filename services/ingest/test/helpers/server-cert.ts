@@ -78,7 +78,8 @@ export interface Pair {
   serial: string;
 }
 
-/** The profile the server issues: `CN=localhost`, SAN localhost and 127.0.0.1. */
+/** The profile SPEC-004 issued before SPEC-023 (`CN=localhost`, SANs localhost and
+ *  127.0.0.1), which ingest still counts as self-issued: the legacy profile. */
 const SERVER_PROFILE = {
   subject: "CN=localhost",
   san: [

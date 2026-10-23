@@ -33,13 +33,14 @@ export interface IngestServer {
 }
 
 /**
- * Start the SPEC-004 ingest server: a plain-HTTP enroll listener and an mTLS
- * heartbeat listener, backed by Postgres / ClickHouse / Redis, returning the
- * bound URLs and the server CA PEM. Both listeners bind INGEST_BIND_HOST
- * (default loopback; a container needs a non-loopback bind such as 0.0.0.0).
- * The bind is independent of the cert SAN: SAN verification is against the
- * host the agent dials (SPEC-003 FR-005), not the bound interface, and the
- * self-issued cert (cert.ts) covers only localhost / 127.0.0.1.
+ * Start the SPEC-004 ingest server: an enroll listener, over TLS unless
+ * INGEST_ENROLL_TLS=false (SPEC-023 §Operational §6), and an mTLS heartbeat
+ * listener, backed by Postgres / ClickHouse / Redis, returning the bound URLs and
+ * the server CA PEM. Both listeners bind INGEST_BIND_HOST (default loopback; a
+ * container needs a non-loopback bind such as 0.0.0.0). The bind is independent of
+ * the cert SAN: SAN verification is against the host the agent dials (SPEC-003
+ * FR-005), not the bound interface, and the self-issued cert (cert.ts) covers the
+ * names INGEST_SERVER_NAMES lists, localhost and 127.0.0.1 by default.
  */
 /** The boot log surface (pino's `Logger` satisfies it); a test injects a sink. */
 export interface BootLog {

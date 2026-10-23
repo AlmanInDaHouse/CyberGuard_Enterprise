@@ -3,8 +3,10 @@
 TypeScript + Fastify service (per [ADR-0007](../../docs/adr/0007-ingest-language-typescript-mvp.md))
 that terminates the agent protocol and persists:
 
-- `POST /v1/agents/enroll` (plain HTTP) — validates a single-use token,
-  issues an Ed25519 client certificate, persists the agent. SPEC-002 contract.
+- `POST /v1/agents/enroll` (over TLS, with the server certificate; plain HTTP
+  with `INGEST_ENROLL_TLS=false`, SPEC-023 §Operational §6) — validates a
+  single-use token, issues an Ed25519 client certificate, persists the agent.
+  SPEC-002 contract.
 - `POST /v1/agents/heartbeat` (mTLS) — validates the signed outer envelope
   (signature, nonce, timestamp) and persists the heartbeat. SPEC-003 contract.
 - `GET /health` — liveness.
