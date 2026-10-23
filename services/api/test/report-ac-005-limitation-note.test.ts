@@ -7,8 +7,8 @@ import { norm, pdfText } from "./helpers/pdf.js";
 import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-schema.js";
 
 // SPEC-013 report_ac_005 (SC-RPT-005) — the visible limitation note. The rendered PDF carries the
-// integrity-not-authenticity note in the integrity block (the provisional mitigation while
-// out-of-band anchoring stays deferred — SPEC-012 §Open questions 1). Verified by extracting the
+// integrity-not-authenticity note in the integrity block, which since SPEC-023 §Data contracts §5
+// points the reader to the fingerprint recorded at installation. Verified by extracting the
 // PDF text and asserting the note's distinctive phrases (robust to PDF line reflow).
 
 let services: Awaited<ReturnType<typeof buildServices>>;

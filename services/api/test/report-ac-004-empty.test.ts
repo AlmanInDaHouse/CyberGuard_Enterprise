@@ -81,6 +81,7 @@ test('report_ac_004 (2): null cg_mitre degrades cleanly to "none mapped"', async
     chain_root: chain0Hex,
     root_signature: "c2lnbmF0dXJl", // placeholder base64url; not under test here
     forensic_pubkey: "cHVibGlja2V5",
+    forensic_pubkey_sha256: `sha256:${"0".repeat(64)}`, // placeholder; not under test here
   };
 
   const buf = await renderReport(detail, exp);

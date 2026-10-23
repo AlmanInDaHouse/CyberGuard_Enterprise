@@ -1,6 +1,7 @@
 import { getIncidentEventTimeline } from "../read/queries.js";
 import type { EventTimeline, TimelineEvent } from "../read/types.js";
 import type { Services } from "../services.js";
+import { fingerprintOf } from "./fingerprint.js";
 import { computeChain, toHex } from "./hashchain.js";
 
 // SPEC-012 §Data contracts §3 — the on-demand forensic snapshot export. For an incident's
@@ -25,9 +26,12 @@ import { computeChain, toHex } from "./hashchain.js";
 // CONVENIENCE, NOT as a trust root. A verifier MUST check `root_signature` against a key it
 // trusts OUT-OF-BAND; verifying against the embedded key ALONE is a forbidden anti-pattern
 // (a compromised server could re-sign with its own key and embed the matching pubkey, so the
-// signature would "verify" against itself). Out-of-band trust anchoring is the deferred Open
-// question (SPEC-012 §Open questions 1) — NOT implemented here. The forensic PRIVATE key
-// never appears in this object (the shape has no field for it; the key is non-extractable).
+// signature would "verify" against itself). The out-of-band anchor is the key's fingerprint,
+// recorded outside CyberGuard at installation (ADR-0016 Amendment 2026-10-19); the export
+// carries it as `forensic_pubkey_sha256`, a convenience too, and `verify-export.js` checks the
+// embedded key against the RECORDED fingerprint (SPEC-023 §Operational §11). The forensic
+// PRIVATE key never appears in this object (the shape has no field for it; the key is
+// non-extractable).
 
 export interface ForensicExport {
   incident_id: string;
@@ -39,6 +43,9 @@ export interface ForensicExport {
   root_signature: string;
   /** The raw 32-byte Ed25519 forensic public key, base64url (convenience, NOT a trust root). */
   forensic_pubkey: string;
+  /** The key's fingerprint, `sha256:<hex>` (SPEC-023 §Data contracts §5): a reader compares
+   *  it with the one recorded at installation; the verifier checks the key against that. */
+  forensic_pubkey_sha256: string;
 }
 
 export async function buildForensicExport(
@@ -71,5 +78,6 @@ export async function sealTimeline(
     chain_root: toHex(chainN),
     root_signature: Buffer.from(signature).toString("base64url"),
     forensic_pubkey: Buffer.from(services.forensicKey.publicKeyRaw).toString("base64url"),
+    forensic_pubkey_sha256: await fingerprintOf(services.forensicKey.publicKeyRaw),
   };
 }

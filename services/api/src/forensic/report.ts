@@ -18,14 +18,16 @@ import { type ForensicExport, sealTimeline } from "./export.js";
  * SPEC-013 §Data contracts §5 — the canonical integrity-not-authenticity limitation note,
  * rendered VISIBLY in the PDF (report_ac_005). It states what the seal proves (integrity under
  * the shown key) AND what it does not (authenticity — that needs out-of-band confirmation of the
- * pubkey; SPEC-012 §Open questions 1, deferred). Exported so tests assert its substance.
+ * pubkey): SPEC-023 §Data contracts §5 has it say that the key is checked against the
+ * fingerprint recorded at installation (ADR-0016 Amendment 2026-10-19). Exported so tests
+ * assert its substance.
  */
 export const INTEGRITY_LIMITATION_NOTE =
   "Integrity, not authenticity — this signature proves the evidence in this report is " +
   "intact under the key whose public half (forensic_pubkey) is shown above; it does not " +
-  "prove that key is authentic. A verifier must confirm forensic_pubkey against a source " +
-  "trusted independently of this server (out-of-band anchoring; pending a deployment " +
-  "decision — SPEC-012 Open questions 1).";
+  "prove that key is authentic. A verifier checks the key against the fingerprint recorded " +
+  "at installation, outside CyberGuard (out-of-band anchoring, a record trusted " +
+  "independently of this server): forensic_pubkey_sha256 above must equal it.";
 
 const styles = StyleSheet.create({
   page: {
@@ -109,6 +111,11 @@ function reportDocument(detail: IncidentDetail, exp: ForensicExport) {
         h(Text, { key: "seal-cr", style: styles.mono }, `chain_root: ${exp.chain_root}`),
         h(Text, { key: "seal-rs", style: styles.mono }, `root_signature: ${exp.root_signature}`),
         h(Text, { key: "seal-pk", style: styles.mono }, `forensic_pubkey: ${exp.forensic_pubkey}`),
+        h(
+          Text,
+          { key: "seal-fp", style: styles.mono },
+          `forensic_pubkey_sha256: ${exp.forensic_pubkey_sha256}`,
+        ),
         h(Text, { key: "seal-note", style: styles.note }, INTEGRITY_LIMITATION_NOTE),
       ),
     ),

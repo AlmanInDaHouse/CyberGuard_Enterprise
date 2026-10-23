@@ -1,16 +1,9 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  Kysely,
-  type Migration,
-  type MigrationProvider,
-  Migrator,
-  PostgresDialect,
-  sql,
-} from "kysely";
+import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
-import { type Config, loadConfig } from "../config.js";
+import { type Config, ConfigError, loadConfigFor } from "../config.js";
 
 /**
  * services/api OWNS its auth migrations independently of services/ingest
@@ -20,7 +13,7 @@ import { type Config, loadConfig } from "../config.js";
  * applier itself mirrors the services/ingest pattern; it bootstraps no
  * ClickHouse (api is Postgres + Redis only).
  */
-const MIGRATION_LOCK_KEY = 8_927_008;
+export const MIGRATION_LOCK_KEY = 8_927_008;
 const MIGRATION_TABLE = "api_kysely_migration";
 const MIGRATION_LOCK_TABLE = "api_kysely_migration_lock";
 
@@ -46,54 +39,77 @@ function folderMigrationProvider(migrationFolder: string): MigrationProvider {
   };
 }
 
+/** How a run takes the advisory lock: the service skips when another process holds it; the
+ *  one-shot's command waits for it (SPEC-023 §Data contracts §4). */
+export interface MigrateOptions {
+  wait?: boolean;
+}
+
 /**
- * Apply the api's own Postgres migrations under a `pg_try_advisory_lock` (its
- * own key) so concurrent instances cannot double-apply. Idempotent.
+ * Apply the api's own Postgres migrations under an advisory lock (its own key) so
+ * concurrent instances cannot double-apply. The lock is taken and released on one
+ * connection, held apart from the migrator's. Without `wait`, a run that finds the lock
+ * held skips; with it, the run waits for the lock, so a command that completes has
+ * applied the migrations. Idempotent.
  */
-export async function runMigrations(config: Config = loadConfig()): Promise<void> {
+export async function runMigrations(
+  config: Pick<Config, "API_PG_URL">,
+  options: MigrateOptions = {},
+): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
-    const lock = await sql<{
-      locked: boolean;
-    }>`SELECT pg_try_advisory_lock(${MIGRATION_LOCK_KEY}) AS locked`.execute(db);
-    if (!lock.rows[0]?.locked) {
-      // Another api instance holds the lock and is migrating; skip.
-      return;
-    }
+    const lock = await pool.connect();
     try {
-      const migrator = new Migrator({
-        db,
-        provider: folderMigrationProvider(
-          path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations"),
-        ),
-        migrationTableName: MIGRATION_TABLE,
-        migrationLockTableName: MIGRATION_LOCK_TABLE,
-      });
-      const { error, results } = await migrator.migrateToLatest();
-      // The failed migration's own message is the operator's instruction (0004 names the
-      // org and the count to resolve, SPEC-008 Amendment 2026-10-15 item 3).
-      const failed = (results ?? []).find((r) => r.status === "Error");
-      if (failed || error) {
-        const reason = error instanceof Error ? error.message : String(error ?? "");
-        throw new Error(
-          `migration failed: ${failed?.migrationName ?? "(unknown)"}${reason ? `: ${reason}` : ""}`,
+      if (options.wait) {
+        await lock.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+      } else {
+        const r = await lock.query<{ locked: boolean }>(
+          "SELECT pg_try_advisory_lock($1) AS locked",
+          [MIGRATION_LOCK_KEY],
         );
+        // Another api instance holds the lock and is migrating; skip.
+        if (!r.rows[0]?.locked) return;
+      }
+      try {
+        const migrator = new Migrator({
+          db,
+          provider: folderMigrationProvider(
+            path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations"),
+          ),
+          migrationTableName: MIGRATION_TABLE,
+          migrationLockTableName: MIGRATION_LOCK_TABLE,
+        });
+        const { error, results } = await migrator.migrateToLatest();
+        // The failed migration's own message is the operator's instruction (0004 names the
+        // org and the count to resolve, SPEC-008 Amendment 2026-10-15 item 3).
+        const failed = (results ?? []).find((r) => r.status === "Error");
+        if (failed || error) {
+          const reason = error instanceof Error ? error.message : String(error ?? "");
+          throw new Error(
+            `migration failed: ${failed?.migrationName ?? "(unknown)"}${reason ? `: ${reason}` : ""}`,
+          );
+        }
+      } finally {
+        await lock.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
       }
     } finally {
-      await sql`SELECT pg_advisory_unlock(${MIGRATION_LOCK_KEY})`.execute(db);
+      lock.release();
     }
   } finally {
     await db.destroy();
   }
 }
 
-// Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly.
+// Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly: the one-shot's
+// command, which validates API_PG_URL alone and waits for the lock.
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  runMigrations()
+  Promise.resolve()
+    .then(() => runMigrations(loadConfigFor(["API_PG_URL"]), { wait: true }))
     .then(() => process.exit(0))
     .catch((e: unknown) => {
-      process.stderr.write(`cg-api migrate: ${String(e)}\n`);
+      const line = e instanceof ConfigError ? e.message : String(e);
+      process.stderr.write(`cg-api migrate: fatal: ${line}\n`);
       process.exit(1);
     });
 }

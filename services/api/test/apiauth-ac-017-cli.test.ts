@@ -26,13 +26,9 @@ beforeAll(() => {
   config = inject("apiConfig");
 });
 
-const args = (email: string, password: string, role?: string) => [
-  "--email",
-  email,
-  "--password",
-  password,
-  ...(role ? ["--role", role] : []),
-];
+// SPEC-023 §Operational §8: the password no longer comes from the command line; the
+// command reads it from standard input and hands it to createUserFromCli.
+const args = (email: string, password: string, role = "admin") => ({ email, password, role });
 
 test("an unknown role is refused, and nothing is written", async () => {
   await expect(
@@ -99,32 +95,37 @@ test("an address already taken fails with a conflict, and writes nothing", async
   ).toHaveLength(1);
 });
 
-/** Run the CLI as a program, as `task api:create-user` does, with the test's config. */
-function runCli(argv: string[]): { status: number | null; stdout: string; stderr: string } {
+/** Run the CLI as a program, as `task api:create-user` does, with the test's config and
+ *  the password on standard input; `--no-confirm` skips the TOTP question. */
+function runCli(
+  email: string,
+  password: string,
+): { status: number | null; stdout: string; stderr: string } {
+  const argv = ["--email", email, "--no-confirm"];
   const r = spawnSync(process.execPath, ["--import", "tsx", "src/cli/create-user.ts", ...argv], {
     cwd: path.join(path.dirname(fileURLToPath(import.meta.url)), ".."),
     encoding: "utf8",
+    input: `${password}
+`,
     env: {
       ...process.env,
       API_PG_URL: config.API_PG_URL,
       API_REDIS_URL: config.API_REDIS_URL,
-      API_CH_URL: config.API_CH_URL,
       API_DB_ENC_PASSPHRASE: config.API_DB_ENC_PASSPHRASE,
-      API_FORENSIC_PASSPHRASE: config.API_FORENSIC_PASSPHRASE,
     },
   });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
 test("run as a program, it creates the user and prints the URI once; a refusal exits 2", async () => {
-  const ok = runCli(args("program@apiauth017.test", "Valid-passw0rd-017"));
+  const ok = runCli("program@apiauth017.test", "Valid-passw0rd-017");
   expect(ok.status, ok.stderr).toBe(0);
   expect(ok.stdout.trim()).toMatch(/^otpauth:\/\/totp\//);
   expect(ok.stdout.trim().split("\n")).toHaveLength(1);
   expect(await query("SELECT 1 FROM users WHERE email = 'program@apiauth017.test'")).toHaveLength(
     1,
   );
-  const refused = runCli(args("program2@apiauth017.test", "weak"));
+  const refused = runCli("program2@apiauth017.test", "weak");
   expect(refused.status).toBe(2);
   expect(refused.stderr).toContain("refused: password");
   // The refusal names the field, never the password given.

@@ -46,66 +46,66 @@ function integer(min: number, max: number, fallback: number) {
  * (mirrors services/ingest/src/config.ts). services/api is its OWN component
  * (ADR-0014 §3) with its own config surface.
  */
-const EnvSchema = z
-  .object({
-    API_PG_URL: z.string().url(),
-    API_REDIS_URL: z.string().url(),
-    // Read-only ClickHouse reader for the forensic event drill (ADR-0015 / SPEC-010;
-    // the only ClickHouse the human API touches — reads cges_events for
-    // GET /v1/incidents/:id/events). 1:1 mirror of services/ingest/src/config.ts:
-    // URL required; user/password/db defaulted. The client is lazy (createClient
-    // connects on first query), so the three Postgres read routes do NOT depend on
-    // ClickHouse availability (ADR-0015 §Compliance).
-    API_CH_URL: z.string().url(),
-    API_CH_USER: z.string().default("default"),
-    API_CH_PASSWORD: z.string().default(""),
-    API_CH_DB: z.string().default("default"),
-    // pgcrypto passphrase for users.totp_secret at-rest encryption (SPEC-008
-    // §Data contracts §1; the INGEST_CA_PASSPHRASE pattern).
-    API_DB_ENC_PASSPHRASE: z.string().min(1),
-    // pgcrypto passphrase for the DEDICATED forensic Ed25519 signing key at rest
-    // (SPEC-012 §Data contracts §4; ADR-0016 §5). A DISTINCT secret from
-    // API_DB_ENC_PASSPHRASE: the forensic key attests evidence integrity, a different
-    // purpose than TOTP-secret encryption, and it MUST NOT be the ingest CA. Same
-    // z.string().min(1) shape — a deployment-contract value the operator sets.
-    API_FORENSIC_PASSPHRASE: z.string().min(1),
-    API_PORT: integer(1, 65_535, 8081),
-    // Bind address for the api listener. Default loopback = the host-process
-    // topology (tests, `pnpm dev`); a container needs a non-loopback bind such
-    // as 0.0.0.0. Plain HTTP; TLS termination is a deployment concern.
-    API_BIND_HOST: z.string().min(1).default("127.0.0.1"),
-    API_RUN_MIGRATIONS: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((v) => v === "true"),
-    API_LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
-    // A session's idle lifetime and its cap (SPEC-023 §Data contracts §3), bounded by
-    // SPEC-008's values, which are their defaults.
-    API_SESSION_IDLE_MINUTES: integer(5, 480, 480),
-    API_SESSION_MAX_HOURS: integer(1, 24, 24),
-    // The hops whose X-Forwarded-For the api reads (SPEC-008's second Amendment
-    // 2026-10-15, the source address behind a proxy): addresses and CIDR ranges,
-    // comma-separated. Unset or empty, every request's source address is its peer's.
-    API_TRUSTED_PROXIES: z
-      .string()
-      .optional()
-      .superRefine((value, ctx) => {
-        try {
-          parseTrustedProxies(value);
-        } catch (err) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
-        }
-      }),
-  })
-  .superRefine((cfg, ctx) => {
-    if (cfg.API_SESSION_IDLE_MINUTES > cfg.API_SESSION_MAX_HOURS * 60) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["API_SESSION_IDLE_MINUTES"],
-        message: "must not be above API_SESSION_MAX_HOURS",
-      });
-    }
-  });
+const Fields = z.object({
+  API_PG_URL: z.string().url(),
+  API_REDIS_URL: z.string().url(),
+  // Read-only ClickHouse reader for the forensic event drill (ADR-0015 / SPEC-010;
+  // the only ClickHouse the human API touches — reads cges_events for
+  // GET /v1/incidents/:id/events). 1:1 mirror of services/ingest/src/config.ts:
+  // URL required; user/password/db defaulted. The client is lazy (createClient
+  // connects on first query), so the three Postgres read routes do NOT depend on
+  // ClickHouse availability (ADR-0015 §Compliance).
+  API_CH_URL: z.string().url(),
+  API_CH_USER: z.string().default("default"),
+  API_CH_PASSWORD: z.string().default(""),
+  API_CH_DB: z.string().default("default"),
+  // pgcrypto passphrase for users.totp_secret at-rest encryption (SPEC-008
+  // §Data contracts §1; the INGEST_CA_PASSPHRASE pattern).
+  API_DB_ENC_PASSPHRASE: z.string().min(1),
+  // pgcrypto passphrase for the DEDICATED forensic Ed25519 signing key at rest
+  // (SPEC-012 §Data contracts §4; ADR-0016 §5). A DISTINCT secret from
+  // API_DB_ENC_PASSPHRASE: the forensic key attests evidence integrity, a different
+  // purpose than TOTP-secret encryption, and it MUST NOT be the ingest CA. Same
+  // z.string().min(1) shape — a deployment-contract value the operator sets.
+  API_FORENSIC_PASSPHRASE: z.string().min(1),
+  API_PORT: integer(1, 65_535, 8081),
+  // Bind address for the api listener. Default loopback = the host-process
+  // topology (tests, `pnpm dev`); a container needs a non-loopback bind such
+  // as 0.0.0.0. Plain HTTP; TLS termination is a deployment concern.
+  API_BIND_HOST: z.string().min(1).default("127.0.0.1"),
+  API_RUN_MIGRATIONS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  API_LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
+  // A session's idle lifetime and its cap (SPEC-023 §Data contracts §3), bounded by
+  // SPEC-008's values, which are their defaults.
+  API_SESSION_IDLE_MINUTES: integer(5, 480, 480),
+  API_SESSION_MAX_HOURS: integer(1, 24, 24),
+  // The hops whose X-Forwarded-For the api reads (SPEC-008's second Amendment
+  // 2026-10-15, the source address behind a proxy): addresses and CIDR ranges,
+  // comma-separated. Unset or empty, every request's source address is its peer's.
+  API_TRUSTED_PROXIES: z
+    .string()
+    .optional()
+    .superRefine((value, ctx) => {
+      try {
+        parseTrustedProxies(value);
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+      }
+    }),
+});
+
+const EnvSchema = Fields.superRefine((cfg, ctx) => {
+  if (cfg.API_SESSION_IDLE_MINUTES > cfg.API_SESSION_MAX_HOURS * 60) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["API_SESSION_IDLE_MINUTES"],
+      message: "must not be above API_SESSION_MAX_HOURS",
+    });
+  }
+});
 
 export type Config = z.infer<typeof EnvSchema>;
 
@@ -126,12 +126,31 @@ function reasonOf(issue: z.ZodIssue): string {
   return issue.message;
 }
 
-/** The configuration `env` gives, or a ConfigError naming the first variable refused. */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = EnvSchema.safeParse(env);
+/** The parsed value, or a ConfigError naming the first variable refused. */
+function parsedOr<T>(parsed: z.SafeParseReturnType<unknown, T>): T {
   if (!parsed.success) {
     const issue = parsed.error.issues[0] as z.ZodIssue;
     throw new ConfigError(issue.path.join("."), reasonOf(issue));
   }
   return parsed.data;
+}
+
+/** The configuration `env` gives, or a ConfigError naming the first variable refused. */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  return parsedOr(EnvSchema.safeParse(env));
+}
+
+type Shape = typeof Fields.shape;
+
+/**
+ * The variables a command uses, checked as the service checks them, and no other
+ * (SPEC-023 §Data contracts §4: each command validates only the variables it uses).
+ */
+export function loadConfigFor<K extends keyof Shape>(
+  keys: readonly K[],
+  env: NodeJS.ProcessEnv = process.env,
+): Pick<Config, K> {
+  // The mask names keys of Fields alone, which zod's Exactly<> cannot see through a generic K.
+  const mask = Object.fromEntries(keys.map((k) => [k, true])) as never;
+  return parsedOr(Fields.pick(mask).safeParse(env)) as unknown as Pick<Config, K>;
 }
