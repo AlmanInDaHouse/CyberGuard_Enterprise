@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-06
-- Last updated: 2026-06-06
+- Last updated: 2026-10-23
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -124,6 +124,20 @@ When this ADR is ratified Proposed→Accepted, the same commit:
    - `ADR-0016 → SPEC-010` (the drill output is the evidence unit; requires its `(time, event_id)` total-order amendment).
    - `ADR-0016 → SPEC-011` / `SPEC-007` (the incident the evidence is scoped to: its grouped alerts and aggregated severity).
    - `ADR-0016 → SPEC-003` (reuses the JCS canonicalization discipline; does not amend it).
+
+## Amendment 2026-10-19: the forensic public key's trust anchor
+
+**What surfaced it.** §Out of scope deferred "Trust distribution / out-of-band anchoring of the forensic public key" as a deployment-contract decision, and SPEC-012's Open question 1 kept it open until "the client operating model is defined, **or** the render / export escalón lands" (`docs/specs/SPEC-012-forensic-evidence-hashchain.md:120`). The export and the report have landed (SPEC-012, SPEC-013), and roadmap §F decides the deployment contract (roadmap Part (b) §3, "the highest-weight live decision"). Today the public key reaches an auditor only inside the export and the report it would vouch for (`services/api/src/forensic/export.ts`), so a server that re-signed the evidence with a key of its own would embed the matching key, and the signature would verify against itself.
+
+**The amendment.**
+
+1. **The anchor is the key's fingerprint, recorded outside CyberGuard at installation.** The fingerprint is the SHA-256 of the 32 bytes of the forensic public key, in lowercase hexadecimal, written `sha256:<hex>`. Once the api's first start has generated the key (`ensureForensicKey`, at boot), the installation prints the key and its fingerprint with a command of the api image, which reads the key from the api's database, never from an export, and computes the fingerprint. The operator records the fingerprint where CyberGuard cannot write: the installation's change record, signed by whoever performed it, and a copy handed to the function that audits the deployment.
+2. **Verification starts from the record.** The product ships a verifier, a command that runs inside the api image or anywhere Node runs. It takes an export and a recorded fingerprint, refuses to verify without one, refuses an export whose embedded key's fingerprint is not the recorded one, and only then recomputes the chain and checks the signature (§6). The export and the report carry the fingerprint beside the key, as a convenience a reader compares with the record.
+3. **No public endpoint publishes the key; the authenticated export carries it, with its fingerprint, for the verifier to check against the recorded one.** §6's option of a public read endpoint is not taken: a key the server serves is the server vouching for itself, which is what the anchor avoids.
+4. **What it guarantees.** An export signed by any key but the recorded one fails verification. So a server compromised after the record cannot substitute its own key unseen. It does not protect against the theft of the key itself: the private key lives on the server, encrypted in Postgres with a passphrase from the same host's environment file (ADR-0022 §5). A compromise that takes both can sign as the server, and exports signed after it are not distinguishable from earlier ones. An HSM or a trusted timestamp would close that, and neither is in the MVP.
+5. **A replaced key is anchored again.** The MVP does not rotate the key. A key the api generates again, for instance after a restore that lost the `forensic_key` row, has a new fingerprint, which the operator records in the same way; exports signed before stay verifiable under the earlier record.
+
+**Effect.** §6: an auditor verifies "without trusting the server" as item 4 bounds it. §Compliance: the public key is exposed, in the export and the report and by the command of item 1. §Out of scope: the trust-distribution bullet is resolved by this amendment; the other bullets stand. SPEC-012's Open question 1 is resolved by SPEC-023, which amends SPEC-012 by scope and specifies the commands. Proposed by Claude Code on 2026-10-19 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
 
 ## References
 

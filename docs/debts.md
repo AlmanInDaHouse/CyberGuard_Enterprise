@@ -40,7 +40,7 @@ Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
 | 17 | `INGEST_DETECT_*` absent from SPEC-004 §Configuration | `handoff-session-28.md:169` | A SPEC-004 amendment: recorded as owner-STOP under the rules of the time, Claude Code's since 2026-10-10 (CLAUDE.md *Decision authority*). |
 | 20 | No SPEC consolidates the api's configuration surface; no `/health` | `handoff-session-29.md:120`; `handoff-session-41.md:770` | Roadmap §F's operator configuration surface. |
 | 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143` | A future sweep, not ordered. |
-| 24 | No per-org configurable detection window | `handoff-session-31.md:155` | Roadmap §F. |
+| 24 | No per-org configurable detection window | `handoff-session-31.md:155` | The SPEC that adds a second org: out of roadmap §F (SPEC-023 §Scope, a delegated decision). |
 | 25 | The detection cycle opens a client per call | `handoff-session-31.md:158`; `handoff-session-34.md:295` | None recorded. |
 | 26 | An incident's MITRE techniques from its first alert; a severity raise sends no email | `handoff-session-31.md:163`; `handoff-session-34.md:303` | Recorded: roadmap §E, which is DONE (`docs/product/roadmap.md` §E) without it. None since. |
 | 29 | The Terminate carries no path | `handoff-session-32.md:190` | The next agent phase that touches the created-time cache. |
@@ -73,16 +73,16 @@ Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
 | 85 | A compromised ingest can forge an api session (shared Redis) | `handoff-session-39.md:666` | Roadmap §F: a Redis user per service. |
 | 86 | Both services act as the Postgres superuser | `handoff-session-39.md:672` | Roadmap §F: a Postgres role per service. |
-| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; proposed in ADR-0022 (S43, waiting on Manuel's "sí"). #111's agent change under gate 1 went without it. |
+| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; ADR-0022, Accepted on 2026-10-23. #111's agent change under gate 1 went without it. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694` | Roadmap §F and a SPEC-004 amendment. |
 | 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md:1132` | Roadmap §F. |
 | 94 | Encryption passphrases travel as SQL parameters | `handoff-session-39.md:717` | Roadmap §F's Postgres logging. |
 | 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724` | Roadmap §F's grants, and the DPO's record of processing. |
 | 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140` | Roadmap §F. |
-| 98 | Admins set users' passwords and receive their TOTP secret | `handoff-session-39.md:737` | A later SPEC-008 change: an invitation the user completes. |
+| 98 | Admins set users' passwords and receive their TOTP secret | `handoff-session-39.md:737` | Roadmap §F's dashboard SPEC (F3), with the user pages: an invitation the user completes (ADR-0022, Accepted 2026-10-23). |
 | 99 | One process holds the internet-facing listeners and the CA's key | `handoff-session-39.md:741` | An ADR separating the CA, for Manuel's "sí". |
-| 102 | The api's login deletes no prior session | `handoff-session-40.md:1024` | A later SPEC-008 change: the login deletes the session its cookie names. |
+| 102 | The api's login deletes no prior session | `handoff-session-40.md:1024` | Roadmap §F's dashboard SPEC (F3), an api change it makes with its pages: the login deletes the session its cookie names (ADR-0022, Accepted 2026-10-23). |
 | 103 | Without a proxy in front of the dashboard, a client chooses the address the api counts | `handoff-session-40.md:1034` | Roadmap §F: the dashboard only behind a TLS proxy that appends or sets `X-Forwarded-For`. |
 | 104 | The dashboard sends no security headers (CSP, HSTS) | `handoff-session-40.md:1045`; `handoff-session-40.md:1150` | Roadmap §F; not `Referrer-Policy: no-referrer`, which would make SPEC-009's same-origin check refuse every sign-in. |
 | 105 | A certificate and key path that name one file lose the key at a reissue | `handoff-session-40.md:1047` | The next change to `services/ingest/src/cert.ts`. |

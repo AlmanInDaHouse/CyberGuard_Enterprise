@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-11
-- Last updated: 2026-10-13
+- Last updated: 2026-10-23
 - Deciders: Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -210,6 +210,14 @@ One session for all the providers, an open question of this ADR's draft, was mea
 - Manuel, 2026-10-12, in chat: the threat model gains the asset this ADR adds, co-located (`docs/security/threat-model.md`, Amendment 2026-10-13); and the rules over the two fields are a phase of their own right after §B2, roadmap §B3 ("sigo tu recomendacion sobre esa decision", read as accepting both recommendations).
 - Manuel, 2026-10-12, in chat, after the measurement of §Context 10, on the builds the agent runs on: Windows 10 and Windows Server 2019 included (the option he chose: "Incluir Win10 y Server 2019 (Recomendado)"), so the kernel's events come from a second session (§1, A13). The options put to him were that, a floor of Windows 11 and Windows Server 2022 with one session, and measuring one session of the kernel's flags beside the providers first.
 - Claude Code, under this ratification: the join completed by the callbacks through a slot the Launch carries, the table outside the ring, its bounds, the kernel session opened after the existing one, and its end and rundown records ignored (§1, against A10); the matching with the standard library, and the replacement on the drain path (§2); exiting rather than degrading when the kernel session cannot open (§1, against A9); the third marker, its default, and no time-to-live for the markers (§2, against A12); the three markers projected to detection (§4); an empty command line and no user on a Terminate (§2); the OCSF form of the name and the relaxed `user.json` (§3, against A8); no major version for the rename, and ADR-0006's amendment that allows it while CGES is 0.x (§3); the SID's retention of 365 days (§3); no user in the `dedup_key` or the incident key until they have a retention (§4, against A11); the parent at the edge as its own contract (§5).
+
+## Amendment 2026-10-23 (ADR-0022): its two items for roadmap §F go with SPEC-021
+
+**What surfaced it.** ADR-0022 and SPEC-023, roadmap §F's first step. This ADR gives roadmap §F two items: §Decision §4's ClickHouse settings that keep row data out of the server's logs and system tables, those that are settings of the server; and §Out of scope's operator setting for the retention of the command line and the user SID, or for the pattern list. Both bear on the two columns of class 1007 that SPEC-021 is to fill, and roadmap §B2, which SPEC-021 belongs to, is parked: no code captures the command line or the user SID, and SPEC-021, which states the settings (§Decision §4) and the closed list (§Decision §2), is not written.
+
+**The amendment.** The two items join the deployment contract with SPEC-021's code, not with roadmap §F's first SPEC: the bundle's ClickHouse configuration takes the settings SPEC-021 states, the operator surface takes the retention and pattern-list settings, and the api's ClickHouse user is narrowed to the columns its routes return. Until then the two columns stay empty. The bundle keeps the server's system log tables for seven days (SPEC-023 §Operational §4), which bounds how long a failed insert's row, of any class, stays in them, and is not this ADR's setting.
+
+**Effect.** §Decision: the last sentence of §4's second bullet (`:73`), as the amendment says; the rest stands. §Consequences: the line that gives users with scoped grants to roadmap §F (`:167`) holds for the api's ClickHouse user as a whole, a read-only user SPEC-023 creates; its narrowing to columns goes with SPEC-021's code. §Out of scope: its operator setting goes with SPEC-021. §Compliance: the 365 days of the two columns, a backup included (`:184`), hold; SPEC-021 reconciles them with the bundle's backups, which the operator is asked to keep no longer than the longest retention set (SPEC-023 §Operational §10, against the retentions of §Operational §9: 365 days by default, up to 3650 by §Data contracts §3), and until then the two columns are empty. §Alternatives considered: none. Proposed by Claude Code on 2026-10-23 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
 
 ## References
 

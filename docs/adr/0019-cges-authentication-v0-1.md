@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-10
-- Last updated: 2026-10-13
+- Last updated: 2026-10-23
 - Deciders: Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -218,6 +218,18 @@ Rejected for v0.1: the agent would hold state across records and choose between 
 **Amendment.** Both statements read: the rows of the other classes keep no time-to-live, and ADR-0020 sets one on those two columns of class 1007; ADR-0003's retention table is still not implemented (debt #47).
 
 **Effect on other sections.** None: class 3002's time-to-live of §9 is unchanged.
+
+## Amendment 2026-10-19: retention as the operator's setting
+
+**What surfaced it.** Open question 2: "The 365 days of §9 are fixed. Reopen: the deployment contract (roadmap §F)." Debt #47 (`docs/handoff-session-35.md:591`): every class but 3002 is kept without limit. Debt #95: logon telemetry is personal data whose period the buyer's data-protection officer sets against the purposes in the organisation's record of processing. ADR-0022 §10 decides the deployment's retention.
+
+**The amendment.**
+
+1. **§9's period is the operator's setting.** A row of class 3002 is deleted the set number of days after its `arrived_at`, by the time-to-live on `cges_events`, within the bounds SPEC-023 gives. The default stays 365 days, for §9's reasons: a finite, documented period, and the year of audit history PCI DSS asks for.
+2. **Every class has a time-to-live.** The rows of classes 1007 and 4001 are deleted the number of days the operator sets for each after their `arrived_at`, by default 365, the total period ADR-0003 gives normalized events, kept in ClickHouse while its MinIO tier is not built (ADR-0003 Amendment 2026-10-19; ADR-0022 §10). The Amendment 2026-10-13's "the rows of the other classes keep no time-to-live" is superseded.
+3. **The arrival time stays the basis**, not the event's `time`, for §9's reason (debt #31).
+
+**Effect.** §9: its period is the default of a setting; its *Why* stands for that default. §Consequences, *Negative*: "the other classes keep no limit at all" no longer holds; a logon is deleted after the set period, whatever an investigation still needs. Open question 2: resolved. §Compliance: unchanged. ADR-0020's 365 days on two columns of class 1007, which are not built (`process_command_line` exists without them, `process_user_uid` does not exist; roadmap §B2, parked), are unchanged. Proposed by Claude Code on 2026-10-19 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
 
 ## References
 

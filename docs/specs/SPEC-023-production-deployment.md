@@ -1,0 +1,397 @@
+# SPEC-023: Production deployment — the bundle, the operator's configuration and secrets, TLS, published images
+
+- **ID:** SPEC-023
+- **Title:** Production deployment — the bundle, the operator's configuration and secrets, TLS, published images
+- **Status:** Accepted
+- **Depends on:**
+  - ADR-0022 — the decisions this SPEC implements: one host with Compose and a bundle per release (§1), the shipped TLS proxy (§2), the networks (§3), a credential per service (§4), the generated secrets (§5), the hardened containers (§6), the published images (§7), the agents' TLS from the ingest CA (§8), the forensic key's anchor (§9) and the retention (§10).
+  - ADR-0001 Amendment 2026-10-19 — the bundle in `deploy/docker/`, no compose file at the root, `infra/` for the developer environment, one release tag.
+  - ADR-0016 Amendment 2026-10-19 — the forensic public key's fingerprint, recorded outside CyberGuard, and the verifier.
+  - ADR-0019 Amendment 2026-10-19 — retention as the operator's setting, per class.
+  - ADR-0003 Amendment 2026-10-19 — an event's row stays in ClickHouse for its whole period while MinIO is not built.
+  - ADR-0003 Amendment 2026-10-23 — the key-value store runs Valkey.
+  - ADR-0020 Amendment 2026-10-23 — its two items for roadmap §F go with SPEC-021's code.
+  - ADR-0004 Amendment 2026-10-19 — enrollment over TLS 1.3, the agent validating the server against its configured trust anchor.
+  - ADR-0003 (the stores; its Amendment 2026-10-16), ADR-0004 (the protocol), ADR-0014 and ADR-0015 (the api's boundary and its read-only ClickHouse reader).
+  - This SPEC amends **by scope**: SPEC-002 and SPEC-003 (the agent enrolls over TLS, trusting its trust anchor), SPEC-004 (the enrollment listener's TLS, the server certificate's names, the CA export, the configuration, the start-up checks, the retention, the migrate command waiting for its lock), SPEC-008 (the bootstrap command, `/health`, the session lifetimes as settings, the migrate command waiting for its lock; its per-org rate limits, NFR-008-004, left global and out of roadmap §F), SPEC-009 (the dashboard's image, cookie names, security headers and start-up check; the first admin of its second Amendment 2026-10-15's item 8, whose TOTP factor the bootstrap command now confirms), SPEC-012 and SPEC-013 (the fingerprint, the key's command and the verifier), SPEC-014 and SPEC-022 (the relay's private CA, and the code a send's failed certificate verification records, which deploy_ac_018 restates for soar_ac_006), SPEC-016 (the rules loaded before the listeners open; an empty poll interval refused; its per-org window, debt #24, out of roadmap §F) and SPEC-020 (the logons' period as a setting). Each one's acceptance criteria stand, read with the changes §Data contracts and §Operational state; SPEC-020's auth_ac_003 and SPEC-022's soar_ac_006 stand as deploy_ac_011 and deploy_ac_018 restate them.
+- **Authors:** Manuel (project owner), Claude Code (proposal and implementation)
+
+## Context
+
+Roadmap §F delivers MVP criterion 7, "Installation documentation in <30 minutes" (`docs/product/blueprint.md:752`): an administrator installs the server with Docker Compose, creates a user with OTP, issues an enrollment token, installs the agent, and sees the agent's data (`docs/product/blueprint.md:740`). ADR-0022's *Context* gives what the repository holds today: a development stack only, images that run as root, no image for the dashboard, one credential per store shared by ingest and the api, a server certificate for `localhost` and `127.0.0.1` alone, enrollment in clear, and secrets defaulted inline.
+
+This SPEC is the first of roadmap §F's SPECs. It specifies the server's installation, its configuration and secrets, the agents' TLS, the published images and the release, and the documents an operator follows. Three pieces of §F come after it, each in a SPEC of its own, F2, F3 and F4 in that order, this SPEC being F1: the agent's installer and service mode; the dashboard's missing pages, among them the agents and the enrollment tokens the MVP paragraph has the operator use, the alerts, and the forensic export and report the api serves without a page; and the agents' certificate renewal (§Scope, *Out of scope*). Criterion 7 is delivered when all four have landed and an installation from the runbook, timed, takes less than 30 minutes (§Acceptance criteria, deploy_ac_020).
+
+## Scope
+
+### In scope
+
+1. **The bundle** (`deploy/docker/`): the production compose, its environment template, the set-up script, the proxy image's sources (built into `cyberguard-proxy`, and left out of the published bundle), the stores' initialisation, the backup and restore scripts, and its checks.
+2. **The operator's configuration surface**: the bundle's variables, and the service variables the compose sets from them, as one reference (§Data contracts §3), with the start-up checks that refuse a malformed value. It consolidates the api's (debt #20) and ingest's (debt #17).
+3. **Secrets**: generated by the set-up script, delivered as environment variables, none in the bundle (ADR-0022 §5).
+4. **A credential per service** in Postgres, Redis and ClickHouse (debts #85, #86, #108; ADR-0022 §4), and Postgres configured not to log a statement's parameters (debt #94).
+5. **The edge**: the Caddy proxy in front of the dashboard (debt #103), HSTS, and the dashboard's own security headers (debt #104) and `__Host-` cookie names (debt #106).
+6. **The agents' TLS**: the server certificate's names, enrollment over TLS on the server and on the agent (debt #89's TLS half), and the command that exports the CA certificate.
+7. **The images**: the dashboard's new image; all four product images non-root (debt #92), hardened, with a health check (the api's `/health`, debt #20), the detection rules and playbooks read-only (debt #109).
+8. **The release**: images published to GHCR, pinned by digest, with an SBOM and a provenance attestation; the bundle and the agent's executable as release assets; a licence check of the dependencies (debt #112).
+9. **The forensic key's anchor**: the command that prints the key and its fingerprint, the fingerprint in the export and the report, and the verifier (ADR-0016 Amendment 2026-10-19; SPEC-012 Open question 1).
+10. **Retention**: a time-to-live per class of `cges_events` and on `heartbeats`, set by the operator (debts #47 and #95's retention; ADR-0019 Amendment 2026-10-19), container logs rotated by size (the api's request log, SPEC-008 Amendment 2026-10-19, item 3).
+11. **The relay's private CA** for the SMTP send (debt #78).
+12. **The bootstrap command** reads the first admin's password from standard input (debt #77) and confirms the TOTP factor at the terminal.
+13. **The operator's documents** under `docs/operations/`: installation, configuration, backup and restore, upgrade, data protection (the personal data a deployment holds, for the DPO's record of processing; debt #95), and forensic verification.
+14. **Removing the root compose stubs** (debt #12) and correcting the READMEs that name them.
+
+### Out of scope
+
+Each item names its destination, or why it has none in the MVP.
+
+- **The agent's installer and service mode** (ADR-0010 §Decision part 2's supersession), and the agent's key custody (debt #87), whose owner depends on the account the service runs as: roadmap §F's agent-installation SPEC. Debt #87's destination was the next agent change under the elevated gate, which debt #111's was (PR #37); it did not travel with that change, nor does it with this SPEC's enrollment change, since the key's owner depends on the account the service runs as. It moves with the threat model's R1 (a delegated decision, listed for Manuel's audit). Until that SPEC lands the runbook enrolls and runs the agent by hand from an elevated shell, which does not survive a reboot.
+- **The dashboard's missing pages**: the TOTP enrollment and the user management (debts #83, #98), the api's login deleting the prior session (debt #102, an api change that SPEC makes with its pages), the agents and the enrollment tokens, the alerts, the forensic export and report, an incident's events (the drill), the playbook records and the password change: roadmap §F's dashboard SPEC. Until it lands, an api route the dashboard does not call reaches no browser (ADR-0022 §2): an operator reaches the users' routes, and a user his TOTP confirmation, from inside the api's container on the host (§Operational §8).
+- **The agents' certificate renewal and a revocation list** (debt #88), and the rest of debt #89 (the token checked before the certificate is signed, its scope and org, a stored hash of it, a rate limit): roadmap §F's renewal SPEC.
+- **A per-org detection window** (debt #24): the MVP has one org, so a per-org setting has no reader. Destination: the SPEC that adds a second org. This takes the item out of roadmap §F, a delegated decision listed for Manuel's audit. SPEC-008's NFR-008-004, its rate limits configurable per org, goes with it: the MVP's limits are global.
+- **The agent's log file**, which SPEC-017 left to roadmap §F: the agent-installation SPEC, with the service mode.
+- **Separating the CA from ingest** (debt #99): an ADR for Manuel's "sí", as its entry says. **Authenticode signing**: ADR-0022 Open question 1. **ADR-0003's MinIO tier** (the events' cold tier, the forensic artifacts, the audit log's signed mirror): roadmap's *Out of this plan* names its forensic part; the other two wait with it for the SPEC that builds MinIO. With no destination in the MVP, each reopened by a buyer who needs it: high availability, Kubernetes and Helm, a vault (the threat model's later SPEC, `docs/security/threat-model.md:200`), TLS to the stores and on the dashboard–api leg (a deployment across hosts; on one host ADR-0022 §3 decides debt #97), observability beyond container logs.
+- **Open questions whose reopen condition is roadmap §F, and where they go:** ADR-0019's first (whether the agent reads the host's audit policy) and ADR-0020's fourth (crash dumps on the endpoint) concern the endpoint, and go to the agent-installation SPEC; ADR-0021's first (the execution records' retention) is not answered here: Postgres keeps the records without a period, as it keeps alerts and incidents, and the question stays open under its other condition, when incidents get a retention; and SPEC-008's second (per-org session settings), which reopens when roadmap §F's SPEC lists the api's settings (its second Amendment 2026-10-16, item 4), is resolved by global settings, the MVP having one org (§Data contracts §3).
+- **ADR-0020's two items for roadmap §F** (`docs/adr/0020-process-command-line-and-user.md:73`, `:193`): the ClickHouse server's settings that keep row data out of its logs and system tables, and an operator setting for the retention of the command line and the user SID (ADR-0020's 365 days on their two columns of class 1007, which ADR-0019's Amendment 2026-10-19 leaves unchanged) or for the pattern list. Both bear on the command line and the user SID, which no code captures while roadmap §B2 is parked: the settings are those ADR-0020 asks SPEC-021 to state, and the pattern list is the closed list ADR-0020 gives SPEC-021 (`:180`); SPEC-021 is reserved and not written. Destination: SPEC-021's code, with which the bundle's ClickHouse configuration and the settings join the operator surface, and the api's ClickHouse user's grant is narrowed to the columns its routes return, which no grant limits today (ADR-0020 `:167`). ADR-0020's Amendment 2026-10-23, co-located with ADR-0022, records the move; it takes them out of roadmap §F, a delegated decision listed for Manuel's audit.
+- **The development dependencies' advisories** (debt #110) and pinning the existing workflows' actions by commit (debt #113): their own debts. The release workflow this SPEC adds pins its actions.
+
+## Data contracts
+
+### 1. The bundle
+
+`deploy/docker/` holds, and each release publishes as `cyberguard-deploy-<version>.tar.gz`:
+
+| Path | What it is |
+|---|---|
+| `docker-compose.yml` | The production compose (§Operational §1). In the repository its four product images are named by tag, and in the published bundle by `<name>:<version>@sha256:<digest>`; the stores' images are named by their publishers' tags, pinned by digest, in both. |
+| `.env.example` | The operator's template: every bundle variable of §3 with its default, and the secrets empty. |
+| `setup.sh` | The set-up script (§Operational §3). POSIX `sh`, using only `cp`, `mv`, `od`, `tr`, `sed`, `grep`, `chmod` and `chown`. |
+| `proxy/` | The proxy image's Dockerfile and Caddyfile (§Data contracts §2, §Operational §5), which CI builds into `cyberguard-proxy`; the published bundle leaves it out. |
+| `postgres/` | The database's initialisation: the roles, the extensions, the logging settings (§Operational §4). |
+| `clickhouse/` | The users, their grants and the row policy (§Operational §4), and the backup disk's configuration (§Operational §10). |
+| `relay/` | A leaf README; the relay's private CA, when the operator has one, goes here (§Data contracts §3, `CG_SMTP_CA_FILE`). |
+| `redis/` | The script that writes the ACL file from the environment at the container's start (§Operational §4). |
+| `backup.sh`, `restore.sh` | §Operational §10. |
+| `README.md` | The installation's steps in brief, and the address of `docs/operations/install.md` at the release's tag. |
+| `tls/` | A leaf README; the operator's certificate and key for the dashboard's hostname go here. |
+
+The repository also holds `deploy/docker/test/`, the tests of §Acceptance criteria that drive the bundle, and a `docker-compose.test.yml` override that names images built from the commit. Neither is in the published bundle.
+
+### 2. The images
+
+| Image | Built from | User | Listens | Health check |
+|---|---|---|---|---|
+| `ghcr.io/almanindahouse/cyberguard-ingest` | `services/ingest/Dockerfile` | `node` (uid 1000) | 8080 (enrollment, TLS), 8443 (heartbeat, mTLS) | `GET /health` on 8080, over TLS without verifying the certificate, by a Node one-liner inside the container |
+| `ghcr.io/almanindahouse/cyberguard-api` | `services/api/Dockerfile` | `node` (uid 1000) | 8081 | `GET /health` |
+| `ghcr.io/almanindahouse/cyberguard-dashboard` | `dashboard/Dockerfile` (new) | `node` (uid 1000) | 3000 | `GET /api/health` |
+| `ghcr.io/almanindahouse/cyberguard-proxy` | `deploy/docker/proxy/Dockerfile` (new), from Caddy's image pinned by digest | uid 10001 | 8443 (HTTPS), 8080 (the redirect) | `GET http://127.0.0.1:8080/` with `Host` set to the dashboard's hostname answers the redirect |
+
+- Each Dockerfile pins its base images by digest, copies `LICENSE` and `NOTICE` into the image, and labels it with `org.opencontainers.image.source`, `.revision`, `.version` and `.licenses` (`Apache-2.0`).
+- The ingest image keeps `rules/`, `playbooks/` and `schemas/playbooks/` under `/app`, with an empty `/app/playbooks-none`, owned by root and not writable by uid 1000, and creates `/certs` owned by uid 1000, so that a new named volume mounted there is writable by the process.
+- The dashboard image runs Next's standalone server (`output: "standalone"` in `dashboard/next.config.mjs`), with `NEXT_TELEMETRY_DISABLED=1`.
+- The proxy image carries the Caddyfile, removes the file capability Caddy's binary carries, so that it starts with every capability dropped, and creates `/data` and `/config` owned by uid 10001, so that new named volumes there are writable by the proxy. The uid is not the 1000 a host's first account usually has, since the operator's TLS key, a host file, is given to it.
+- The stores use their publishers' images, pinned by digest in the compose: `pgvector/pgvector:pg16`, `clickhouse/clickhouse-server:24.8.14.39` (the version the dev stack and the tests run) and, for the `redis` service, `valkey/valkey:9.1.2-alpine` (ADR-0003 Amendment 2026-10-23), which the dev stack and the tests run too (§Operational §13).
+
+### 3. The configuration reference
+
+The operator sets the **bundle variables** in `deploy/docker/.env`. The compose derives the **service variables** from them; a service variable whose compose column says `unset` keeps its default in the production compose. Ingest, the api and the dashboard refuse to start on a malformed value, with one line that names the variable (§Operational §2). In the compose a generated secret is written `${CG_…:?}` (§Operational §1).
+
+**Bundle variables:**
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CG_DASHBOARD_HOSTNAME` | none, required | The DNS name users reach the dashboard by; the proxy's site address. |
+| `CG_TLS_MODE` | `provided` | `provided`: the proxy serves `tls/dashboard.crt` and `tls/dashboard.key`. `internal`: the proxy issues a certificate from its own CA, for an evaluation. |
+| `CG_AGENT_SERVER_NAMES` | none, required | Comma-separated DNS names and IP addresses agents reach the server by; the server certificate's names (→ `INGEST_SERVER_NAMES`). |
+| `CG_BIND_ADDRESS` | `0.0.0.0` | The host address the published ports bind. |
+| `CG_HTTPS_PORT`, `CG_HTTP_PORT` | `443`, `80` | The proxy's published ports. |
+| `CG_ENROLL_PORT`, `CG_HEARTBEAT_PORT` | `8444`, `8443` | Ingest's published ports. |
+| `CG_SMTP_HOST`, `CG_SMTP_PORT`, `CG_SMTP_USER`, `CG_SMTP_PASS`, `CG_SMTP_FROM`, `CG_NOTIFY_RECIPIENT` | empty | The relay; all six or none (SPEC-014). |
+| `CG_SMTP_CA_FILE` | empty | The name of a PEM file in the bundle's `relay/` directory holding the relay's private CA (→ `INGEST_SMTP_CA_FILE`). The compose mounts `relay/` read-only into ingest at `/run/cyberguard/relay` whether or not the variable is set. |
+| `CG_BACKUP_DIR` | `backups` | The host directory `backup.sh` writes its encrypted files to (§Operational §10). |
+| `CG_RETENTION_PROCESS_DAYS`, `CG_RETENTION_NETWORK_DAYS`, `CG_RETENTION_LOGON_DAYS`, `CG_RETENTION_HEARTBEAT_DAYS` | `365`, `365`, `365`, `30` | §Operational §9. |
+| `CG_SESSION_IDLE_MINUTES`, `CG_SESSION_MAX_HOURS` | `480`, `24` | A session's idle lifetime and its cap (→ `API_SESSION_*`). |
+| `CG_DETECT_INTERVAL_MS` | `5000` | The detection driver's poll interval; `0` is the kill switch (SPEC-016). |
+| `CG_SOAR_PLAYBOOKS_DIR` | empty | The directory, inside ingest's container, that SOAR reads its playbooks from (→ `INGEST_SOAR_PLAYBOOKS_DIR`, ADR-0021). Empty: the image's `playbooks/`. `/app/playbooks-none`, an empty directory the image carries, leaves SOAR idle, as ADR-0021 provides. Another directory needs a compose override that mounts it. |
+| `CG_LOG_LEVEL` | `info` | Ingest's and the api's log level. |
+| `CG_PG_SUPERUSER_PASSWORD`, `CG_PG_INGEST_OWNER_PASSWORD`, `CG_PG_INGEST_PASSWORD`, `CG_PG_API_OWNER_PASSWORD`, `CG_PG_API_PASSWORD`, `CG_CH_ADMIN_PASSWORD`, `CG_CH_INGEST_PASSWORD`, `CG_CH_API_PASSWORD`, `CG_REDIS_INGEST_PASSWORD`, `CG_REDIS_API_PASSWORD`, `CG_INGEST_CA_PASSPHRASE`, `CG_API_DB_ENC_PASSPHRASE`, `CG_API_FORENSIC_PASSPHRASE`, `CG_BACKUP_PASSPHRASE` | empty; generated | The secrets `setup.sh` generates (§Operational §3). |
+
+**Service variables** (existing ones keep their meaning; *new* marks those this SPEC adds):
+
+| Variable | Default in code | Production compose | Check at start |
+|---|---|---|---|
+| `INGEST_PG_URL` | required | `postgres://cg_ingest:${CG_PG_INGEST_PASSWORD}@postgres:5432/cyberguard?options=-c%20search_path%3Dingest%2Cpublic`; in `ingest-migrate`, `cg_ingest_owner` with `CG_PG_INGEST_OWNER_PASSWORD` | a URL |
+| `INGEST_CH_URL`, `INGEST_CH_USER`, `INGEST_CH_PASSWORD`, `INGEST_CH_DB` | required, `default`, empty, `default` | `http://clickhouse:8123`, `cg_ingest`, `${CG_CH_INGEST_PASSWORD}`, `cyberguard`; in `ingest-migrate`, `cg_admin` with `CG_CH_ADMIN_PASSWORD` | a URL; strings |
+| `INGEST_REDIS_URL` | required | `redis://cg_ingest:${CG_REDIS_INGEST_PASSWORD}@redis:6379` | a URL |
+| `INGEST_ENROLL_PORT`, `INGEST_HEARTBEAT_PORT` | `8080`, `8443` | unset | an integer from 1 to 65535 |
+| `INGEST_BIND_HOST` | `127.0.0.1` | `0.0.0.0` | non-empty |
+| `INGEST_SERVER_CERT_PATH`, `INGEST_SERVER_KEY_PATH` | `/certs/server.pem`, `/certs/server-key.pem` | unset | non-empty; the two resolve to different files (debt #105) |
+| `INGEST_SERVER_NAMES` (*new*) | `localhost,127.0.0.1` | `${CG_AGENT_SERVER_NAMES}` | §Operational §6 |
+| `INGEST_ENROLL_TLS` (*new*) | `true` | unset | `true` or `false` |
+| `INGEST_CA_PASSPHRASE` | required | `${CG_INGEST_CA_PASSPHRASE}` | non-empty |
+| `INGEST_RUN_MIGRATIONS` | `false` | `false`; the `ingest-migrate` one-shot's `migrate.js` migrates whatever it says | `true` or `false` |
+| `INGEST_LOG_LEVEL` | `info` | `${CG_LOG_LEVEL}` | one of pino's levels |
+| `INGEST_DETECT_INTERVAL_MS`, `INGEST_DETECT_RULES_DIR` | `5000`, none (the code resolves `<cwd>/rules/windows`, else the repository's) | `${CG_DETECT_INTERVAL_MS}`, unset | an integer ≥ 0, the empty string refused; non-empty |
+| `INGEST_SOAR_PLAYBOOKS_DIR` | none; the loader resolves `<cwd>/playbooks` | `${CG_SOAR_PLAYBOOKS_DIR}` | the empty string counts as unset, as today |
+| `INGEST_SMTP_HOST`, `_PORT`, `_USER`, `_PASS`, `_FROM`, `INGEST_NOTIFY_RECIPIENT` | unset | from `CG_SMTP_*`, `CG_NOTIFY_RECIPIENT` | all or none; a port from 1 to 65535 |
+| `INGEST_SMTP_CA_FILE` (*new*) | unset | `/run/cyberguard/relay/${CG_SMTP_CA_FILE}` when `CG_SMTP_CA_FILE` is set, the empty string otherwise (`${CG_SMTP_CA_FILE:+…}`) | the empty string counts as unset; else a readable file holding at least one PEM certificate; the send then trusts those certificates, and not Node's roots, for the relay |
+| `INGEST_RETENTION_PROCESS_DAYS`, `_NETWORK_DAYS`, `_LOGON_DAYS`, `_HEARTBEAT_DAYS` (*new*) | `365`, `365`, `365`, `30` | from `CG_RETENTION_*` | an integer from 7 to 3650 |
+| `API_PG_URL` | required | `postgres://cg_api:${CG_PG_API_PASSWORD}@postgres:5432/cyberguard?options=-c%20search_path%3Dapi%2Cpublic`; in `api-migrate`, `cg_api_owner` with `CG_PG_API_OWNER_PASSWORD` | a URL |
+| `API_REDIS_URL` | required | `redis://cg_api:${CG_REDIS_API_PASSWORD}@redis:6379` | a URL |
+| `API_CH_URL`, `API_CH_USER`, `API_CH_PASSWORD`, `API_CH_DB` | required, `default`, empty, `default` | `http://clickhouse:8123`, `cg_api`, `${CG_CH_API_PASSWORD}`, `cyberguard` | a URL; strings |
+| `API_DB_ENC_PASSPHRASE`, `API_FORENSIC_PASSPHRASE` | required | `${CG_API_DB_ENC_PASSPHRASE}`, `${CG_API_FORENSIC_PASSPHRASE}` | non-empty |
+| `API_PORT`, `API_BIND_HOST` | `8081`, `127.0.0.1` | unset, `0.0.0.0` | an integer from 1 to 65535; non-empty |
+| `API_RUN_MIGRATIONS` | `false` | `false`; the `api-migrate` one-shot's `migrate.js` migrates whatever it says | `true` or `false` |
+| `API_LOG_LEVEL` | `info` | `${CG_LOG_LEVEL}` | one of pino's levels |
+| `API_TRUSTED_PROXIES` | unset | the dashboard's fixed address on the `app` network (§Operational §1) | SPEC-008's second Amendment 2026-10-15 |
+| `API_SESSION_IDLE_MINUTES`, `API_SESSION_MAX_HOURS` (*new*) | `480`, `24` | from `CG_SESSION_*` | an integer from 5 to 480; from 1 to 24; the idle lifetime not above the cap |
+| `API_BASE_URL` (dashboard) | `http://127.0.0.1:8081` | `http://api:8081` | an `http:` or `https:` URL; the empty string refused |
+| `PORT`, `HOSTNAME` (dashboard, Next's) | `3000`, `0.0.0.0` in the image | unset | Next's |
+
+### 4. The commands
+
+| Command | Image | What it does |
+|---|---|---|
+| `node dist/db/migrate.js` | ingest, api | The service's migrations, under its advisory lock, and for ingest the ClickHouse bootstrap and the retention; the one-shots' command (§Operational §1). It validates the variables it uses, the stores' and, for ingest, the retention's (§Data contracts §3), before it changes anything. It waits for its advisory lock, taken and released on one connection, rather than skipping when another process holds it, so that a one-shot that completes has applied the migrations; the services' own run (`*_RUN_MIGRATIONS=true`) keeps skipping, as built. It exits non-zero when it fails. |
+| `node dist/cli/issue-token.js [--org <id>]` | ingest | Prints one enrollment token, as SPEC-004 has it; it now validates only `INGEST_PG_URL`. |
+| `node dist/cli/export-ca.js` (*new*) | ingest | Prints the CA certificate as PEM, then a line `sha256:<hex>`, the SHA-256 of its DER in lowercase hexadecimal. Reads the `ca` row; needs only `INGEST_PG_URL`. |
+| `node dist/cli/create-user.js --email <e> [--role <r>] [--no-confirm]` | api | §Operational §8. `--password` is refused. It needs `API_PG_URL`, `API_DB_ENC_PASSPHRASE` (the TOTP secret is stored encrypted) and `API_REDIS_URL` (the confirmation marks its code used, as the route does). |
+| `node dist/cli/forensic-key.js` (*new*) | api | Prints the forensic public key in base64url, then a line `sha256:<hex>`, the SHA-256 of its 32 bytes in lowercase hexadecimal. Reads the `forensic_key` row; needs only `API_PG_URL`. |
+| `node dist/cli/verify-export.js --fingerprint sha256:<hex> <export.json>` (*new*) | api | §Operational §11. |
+
+Each command validates only the variables it uses, not the service's whole schema.
+
+### 5. The export and the report
+
+The forensic export's JSON (SPEC-012 §Data contracts) gains `forensic_pubkey_sha256`, the fingerprint of §4's form, beside `forensic_pubkey`. The report's PDF (SPEC-013) prints it under the key, and its text on authenticity, which today defers it to SPEC-012's Open question 1 (`services/api/src/forensic/report.ts`), says instead that the key is checked against the fingerprint recorded at installation (ADR-0016 Amendment 2026-10-19). Additive: a verifier that ignores it is unaffected.
+
+## Operational
+
+### 1. The production compose
+
+- **Compose:** the plugin at the minimum version the runbook names, the one `deploy-ci.yml` runs, for `up --wait` with one-shots and nested interpolation.
+- **Services:** `proxy`, `dashboard`, `api`, `ingest`, `postgres`, `clickhouse`, `redis`, and two one-shot services, `ingest-migrate` and `api-migrate`, run from the ingest and api images with `restart: "no"` and the services' hardening. No other.
+- **Networks** (ADR-0022 §3): `public` (proxy), `edge` (proxy, dashboard), `app` (dashboard, api), `data` (api, ingest, postgres, clickhouse, redis), and `agents` (ingest). `edge`, `app` and `data` are `internal: true`. The dashboard has a fixed address on the `app` network, which `API_TRUSTED_PROXIES` names. The one-shots join `data` alone. Ingest reaches the api's port on `data`, as any container there can, and the api asks it for a session as it asks a browser.
+- **Published ports:** the proxy's `${CG_HTTPS_PORT}` and `${CG_HTTP_PORT}`, and ingest's `${CG_ENROLL_PORT}` (to 8080) and `${CG_HEARTBEAT_PORT}` (to 8443), each on `${CG_BIND_ADDRESS}`. No other port.
+- **Containers:** every long-running one with `restart: unless-stopped` and a health check, the one-shots with `restart: "no"` and none; every one with `logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }`. Ingest, the api, the dashboard, the proxy and the one-shots also with a non-root `user`, `read_only: true`, a `tmpfs` at `/tmp`, `cap_drop: [ALL]` and `security_opt: ["no-new-privileges:true"]`. The proxy listens on 8443 and 8080 inside its container, and its state (its internal CA, in `internal` mode, and its configuration's autosave) is in the named volumes `proxy_data` and `proxy_config`, at `/data` and `/config`. The dashboard has a `tmpfs` for Next's cache. The stores drop `NET_RAW` (`cap_drop: [NET_RAW]`), which none of them uses.
+- **Order:** each one-shot runs, when the stores are healthy, `node dist/db/migrate.js` from its service's image, which applies its service's migrations under its advisory lock, which the command waits for (§Data contracts §4), as the service's owner role, and, for ingest, the ClickHouse bootstrap and the retention as the ClickHouse administrator. Ingest starts when `ingest-migrate` has completed successfully, and the api when both one-shots have, since it reads ingest's tables, each with `*_RUN_MIGRATIONS=false`, as its runtime role; the dashboard when the api is healthy, the proxy when the dashboard is.
+- **Volumes:** `pg_data`, `ch_data`, `ch_backups` (ClickHouse's backup disk), `redis_data`, `ingest_certs`, `proxy_data`, `proxy_config`.
+- **No secret literal.** Every secret in the compose is `${CG_…}` with no default. The secrets `setup.sh` generates that a container uses are required (`${VAR:?}`), so `docker compose` refuses to start before it has run; `CG_BACKUP_PASSPHRASE` is read from `.env` by `backup.sh` and `restore.sh` alone, and reaches no container; `CG_SMTP_PASS`, like the other `CG_SMTP_*`, may be empty, notification being optional.
+
+### 2. Start-up checks
+
+- Ingest and the api parse their configuration with the checks of §Data contracts §3 and, on a failure, print one line, `cg-ingest: fatal: invalid configuration: <VAR>: <reason>` or `cg-api: fatal: invalid configuration: <VAR>: <reason>`, and exit 1. The api's error reaches that line, not an uncaught exception.
+- The dashboard checks `API_BASE_URL` in Next's `instrumentation.ts` `register` hook, at the server's start, and exits 1 with `cg-dashboard: fatal: invalid configuration: API_BASE_URL: <reason>`.
+- Ingest loads its detection rules before it opens its listeners, so a rule set that fails leaves no listener open (today the order is the reverse). With `INGEST_DETECT_INTERVAL_MS=0`, SPEC-016's kill switch, it loads none, as SPEC-016 has it, and opens its listeners.
+
+### 3. The set-up script
+
+- `setup.sh` runs in the bundle's directory, as root, which the bundle's `.env` (mode `0600`, owned by root) asks of whoever then runs `docker compose`. When `.env` is absent it copies `.env.example`, sets its mode to `0600`, and stops, asking the operator to set the two hostnames and the TLS mode. When `.env` exists it adds each variable `.env.example` has and `.env` lacks, with its default, as a newer bundle brings at an upgrade, and fills each empty generated secret of §Data contracts §3 (the row marked "generated") with 32 bytes from `/dev/urandom` in lowercase hexadecimal (64 characters, safe in a URL without escaping), keeps any value already set, and sets the file's mode to `0600`. In `provided` mode it gives the TLS key to the proxy's user (uid 10001), mode `0400`, which needs root, as the runbook's install does. It prints the names of the variables it filled, never a value.
+- It refuses to run when `CG_DASHBOARD_HOSTNAME` or `CG_AGENT_SERVER_NAMES` is empty, or when `CG_TLS_MODE` is `provided` and either TLS file is missing, naming what is missing.
+- Once it has filled the secrets it is idempotent: a further run changes nothing.
+
+### 4. The stores' credentials
+
+**Postgres** (`postgres/`, run once by the image's initialisation, as the superuser):
+
+- Creates the database `cyberguard`, the extensions `pgcrypto` and `vector`, and five roles, none a superuser or with `CREATEDB` or `CREATEROLE`: the owner roles `cg_ingest_owner` and `cg_api_owner` and the runtime roles `cg_ingest` and `cg_api` (each `LOGIN`, with its password from the environment), and `cg_incident_reader` (`NOLOGIN`), granted to `cg_api`.
+- Creates the schemas `ingest` and `api`, owned by `cg_ingest_owner` and `cg_api_owner`; grants each runtime role `USAGE` on its own schema, and no default privileges, so that a table its owner creates gives it no right until a migration grants one; grants each login role `CONNECT` on the database; and revokes `CREATE` on `public` and `TEMPORARY` on the database from `PUBLIC`. The extensions live in `public`, owned by the superuser. No runtime role owns an object or can create one, in its schema, the other's or `public`, so neither running service can attach a policy, a trigger, a view or a function to a table the other reads (CVE-2018-1058's family). Each service's connection sets its search path to its schema and then `public` (`options=-c search_path=…`), and the api names ingest's three tables with their schema. In the dev stack and the tests one superuser owns everything; the services' connections carry the same search paths, their migrations create `pgcrypto` `WITH SCHEMA public`, so that it lands in `public` as the initialisation puts it in production and not in the first service's schema, and their migration step creates their schema when it is absent, before the first migration and before the migration ledger, checking for it first, since an owner role has no `CREATE` on the database, so that names, the ledger's among them, resolve as in production. The superuser is used by this initialisation and by `backup.sh` and `restore.sh` alone.
+- A new ingest migration, run as `cg_ingest_owner`, grants `USAGE` on the schema `ingest` and `SELECT` on `alerts`, `incidents` and `playbook_executions` to `cg_incident_reader` when that role exists, and does nothing when it does not (the dev stack, the tests). A later ingest migration that creates a table the api reads grants it in the same way.
+- Each runtime role's rights on each table of its service are those the service's code uses on it, granted table by table, when the role exists, by its service's migrations: a new migration for the tables that exist today, and each later migration for the table it creates. Among them: ingest's `cg_ingest` has `SELECT` and `INSERT` on `ca`, and the api's `cg_api` `SELECT` and `INSERT` on `forensic_key` and `INSERT` alone on `audit_log`, which its code never reads, so that neither running service can replace the CA or the forensic key, and `audit_log` is append-only by grant. Neither has a right on its migration ledger (ingest's `kysely_migration` and `kysely_migration_lock`, the api's `api_kysely_migration` and `api_kysely_migration_lock`), nor `USAGE` on a sequence its code does not draw from.
+- The server runs with `log_statement = none`, `log_min_duration_statement = -1`, `log_parameter_max_length = 0` and `log_parameter_max_length_on_error = 0` (debt #94): a statement that is logged, by an error or by an operator who turns statement logging on, is logged without its parameters.
+
+**ClickHouse** (`clickhouse/`):
+
+- `cg_admin` is the image's user (`CLICKHOUSE_USER`), with access management, used by the initialisation, the `ingest-migrate` one-shot, `backup.sh` and `restore.sh` alone; the `default` user is removed. The users' passwords come from the environment, so the initialisation is a shell script.
+- The server keeps its system log tables (`query_log`, `query_thread_log`, `part_log`, and `text_log` where it is on) for seven days, by a time-to-live in its configuration, and writes its own log at `warning` or above, rotated by size: a row of a failed insert, a logon or a connection among them, does not stay longer in those tables, and the server's log keeps what its rotation keeps. The data-protection document names it.
+- `cg_ingest`: on the database `cyberguard`, `SELECT` and `INSERT`; it reads every row, by a row policy that admits all of them or by the server setting that lets a user without a policy read.
+- `cg_api`: `readonly = 2`, which refuses every write and lets the client send its settings, `SELECT` on `cyberguard.cges_events` alone, and a row policy that admits only rows of class 1007, the class whose events the drill, the export and the report return (SPEC-010, SPEC-012, SPEC-013). A route that returns another class, or a rule that cites another class's event (ADR-0018 §9, ADR-0019 §7), widens the policy in the SPEC that adds it.
+
+**Redis** (`redis/`, an ACL file written from the environment at the container's start, on a tmpfs of the Redis container, never passed on a command line: the script, the container's entrypoint, writes it readable by the image's `valkey` user and then executes the image's `docker-entrypoint.sh valkey-server --aclfile <file>`, which drops to that user; its health check is `valkey-cli`'s `PING` as `cg_ingest`, the password given through `VALKEYCLI_AUTH`, not the command line):
+
+- `default`: off.
+- `cg_ingest`: keys `nonce:*`; the commands of ingest's client (`AUTH`, `PING`, `INFO`, `CLIENT|SETNAME`, `CLIENT|SETINFO`, `QUIT`, `SET`), and no other `CLIENT` subcommand, so that it cannot pause or kill the api's connections.
+- `cg_api`: keys `cgsess:*`, `rl:*` and `totp:replay:*`; the commands of the api's client (`AUTH`, `PING`, `INFO`, `CLIENT|SETNAME`, `CLIENT|SETINFO`, `QUIT`, `GET`, `SET`, `DEL`, `SCAN`, `EVAL`) and those its rate-limit scripts call (`GET`, `SET`, `DEL`, `INCR`, `DECR`, `EXISTS`, `EXPIRE`).
+- A password of each user is the one in the environment; the file holds its SHA-256 (`#<hex>`), not the password.
+
+### 5. The proxy
+
+- In `provided` mode it serves `${CG_DASHBOARD_HOSTNAME}` with the operator's certificate and key; in `internal` mode, with one its internal CA issues. Port 80 redirects to HTTPS, the `Location` naming `${CG_HTTPS_PORT}`, not the port the proxy listens on inside its container.
+- It proxies every request to `dashboard:3000`. It does not trust a client's `X-Forwarded-*` headers: it sets `X-Forwarded-For` to its peer's address, passes the request's `Host` unchanged, and sets `X-Forwarded-Host` to that `Host` and `X-Forwarded-Proto` to `https` (SPEC-009's second Amendment 2026-10-15, items 2 and 5, for `Host`, `X-Forwarded-Host` and `X-Forwarded-For`).
+- It adds `Strict-Transport-Security: max-age=31536000` to every HTTPS response.
+- Its own access log goes to its standard output, rotated by the compose.
+
+### 6. The agents' TLS
+
+- **The server certificate's names.** `INGEST_SERVER_NAMES` lists DNS names and IPv4 or IPv6 addresses, at least one, at most 20, each a valid DNS name of at most 253 characters or an address. The certificate ingest issues itself (SPEC-004 Amendment 2026-10-15) carries them as its SANs, and its subject is `CN=` the first name, or its first 64 characters (RFC 5280's bound). Its subject also carries `O=CyberGuard self-issued`. A self-issued pair is one the CA signed whose subject carries that, or one the CA signed with the profile SPEC-004 issued before (`CN=localhost`, SANs `localhost` and `127.0.0.1`); one whose SANs differ from the list is reissued at start, as one near its expiry is. Any other pair, one the CA signed included, is operator-provided and never rewritten, as servercert_ac_004 asserts; the runbook places one in the `ingest_certs` volume as `server.pem` and `server-key.pem`, owned by uid 1000, before ingest's first start. The suites whose criteria fetch `/health` over plain HTTP, servercert_ac_* among them, run with `INGEST_ENROLL_TLS=false`.
+- **Debt #105.** Ingest refuses to start when the certificate and key paths resolve to the same file.
+- **Debt #92's key file.** At start ingest sets a key file it issued itself to mode `0600` if it is wider.
+- **Enrollment over TLS.** With `INGEST_ENROLL_TLS=true`, the default, the enrollment listener serves HTTPS with the server certificate, TLS 1.3 only, with the two cipher suites ADR-0004 §Transport allows (`TLS_AES_256_GCM_SHA384` and `TLS_CHACHA20_POLY1305_SHA256`), and asks for no client certificate; the mTLS listener is held to the same two, where today it takes Node's TLS 1.3 defaults, which add `TLS_AES_128_GCM_SHA256`; `/health` moves with it. `false` keeps plain HTTP, for the test suites that post to it in clear; the production compose and the dev stack leave it unset. SPEC-004's Amendment 2026-10-15 applies to the enrollment listener as to the mTLS one: a reissued or adopted certificate is swapped into both, and one with ten minutes or less left, or expired, is served on neither, each connection being closed before its handshake, so that an agent retries rather than ending with exit code 6. That amendment's item 8, that the enrollment listener does not depend on the mTLS listener's certificate, no longer holds.
+- **The agent** (SPEC-002, SPEC-003 by scope): when its configuration has an `[enrollment]` section, `server.url` must be `https://`, or the configuration is refused (exit code 2). Its enrollment client offers TLS 1.3 only, as its heartbeat client does (`agent/cg-agent/src/tls.rs:83`). The enrollment client trusts the roots of `server.trust_anchor_path` and nothing else, as the heartbeat client does, which makes `trust_anchor_path` required with `[enrollment]`; an installed agent whose `agent.toml` keeps an `http://` `server.url` beside `[enrollment]` exits 2 at its next start, which the upgrade document says. SPEC-002's `enroll_ac_*` tests move to a TLS mock with an anchor, `enroll_ac_001` then heartbeating over mTLS, and its FR-013, an enrolled agent heartbeating over the SPEC-001 path, is removed with the code that ran it (`agent/cg-agent/src/main.rs`), since an enrolled agent now always has an anchor. A server certificate it does not trust ends enrollment at once, without the retries of a network failure, with SPEC-003's exit code for an untrusted server certificate (6); today such a failure is retried and ends as unreachable (exit code 4).
+- **The CA's export.** `export-ca.js` (§Data contracts §4) is the operator's way to the agents' trust anchor. The fingerprint, `sha256:` and the SHA-256 in lowercase hexadecimal, lets an operator compare the file the agent holds with the server's CA. With an operator-provided pair, the agents' anchor is the CA that issued it, which the operator distributes instead.
+
+### 7. The dashboard
+
+- **Cookie names** (debt #106): `__Host-cgsess` and `__Host-cgcsrf`, with the attributes SPEC-009 sets (`HttpOnly; Secure; SameSite=Strict; Path=/`, no `Domain`). The dashboard reads only those names. The api's own cookie, which the dashboard reads from the api's answer and sends back in its calls, keeps the name `cgsess`.
+- **Security headers** (debt #104), on every response of the dashboard's server:
+  - `Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-<n>' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`, a new nonce per response, set by Next's middleware;
+  - `X-Content-Type-Options: nosniff`;
+  - `Referrer-Policy: same-origin`, not `no-referrer`, under which a browser sends `Origin: null` and SPEC-009's same-origin check would refuse every sign-in;
+  - `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+
+  HSTS is the proxy's (§5); public-key pinning, which the threat model's §9 also names, is not done, browsers having dropped it. The nonce'd inline scripts Next needs depart from §9's "inline scripts … forbidden": a script runs only with the response's nonce, never under `'unsafe-inline'`, and the threat model records that reading. `next dev` keeps no CSP, since React's development build evaluates code.
+- **`GET /api/health`**: `200 { "status": "ok" }`, calling nothing.
+
+### 8. The first admin
+
+- `create-user.js` reads the password from standard input: from a terminal, twice and without echo; from a pipe, its first line, and the TOTP code below from its second. A password SPEC-008 refuses is refused before anything is written.
+- It writes the user, prints the TOTP provisioning URI on standard output once, as SPEC-008 §Operational §6 does, and then asks for a current code: a valid one confirms the factor, as `POST /v1/auth/totp/confirm` does, with its `user.totp.enroll` audit row; three invalid ones leave the user with the factor unconfirmed, and the command says how to confirm it later. With `--no-confirm`, it skips the question.
+- The runbook runs it with `docker compose exec api node dist/cli/create-user.js --email <e>`. Users after the first are created through the api's `POST /v1/users`, which the dashboard does not offer yet (§Scope, *Out of scope*): the runbook reaches it with `docker compose exec`, from inside the api's container, until the dashboard SPEC lands, by a procedure that reads the passwords and codes from standard input, never from arguments or the shell's history. A later user confirms the TOTP factor through `POST /v1/auth/totp/confirm` (the user's id and a current code, SPEC-008), from a shell on the server, which the runbook says.
+
+### 9. Retention
+
+- Ingest's migration step, the `ingest-migrate` one-shot in the bundle, sets on `cges_events` a time-to-live that deletes a row of class 1007, 4001 or 3002 the set number of days after its `arrived_at` (`INGEST_RETENTION_PROCESS_DAYS`, `_NETWORK_DAYS`, `_LOGON_DAYS`), and on `heartbeats` one of `INGEST_RETENTION_HEARTBEAT_DAYS`. A row of another class keeps the longest of the three. A run with other values, at the next `docker compose up`, sets the new ones and materialises them (`MATERIALIZE TTL`), so that rows already stored are measured against the new period too. ClickHouse deletes at its time-to-live merges, so a row may outlive its period by the time a merge takes. SPEC-020's auth_ac_003, which asserts that the time-to-live is restricted to class 3002 and that a 1007 row 366 days old remains, is restated by deploy_ac_011 in both halves.
+- This changes the schema of `cges_events`: the change lands under the elevated gate (CLAUDE.md, *Compensating controls* §4).
+- Postgres keeps alerts, incidents, the audit log and the playbook records without a period, as today.
+- Container logs are rotated at 10 MB, five files per container. Keeping them longer, as the threat model's year of retention for service logs asks (`docs/security/threat-model.md:196`), is the operator's log shipping, which the runbook shows with Docker's logging drivers, set by a compose override file the runbook gives.
+
+### 10. Backup and restore
+
+- `backup.sh` writes two files into `${CG_BACKUP_DIR}` on the host (mode `0700`), with the date in each name: a `pg_dump` of `cyberguard` in custom format, streamed out of the Postgres container; and a ClickHouse `BACKUP DATABASE cyberguard` archive, written to ClickHouse's backup disk (`ch_backups`), streamed out, then deleted from that disk. It does not copy `.env`: the runbook asks the operator to keep a copy of it apart, since it holds the keys to the CA, the TOTP secrets and the forensic key, which the dump holds encrypted.
+- Each stream is encrypted on the host as it leaves its container, with `gpg --batch --pinentry-mode loopback --symmetric --cipher-algo AES256` under `CG_BACKUP_PASSPHRASE`, which reaches `gpg` on a file descriptor (`--passphrase-fd`), never on its command line, and only the encrypted file is written; a ClickHouse archive exists in clear only on ClickHouse's backup volume, on the host's disk, until it is deleted: the threat model names encrypted backups as the mitigation of a backup's leak (`docs/security/threat-model.md:169`). The dumps hold personal data, and the CA, the TOTP secrets and the forensic key encrypted; the runbook has the operator copy them off the host, the environment file kept apart. `gpg` is a prerequisite of the host. The backups hold personal data with no period of their own: the data-protection document asks the operator to keep them no longer than the longest retention set under §9 (365 days by default), and says that a restored backup brings back rows past their period until the next time-to-live merge.
+- `restore.sh` restores both into a stack whose stores are empty, with the `.env` of the backed-up installation, while ingest, the api and the dashboard are stopped, so that neither service generates a CA or a forensic key first. It starts the stores alone, so that the one-shots have not run; restores the dump as the superuser with `pg_restore --clean --if-exists`, over the roles and schemas the initialisation created; then lets the one-shots run, which find every migration applied. Redis is not backed up: it holds sessions, rate-limit counters, TOTP replay keys and nonces (ADR-0003 Rule 5); users sign in again. Neither are the `ingest_certs` and `proxy_data` volumes: a self-issued server pair is reissued from the CA, which the dump holds; an operator-provided pair is the operator's own file, which the runbook has them keep with its key; and the proxy's CA of `internal` mode, an evaluation's, is generated again, and browsers must then trust its new root.
+
+### 11. The verifier
+
+- `verify-export.js` reads an export (SPEC-012 §Data contracts) and a fingerprint. Without `--fingerprint` it refuses, exit code 2. When the SHA-256 of the 32 bytes the export's `forensic_pubkey` decodes to is not the fingerprint, it prints `the export's key does not match the recorded fingerprint` and exits 1. Otherwise it recomputes each evidence hash and the chain from the events (SPEC-012 §2); when the head it computes is not the export's `chain_root`, it prints `the events do not give the export's chain head` and exits 1. It then checks `root_signature` over the head under the key: `verified: <n> events, chain head <hex>` with exit code 0, or `the signature does not verify` with exit code 1. The export carries no per-event hash, so the verifier cannot name the event that changed.
+- An auditor runs it with the api's published image, which needs no store: `docker run --rm -v <dir>:/in ghcr.io/almanindahouse/cyberguard-api:<version> node dist/cli/verify-export.js --fingerprint sha256:<hex> /in/<export>.json`.
+- It reads no store and needs no configuration: it runs anywhere Node 22 runs, with the api's `dist/` and production dependencies.
+
+### 12. The release
+
+- `.github/workflows/release.yml` runs on a tag `v<major>.<minor>.<patch>` (its dry run is `deploy-ci.yml`'s):
+  - **images** (ubuntu): builds the four images for linux/amd64, pushes them with tags `<version>` and `sha-<commit>`, with BuildKit's SBOM and provenance attestations, and `actions/attest-build-provenance` on each digest;
+  - **agent** (windows): builds `cg-agent.exe` in release mode, and attests it;
+  - **bundle**: writes the compose with each image as `<name>:<version>@sha256:<digest>`, packs `deploy/docker/` without `test/`, `proxy/` and the test override, and attests the archive;
+  - **publish**: creates the GitHub Release with the bundle, the executable, `SHA256SUMS` and the licence report.
+- Permissions per job: `contents: read` but for the publish job (`contents: write`); `packages: write` in the images job alone, which pushes; `id-token: write` and `attestations: write` in the images, agent and bundle jobs, which attest. Its third-party actions, and those of `deploy-ci.yml`, are pinned by commit SHA.
+- **Licences** (debt #112): `.github/scripts/check-licences.mjs` reads `pnpm licenses list --prod --json` and the licence fields of `cargo metadata` for the agent's runtime dependencies, and fails, naming each package, on a licence outside its allowlist (`.github/scripts/licences-allowed.json`). It runs in `dependency-audit.yml` and in the release; its report is a release asset. Adding a licence to the list is a reviewed change.
+- `deploy-ci.yml` (new) builds the four images from the commit on a pull request that touches `deploy/**`, `docs/operations/**`, `services/**`, `dashboard/**`, `agent/**`, the lockfile or a workflow of this SPEC, and a Linux debug build of `cg-agent` for deploy_ac_009, and runs `deploy/docker/test/` against them; it pushes nothing. It also runs the release's image builds and bundle step itself, with `contents: read` alone and nothing pushed or attested: the dry run that deploy_ac_001's and deploy_ac_019's dry-run halves read. It also runs every Monday on `main`.
+- A release is cut by pushing the tag. The first release waits for F2, F3 and F4 to land and for Manuel's explicit OK (ADR-0022 §7). After the first push, each package's visibility is set to public once, in its settings, by the repository's owner.
+
+### 13. The development stack
+
+`infra/dev/docker-compose.dev.yml` keeps building from source, with one credential per store and its stores on the loopback. It gains what the services now require: `INGEST_SERVER_NAMES` left to its default, enrollment over TLS (its health check follows), the services' search paths on its Postgres URLs, on the test backends' and on the api tests' helper that applies ingest's migrations (`services/api/test/helpers/read-schema.ts`, with ingest's search path) (§Operational §4), and the agents it enrolls trusting the CA that `export-ca.js` prints. Its README and its `.env.example` stop pointing to an `infra/prod/`; the README stops naming Redis 7.4 and says to remove, once, the `cyberguard-dev_cg_ingest_certs` volume a root-run ingest wrote, whose `0600` key the non-root ingest cannot read; that costs a reissued server certificate, which agents accept, since they trust the CA. `check-compose.test.mjs`'s fixtures move to the Valkey image. The README also says to recreate the dev database once, whose tables a release before SPEC-023 created in `public`, and to remove the `cyberguard-dev_cg_redis_data` volume once, which Redis wrote and Valkey may not load; it holds sessions, rate-limit counters, TOTP replay keys and nonces alone (ADR-0003 Rule 5).
+
+The dev compose's `redis` service and the tests' backends (`services/ingest/test/helpers/backends.ts`, `services/api/test/helpers/backends.ts`) run `valkey/valkey:9.1.2-alpine`, started with `valkey-server` and checked with `valkey-cli`; the service, its volume and the dev variables (`CG_REDIS_PORT`, `CG_REDIS_PASSWORD`) keep their names. `infra/dev/check-compose.mjs` asserts that the compose and the two backends name one Valkey image pinned to a patch release, as it asserts ClickHouse's (deploy_ac_022).
+
+### 14. The relay's certificate
+
+- With `INGEST_SMTP_CA_FILE` set, the bounded send (SPEC-022 §Operational §6) trusts that file's certificates for the relay, through the `tls.ca` option its tests already use.
+- A send whose relay certificate fails verification records the verification's code (for instance `UNABLE_TO_VERIFY_LEAF_SIGNATURE` or `SELF_SIGNED_CERT_IN_CHAIN`) as its failure code, in its log line and in a SOAR step's error, where SPEC-022's Amendment 2026-10-15 records `ESOCKET` (debt #78: the code points the operator to the remedy). SPEC-022 and soar_ac_006's case are amended so by scope.
+
+## Non-functional requirements
+
+- **NFR-023-001.** From a host with Docker installed and the images pulled, `setup.sh`, `docker compose up --wait` and the first admin take less than 10 minutes of machine time on CI's runner (deploy_ac_003).
+- **NFR-023-002.** The runbook's installation, server and first agent, takes an operator who follows it less than 30 minutes, timed once on a fresh host (deploy_ac_020).
+- **NFR-023-003.** No secret is printed by any script or command of this SPEC, except the token, the provisioning URI and the keys' public halves that §Data contracts §4 and §Operational §8 print by design.
+
+## Security considerations
+
+- Every R of ADR-0022's *Consequences* is changed in the threat model with the code that changes it; the threat model is Manuel's, and each session's handoff lists the change for his audit.
+- The environment file is the deployment's master secret. Its mode is `0600`, and the runbook asks for it to be owned by root and backed up apart from the stores.
+- `internal` TLS mode is for an evaluation: the runbook says that browsers warn until the proxy's root is installed, and that production uses `provided`.
+- The token printed by `issue-token.js` and the provisioning URI are secrets on the operator's terminal; the runbook says so.
+
+## Acceptance criteria
+
+Unless a criterion names another place, its test is under `deploy/docker/test/`, runs with `node --test` in `deploy-ci.yml`, and drives the bundle with images built from the commit. The services' own criteria are vitest tests in their workspaces, and the agent's are Rust tests.
+
+- **deploy_ac_001 (the compose's contract).** Over `docker compose config --no-interpolate` of the bundle with a test `.env`: the seven services and the two one-shots and no other; published ports only those of §Operational §1; `edge`, `app` and `data` internal; the api on no non-internal network, the dashboard not on `data`, the one-shots on `data` alone; ingest, the api, the dashboard, the proxy and the one-shots with a non-root `user`, `read_only: true`, `cap_drop: [ALL]` and `no-new-privileges:true`; the log rotation on every service, a health check on every long-running one, `NET_RAW` dropped on the stores, `restart: "no"` on the one-shots; no service setting `INGEST_ENROLL_TLS=false`; the stores' images those of §Data contracts §2; every generated secret a container uses from `${CG_…:?}`, and `CG_BACKUP_PASSPHRASE` in no service, and `CG_SMTP_PASS` from `${CG_SMTP_PASS}` with no default. Over the published bundle's compose (the release dry run): every image pinned by digest. Over the Dockerfiles: base images pinned by digest.
+- **deploy_ac_002 (set-up).** On a copy of the bundle: a first `setup.sh` copies `.env.example` to `.env` with mode `0600` and stops, naming the hostnames to set; with them set, a second run fills each secret with 64 lowercase hexadecimal characters, all distinct; a third run changes no byte; a variable the template has and `.env` lacks is added with its default; a secret the operator set is kept; an empty `CG_DASHBOARD_HOSTNAME` or `CG_AGENT_SERVER_NAMES`, or `provided` mode without the TLS files, is refused with the name of what is missing; in `provided` mode the key is owned by the proxy's user with mode `0400`; the script's output holds no generated value.
+- **deploy_ac_003 (the stack comes up).** `setup.sh`, `docker compose up --wait` and `create-user.js` for the first admin, within 10 minutes: the seven containers healthy, ingest's and the api's migrations applied, the admin written, the elapsed time printed.
+- **deploy_ac_004 (Postgres roles).** As `cg_ingest`, the runtime role: `SELECT` on `users`, `forensic_key` and `audit_log` refused; `INSERT` into `ca` allowed, and `UPDATE` and `DELETE` on it refused; `CREATE TABLE`, `CREATE FUNCTION`, `CREATE POLICY`, `CREATE VIEW` and `ALTER TABLE` refused in its schema, the api's and `public`. Each ingest table the api reads is owned by `cg_ingest_owner`. As `cg_api`: `SELECT` on `ca`, `enrollment_tokens` and `agents` refused; `SELECT` on `alerts`, `incidents` and `playbook_executions` allowed, and `INSERT`, `UPDATE` and `DELETE` on them refused; `INSERT` into `audit_log` and `forensic_key` allowed, and `UPDATE` and `DELETE` on them refused, and `SELECT` on `audit_log` refused. As either runtime role, `CREATE TEMPORARY TABLE` refused, and its service's migration ledger neither read nor written. None of the five roles is a superuser, and no runtime role owns an object.
+- **deploy_ac_005 (Postgres logging).** As the superuser, a session sets `log_statement = 'all'` and runs a statement with a marker as a bound parameter: the container's log has the statement and not the marker.
+- **deploy_ac_006 (Redis).** `cg_ingest` sets `nonce:x` and is refused `GET cgsess:x` and `SET cgsess:x` (the forge of R2); `cg_api` reads `cgsess:x` and is refused `SET nonce:x`; both are refused `KEYS`, `FLUSHALL`, `CONFIG`, `CLIENT KILL` and `CLIENT PAUSE`; `default` cannot authenticate.
+- **deploy_ac_007 (ClickHouse).** With one row of each of classes 1007, 4001 and 3002 inserted as `cg_ingest`: `cg_api` reads the 1007 row only, is refused `INSERT` into `cges_events` and `SELECT` on `heartbeats`; `cg_ingest` reads all three.
+- **deploy_ac_008 (the edge and a sign-in).** In `provided` mode with a test CA's certificate:
+  - HTTPS answers on the proxy's port; HTTP answers with a redirect whose `Location` is `https://` on `CG_DASHBOARD_HOSTNAME` and `CG_HTTPS_PORT`; no port of the api or the dashboard is published on a host address;
+  - `/login` carries HSTS, the CSP of §Operational §7 with a nonce that changes per response, `X-Content-Type-Options`, `Referrer-Policy: same-origin` and `Permissions-Policy`;
+  - the admin created by `create-user.js` (password on standard input, TOTP confirmed at the command) signs in through `POST /api/auth/login`: `200`, the cookies `__Host-cgsess` and `__Host-cgcsrf`; the login page's script elements carry the response's nonce; `GET /incidents` with them answers `200`;
+  - a sign-in that carries `X-Forwarded-For: 203.0.113.9` writes its `audit_log` row with the address the proxy saw its client at, not `203.0.113.9`;
+  - a sign-in that carries `Origin: https://evil.example` and `X-Forwarded-Host: evil.example` is refused by the dashboard's same-origin check, the proxy having set `X-Forwarded-Host` to the request's `Host`.
+- **deploy_ac_009 (an agent enrolls and reports).** `export-ca.js` prints a PEM and a fingerprint equal to the SHA-256 of that certificate's DER; `issue-token.js` prints a token. A debug build of `cg-agent`, configured with `https://<a name of CG_AGENT_SERVER_NAMES>:<CG_ENROLL_PORT>` and the matching heartbeat URL, and the exported CA as its trust anchor, enrolls and has a heartbeat row within 60 seconds. The certificate both listeners present names each entry of `CG_AGENT_SERVER_NAMES`.
+- **deploy_ac_010 (the forensic anchor).** `forensic-key.js` prints the key the `forensic_key` row holds and the SHA-256 of its 32 bytes. An export of a seeded incident, requested from the api on the `app` network with an admin's session (the dashboard SPEC adds its page), carries `forensic_pubkey_sha256`, and the report's text carries the same fingerprint. `verify-export.js` with that fingerprint: `verified`, exit 0; without `--fingerprint`: exit 2; with another fingerprint: the key's mismatch line, exit 1; with an event's field changed: the chain-head line, exit 1; with the signature changed: the signature line, exit 1. The verifier also runs from the api's image with no store reachable.
+- **deploy_ac_011 (retention).** With the four `CG_RETENTION_*` set to 7, 8, 9 and 10, `SHOW CREATE TABLE` shows `cges_events`'s time-to-live deleting classes 1007, 4001 and 3002 at 7, 8 and 9 days after `arrived_at`, and `heartbeats`' at 10; after `docker compose up` with other values, the new ones, and a row stored before whose arrival is past its new period is gone once the table has merged. A value of 6 or 3651 stops the `ingest-migrate` one-shot before it sets a time-to-live, and stops ingest, each with the variable named. SPEC-020's auth_ac_003 is restated in ingest's suite: with the defaults, a row of class 1007, 4001 or 3002 whose arrival is 366 days old is deleted at a time-to-live merge, and one whose arrival is 364 days old remains.
+- **deploy_ac_012 (backup and restore).** After an agent has enrolled and an incident exists: `backup.sh`, whose two files are encrypted (no `pg_dump` header, and `gpg` with another passphrase fails), with no archive left on ClickHouse's backup disk, then a new stack with the same `.env` and `restore.sh`. The api and ingest start; `forensic-key.js` and `export-ca.js` print the fingerprints they printed before; the agent's heartbeats are accepted with its certificate; the incident is listed.
+- **deploy_ac_013 (configuration checks; services' suites).** Ingest and the api each refuse, with the one-line message of §Operational §2, what of these applies to it: a port of 0 or 65536; an empty certificate or key path; the two paths naming one file; a log level that is not pino's; an `INGEST_SERVER_NAMES` entry that is neither a DNS name nor an address, or an empty list; `API_SESSION_*` out of bounds, or an idle lifetime above the cap; a retention out of bounds; `INGEST_DETECT_INTERVAL_MS` empty; and a rule set that fails to load stops ingest with no listener having opened. The dashboard refuses an empty `API_BASE_URL` and one that is not `http:` or `https:`. Each test runs the start-up entry point, not the parser alone.
+- **deploy_ac_014 (the server certificate; ingest's suite).** With `INGEST_SERVER_NAMES=cg.example.test,10.0.0.5`, the self-issued certificate's SANs are exactly those two and its subject `CN=cg.example.test, O=CyberGuard self-issued`; after a restart with another list, it is reissued with that list; an operator-provided pair is not rewritten; a key file of mode `0644` that ingest issued is `0600` after start; a reissued certificate is served on the enrollment listener without a restart.
+- **deploy_ac_015 (enrollment over TLS; ingest's suite and the agent's).** The enrollment listener answers over TLS 1.3 with the server certificate and refuses TLS 1.2; each listener refuses a client that offers only `TLS_AES_128_GCM_SHA256`. The agent refuses a configuration with `[enrollment]` and an `http://` `server.url` (exit 2), or without a trust anchor; it enrolls against a server whose certificate its anchor issued, and fails with exit code 6 against one another CA issued. Against a server that offers TLS 1.2 alone, it does not enroll, and ends as unreachable (exit code 4) after the retries of a network failure.
+- **deploy_ac_016 (the bootstrap command; the api's suite).** `create-user.js` refuses `--password` (exit 2); reads the password from a pipe; prints the provisioning URI on standard output and nothing secret on standard error; confirms the factor with a valid code, writing `user.totp.enroll`; leaves it unconfirmed after three invalid codes.
+- **deploy_ac_017 (the api's `/health` and session lifetimes; the api's suite).** `GET /health` answers `200 { "status": "ok" }`, and, once the api has started, still does while the stores are unreachable. With `API_SESSION_IDLE_MINUTES=5` and `API_SESSION_MAX_HOURS=1`, a new session's idle lifetime and cap are those.
+- **deploy_ac_018 (the relay's CA; ingest's suite).** With `INGEST_SMTP_CA_FILE` naming a test CA, a notification reaches a local relay whose certificate that CA issued; without it, the send fails and its log line and the SOAR step's error carry the certificate's verification code, not `ESOCKET`, as soar_ac_006's case now asserts.
+- **deploy_ac_019 (images and release; `deploy-ci.yml`).** Each built image runs as its non-root uid (1000; the proxy, 10001), carries `LICENSE`, `NOTICE` and the four labels; in the ingest image, uid 1000 cannot write `/app/rules`; the proxy image's Caddy binary carries no file capability. The release workflow's dry run builds the images, with BuildKit's SBOM and provenance attached, and the bundle; on the first release, `gh attestation verify` on each image, on the bundle and on the agent's executable is recorded in the handoff. The licence checker passes on the repository and fails, naming the package, on a fixture with a licence outside the list.
+- **deploy_ac_020 (the timed installation; manual).** Manuel, or an operator he names, follows `docs/operations/install.md` on a fresh host, from the published bundle to an enrolled agent seen by the dashboard, and the handoff records the time. Below 30 minutes, with the later SPECs of §F landed, delivers criterion 7.
+- **deploy_ac_021 (the operator's documents).** `docs/operations/` holds the installation, configuration, backup-and-restore, upgrade, data-protection and forensic-verification documents of §Scope 13, the `markdown-lint` workflow passes on them, and each command `install.md` gives for the server is one a test of `deploy/docker/test/` runs; its steps on the Windows endpoint are the elevated gate's.
+- **deploy_ac_022 (the key-value store's image; `infra-ci`).** `infra/dev/check-compose.mjs` passes when the dev compose's `redis` service and the two test backends name the same `valkey/valkey:<major>.<minor>.<patch>-alpine` image, and refuses, naming the file, a backend that starts another, an image of the `redis` repository, and a Valkey image not pinned to a patch release (`node --test infra/dev/check-compose.test.mjs`).
+
+SPEC-023's code is done when deploy_ac_001 to 018, 021 and 022 pass, with deploy_ac_019's dry run; deploy_ac_019's release half and deploy_ac_020 run with the first release, after F2 to F4.
+
+## Test scenarios
+
+- The bundle's tests (deploy_ac_001–012, 019) run on `ubuntu-latest`, where Docker is available; they cannot run on the hosted Windows runner (no container runtime). Locally they need Docker and a POSIX shell with root, for `setup.sh`'s `chown`; Git Bash on Windows is not one.
+- deploy_ac_009's agent is the Linux debug build, which enrolls and heartbeats without capture, as ingest's suite already launches it (`services/ingest/test/helpers/marquee-agent.ts`); a Windows agent's capture through the bundle is the elevated gate's.
+- The elevated gate runs once the TTL change, the move of ingest's tables into its schema (`alerts` among them) and the agent's enrollment change are in, and covers the marquees, which enroll over TLS from then on.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| Caddy's default handling of `X-Forwarded-*` changes in a release | Pinned by digest; deploy_ac_008 asserts the forwarded address. |
+| A store image's initialisation runs only on an empty volume, so a changed role or grant does not reach an installed stack | Grants that follow a table are in the services' migrations, which the one-shots run at every `docker compose up`; a change to the roles is an upgrade step the runbook names. |
+| The ClickHouse row policy hides a class a later route returns | §Operational §4 makes widening it part of that route's SPEC; deploy_ac_007 asserts the policy. |
+| A strict CSP breaks a page Next renders | deploy_ac_008 loads the pages through the proxy; the dashboard suite asserts the header. |
+| The release workflow is a supply-chain target | Actions pinned by SHA, least permissions per job, attestations an operator can verify. |
+| The environment file is lost | The runbook's backup step; deploy_ac_012 restores with it. |
+| A client's address is lost on its way in (Docker's userland proxy, for an IPv6 client on an IPv4 network or for hairpin traffic), so the per-IP login limit counts every such client as one | The runbook gives the daemon settings that keep the address; deploy_ac_008 asserts it for an IPv4 client. |
+| `MATERIALIZE TTL` after a change of the retention rewrites the parts of `cges_events`, which on a large table takes time and I/O | The one-shot reads the table's time-to-live and alters it, materialising, only when a value differs; the upgrade document says so. |
+| Valkey diverges from Redis on a command, an ACL rule or a script the services use | The services' suites run against Valkey's image in CI (deploy_ac_022 keeps the image one); deploy_ac_006 asserts the ACL. |
+| A backup is copied off the host with the environment file beside it, which holds its passphrase | The runbook keeps `.env` apart from the backups, and the data-protection document names what a backup holds. |
+
+## Open questions
+
+1. **Code signing of the agent** (ADR-0022 Open question 1).
+2. **An operator's own proxy instead of the shipped one** (ADR-0022 A2). Reopen: a buyer whose load balancer must front the dashboard; the requirements of §Operational §5 are what such a proxy must meet.
+3. **The Redis image's licence** (ADR-0022 Open question 2). Resolved on 2026-10-23, by Manuel: Valkey (ADR-0003 Amendment 2026-10-23).
+
+## Decision record
+
+Proposed by Claude Code on 2026-10-19 under Manuel's delegation ("lo que dependa de mí, decídelo tú en beneficio del proyecto, para un comprador empresarial, registrando cada decisión como delegada"). Accepted on 2026-10-23, after its self-review and with ADR-0022's ratification. Beyond ADR-0022's, the load-bearing decisions of this SPEC, each with what it discards:
+
+1. **The service variables keep their names; the bundle adds a `CG_` layer.** Against renaming the services' variables: their tests and the dev stack use them.
+2. **Secrets in the environment file, 256 bits in hexadecimal.** Against Docker secrets files (ADR-0022 A5), and against base64url, which `od` does not write and POSIX `uuencode -m` writes only as base64, with `+` and `/`.
+3. **Enrollment over TLS by default, plain HTTP only by an explicit `false`.** Against a separate port or a TLS variable off by default: an agent refuses `http://` in any case.
+4. **The api's ClickHouse user limited to class 1007 by a row policy.** Against `SELECT` on the whole table: the api's routes return no other class, and the logons and connections are personal data (debt #95).
+5. **Retention defaults of 365 days for each class of events and 30 for heartbeats**, bounded from 7 to 3650. Against 180 days for processes and connections, ADR-0003's warm tier: without the cold tier, that would end their retention at half the table's period (ADR-0003 Amendment 2026-10-19).
+6. **Session lifetimes as global settings, bounded by today's values.** Against per-org ones (one org) and against longer caps.
+7. **The first admin confirms TOTP at the command.** Against leaving the confirmation to the dashboard, which cannot enroll a factor yet.
+8. **A per-org detection window out of §F** (debt #24), for want of a second org: a delegated decision. ADR-0021's first open question, which roadmap §F reopened, is not answered here and stays open under its other condition, when incidents get a retention.
+9. **No Taskfile target for the bundle**: the operator runs `setup.sh` and `docker compose`, not Task.
+10. **The later §F SPECs' scope** (ADR-0022 §Decision record): the dashboard SPEC takes the agents, the enrollment tokens, the alerts, the export and report and the other pages the api serves without one; debt #87 moves to the agent-installation SPEC. Against adding pages here: the dashboard's pages are their own contract.
+11. **Backups encrypted by the script, with `gpg`'s symmetric mode.** Against leaving them in clear for the operator's storage: the threat model names encrypted backups as the mitigation; against `openssl enc`, whose command-line mode carries no integrity check.
+12. **Container logs rotated by size; their year of retention the operator's shipping.** Against a log store in the bundle: a component for a need a buyer's SIEM usually meets.
+13. **A proxy image of the product's.** Against Caddy's image as it is: its binary carries a file capability (`NET_BIND_SERVICE`), and a binary whose file capability lies outside the bounding set does not execute under `cap_drop: [ALL]`; and its volumes start owned by root, which a non-root proxy cannot write.
+14. **Two Postgres roles per service, migrations in a one-shot.** Against one role per service owning its tables: an owner can attach a policy or a trigger, or put a view in a table's place, whose functions run with the rights of whoever reads or writes the table, the api's runtime role among them.
+15. **The key-value store keeps the name `redis` while Valkey runs it**: the compose service, its volume, the `redis/` directory, the `CG_REDIS_*` secrets, `INGEST_REDIS_URL` and `API_REDIS_URL`. They name the protocol (`redis://`) and the store the other SPECs call Redis. Against renaming them `valkey`: the services' and the operator's variables would change for no change in behaviour, and the store would carry two names.
+16. **The licence checker in `.github/scripts/`**, beside the workflows that run it. Against `deploy/release/`: `deploy/` holds deployment manifests (ADR-0001 §Decision), and the checker is CI's.
+17. **ADR-0020's two items for roadmap §F go with SPEC-021** (§Scope, *Out of scope*): a delegated decision. Against the server's settings, a retention setting for the two columns and a pattern list now: no code captures the command line or the user SID while roadmap §B2 is parked, and ADR-0020 asks SPEC-021 to state both (its Amendment 2026-10-23).
+18. **The playbooks directory on the operator surface, with an empty directory in the image** (`CG_SOAR_PLAYBOOKS_DIR`), as ADR-0021 asks. Against a boolean: ADR-0021's switch is the directory.
+19. **Each runtime role's rights granted table by table, as its code uses them**, with no default privileges. Against `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table of its schema: the running ingest could replace the CA's row, and the next start would issue a new CA that no agent trusts; the running api could rewrite the forensic key.
+
+## References
+
+- ADR-0022, the Amendments 2026-10-19 of ADR-0001, ADR-0003, ADR-0004, ADR-0016 and ADR-0019, and the Amendments 2026-10-23 of ADR-0003 and ADR-0020; ADR-0010, ADR-0014, ADR-0015.
+- SPEC-002, SPEC-003, SPEC-004, SPEC-008, SPEC-009, SPEC-012, SPEC-013, SPEC-014, SPEC-016, SPEC-020, SPEC-022.
+- `docs/security/threat-model.md` — R2–R16 and the secrets plan.
+- `docs/handoff-session-27.md:140` (#12), `docs/handoff-session-29.md:120` (#20), `docs/handoff-session-35.md:591` (#47), `docs/handoff-session-39.md:602-733` (#77, #78, #85, #86, #89, #92, #94, #95, #97), `docs/handoff-session-40.md:1034-1084` (#103, #104, #105, #106, #108, #109), `docs/handoff-session-41.md:746` (#112).
+- Caddy's `reverse_proxy` documentation (header handling and trusted proxies); PostgreSQL 16, `log_parameter_max_length`; ClickHouse 24.8, row policies and settings profiles; Valkey 9.1, ACL and `valkey-cli` (`VALKEYCLI_AUTH`); Next.js 15, `output: "standalone"`, `instrumentation.ts` and a nonce-based CSP.

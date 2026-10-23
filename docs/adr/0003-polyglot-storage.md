@@ -161,6 +161,26 @@ Breach of any migration threshold above must open a new ADR that supersedes the 
 
 **Effect.** §Decision, §Alternatives considered and §Compliance: none. The four other lines of §Consequences, *Negative*, stand. Roadmap §F's deployment runs the backends its SPEC lists. Proposed by Claude Code on 2026-10-16 under Manuel's delegation of that day, and ratified by Manuel on 2026-10-18, in chat: "Sí (Recommended)", his answer to the question that put this amendment to him. Status stays `Accepted`.
 
+## Amendment 2026-10-19 (ADR-0022): the events' retention while MinIO is not built
+
+**What surfaced it.** Debt #47 (`docs/handoff-session-35.md:591`): §Retention model is not implemented, and `cges_events` keeps every class but logons without limit. ADR-0022 §10 implements it in ClickHouse. The table keeps normalized events 30 days hot and 180 days warm in ClickHouse, then in MinIO until 365 days; MinIO is not built (the Amendment 2026-10-16), so a row deleted from ClickHouse at 180 days would end its retention at half the table's period.
+
+**The amendment.** For the MVP, while MinIO is not built:
+
+1. A row of `cges_events` stays in ClickHouse for the whole period its class is kept: 365 days from its arrival by default, the table's total period for normalized events, read as its cold column's end, 365 days after arrival, and the operator's setting per class (ADR-0019 Amendment 2026-10-19), which realises, per deployment, the table's "revisable per organisation". The hot and warm tiers are ClickHouse's own storage of the row; the cold tier joins when MinIO does.
+2. The raw-events row does not apply: no raw payload is stored, only the normalized event.
+3. The other rows stand: alerts in Postgres only (the Amendment 2026-05-30), incidents in Postgres, and the audit log in Postgres, append-only, which the MVP does not delete at the year the table's warm column names; its signed MinIO mirror waits for MinIO.
+
+**Effect.** §Decision: its §Retention model applies as the items say; its decision table and its cross-cutting rules are unchanged. §Compliance: none. The bound of five backends stands. Proposed by Claude Code on 2026-10-19 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
+
+## Amendment 2026-10-23 (ADR-0022): the key-value store runs Valkey
+
+**What surfaced it.** ADR-0022 Open question 2. The decision table's key-value store, "Redis 7", runs as the image `redis:7.4-alpine` in the dev stack and the tests' backends, until SPEC-023's code replaces it. From 7.4 Redis's licences are RSALv2 and SSPLv1, and Redis 8 adds AGPLv3; an enterprise buyer's licence policy may refuse each of them, and ADR-0022's deployment would ship the image to every installation. Manuel chose, on 2026-10-23, to replace it with Valkey.
+
+**The amendment.** The key-value store of the decision table runs Valkey, a fork of Redis 7.2.4 under the BSD-3-Clause licence that speaks Redis's protocol and runs its commands, its ACL and its Lua scripts: in the deployment (ADR-0022 §1), in the dev stack and in the tests' backends. Where this ADR, another ADR or a SPEC names Redis as the store, it means this store. The name `redis` that the services' variables, their URLs (`redis://`) and the compose's service carry names the protocol, and stays.
+
+**Effect.** The decision table's row keeps its uses and its reason; its technology reads Valkey. The bound of five backends, the cross-cutting rules (Rule 5 among them) and the retention model stand. §Alternatives considered and §Compliance: none. Proposed by Claude Code on 2026-10-23, on Manuel's decision of that day ("Cambiar a Valkey (Recommended)", his answer to ADR-0022 Open question 2), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout (defines the components whose data this ADR routes)

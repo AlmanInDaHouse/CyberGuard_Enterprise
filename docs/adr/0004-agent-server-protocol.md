@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-20
-- Last updated: 2026-10-04
+- Last updated: 2026-10-23
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -189,6 +189,14 @@ Cross-reference convention applied: each rewritten bullet cites SPEC-003 §Drift
 **Amendment.** The realized shape is the contract (SPEC-017 §Data contracts). `body` carries an optional `events` array; the signature covers `body`, so the events are signed directly and a separate hash adds nothing. Step 7 (verify `batch_hash`) is retired. A heartbeat without events omits the member.
 
 **Effect on other sections.** None on steps 1–6, rotation, revocation or version compatibility. The integrity argument of §Message integrity per batch is unchanged: every event is under the envelope signature.
+
+## Amendment 2026-10-19 (ADR-0022): enrollment over TLS
+
+**What surfaced it.** Debt #89 (`docs/handoff-session-39.md:694`) and roadmap §F. §Enrollment does not name the transport of step 4's request. SPEC-004 FR-002 serves it over plain HTTP, so its token can be read on the wire, and the agent's enrollment client trusts the public web roots, not the internal CA (`agent/cg-agent/src/enrollment.rs`). §Compliance says that a change to enrollment or transport "opens a superseding ADR"; as the Amendments 2026-05-23 and 2026-10-04 did, this one changes the protocol in place, ADR-0022 being the decision.
+
+**The amendment.** §Enrollment, step 4: the agent sends its request over TLS 1.3 only, and validates the server's certificate against its configured trust anchor, as §Transport in operation's client does against the pinned internal CA; the operator gives the agent that anchor with the token and the server URL (step 2). The anchor is the internal CA, or the CA that issued the server certificate when the operator provides that certificate (SPEC-004). The enrollment listener asks for no client certificate, since the agent has none yet.
+
+**Effect.** §Transport in operation: its "pinned internal CA" is the agent's configured trust anchor, which is the internal CA unless the operator provides the server's certificate (SPEC-004), since one anchor will serve both of the agent's clients (today the enrollment client trusts the public web roots, `agent/cg-agent/src/enrollment.rs`, and the heartbeat client the anchor, `agent/cg-agent/src/tls.rs`); otherwise unchanged. §Rotation and revocation and §Version compatibility: unchanged. §Enrollment, step 2: the installer receives the anchor with the token and the server URL. Its other steps: unchanged; their signed JWT (debt #119) and their scope and org (debt #89), which are not built, stay for roadmap §F's renewal SPEC. §Compliance asks that such a change open a superseding ADR: this one is made in place, as the two earlier ones were, and decided by ADR-0022. Proposed by Claude Code on 2026-10-19 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
 
 ## References
 

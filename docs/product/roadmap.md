@@ -360,12 +360,12 @@ This dependency-ordered document supersedes both for planning.
 
 ### F — Installation / deployment (criterion 7)
 
-- **Status: CONTRACT PROPOSED** (S43, 2026-10-19). ADR-0022 (Proposed) with
-  co-located amendments to ADR-0001, ADR-0003, ADR-0004, ADR-0016 and
-  ADR-0019, and SPEC-023 (Proposed), on the owner-review branch
-  `adr/s43-f-deployment` (`docs/handoff-session-43.md`). They decide the
-  deployment-contract points of Part (b) §2–§4 under Manuel's delegation,
-  and wait for his "sí". The phase is four SPECs, in this order:
+- **Status: CONTRACT ACCEPTED** (S44, 2026-10-23). ADR-0022, with
+  co-located amendments to ADR-0001, ADR-0003 (two, the second for
+  Valkey), ADR-0004, ADR-0016, ADR-0019 and ADR-0020, ratified by Manuel on
+  2026-10-23, and SPEC-023, Accepted with it. They decide the
+  deployment-contract points of Part (b) §2–§4 under Manuel's delegation.
+  F1's code is next. The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
     images and the release, the forensic anchor, retention);
@@ -373,8 +373,8 @@ This dependency-ordered document supersedes both for planning.
     with its key custody (#87);
   - F3: the dashboard's missing pages (TOTP enrollment and users, #83 and
     #98; the login deleting the prior session, #102; the agents and the
-    enrollment tokens; the alerts; the export and the report; the playbook
-    records; the password change);
+    enrollment tokens; the alerts; the export and the report; an incident's
+    events, the drill; the playbook records; the password change);
   - F4: the agents' certificate renewal (#88), with the rest of #89.
 
   Criterion 7 is delivered by a timed installation after F1 to F4
@@ -385,12 +385,12 @@ This dependency-ordered document supersedes both for planning.
   production"); root `docker-compose.yml` is `services: {}`; `deploy/` is
   READMEs.
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
-- Blocked by: the deployment-contract decisions of Part (b): compose
-  location (#12) and forensic trust anchoring. Manuel delegated them on
-  2026-10-14, so they are decided in F's SPEC; the ADR amendments they need
-  wait for his explicit "sí". (B2 option (2)'s audit-policy dependency no
+- Blocked by: nothing since 2026-10-23. The deployment-contract decisions
+  of Part (b), the compose's location (#12) and the forensic trust
+  anchoring, which Manuel delegated on 2026-10-14, are decided in ADR-0022
+  and its amendments, which he ratified. (B2 option (2)'s audit-policy dependency no
   longer waits here: ADR-0020 ruled the option out.)
-- Needs: an infra/deploy SPEC (`SPEC-XXX-infra-docker`).
+- Needs: SPEC-023's code (F1), then F2 to F4's SPECs.
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
   model's Amendment 2026-10-15): the dashboard's TOTP enrollment and user
   management (#83, with #98; its login and logout landed in S40,

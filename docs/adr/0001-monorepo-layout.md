@@ -113,3 +113,16 @@ Rejected because domain decomposition is better expressed inside `services/` (wh
 ## Compliance
 
 Subsequent ADRs and SPECs that introduce new top-level directories must reference this ADR and explicitly justify the addition against the "Criteria for adding a new top-level directory" section above.
+
+## Amendment 2026-10-19: where the compose files live, `infra/`, and the release tag
+
+**What surfaced it.** Debt #12 (`docs/handoff-session-27.md:140`) and roadmap Part (b) §2 and §4. §Decision lists `docker-compose.yml` and `docker-compose.dev.yml` among the root's meta-files, and `deploy/` as the home of deployment manifests. The two root files are `services: {}` stubs, and the dev stack that runs lives in `infra/dev/docker-compose.dev.yml`, which shares the stub's basename. `infra/` is a top-level directory that no ADR added: it arrived with the dev stack (`565b666`, 2026-05-20), and §Criteria asks an ADR for one. ADR-0022 places the production compose; §Consequences, *Neutral*, left the release tag to the first release, which ADR-0022 §7 provides for.
+
+**The amendment.**
+
+1. **No compose file at the root.** The root's meta-files lose `docker-compose.yml` and `docker-compose.dev.yml`, and the two stubs are removed, with the basename collision of debt #12.
+2. **The production compose lives in `deploy/docker/`**, with the files it reads (the stores' initialisation) and the scripts that go with it (the set-up script, the backup scripts) and the sources of the proxy's image, as §Decision's `deploy/` already provides for deployment manifests. Each release publishes that directory, its tests and the proxy's sources aside, as its bundle (ADR-0022 §1).
+3. **`infra/` holds the developer environment**, today `infra/dev/`: the dev stack's compose, its initialisation and its checks. It is not a deployment manifest: it builds the services from source and serves the test suites, so it stays out of `deploy/`. This records its addition against §Criteria: it holds the developer environment, which `deploy/`'s deployment manifests are not, and more than three files already sit within it, under `infra/dev/`. A2 rejected grouping the whole repository by layer, not a directory for this environment.
+4. **One release tag for the product, `vX.Y.Z`**, covering the server's images, the bundle and the agent's executable, while the agent and the server are released together; ADR-0004's `min_supported_agent_version` lets them part later. Separate tags per component, as §Consequences, *Neutral*, suggested, wait until the two ship on different cadences.
+
+**Effect.** §Decision's tree gains `infra/`; its root list loses the two compose files. §Alternatives considered: none (A2 rejected grouping by layer, not a directory for the developer environment). §Compliance: unchanged. §Consequences, *Neutral*: its separate tags per component wait, as item 4 says. `deploy/docker/README.md`, `infra/dev/README.md` and `infra/dev/.env.example`, which name the root files or an `infra/prod/` that will not exist, and `deploy/README.md`, whose "local" deployment item 3 gives to `infra/`, are corrected with the code that implements SPEC-023. Proposed by Claude Code on 2026-10-19 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
