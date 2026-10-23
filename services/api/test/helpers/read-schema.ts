@@ -54,6 +54,11 @@ function ingestMigrationProvider(): MigrationProvider {
 /** Apply ingest's REAL Postgres migrations to the api test PG (no ClickHouse). */
 export async function applyReadSchema(config: Config): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
+  // Ingest's search path, as ingest's own migration step sets it (SPEC-023 §Operational §13):
+  // its tables land in its schema, which the api names.
+  pool.on("connect", (client) => {
+    client.query("SET search_path TO ingest, public").catch(() => {});
+  });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const migrator = new Migrator({
@@ -61,6 +66,7 @@ export async function applyReadSchema(config: Config): Promise<void> {
       provider: ingestMigrationProvider(),
       migrationTableName: LEDGER,
       migrationLockTableName: `${LEDGER}_lock`,
+      migrationTableSchema: "ingest",
     });
     const { error, results } = await migrator.migrateToLatest();
     for (const r of results ?? []) {
@@ -84,7 +90,7 @@ export async function ensureAgent(
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
-      `INSERT INTO agents (agent_id, org_id, pubkey, cert_pem, expires_at)
+      `INSERT INTO ingest.agents (agent_id, org_id, pubkey, cert_pem, expires_at)
        VALUES ($1, $2, $3, $4, now() + interval '1 day')
        ON CONFLICT (agent_id) DO NOTHING`,
       [agentId, orgId, Buffer.from([0]), "test-cert"],
@@ -118,7 +124,7 @@ export async function insertAlertRow(config: Config, a: SeedAlert): Promise<void
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
-      `INSERT INTO alerts
+      `INSERT INTO ingest.alerts
          (alert_id, org_id, agent_id, title, severity_id, cg_detection_source, rule_id,
           source_events, heuristic_score, final_score, cg_mitre, dedup_key, event_time, status)
        VALUES ($1, $2, $3, $4, $5, 'rule', $6, $7::uuid[], 0.9, $8, $9, $10, now(), $11)`,
@@ -162,7 +168,7 @@ export async function insertIncidentRow(config: Config, i: SeedIncident): Promis
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   try {
     await pool.query(
-      `INSERT INTO incidents
+      `INSERT INTO ingest.incidents
          (incident_id, org_id, agent_id, status, title, severity_id, cg_mitre, alert_ids, assigned_to,
           grouping_key, window_start)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::uuid[], $9, $10, now())`,

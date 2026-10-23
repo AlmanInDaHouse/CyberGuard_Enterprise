@@ -43,7 +43,7 @@ async function execution(
 ): Promise<string> {
   const id = globalThis.crypto.randomUUID();
   await pool.query(
-    `INSERT INTO playbook_executions
+    `INSERT INTO ingest.playbook_executions
        (execution_id, org_id, incident_id, agent_id, playbook_id, playbook_version)
      VALUES ($1, $2, $3, $4, $5, 1)`,
     [id, org, incident, agentId, playbookId],
@@ -61,7 +61,7 @@ async function execution(
     },
   ];
   await pool.query(
-    `UPDATE playbook_executions
+    `UPDATE ingest.playbook_executions
         SET status = 'completed', finished_at = now(), steps = $2::jsonb, chain_head = $3
       WHERE execution_id = $1`,
     [id, JSON.stringify(steps), "a".repeat(64)],

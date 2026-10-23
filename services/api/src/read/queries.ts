@@ -143,7 +143,7 @@ export async function listIncidents(
     pool.query<IncidentRow>(
       `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre,
             cardinality(alert_ids) AS alert_count, window_start, updated_at
-     FROM incidents WHERE ${where.join(" AND ")}
+     FROM ingest.incidents WHERE ${where.join(" AND ")}
      ORDER BY updated_at DESC, incident_id DESC LIMIT $${args.length}`,
       args,
     ),
@@ -227,7 +227,7 @@ async function readIncidentRows(
     pool.query<IncidentDetailRow>(
       `SELECT incident_id, agent_id, status, title, severity_id, cg_mitre, window_start,
             assigned_to, created_at, updated_at, alert_ids
-     FROM incidents WHERE incident_id = $1 AND org_id = $2`,
+     FROM ingest.incidents WHERE incident_id = $1 AND org_id = $2`,
       [id, orgId],
     ),
   );
@@ -235,7 +235,7 @@ async function readIncidentRows(
   if (!inc) return null;
   const ar = await fromStore(() =>
     pool.query<AlertRow>(
-      `SELECT ${ALERT_COLS} FROM alerts
+      `SELECT ${ALERT_COLS} FROM ingest.alerts
      WHERE alert_id = ANY($1::uuid[]) AND org_id = $2
      ORDER BY event_time DESC, alert_id DESC`,
       [inc.alert_ids, orgId],
@@ -399,7 +399,7 @@ export async function listAlerts(
   args.push(limit + 1);
   const r = await fromStore(() =>
     pool.query<AlertRow>(
-      `SELECT ${ALERT_COLS} FROM alerts WHERE ${where.join(" AND ")}
+      `SELECT ${ALERT_COLS} FROM ingest.alerts WHERE ${where.join(" AND ")}
      ORDER BY event_time DESC, alert_id DESC LIMIT $${args.length}`,
       args,
     ),
@@ -436,14 +436,17 @@ export async function getIncidentPlaybookExecutions(
   id: string,
 ): Promise<PlaybookExecutions | null> {
   const ir = await fromStore(() =>
-    pool.query("SELECT 1 FROM incidents WHERE incident_id = $1 AND org_id = $2", [id, orgId]),
+    pool.query("SELECT 1 FROM ingest.incidents WHERE incident_id = $1 AND org_id = $2", [
+      id,
+      orgId,
+    ]),
   );
   if (ir.rows.length === 0) return null;
   const er = await fromStore(() =>
     pool.query<PlaybookExecutionRow>(
       `SELECT execution_id, playbook_id, playbook_version, status, started_at, finished_at,
               chain_head, steps
-         FROM playbook_executions
+         FROM ingest.playbook_executions
         WHERE incident_id = $1 AND org_id = $2
         ORDER BY started_at, execution_id`,
       [id, orgId],

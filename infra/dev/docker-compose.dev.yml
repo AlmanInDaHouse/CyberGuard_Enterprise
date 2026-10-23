@@ -64,11 +64,14 @@ services:
       - "127.0.0.1:${CG_REDIS_PORT:-6379}:6379"
     environment:
       CG_REDIS_PASSWORD: ${CG_REDIS_PASSWORD:-cyberguard_dev}
-    # Wrapped in sh -c so $CG_REDIS_PASSWORD is expanded by the container shell.
+    # valkey-server first, with no shell around it, so the image's entrypoint drops to its
+    # valkey user (debt #121); Compose writes the dev password into the argument.
     command:
-      - sh
-      - -c
-      - 'valkey-server --appendonly yes --requirepass "$$CG_REDIS_PASSWORD"'
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${CG_REDIS_PASSWORD:-cyberguard_dev}
     volumes:
       - cg_redis_data:/data
     healthcheck:
@@ -96,7 +99,8 @@ services:
       - "127.0.0.1:${CG_INGEST_ENROLL_PORT:-8080}:8080"
       - "127.0.0.1:${CG_INGEST_HEARTBEAT_PORT:-8443}:8443"
     environment:
-      INGEST_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}
+      # Ingest's search path (SPEC-023 §Operational §4): its tables are in its schema.
+      INGEST_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}?options=-c%20search_path%3Dingest%2Cpublic
       INGEST_CH_URL: http://clickhouse:8123
       INGEST_CH_USER: ${CG_CH_USER:-cyberguard}
       INGEST_CH_PASSWORD: ${CG_CH_PASSWORD:-cyberguard_dev}
@@ -167,7 +171,8 @@ services:
     ports:
       - "127.0.0.1:${CG_API_PORT:-8081}:8081"
     environment:
-      API_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}
+      # The api's search path; it names ingest's tables with their schema.
+      API_PG_URL: postgres://${CG_PG_USER:-cyberguard}:${CG_PG_PASSWORD:-cyberguard_dev}@postgres:5432/${CG_PG_DB:-cyberguard}?options=-c%20search_path%3Dapi%2Cpublic
       API_REDIS_URL: redis://:${CG_REDIS_PASSWORD:-cyberguard_dev}@redis:6379
       # Read-only ClickHouse reader for the forensic event drill (ADR-0015 / SPEC-010);
       # the api reads cges_events for GET /v1/incidents/:id/events. Same CH instance +

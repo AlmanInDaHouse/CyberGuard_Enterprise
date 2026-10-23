@@ -12,7 +12,9 @@ import { type Kysely, sql } from "kysely";
  * the `alerts.status` CHECK pattern. Idempotent (CREATE TABLE IF NOT EXISTS).
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
-  await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`.execute(db);
+  // In `public`, whatever the search path (SPEC-023 §Operational §4): the bundle's
+  // initialisation creates it there, and both services' search paths end in `public`.
+  await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public`.execute(db);
   await sql`
     CREATE TABLE IF NOT EXISTS users (
       user_id        uuid        PRIMARY KEY,                 -- UUIDv7, slice-generated

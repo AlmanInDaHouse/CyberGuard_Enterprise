@@ -93,13 +93,13 @@ test("report_ac_006: an alert that joins after the report's read is in neither i
           text,
           ...rest,
         );
-        if (typeof text === "string" && /FROM alerts\s+WHERE alert_id = ANY/.test(text))
+        if (typeof text === "string" && /FROM ingest\.alerts\s+WHERE alert_id = ANY/.test(text))
           alertReads += 1;
-        if (typeof text === "string" && /FROM incidents WHERE incident_id/.test(text)) {
+        if (typeof text === "string" && /FROM ingest\.incidents WHERE incident_id/.test(text)) {
           incidentReads += 1;
           if (incidentReads === 1) {
             await writer.query(
-              "UPDATE incidents SET alert_ids = alert_ids || $1::uuid WHERE incident_id = $2",
+              "UPDATE ingest.incidents SET alert_ids = alert_ids || $1::uuid WHERE incident_id = $2",
               [late, incidentId],
             );
           }

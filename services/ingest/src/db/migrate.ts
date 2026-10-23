@@ -53,21 +53,32 @@ export interface MigrateOptions {
   wait?: boolean;
 }
 
+/** Ingest's schema (SPEC-023 §Operational §4): its tables and its migration ledger. */
+export const INGEST_SCHEMA = "ingest";
+
 /**
- * Apply Postgres migrations under an advisory lock, so concurrent instances cannot
- * double-apply, then bootstrap the ClickHouse tables (`./clickhouse-bootstrap.ts`). The
- * lock is taken and released on one connection, held apart from the migrator's. Without
- * `wait`, a run that finds the lock held skips, the ClickHouse bootstrap included; with it,
- * the run waits for the lock, so a command that completes has applied the migrations.
+ * Apply ingest's Postgres migrations under an advisory lock, so concurrent instances cannot
+ * double-apply. The lock is taken and released on one connection, held apart from the
+ * migrator's. Without `wait`, a run that finds the lock held skips and returns false; with
+ * it, the run waits for the lock, so a command that completes has applied the migrations.
+ *
+ * SPEC-023 §Operational §4: each connection's search path is ingest's schema and then
+ * `public`, whatever the URL says, so a migration's table lands in the schema; the migrator
+ * checks for the schema and creates it when it is absent (a superuser's dev stack and
+ * tests), before the first migration and before its ledger, which is the schema's too.
  * Idempotent.
  */
-export async function runMigrations(
-  config: MigrateConfig,
+export async function runPgMigrations(
+  config: Pick<Config, "INGEST_PG_URL">,
   options: MigrateOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   // A lost connection fails the run with its fatal line, not as an unheard error event.
   watchPool(pool);
+  // Queued on each new client before any query of the migrator's.
+  pool.on("connect", (client) => {
+    client.query(`SET search_path TO ${INGEST_SCHEMA}, public`).catch(() => {});
+  });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const lock = await pool.connect();
@@ -80,7 +91,7 @@ export async function runMigrations(
           [MIGRATION_LOCK_KEY],
         );
         // Another instance holds the lock and is migrating; skip.
-        if (!r.rows[0]?.locked) return;
+        if (!r.rows[0]?.locked) return false;
       }
       try {
         const migrator = new Migrator({
@@ -88,6 +99,7 @@ export async function runMigrations(
           provider: folderMigrationProvider(
             path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations"),
           ),
+          migrationTableSchema: INGEST_SCHEMA,
         });
         const { error, results } = await migrator.migrateToLatest();
         for (const r of results ?? []) {
@@ -107,8 +119,18 @@ export async function runMigrations(
   } finally {
     await db.destroy();
   }
+  return true;
+}
 
-  await bootstrapClickHouse(config);
+/**
+ * Ingest's migration step: the Postgres migrations (`runPgMigrations`), then, unless they
+ * were skipped, the ClickHouse tables (`./clickhouse-bootstrap.ts`). Idempotent.
+ */
+export async function runMigrations(
+  config: MigrateConfig,
+  options: MigrateOptions = {},
+): Promise<void> {
+  if (await runPgMigrations(config, options)) await bootstrapClickHouse(config);
 }
 
 async function bootstrapClickHouse(config: MigrateConfig): Promise<void> {
