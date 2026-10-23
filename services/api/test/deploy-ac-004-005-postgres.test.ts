@@ -126,9 +126,20 @@ describe("deploy_ac_004 — the roles", () => {
     const r = await as("postgres").query<{ n: string }>(
       `SELECT (SELECT count(*) FROM pg_class WHERE relowner IN (SELECT oid FROM pg_roles WHERE rolname IN ('cg_ingest', 'cg_api')))
             + (SELECT count(*) FROM pg_namespace WHERE nspowner IN (SELECT oid FROM pg_roles WHERE rolname IN ('cg_ingest', 'cg_api')))
-            + (SELECT count(*) FROM pg_proc WHERE proowner IN (SELECT oid FROM pg_roles WHERE rolname IN ('cg_ingest', 'cg_api'))) AS n`,
+            + (SELECT count(*) FROM pg_proc WHERE proowner IN (SELECT oid FROM pg_roles WHERE rolname IN ('cg_ingest', 'cg_api')))
+            + (SELECT count(*) FROM pg_type WHERE typowner IN (SELECT oid FROM pg_roles WHERE rolname IN ('cg_ingest', 'cg_api')))
+            + (SELECT count(*) FROM pg_largeobject_metadata WHERE lomowner IN (SELECT oid FROM pg_roles WHERE rolname IN ('cg_ingest', 'cg_api'))) AS n`,
     );
     expect(Number(r.rows[0]?.n)).toBe(0);
+  });
+
+  test("neither runtime role creates a large object", async () => {
+    for (const role of RUNTIME) {
+      const pool = as(role, role === "cg_ingest" ? "ingest" : "api");
+      await refused(pool, "SELECT lo_create(0)");
+      await refused(pool, "SELECT lo_creat(-1)");
+      await refused(pool, "SELECT lo_from_bytea(0, '\\x00')");
+    }
   });
 
   test("each ingest table the api reads is owned by cg_ingest_owner, in the schema ingest", async () => {
@@ -203,13 +214,10 @@ describe("deploy_ac_004 — the roles", () => {
       api,
       "INSERT INTO forensic_key (id, private_key, public_key) VALUES (1, '\\x00', '\\x00')",
     );
-    for (const [t, column] of [
-      ["audit_log", "action"],
-      ["forensic_key", "created_at"],
-    ]) {
-      await refused(api, `UPDATE ${t} SET ${column} = ${column}`);
-      await refused(api, `DELETE FROM ${t}`);
-    }
+    // Constants, so that the UPDATE needs its own right and not SELECT's too.
+    await refused(api, "UPDATE audit_log SET action = 'x'");
+    await refused(api, "UPDATE forensic_key SET created_at = now()");
+    for (const t of ["audit_log", "forensic_key"]) await refused(api, `DELETE FROM ${t}`);
     await refused(api, "SELECT 1 FROM audit_log");
     await as("postgres").query("DELETE FROM api.forensic_key; DELETE FROM api.audit_log");
   });
@@ -217,13 +225,20 @@ describe("deploy_ac_004 — the roles", () => {
   test("either runtime role: no temporary table, and its migration ledger neither read nor written", async () => {
     await refused(as("cg_ingest", "ingest"), "CREATE TEMPORARY TABLE deploy_004_tmp (x int)");
     await refused(as("cg_api", "api"), "CREATE TEMPORARY TABLE deploy_004_tmp (x int)");
-    for (const t of ["kysely_migration", "kysely_migration_lock"]) {
-      await refused(as("cg_ingest", "ingest"), `SELECT 1 FROM ingest.${t}`);
-      await refused(as("cg_ingest", "ingest"), `DELETE FROM ingest.${t}`);
-    }
-    for (const t of ["api_kysely_migration", "api_kysely_migration_lock"]) {
-      await refused(as("cg_api", "api"), `SELECT 1 FROM api.${t}`);
-      await refused(as("cg_api", "api"), `DELETE FROM api.${t}`);
+    const ledgers: [(typeof RUNTIME)[number], string, string][] = [
+      ["cg_ingest", "ingest", "kysely_migration"],
+      ["cg_ingest", "ingest", "kysely_migration_lock"],
+      ["cg_api", "api", "api_kysely_migration"],
+      ["cg_api", "api", "api_kysely_migration_lock"],
+    ];
+    for (const [role, schema, t] of ledgers) {
+      const pool = as(role, schema as "ingest" | "api");
+      await refused(pool, `SELECT 1 FROM ${schema}.${t}`);
+      await refused(pool, `INSERT INTO ${schema}.${t} DEFAULT VALUES`);
+      // Kysely's ledger: the migrations' names, and the lock row's flag.
+      const column = t.endsWith("_lock") ? "is_locked = 0" : "name = 'x'";
+      await refused(pool, `UPDATE ${schema}.${t} SET ${column}`);
+      await refused(pool, `DELETE FROM ${schema}.${t}`);
     }
   });
 });

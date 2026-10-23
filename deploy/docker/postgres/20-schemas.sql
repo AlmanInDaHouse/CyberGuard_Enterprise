@@ -16,3 +16,8 @@ GRANT USAGE ON SCHEMA api TO cg_api;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON DATABASE cyberguard FROM PUBLIC;
 GRANT CONNECT ON DATABASE cyberguard TO cg_ingest_owner, cg_ingest, cg_api_owner, cg_api;
+
+-- No runtime role creates or owns a large object (ADR-0022 §4): no privilege governs their
+-- creation, so the functions that create one are closed to PUBLIC. Nothing of CyberGuard's
+-- uses them.
+REVOKE EXECUTE ON FUNCTION lo_create(oid), lo_creat(integer), lo_from_bytea(oid, bytea) FROM PUBLIC;
