@@ -133,6 +133,32 @@ describe("deploy_ac_004 — the roles", () => {
     expect(Number(r.rows[0]?.n)).toBe(0);
   });
 
+  test("neither runtime role connects to the server's other databases", async () => {
+    for (const role of RUNTIME) {
+      for (const database of ["postgres", "template1"]) {
+        const other = new URL(url(role));
+        other.pathname = `/${database}`;
+        const client = new pg.Client({ connectionString: other.toString() });
+        client.on("error", () => {});
+        const err = await client.connect().then(
+          () => null,
+          (e: unknown) => e as { code?: string },
+        );
+        if (err === null) await client.end();
+        expect(err?.code, `${role} connected to ${database}`).toBe("42501");
+      }
+    }
+  });
+
+  test("no runtime role owns anything the server tracks, in any database", async () => {
+    // pg_shdepend records an owner of every kind of object, across the databases.
+    const r = await as("postgres").query<{ n: string }>(
+      `SELECT count(*) AS n FROM pg_shdepend
+        WHERE deptype = 'o' AND refobjid IN (SELECT oid FROM pg_roles WHERE rolname IN ('cg_ingest', 'cg_api'))`,
+    );
+    expect(Number(r.rows[0]?.n)).toBe(0);
+  });
+
   test("neither runtime role creates a large object", async () => {
     for (const role of RUNTIME) {
       const pool = as(role, role === "cg_ingest" ? "ingest" : "api");
