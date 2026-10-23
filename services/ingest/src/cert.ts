@@ -122,15 +122,39 @@ type IssueReason = "absent" | "expiring" | "expired" | "key_mismatch" | "names_c
 
 /** A name as the SAN extension takes it. */
 function sanOf(name: string): x509.JsonGeneralName {
-  return isIP(name) !== 0 ? { type: "ip", value: name } : { type: "dns", value: name };
+  // An IPv6 address in its hexadecimal form: @peculiar/x509 encodes a dotted-quad tail
+  // (`::ffff:10.0.0.5`) wrongly, as `::ffff:10`.
+  if (isIP(name) === 6) {
+    return { type: "ip", value: new URL(`http://[${name}]/`).hostname.slice(1, -1) };
+  }
+  return isIP(name) === 4 ? { type: "ip", value: name } : { type: "dns", value: name };
 }
 
 /** A SAN entry in one spelling, whoever wrote it: DNS names without case, addresses as a URL
  *  host prints them. */
 function canonicalName(entry: x509.JsonGeneralName): string {
-  if (entry.type === "ip")
-    return `ip:${new URL(`http://${entry.value.includes(":") ? `[${entry.value}]` : entry.value}/`).hostname}`;
+  if (entry.type === "ip") {
+    try {
+      return `ip:${new URL(`http://${entry.value.includes(":") ? `[${entry.value}]` : entry.value}/`).hostname}`;
+    } catch {
+      // Not an address a URL takes: compared as written, it matches no listed name.
+      return `ip:${entry.value.toLowerCase()}`;
+    }
+  }
   return `${entry.type}:${entry.value.toLowerCase()}`;
+}
+
+/** The CN a pair issued for `names` carries: the first name's first 64 characters. */
+function cnFor(names: readonly string[]): string {
+  return (names[0] ?? "localhost").slice(0, CN_MAX);
+}
+
+/** A certificate's CN, without case; empty when it has none. */
+function cnOf(certPem: string): string {
+  const cn = new NodeX509Certificate(certPem).subject
+    .split("\n")
+    .find((part) => part.startsWith("CN="));
+  return (cn?.slice(3) ?? "").toLowerCase();
 }
 
 /** The SANs of a certificate, canonical and sorted. */
@@ -154,7 +178,7 @@ async function issueServerPair(ca: ServerCa, names: readonly string[]): Promise<
   const cert = await x509.X509CertificateGenerator.create(
     {
       serialNumber: randomSerial(),
-      subject: `CN=${(names[0] ?? "localhost").slice(0, CN_MAX)}, ${SELF_ISSUED_O}`,
+      subject: `CN=${cnFor(names)}, ${SELF_ISSUED_O}`,
       issuer: ca.caCert.subject,
       notBefore: new Date(Date.now() - SERVER_BACKDATE_MS),
       notAfter,
@@ -353,15 +377,15 @@ async function reissue(
 }
 
 /**
- * Materialise the mTLS listener's server identity at start (SPEC-004 §Behavior >
- * First run, Amendment 2026-10-15). Both files absent: a self-issued pair —
- * `CN=localhost` with SAN `DNS:localhost` + `IP:127.0.0.1`, so the agent's
- * IP-based server-name verification (`ServerName::try_from("127.0.0.1")`)
- * accepts it. Exactly one present, a file that cannot be read or a certificate
- * that cannot be parsed: fatal, rather than a silent regenerate. An
- * operator-provided pair is used as-is and never overwritten. A self-issued pair
- * is reissued when fewer than 30 days remain, it has expired, or its key does
- * not match.
+ * Materialise the listeners' server identity at start (SPEC-004 §Behavior >
+ * First run, Amendment 2026-10-15; SPEC-023 §Operational §6). Both files absent: a
+ * self-issued pair for `options.names` — those names as its SANs, the first as its
+ * CN, `O=CyberGuard self-issued` — so the agent's server-name verification accepts
+ * the names it reaches the server by. Exactly one present, a file that cannot be
+ * read or a certificate that cannot be parsed: fatal, rather than a silent
+ * regenerate. An operator-provided pair is used as-is and never overwritten. A
+ * self-issued pair is reissued when fewer than 30 days remain, it has expired, its
+ * key does not match, or its SANs or CN are not those of the names.
  */
 export async function ensureServerCert(
   ca: ServerCa,
@@ -398,8 +422,12 @@ export async function ensureServerCert(
   }
   const reason = renewalReason(current, now());
   if (reason) return reissue(ca, current, reason, certPath, keyPath, options);
-  // SPEC-023 §Operational §6: a self-issued pair whose SANs are not the list is reissued.
-  if (certNames(current.certPem).join(",") !== listNames(options.names).join(",")) {
+  // SPEC-023 §Operational §6: a self-issued pair whose SANs are not the list, or whose CN
+  // is not its first name (a list reordered), is reissued.
+  if (
+    certNames(current.certPem).join(",") !== listNames(options.names).join(",") ||
+    cnOf(current.certPem) !== cnFor(options.names).toLowerCase()
+  ) {
     return reissue(ca, current, "names_changed", certPath, keyPath, options);
   }
   return current;
