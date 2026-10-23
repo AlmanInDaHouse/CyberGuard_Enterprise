@@ -233,7 +233,9 @@ type Shape = typeof Fields.shape;
 
 /**
  * The variables a command uses, checked as the service checks them, and no other
- * (SPEC-023 §Data contracts §4: each command validates only the variables it uses).
+ * (SPEC-023 §Data contracts §4: each command validates only the variables it uses). The
+ * checks across variables (the certificate and key naming one file, the notification's
+ * all-or-none) are the whole configuration's, and do not run here.
  */
 export function loadConfigFor<K extends keyof Shape>(
   keys: readonly K[],

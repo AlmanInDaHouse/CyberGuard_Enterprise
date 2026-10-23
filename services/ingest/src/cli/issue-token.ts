@@ -5,6 +5,7 @@
 
 import pg from "pg";
 import { ConfigError, loadConfigFor } from "../config.js";
+import { watchPool } from "../store-events.js";
 
 /** ADR-0004 enrollment-token TTL: 15 minutes. */
 const TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  watchPool(pool);
   try {
     await pool.query(
       `INSERT INTO enrollment_tokens (token, org_id, scope, state, expires_at)
@@ -44,7 +46,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  const line = err instanceof ConfigError ? `fatal: ${err.message}` : String(err);
-  process.stderr.write(`cg-ingest issue-token: ${line}\n`);
+  const line = err instanceof ConfigError ? err.message : String(err);
+  process.stderr.write(`cg-ingest issue-token: fatal: ${line}\n`);
   process.exit(1);
 });

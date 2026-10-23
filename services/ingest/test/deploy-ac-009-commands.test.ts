@@ -75,6 +75,21 @@ test("a malformed INGEST_PG_URL is refused with its name, exit 1", () => {
   }
 });
 
+test("export-ca.js, before ingest has generated its CA, says so and exits 1", async () => {
+  const db = `deploy_noca_${Date.now()}`;
+  await createPgDatabase(config.INGEST_PG_URL, db);
+  try {
+    const url = pgDatabaseUrl(config.INGEST_PG_URL, db);
+    await runMigrations({ ...config, INGEST_PG_URL: url });
+    const r = run("src/cli/export-ca.ts", [], { INGEST_PG_URL: url });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("no CA yet");
+  } finally {
+    await dropPgDatabase(config.INGEST_PG_URL, db);
+  }
+});
+
 describe("issue-token.js", () => {
   test("prints a token it stored, from INGEST_PG_URL alone", async () => {
     const r = run("src/cli/issue-token.ts", ["--org", "deploy-ac-009"], {
@@ -92,6 +107,21 @@ describe("issue-token.js", () => {
 });
 
 describe("migrate.js", () => {
+  /** Whether, within 30 s, a session other than `client`'s waits for the migration lock. */
+  async function waitingFor(client: pg.Client): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < 30_000) {
+      const r = await client.query<{ n: string }>(
+        `SELECT count(*) AS n FROM pg_locks
+          WHERE locktype = 'advisory' AND NOT granted AND objid = $1 AND pid <> pg_backend_pid()`,
+        [MIGRATION_LOCK_KEY],
+      );
+      if (Number(r.rows[0]?.n ?? 0) > 0) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  }
+
   /** The advisory locks on the migration key that any other session holds. */
   async function heldLocks(): Promise<number> {
     const r = await holder.query<{ n: string }>(
@@ -127,8 +157,8 @@ describe("migrate.js", () => {
       }),
     );
     try {
-      // Long enough for a skipping command to have exited.
-      await new Promise((r) => setTimeout(r, 4000));
+      // The command's request for the lock, seen waiting, not granted.
+      expect(await waitingFor(holder), stderr).toBe(true);
       expect(exitCode, stderr).toBeUndefined();
     } finally {
       await holder.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
@@ -157,10 +187,14 @@ describe("migrate.js", () => {
           INGEST_CH_DB: config.INGEST_CH_DB,
         },
       });
+      let stderr = "";
+      child.stderr.setEncoding("utf8").on("data", (d: string) => {
+        stderr += d;
+      });
       const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
-      await new Promise((r) => setTimeout(r, 2000));
+      expect(await waitingFor(other), stderr).toBe(true);
       await other.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
-      expect(await exited).toBe(0);
+      expect(await exited, stderr).toBe(0);
       const tables = await other.query<{ n: string }>(
         "SELECT count(*) AS n FROM pg_tables WHERE tablename IN ('agents', 'alerts', 'incidents', 'playbook_executions')",
       );
@@ -171,13 +205,45 @@ describe("migrate.js", () => {
     }
   });
 
-  test("the command exits non-zero when it cannot migrate", () => {
-    const r = run("src/db/migrate.ts", [], {
-      INGEST_PG_URL: "postgres://u:p@127.0.0.1:1/db",
-      INGEST_CH_URL: config.INGEST_CH_URL,
-    });
-    expect(r.status).toBe(1);
-    expect(r.stderr).toMatch(/^cg-ingest migrate: fatal: /);
+  test.each([["src/db/migrate.ts"], ["src/db/migrate"]])(
+    "the command, run as %s, exits non-zero when it cannot migrate, and names no password",
+    (script) => {
+      // Node runs a script named without its extension; the command must run, not exit 0.
+      const r = run(script, [], {
+        INGEST_PG_URL: "postgres://u:s3cr3t-009@127.0.0.1:1/db",
+        INGEST_CH_URL: config.INGEST_CH_URL,
+      });
+      expect(r.status, r.stderr).toBe(1);
+      expect(r.stderr).toMatch(/^cg-ingest migrate: fatal: /);
+      expect(r.stderr).not.toContain("s3cr3t-009");
+    },
+  );
+
+  test("a malformed store variable is refused before anything is changed", async () => {
+    const db = `deploy_migrate_bad_${Date.now()}`;
+    await createPgDatabase(config.INGEST_PG_URL, db);
+    try {
+      const r = run("src/db/migrate.ts", [], {
+        INGEST_PG_URL: pgDatabaseUrl(config.INGEST_PG_URL, db),
+        INGEST_CH_URL: "not a url",
+      });
+      expect(r.status).toBe(1);
+      expect(r.stderr.trim()).toBe(
+        "cg-ingest migrate: fatal: invalid configuration: INGEST_CH_URL: must be a URL",
+      );
+      const other = new pg.Client({ connectionString: pgDatabaseUrl(config.INGEST_PG_URL, db) });
+      await other.connect();
+      try {
+        const tables = await other.query<{ n: string }>(
+          "SELECT count(*) AS n FROM pg_tables WHERE schemaname = 'public'",
+        );
+        expect(Number(tables.rows[0]?.n)).toBe(0);
+      } finally {
+        await other.end();
+      }
+    } finally {
+      await dropPgDatabase(config.INGEST_PG_URL, db);
+    }
   });
 
   test("the service's own run skips while another session holds the lock", async () => {

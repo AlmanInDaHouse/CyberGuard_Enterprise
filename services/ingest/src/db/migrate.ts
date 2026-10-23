@@ -5,6 +5,8 @@ import { createClient } from "@clickhouse/client";
 import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
 import { type Config, ConfigError, loadConfigFor } from "../config.js";
+import { isMain } from "../is-main.js";
+import { watchPool } from "../store-events.js";
 import { bootstrapClickHouseTables } from "./clickhouse-bootstrap.js";
 
 // Fixed key for the Postgres advisory lock that serialises migration
@@ -64,6 +66,8 @@ export async function runMigrations(
   options: MigrateOptions = {},
 ): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  // A lost connection fails the run with its fatal line, not as an unheard error event.
+  watchPool(pool);
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const lock = await pool.connect();
@@ -123,7 +127,7 @@ async function bootstrapClickHouse(config: MigrateConfig): Promise<void> {
 
 // Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly: the one-shot's
 // command, which validates the stores' variables alone and waits for the lock.
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (isMain(import.meta.url)) {
   Promise.resolve()
     .then(() => runMigrations(loadConfigFor(MIGRATE_VARIABLES), { wait: true }))
     .then(() => process.exit(0))
