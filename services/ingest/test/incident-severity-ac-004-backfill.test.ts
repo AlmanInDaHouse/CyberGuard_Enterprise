@@ -101,6 +101,8 @@ test("incident_severity_ac_004: 0006 backfills each incident's severity_id to MA
       provider: ingestMigrationProvider(),
       migrationTableName: LEDGER,
       migrationLockTableName: `${LEDGER}_lock`,
+      // Ingest's schema, as its migration step uses it (SPEC-023 §Operational §4).
+      migrationTableSchema: "ingest",
     });
 
     // 1) Migrate to the pre-severity schema (through 0005_incidents, exclusive of 0006).

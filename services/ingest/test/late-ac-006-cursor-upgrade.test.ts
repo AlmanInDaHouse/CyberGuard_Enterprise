@@ -63,7 +63,12 @@ test("late_ac_006: migration 0007 starts an existing cursor at the beginning, ap
   const pool = new pg.Pool({ connectionString: pgDatabaseUrl(config.INGEST_PG_URL, THROWAWAY_DB) });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
-    const migrator = new Migrator({ db, provider: ingestMigrationProvider() });
+    // Ingest's schema, as its migration step uses it (SPEC-023 §Operational §4).
+    const migrator = new Migrator({
+      db,
+      provider: ingestMigrationProvider(),
+      migrationTableSchema: "ingest",
+    });
     const pre = await migrator.migrateTo("0006_incident_severity");
     expect(pre.error).toBeUndefined();
     // An org that a SPEC-006 cycle had advanced by event time.

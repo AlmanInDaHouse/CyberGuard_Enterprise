@@ -235,7 +235,7 @@ describe("migrate.js", () => {
       await other.connect();
       try {
         const tables = await other.query<{ n: string }>(
-          "SELECT count(*) AS n FROM pg_tables WHERE schemaname = 'public'",
+          "SELECT count(*) AS n FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')",
         );
         expect(Number(tables.rows[0]?.n)).toBe(0);
       } finally {

@@ -54,7 +54,8 @@ export async function startBackends(): Promise<Backends> {
 
     const certDir = mkdtempSync(join(tmpdir(), "cg-ingest-certs-"));
     const config: Config = {
-      INGEST_PG_URL: `postgres://cyberguard:cyberguard_dev@${pg.getHost()}:${pg.getMappedPort(5432)}/cyberguard`,
+      // Ingest's search path, as the deployments set it (SPEC-023 §Operational §4).
+      INGEST_PG_URL: `postgres://cyberguard:cyberguard_dev@${pg.getHost()}:${pg.getMappedPort(5432)}/cyberguard?options=-c%20search_path%3Dingest%2Cpublic`,
       INGEST_CH_URL: `http://${ch.getHost()}:${ch.getMappedPort(8123)}`,
       INGEST_CH_USER: "cyberguard",
       INGEST_CH_PASSWORD: "cyberguard_dev",

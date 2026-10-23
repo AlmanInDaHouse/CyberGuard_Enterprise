@@ -133,6 +133,8 @@ test("migration 0004 refuses an org whose addresses clash, naming no address, an
         },
         migrationTableName: "api_kysely_migration",
         migrationLockTableName: "api_kysely_migration_lock",
+        // The api's schema, as its migration step uses it (SPEC-023 §Operational §4).
+        migrationTableSchema: "api",
       });
       const to3 = await migrator.migrateTo("0003_forensic_key");
       expect(to3.error).toBeUndefined();

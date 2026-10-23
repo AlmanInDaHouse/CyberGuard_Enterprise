@@ -4,7 +4,9 @@ import { type Kysely, sql } from "kysely";
 export async function up(db: Kysely<unknown>): Promise<void> {
   // pgcrypto provides pgp_sym_encrypt/decrypt for the CA private key at
   // rest (SPEC-004 §Security / §Ratification decision 1).
-  await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`.execute(db);
+  // In `public`, whatever the search path (SPEC-023 §Operational §4): the bundle's
+  // initialisation creates it there, and both services' search paths end in `public`.
+  await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public`.execute(db);
 
   await sql`
     CREATE TABLE IF NOT EXISTS ca (

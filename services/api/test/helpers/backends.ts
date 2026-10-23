@@ -56,7 +56,8 @@ export async function startBackends(): Promise<Backends> {
     started.push(ch);
 
     const config: Config = {
-      API_PG_URL: `postgres://cyberguard:cyberguard_dev@${pg.getHost()}:${pg.getMappedPort(5432)}/cyberguard`,
+      // The api's search path, as the deployments set it (SPEC-023 §Operational §4).
+      API_PG_URL: `postgres://cyberguard:cyberguard_dev@${pg.getHost()}:${pg.getMappedPort(5432)}/cyberguard?options=-c%20search_path%3Dapi%2Cpublic`,
       API_REDIS_URL: `redis://:cyberguard_dev@${redis.getHost()}:${redis.getMappedPort(6379)}`,
       API_CH_URL: `http://${ch.getHost()}:${ch.getMappedPort(8123)}`,
       API_CH_USER: "cyberguard",

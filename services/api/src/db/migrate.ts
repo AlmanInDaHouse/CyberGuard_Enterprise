@@ -18,6 +18,8 @@ import { watchPool } from "../store-events.js";
 export const MIGRATION_LOCK_KEY = 8_927_008;
 const MIGRATION_TABLE = "api_kysely_migration";
 const MIGRATION_LOCK_TABLE = "api_kysely_migration_lock";
+/** The api's schema (SPEC-023 §Operational §4): its tables and its migration ledger. */
+export const API_SCHEMA = "api";
 
 /**
  * Auto-discovering migration provider importing each file via a `file://` URL
@@ -61,6 +63,14 @@ export async function runMigrations(
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
   // A lost connection fails the run with its fatal line, not as an unheard error event.
   watchPool(pool);
+  // SPEC-023 §Operational §4: each connection's search path is the api's schema and then
+  // `public`, whatever the URL says, so a migration's table lands in the schema; the
+  // migrator checks for the schema and creates it when absent (a superuser's dev stack and
+  // tests), before the first migration and before its ledger, which is the schema's too.
+  // Queued on each new client before any query of the migrator's.
+  pool.on("connect", (client) => {
+    client.query(`SET search_path TO ${API_SCHEMA}, public`).catch(() => {});
+  });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const lock = await pool.connect();
@@ -83,6 +93,7 @@ export async function runMigrations(
           ),
           migrationTableName: MIGRATION_TABLE,
           migrationLockTableName: MIGRATION_LOCK_TABLE,
+          migrationTableSchema: API_SCHEMA,
         });
         const { error, results } = await migrator.migrateToLatest();
         // The failed migration's own message is the operator's instruction (0004 names the
