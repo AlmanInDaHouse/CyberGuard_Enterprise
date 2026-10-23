@@ -4,13 +4,25 @@
 // `error` event of the checked-out client would end it with 1 first.
 import { createPgPool } from "../../src/services.js";
 
-const pool = createPgPool(process.argv[2] as string);
+/** The log a service gives watchPool, as JSON lines on stdout. */
+const log = {
+  warn: (obj: Record<string, unknown>, msg: string) =>
+    process.stdout.write(`${JSON.stringify({ level: "warn", ...obj, msg })}\n`),
+  info: (obj: Record<string, unknown>, msg: string) =>
+    process.stdout.write(`${JSON.stringify({ level: "info", ...obj, msg })}\n`),
+};
+
+const pool = createPgPool(process.argv[2] as string, log);
 const client = await pool.connect();
 await client.query("SELECT 1");
 process.stdout.write("checked-out\n");
+// The pool's statement timeout (5 s) would end the query too: the error says which.
 const failed = await client.query("SELECT pg_sleep(30)").then(
   () => false,
-  () => true,
+  (err: Error) => {
+    process.stdout.write(`${JSON.stringify({ query_error: err.message })}\n`);
+    return true;
+  },
 );
 await new Promise((r) => setTimeout(r, 500));
 client.release(true);

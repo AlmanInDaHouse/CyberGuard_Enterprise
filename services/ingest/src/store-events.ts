@@ -11,8 +11,9 @@ export interface StoreLog {
  * Listen to the pool's lost connections, so that none ends the process: a client's
  * connection that ends, Postgres restarting or unreachable, is an `error` event of the
  * client, idle or checked out, and of the pool when the client was idle; without a listener
- * each would be an uncaught exception. Each is logged once, from the client's listener; the
- * query that needed the connection fails where it is made and answers 503.
+ * each would be an uncaught exception. Each is logged from the client's listener (a client
+ * whose socket errors and then ends logs twice); the query that needed the connection
+ * fails where it is made.
  */
 export function watchPool(pool: pg.Pool, log?: StoreLog): void {
   pool.on("connect", (client) => {

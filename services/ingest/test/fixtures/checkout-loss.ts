@@ -5,14 +5,25 @@
 import pg from "pg";
 import { watchPool } from "../../src/store-events.js";
 
+/** The log a service gives watchPool, as JSON lines on stdout. */
+const log = {
+  warn: (obj: Record<string, unknown>, msg: string) =>
+    process.stdout.write(`${JSON.stringify({ level: "warn", ...obj, msg })}\n`),
+  info: (obj: Record<string, unknown>, msg: string) =>
+    process.stdout.write(`${JSON.stringify({ level: "info", ...obj, msg })}\n`),
+};
+
 const pool = new pg.Pool({ connectionString: process.argv[2] as string });
-watchPool(pool);
+watchPool(pool, log);
 const client = await pool.connect();
 await client.query("SELECT 1");
 process.stdout.write("checked-out\n");
 const failed = await client.query("SELECT pg_sleep(30)").then(
   () => false,
-  () => true,
+  (err: Error) => {
+    process.stdout.write(`${JSON.stringify({ query_error: err.message })}\n`);
+    return true;
+  },
 );
 await new Promise((r) => setTimeout(r, 500));
 client.release(true);

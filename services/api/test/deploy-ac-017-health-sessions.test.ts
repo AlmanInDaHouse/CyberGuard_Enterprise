@@ -190,6 +190,10 @@ test("a connection lost while its client is checked out does not end the process
     await pg.cut();
     expect(await exited, stderr).toBe(0);
     expect(stdout).toContain("query failed");
+    // It failed for the cut, not for a timeout, and the loss is logged.
+    expect(stdout).toMatch(/"query_error":"[^"]*(terminated|ECONNRESET|closed)/i);
+    expect(stdout).not.toContain("statement timeout");
+    expect(stdout).toContain("pg_connection_lost");
   } finally {
     child.kill();
   }
