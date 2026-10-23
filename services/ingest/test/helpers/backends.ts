@@ -70,6 +70,10 @@ export async function startBackends(): Promise<Backends> {
       INGEST_BIND_HOST: "127.0.0.1",
       INGEST_SERVER_CERT_PATH: join(certDir, "server.pem"),
       INGEST_SERVER_KEY_PATH: join(certDir, "server-key.pem"),
+      // SPEC-023 §Operational §6: the default names; the suites post enrollment in clear,
+      // the tests of enrollment over TLS and the marquees turn it on.
+      INGEST_SERVER_NAMES: ["localhost", "127.0.0.1"],
+      INGEST_ENROLL_TLS: false,
       INGEST_CA_PASSPHRASE: "test-ca-passphrase",
       INGEST_RUN_MIGRATIONS: true,
       INGEST_LOG_LEVEL: "warn",

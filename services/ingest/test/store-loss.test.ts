@@ -86,6 +86,8 @@ test("once started, ingest keeps running and answers /health with its stores unr
       INGEST_SERVER_KEY_PATH: config.INGEST_SERVER_KEY_PATH,
       INGEST_CA_PASSPHRASE: config.INGEST_CA_PASSPHRASE,
       INGEST_ENROLL_PORT: String(enrollPort),
+      // /health over plain HTTP (SPEC-023 §Operational §6).
+      INGEST_ENROLL_TLS: "false",
       INGEST_HEARTBEAT_PORT: String(await freePort()),
       INGEST_LOG_LEVEL: "warn",
       INGEST_DETECT_INTERVAL_MS: "0",

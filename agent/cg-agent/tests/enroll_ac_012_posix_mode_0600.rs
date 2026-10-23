@@ -12,8 +12,9 @@ mod common;
 async fn enroll_ac_012_posix_mode_0600() {
     use std::os::unix::fs::PermissionsExt;
 
-    let mock = common::MockServer::start().await;
-    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-012");
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let mock = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
+    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-012", &pki);
 
     cg_agent::identity::ensure_identity(&fixture.config, &fixture.config_path)
         .await

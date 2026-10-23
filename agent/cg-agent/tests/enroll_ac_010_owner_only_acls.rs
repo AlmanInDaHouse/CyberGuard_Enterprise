@@ -191,8 +191,9 @@ fn enroll_ac_010_sddl_aliases_normalize_to_full_sids() {
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enroll_ac_010_owner_only_acls() {
-    let mock = common::MockServer::start().await;
-    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-010");
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let mock = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
+    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-010", &pki);
 
     cg_agent::identity::ensure_identity(&fixture.config, &fixture.config_path)
         .await
@@ -211,7 +212,8 @@ async fn enroll_ac_010_owner_only_acls() {
 #[test]
 fn enroll_ac_010_hardening_removes_other_explicit_entries() {
     const USERS_SID: &str = "S-1-5-32-545";
-    let fixture = common::enrollment_fixture("http://127.0.0.1:9", "tok-ac-010-explicit");
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let fixture = common::enrollment_fixture("https://127.0.0.1:9", "tok-ac-010-explicit", &pki);
     let paths = [
         &fixture.cert_path,
         &fixture.key_path,

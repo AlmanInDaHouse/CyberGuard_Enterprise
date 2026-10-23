@@ -4,7 +4,17 @@ import {
   createPrivateKey,
   type webcrypto,
 } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { isIP } from "node:net";
 import { dirname } from "node:path";
 import * as x509 from "@peculiar/x509";
 import type { ServerCa } from "./ca.js";
@@ -28,9 +38,14 @@ const SERVER_BACKDATE_MS = 60 * 60 * 1000;
 export const SERVER_EXPIRY_MARGIN_MS = 10 * 60 * 1000;
 /** How often a running server checks the certificate it serves. */
 export const SERVER_CHECK_INTERVAL_MS = DAY_MS;
-const SERVER_SUBJECT = "CN=localhost";
-/** The self-issued SAN, so the agent's IP-based server-name check accepts it. */
-const SERVER_SAN = [
+/** The subject's O of every pair the server issues itself (SPEC-023 §Operational §6). */
+const SELF_ISSUED_O = "O=CyberGuard self-issued";
+/** RFC 5280's bound on a CN. */
+const CN_MAX = 64;
+/** SPEC-004's profile, before SPEC-023: a pair the CA signed with it is self-issued too. */
+const LEGACY_SUBJECT = "CN=localhost";
+/** SPEC-004's SANs, the legacy profile's. */
+const LEGACY_SAN = [
   { type: "dns", value: "localhost" },
   { type: "ip", value: "127.0.0.1" },
 ] as const;
@@ -99,12 +114,38 @@ export interface CertCheckOptions {
   /** The clock the checks read; issuance always reads the system clock. */
   now: () => number;
   log: CertLog;
+  /** INGEST_SERVER_NAMES: the SANs of a pair the server issues, the first its CN. */
+  names: readonly string[];
 }
 
-type IssueReason = "absent" | "expiring" | "expired" | "key_mismatch";
+type IssueReason = "absent" | "expiring" | "expired" | "key_mismatch" | "names_changed";
 
-/** A new self-issued pair: a fresh Ed25519 key, the server profile, 90 days. */
-async function issueServerPair(ca: ServerCa): Promise<ServerIdentity> {
+/** A name as the SAN extension takes it. */
+function sanOf(name: string): x509.JsonGeneralName {
+  return isIP(name) !== 0 ? { type: "ip", value: name } : { type: "dns", value: name };
+}
+
+/** A SAN entry in one spelling, whoever wrote it: DNS names without case, addresses as a URL
+ *  host prints them. */
+function canonicalName(entry: x509.JsonGeneralName): string {
+  if (entry.type === "ip")
+    return `ip:${new URL(`http://${entry.value.includes(":") ? `[${entry.value}]` : entry.value}/`).hostname}`;
+  return `${entry.type}:${entry.value.toLowerCase()}`;
+}
+
+/** The SANs of a certificate, canonical and sorted. */
+function certNames(certPem: string): string[] {
+  const ext = new x509.X509Certificate(certPem).getExtension(x509.SubjectAlternativeNameExtension);
+  return (ext?.names.toJSON() ?? []).map(canonicalName).sort();
+}
+
+/** The names a list gives, canonical and sorted, to compare with a certificate's. */
+function listNames(names: readonly string[]): string[] {
+  return names.map((n) => canonicalName(sanOf(n))).sort();
+}
+
+/** A new self-issued pair: a fresh Ed25519 key, the profile of `names`, 90 days. */
+async function issueServerPair(ca: ServerCa, names: readonly string[]): Promise<ServerIdentity> {
   const keys = (await webcryptoProvider.subtle.generateKey(ALG, true, [
     "sign",
     "verify",
@@ -113,7 +154,7 @@ async function issueServerPair(ca: ServerCa): Promise<ServerIdentity> {
   const cert = await x509.X509CertificateGenerator.create(
     {
       serialNumber: randomSerial(),
-      subject: SERVER_SUBJECT,
+      subject: `CN=${(names[0] ?? "localhost").slice(0, CN_MAX)}, ${SELF_ISSUED_O}`,
       issuer: ca.caCert.subject,
       notBefore: new Date(Date.now() - SERVER_BACKDATE_MS),
       notAfter,
@@ -123,7 +164,7 @@ async function issueServerPair(ca: ServerCa): Promise<ServerIdentity> {
       extensions: [
         new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
         new x509.ExtendedKeyUsageExtension([EKU_SERVER_AUTH], true),
-        new x509.SubjectAlternativeNameExtension([...SERVER_SAN]),
+        new x509.SubjectAlternativeNameExtension(names.map(sanOf)),
       ],
     },
     webcryptoProvider,
@@ -139,28 +180,26 @@ async function issueServerPair(ca: ServerCa): Promise<ServerIdentity> {
 }
 
 /**
- * The self-issued SAN as Node's `X509Certificate.subjectAltName` prints it, derived
- * from the SAN issuance writes, so the two cannot drift apart.
- */
-const SERVER_SAN_PRINTED = SERVER_SAN.map((n) =>
-  n.type === "dns" ? `DNS:${n.value}` : `IP Address:${n.value}`,
-);
-
-/**
- * Self-issued: signed by the server's CA and carrying the profile the server
- * issues. A signature that cannot be checked under the CA's key (an issuer that
- * does not sign with Ed25519) counts as operator-provided, as does another subject
- * or SAN.
+ * Self-issued (SPEC-023 §Operational §6): signed by the server's CA, with `O=CyberGuard
+ * self-issued` in its subject, or with the profile SPEC-004 issued before (`CN=localhost`,
+ * SANs localhost and 127.0.0.1). A signature that cannot be checked under the CA's key (an
+ * issuer that does not sign with Ed25519) counts as operator-provided, as does any other
+ * pair, one the CA signed included.
  */
 function isSelfIssued(ca: ServerCa, cert: NodeX509Certificate): boolean {
-  if (cert.subject !== SERVER_SUBJECT) return false;
-  const names = (cert.subjectAltName ?? "").split(", ").sort();
-  if (names.join(",") !== [...SERVER_SAN_PRINTED].sort().join(",")) return false;
   try {
-    return cert.verify(new NodeX509Certificate(ca.caCertPem).publicKey);
+    if (!cert.verify(new NodeX509Certificate(ca.caCertPem).publicKey)) return false;
   } catch {
     return false;
   }
+  if (cert.subject.split("\n").includes(SELF_ISSUED_O)) return true;
+  if (cert.subject !== LEGACY_SUBJECT) return false;
+  return (
+    certNames(cert.toString()).join(",") ===
+    LEGACY_SAN.map((n) => canonicalName(n))
+      .sort()
+      .join(",")
+  );
 }
 
 /** Whether the key PEM holds the certificate's private key; a key it cannot parse does not. */
@@ -281,11 +320,12 @@ async function reissue(
   reason: IssueReason,
   certPath: string,
   keyPath: string,
-  log: CertLog,
+  options: CertCheckOptions,
 ): Promise<ServerIdentity> {
+  const { log } = options;
   let fresh: ServerIdentity;
   try {
-    fresh = await issueServerPair(ca);
+    fresh = await issueServerPair(ca, options.names);
     writePair(certPath, keyPath, fresh.certPem, fresh.keyPem);
   } catch (err) {
     log.error(
@@ -333,7 +373,7 @@ export async function ensureServerCert(
   const haveCert = existsSync(certPath);
   const haveKey = existsSync(keyPath);
   if (!haveCert && !haveKey) {
-    return reissue(ca, null, "absent", certPath, keyPath, log);
+    return reissue(ca, null, "absent", certPath, keyPath, options);
   }
   if (haveCert !== haveKey) {
     throw new Error(
@@ -350,12 +390,28 @@ export async function ensureServerCert(
     logOperatorExpiry(current, now(), certPath, log);
     return current;
   }
+  // SPEC-023 §Operational §6 (debt #92): a key file the server issued, wider than its owner's.
+  restrictKeyFile(keyPath);
   if (!keyMatches(current.certPem, current.keyPem)) {
     // A mismatched pair cannot serve TLS: if its reissue fails, there is no pair to keep.
-    return reissue(ca, null, "key_mismatch", certPath, keyPath, log);
+    return reissue(ca, null, "key_mismatch", certPath, keyPath, options);
   }
   const reason = renewalReason(current, now());
-  return reason ? reissue(ca, current, reason, certPath, keyPath, log) : current;
+  if (reason) return reissue(ca, current, reason, certPath, keyPath, options);
+  // SPEC-023 §Operational §6: a self-issued pair whose SANs are not the list is reissued.
+  if (certNames(current.certPem).join(",") !== listNames(options.names).join(",")) {
+    return reissue(ca, current, "names_changed", certPath, keyPath, options);
+  }
+  return current;
+}
+
+/** A key file whose mode lets others than its owner read or write it is set to 0600. */
+function restrictKeyFile(keyPath: string): void {
+  try {
+    if ((statSync(keyPath).mode & 0o077) !== 0) chmodSync(keyPath, 0o600);
+  } catch {
+    // A file the server cannot chmod (another owner): the pair is read as it is.
+  }
 }
 
 /**
@@ -436,6 +492,6 @@ export async function checkServerCert(
       return change.adopt;
     }
   }
-  const next = await reissue(ca, served, reason, certPath, keyPath, log);
+  const next = await reissue(ca, served, reason, certPath, keyPath, options);
   return next === served ? null : next;
 }

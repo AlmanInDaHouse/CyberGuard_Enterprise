@@ -32,7 +32,8 @@ let server: IngestServer;
 
 beforeAll(async () => {
   config = inject("ingestConfig");
-  server = await startIngest(config);
+  // Enrollment over TLS, as the agent requires it with [enrollment] (SPEC-023 §Operational §6).
+  server = await startIngest({ ...config, INGEST_ENROLL_TLS: true });
 });
 
 afterAll(async () => {

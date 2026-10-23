@@ -84,7 +84,8 @@ beforeAll(async () => {
   // A live in-process driver would be a second producer racing the same
   // per-org watermark, blurring the deterministic exactly-one-alert signal.
   config = { ...inject("ingestConfig"), INGEST_DETECT_INTERVAL_MS: 0 };
-  server = await startIngest(config);
+  // Enrollment over TLS, as the agent requires it with [enrollment] (SPEC-023 §Operational §6).
+  server = await startIngest({ ...config, INGEST_ENROLL_TLS: true });
 });
 
 afterAll(async () => {

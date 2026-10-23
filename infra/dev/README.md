@@ -27,7 +27,7 @@ task dev:health
 | ClickHouse | 8123 | 8123 | `CG_CH_HTTP_PORT` | HTTP interface |
 | ClickHouse | 9000 | 9000 | `CG_CH_TCP_PORT` | Native TCP |
 | Valkey (`redis`) | 6379 | 16379 | `CG_REDIS_PORT` | Client connections (host port shifted to avoid clashes with other local Redis or Valkey instances) |
-| ingest | 8080 | 8080 | `CG_INGEST_ENROLL_PORT` | Agent enrollment, plain HTTP (SPEC-004) |
+| ingest | 8080 | 8080 | `CG_INGEST_ENROLL_PORT` | Agent enrollment over HTTPS, and `/health` (SPEC-023 §Operational §6); an agent trusts the CA that `node dist/cli/export-ca.js` prints in the ingest container |
 | ingest | 8443 | 8443 | `CG_INGEST_HEARTBEAT_PORT` | The agents' mTLS listener |
 | api | 8081 | 18081 | `CG_API_PORT` | The human-facing API (SPEC-008, SPEC-009) |
 

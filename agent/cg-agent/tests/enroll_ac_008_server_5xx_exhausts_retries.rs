@@ -9,11 +9,12 @@ use cg_agent::errors::EnrollmentError;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enroll_ac_008_server_5xx_exhausts_retries() {
-    let mock = common::MockServer::start().await;
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let mock = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
     // Every enrollment attempt gets a 500 (default applies once the
     // empty finite plan is exhausted).
     mock.set_enroll_default(500);
-    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-008");
+    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-008", &pki);
 
     let err = cg_agent::identity::ensure_identity(&fixture.config, &fixture.config_path)
         .await
@@ -27,6 +28,11 @@ async fn enroll_ac_008_server_5xx_exhausts_retries() {
     assert!(
         format!("{err}").contains("server unreachable after"),
         "error must carry the documented substring; got: {err}"
+    );
+    assert_eq!(
+        mock.enroll_received_count(),
+        3,
+        "each of the max_retries attempts reached the server and got its 500"
     );
     assert!(
         fixture.no_artifacts_exist(),

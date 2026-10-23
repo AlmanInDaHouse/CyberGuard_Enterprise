@@ -179,8 +179,9 @@ async fn capture_ac_001_unelevated_binary_exits_9() {
         eprintln!("skipped: elevated (the ETW session opens)");
         return;
     }
-    let enroll = common::MockServer::start().await;
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    // Enrollment over TLS, trusting the same anchor (SPEC-023 §Operational §6).
+    let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
     let heartbeat = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
 
     let dir = tempfile::tempdir().expect("tempdir");

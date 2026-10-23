@@ -173,9 +173,10 @@ function expectFreshPair(paths: Paths, old: Pair | undefined): string {
   expect(Math.abs(disk.notAfterMs - (Date.now() + 90 * DAY_MS))).toBeLessThan(60_000);
   // An hour back, for an agent whose clock lags the server's (item 2).
   expect(Math.abs(disk.notBeforeMs - (Date.now() - 60 * 60 * 1000))).toBeLessThan(60_000);
-  // The profile of item 2: subject, SAN and extended key usage serverAuth.
+  // The profile of item 2: subject, SAN and extended key usage serverAuth; the subject as
+  // SPEC-023 §Operational §6 amends it, the first name and the O of a self-issued pair.
   const cert = new NodeX509(read(paths).certPem);
-  expect(cert.subject).toBe("CN=localhost");
+  expect(cert.subject).toBe("CN=localhost\nO=CyberGuard self-issued");
   expect(cert.subjectAltName).toBe("DNS:localhost, IP Address:127.0.0.1");
   expect(cert.keyUsage).toEqual(["1.3.6.1.5.5.7.3.1"]);
   return disk.serial;

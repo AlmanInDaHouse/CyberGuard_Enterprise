@@ -1,4 +1,4 @@
-//! Shared helpers for the SPEC-001 and SPEC-002 integration harnesses.
+//! Shared helpers for the SPEC-001, SPEC-002 and SPEC-003 integration harnesses.
 //!
 //! Per Cargo convention, `tests/common/mod.rs` is not treated as a
 //! separate integration test; each test file includes it via
@@ -18,7 +18,8 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tempfile::{NamedTempFile, TempDir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -45,21 +46,14 @@ XuDkz+eLU50kmGJUM68Sim/2RYfgeWxjPTGlJfjFOQTf9HXw0SMP\n\
 /// canonical identity from enrollment onward (SPEC-002 §Data contracts).
 pub const TEST_AGENT_ID: &str = "01934abc-def0-7000-89ab-000000000099";
 
-/// In-process axum mock for both SPEC-001 heartbeats and SPEC-002
-/// enrollment.
-///
-/// - `POST /v1/agents/heartbeat` records every accepted (2xx) envelope;
-///   callers may program a finite sequence of status codes.
-/// - `POST /v1/agents/enroll` records every request body and returns a
-///   canned `EnrollmentResponse` on 2xx (the default), or a programmed
-///   error status. Useful for the token-rejected / server-5xx ACs.
+/// In-process axum mock for SPEC-001 heartbeats, in plain HTTP:
+/// `POST /v1/agents/heartbeat` records every accepted (2xx) envelope;
+/// callers may program a finite sequence of status codes. Enrollment runs
+/// over TLS ([`TlsEnrollMock`], SPEC-023 §Operational §6).
 pub struct MockServer {
     pub base_url: String,
     received: Arc<Mutex<Vec<Value>>>,
     response_plan: Arc<Mutex<Vec<u16>>>,
-    enroll_received: Arc<Mutex<Vec<Value>>>,
-    enroll_plan: Arc<Mutex<Vec<u16>>>,
-    enroll_default_status: Arc<Mutex<u16>>,
     _task: JoinHandle<()>,
 }
 
@@ -67,30 +61,20 @@ pub struct MockServer {
 struct AppState {
     received: Arc<Mutex<Vec<Value>>>,
     response_plan: Arc<Mutex<Vec<u16>>>,
-    enroll_received: Arc<Mutex<Vec<Value>>>,
-    enroll_plan: Arc<Mutex<Vec<u16>>>,
-    enroll_default_status: Arc<Mutex<u16>>,
 }
 
 impl MockServer {
     pub async fn start() -> Self {
         let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let response_plan: Arc<Mutex<Vec<u16>>> = Arc::new(Mutex::new(Vec::new()));
-        let enroll_received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
-        let enroll_plan: Arc<Mutex<Vec<u16>>> = Arc::new(Mutex::new(Vec::new()));
-        let enroll_default_status: Arc<Mutex<u16>> = Arc::new(Mutex::new(200));
 
         let state = AppState {
             received: received.clone(),
             response_plan: response_plan.clone(),
-            enroll_received: enroll_received.clone(),
-            enroll_plan: enroll_plan.clone(),
-            enroll_default_status: enroll_default_status.clone(),
         };
 
         let app = Router::new()
             .route("/v1/agents/heartbeat", post(receive_heartbeat))
-            .route("/v1/agents/enroll", post(receive_enroll))
             .with_state(state);
 
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -105,9 +89,6 @@ impl MockServer {
             base_url: format!("http://{addr}"),
             received,
             response_plan,
-            enroll_received,
-            enroll_plan,
-            enroll_default_status,
             _task: task,
         }
     }
@@ -128,41 +109,6 @@ impl MockServer {
         plan.clear();
         plan.extend(codes);
     }
-
-    // --- Enrollment introspection (SPEC-002) ---
-
-    pub fn enroll_received_count(&self) -> usize {
-        self.enroll_received.lock().expect("enroll lock").len()
-    }
-
-    pub fn enroll_received(&self) -> Vec<Value> {
-        self.enroll_received.lock().expect("enroll lock").clone()
-    }
-
-    /// Forget all recorded enrollment requests (used to assert a second
-    /// run does not POST to `/v1/agents/enroll`).
-    pub fn reset_enroll(&self) {
-        self.enroll_received.lock().expect("enroll lock").clear();
-    }
-
-    /// Program a finite sequence of enrollment HTTP statuses (consumed
-    /// one per request). After the sequence is exhausted, the default
-    /// status applies.
-    pub fn set_enroll_plan(&self, codes: Vec<u16>) {
-        let mut plan = self.enroll_plan.lock().expect("enroll_plan lock");
-        plan.clear();
-        plan.extend(codes);
-    }
-
-    /// Set the status returned for every enrollment request once the
-    /// finite plan is empty. Defaults to 200. Use 500 to make every
-    /// retry fail (AC-008).
-    pub fn set_enroll_default(&self, code: u16) {
-        *self
-            .enroll_default_status
-            .lock()
-            .expect("enroll_default lock") = code;
-    }
 }
 
 async fn receive_heartbeat(State(s): State<AppState>, Json(envelope): Json<Value>) -> StatusCode {
@@ -182,41 +128,14 @@ async fn receive_heartbeat(State(s): State<AppState>, Json(envelope): Json<Value
     StatusCode::from_u16(next_code).unwrap_or(StatusCode::OK)
 }
 
-async fn receive_enroll(
-    State(s): State<AppState>,
-    Json(req): Json<Value>,
-) -> (StatusCode, Json<Value>) {
-    // Record every enrollment attempt regardless of the status returned,
-    // so AC-003 can inspect the body and AC-005 can assert zero attempts.
-    s.enroll_received.lock().expect("enroll lock").push(req);
-
-    let code = {
-        let mut plan = s.enroll_plan.lock().expect("enroll_plan lock");
-        if plan.is_empty() {
-            *s.enroll_default_status.lock().expect("enroll_default lock")
-        } else {
-            plan.remove(0)
-        }
-    };
-    let status = StatusCode::from_u16(code).unwrap_or(StatusCode::OK);
-
-    if (200..300).contains(&code) {
-        (status, Json(canned_enroll_response()))
-    } else {
-        (
-            status,
-            Json(json!({ "error": "enrollment rejected by mock" })),
-        )
-    }
-}
-
 /// The success body for `POST /v1/agents/enroll` (SPEC-002 §Data
-/// contracts): a fresh `agent_id`, a real PEM cert, and ISO 8601 stamps.
-fn canned_enroll_response() -> Value {
+/// contracts): a fresh `agent_id`, the client certificate issued for the
+/// agent's key, and ISO 8601 stamps.
+fn enroll_response(client_certificate: &str) -> Value {
     json!({
         "envelope_version": "0.1.0",
         "agent_id": TEST_AGENT_ID,
-        "client_certificate": TEST_CLIENT_CERT_PEM,
+        "client_certificate": client_certificate,
         "issued_at": "2026-05-21T10:23:11.482Z",
         "expires_at": "2026-08-19T10:23:11.482Z"
     })
@@ -291,20 +210,51 @@ impl EnrollmentFixture {
 }
 
 /// Build an [`EnrollmentFixture`] whose `agent.toml` points enrollment at
-/// `server_url` and carries `token`. Backoff is set fast (10 ms initial)
-/// so the retry-exhaustion ACs (AC-008 / AC-009) run quickly.
-pub fn enrollment_fixture(server_url: &str, token: &str) -> EnrollmentFixture {
+/// `server_url`, carries `token`, and trusts `pki`'s CA as its trust anchor
+/// (SPEC-023 §Operational §6). Backoff is set fast (10 ms initial) so the
+/// retry-exhaustion ACs (AC-008 / AC-009) run quickly.
+pub fn enrollment_fixture(server_url: &str, token: &str, pki: &TlsTestPki) -> EnrollmentFixture {
     let dir = tempfile::tempdir().expect("tempdir");
     let cert_path = dir.path().join("cert.pem");
     let key_path = dir.path().join("key.dat");
     let identity_path = dir.path().join("identity.json");
     let config_path = dir.path().join("agent.toml");
+    let anchor_path = dir.path().join("server-ca.pem");
+    std::fs::write(&anchor_path, &pki.trust_anchor_pem).expect("write trust anchor");
 
+    std::fs::write(
+        &config_path,
+        enrollment_toml(server_url, token, Some(&anchor_path), dir.path()),
+    )
+    .expect("write agent.toml");
+
+    let config = load_from_path(&config_path).expect("enrollment fixture config must be valid");
+
+    EnrollmentFixture {
+        config,
+        config_path,
+        cert_path,
+        key_path,
+        identity_path,
+        _dir: dir,
+    }
+}
+
+/// An `agent.toml` with `[enrollment]`: `server_url`, `token`, the trust anchor at
+/// `anchor` when given, and the identity artifacts under `dir`.
+pub fn enrollment_toml(server_url: &str, token: &str, anchor: Option<&Path>, dir: &Path) -> String {
+    let cert_path = dir.join("cert.pem");
+    let key_path = dir.join("key.dat");
+    let identity_path = dir.join("identity.json");
     // Paths go in TOML *literal* strings (single quotes) so Windows
     // backslashes are not treated as escape sequences.
-    let toml = format!(
+    let anchor_line = anchor
+        .map(|a| format!("trust_anchor_path = '{}'\n", a.display()))
+        .unwrap_or_default();
+    format!(
         "[server]\n\
          url = \"{server_url}\"\n\
+         {anchor_line}\
          \n\
          [agent]\n\
          id = \"01934abc-def0-7000-89ab-000000000001\"\n\
@@ -329,34 +279,23 @@ pub fn enrollment_fixture(server_url: &str, token: &str) -> EnrollmentFixture {
          backoff_factor = 2.0\n",
         server_url = server_url,
         token = token,
+        anchor_line = anchor_line,
         cert = cert_path.display(),
         key = key_path.display(),
         identity = identity_path.display(),
-    );
-    std::fs::write(&config_path, toml).expect("write agent.toml");
-
-    let config = load_from_path(&config_path).expect("enrollment fixture config must be valid");
-
-    EnrollmentFixture {
-        config,
-        config_path,
-        cert_path,
-        key_path,
-        identity_path,
-        _dir: dir,
-    }
+    )
 }
 
-/// A `base_url` whose port is closed: a listener is bound to obtain a
-/// free port, then dropped, so connection attempts are refused. Drives
-/// the network-unreachable AC (AC-009).
+/// An `https://` `base_url` whose port is closed: a listener is bound to
+/// obtain a free port, then dropped, so connection attempts are refused.
+/// Drives the network-unreachable AC (AC-009).
 pub async fn closed_port_url() -> String {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind for closed port");
     let addr = listener.local_addr().expect("local_addr");
     drop(listener);
-    format!("http://{addr}")
+    format!("https://{addr}")
 }
 
 /// Decode a base64url-unpadded string (the `agent_pubkey` wire encoding,
@@ -389,6 +328,38 @@ pub struct TlsTestPki {
     rogue_server_key_der: Vec<u8>,
     trusted_client_root: rustls::pki_types::CertificateDer<'static>,
     rogue_client_root: rustls::pki_types::CertificateDer<'static>,
+    issuer: Arc<Issuer>,
+}
+
+/// The test CA as the issuer of the client certificates enrollment returns.
+struct Issuer {
+    cert: rcgen::Certificate,
+    key: KeyPair,
+}
+
+/// An agent's raw Ed25519 public key, as rcgen signs a certificate for it.
+struct RawEd25519([u8; 32]);
+
+impl rcgen::PublicKeyData for RawEd25519 {
+    fn der_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    fn algorithm(&self) -> &rcgen::SignatureAlgorithm {
+        &PKCS_ED25519
+    }
+}
+
+impl Issuer {
+    /// A client certificate for `agent_pubkey`, `CN=agent_id`, signed by the CA.
+    fn client_cert_pem(&self, agent_id: &str, agent_pubkey: [u8; 32]) -> String {
+        let mut params = CertificateParams::new(Vec::<String>::new()).expect("client params");
+        params.distinguished_name.push(DnType::CommonName, agent_id);
+        params
+            .signed_by(&RawEd25519(agent_pubkey), &self.cert, &self.key)
+            .expect("ca-signed client cert")
+            .pem()
+    }
 }
 
 fn make_ca(cn: &str) -> (rcgen::Certificate, KeyPair) {
@@ -446,6 +417,10 @@ pub fn generate_test_pki(agent_id: &str) -> TlsTestPki {
         rogue_server_key_der: rogue_server_key.serialize_der(),
         trusted_client_root: ca.der().clone(),
         rogue_client_root: rogue_ca.der().clone(),
+        issuer: Arc::new(Issuer {
+            cert: ca,
+            key: ca_key,
+        }),
     }
 }
 
@@ -460,6 +435,9 @@ pub enum TlsMockMode {
     RejectClientCert,
     /// Server offers only TLS 1.2.
     Tls12Only,
+    /// Server offers TLS 1.3 with only `TLS_AES_128_GCM_SHA256`, the suite
+    /// ADR-0004 leaves out.
+    Aes128Only,
 }
 
 /// In-process TLS-terminating mock for the secure heartbeat path. Records
@@ -502,7 +480,37 @@ fn ring_provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
-fn build_server_config(pki: &TlsTestPki, mode: TlsMockMode) -> rustls::ServerConfig {
+/// The server's provider: ring's, its cipher suites cut to `TLS_AES_128_GCM_SHA256` in
+/// [`TlsMockMode::Aes128Only`].
+fn server_provider(mode: TlsMockMode) -> Arc<rustls::crypto::CryptoProvider> {
+    let mut provider = rustls::crypto::ring::default_provider();
+    if mode == TlsMockMode::Aes128Only {
+        provider
+            .cipher_suites
+            .retain(|cs| cs.suite() == rustls::CipherSuite::TLS13_AES_128_GCM_SHA256);
+    }
+    Arc::new(provider)
+}
+
+static TLS12_ONLY: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS12];
+static TLS13_ONLY: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS13];
+
+/// The protocol versions the server offers in `mode`.
+fn server_versions(mode: TlsMockMode) -> &'static [&'static rustls::SupportedProtocolVersion] {
+    match mode {
+        TlsMockMode::Tls12Only => TLS12_ONLY,
+        _ => TLS13_ONLY,
+    }
+}
+
+/// The server's certificate and key in `mode`: the rogue CA's, or the trusted CA's.
+fn server_pair(
+    pki: &TlsTestPki,
+    mode: TlsMockMode,
+) -> (
+    rustls::pki_types::CertificateDer<'static>,
+    rustls::pki_types::PrivateKeyDer<'static>,
+) {
     let (cert, key_der) = match mode {
         TlsMockMode::UntrustedServerCert => (
             pki.rogue_server_cert.clone(),
@@ -513,6 +521,12 @@ fn build_server_config(pki: &TlsTestPki, mode: TlsMockMode) -> rustls::ServerCon
             pki.good_server_key_der.clone(),
         ),
     };
+    let key = rustls::pki_types::PrivateKeyDer::try_from(key_der).expect("server key der");
+    (cert, key)
+}
+
+fn build_server_config(pki: &TlsTestPki, mode: TlsMockMode) -> rustls::ServerConfig {
+    let (cert, key) = server_pair(pki, mode);
     let client_root = match mode {
         TlsMockMode::RejectClientCert => pki.rogue_client_root.clone(),
         _ => pki.trusted_client_root.clone(),
@@ -527,16 +541,8 @@ fn build_server_config(pki: &TlsTestPki, mode: TlsMockMode) -> rustls::ServerCon
     .build()
     .expect("client verifier");
 
-    let v13 = [&rustls::version::TLS13];
-    let v12 = [&rustls::version::TLS12];
-    let versions: &[&rustls::SupportedProtocolVersion] = match mode {
-        TlsMockMode::Tls12Only => &v12,
-        _ => &v13,
-    };
-
-    let key = rustls::pki_types::PrivateKeyDer::try_from(key_der).expect("server key der");
-    rustls::ServerConfig::builder_with_provider(ring_provider())
-        .with_protocol_versions(versions)
+    rustls::ServerConfig::builder_with_provider(server_provider(mode))
+        .with_protocol_versions(server_versions(mode))
         .expect("protocol versions")
         .with_client_cert_verifier(verifier)
         .with_single_cert(vec![cert], key)
@@ -568,12 +574,29 @@ impl TlsMockServer {
         Self::start_inner(pki, TlsMockMode::Normal, None, None, port).await
     }
 
+    /// Start a Normal TLS mock that verifies envelopes under `agent_pubkey`, the key of an
+    /// agent that enrolled against a [`TlsEnrollMock`] of the same `pki`.
+    pub async fn start_for_key(pki: &TlsTestPki, agent_pubkey: [u8; 32]) -> Self {
+        Self::start_keyed(pki, TlsMockMode::Normal, None, None, 0, agent_pubkey).await
+    }
+
     async fn start_inner(
         pki: &TlsTestPki,
         mode: TlsMockMode,
         reject_status: Option<u16>,
         responder: Option<Responder>,
         port: u16,
+    ) -> Self {
+        Self::start_keyed(pki, mode, reject_status, responder, port, pki.agent_pubkey).await
+    }
+
+    async fn start_keyed(
+        pki: &TlsTestPki,
+        mode: TlsMockMode,
+        reject_status: Option<u16>,
+        responder: Option<Responder>,
+        port: u16,
+        agent_pubkey: [u8; 32],
     ) -> Self {
         let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let attempts: Arc<Mutex<Vec<MockAttempt>>> = Arc::new(Mutex::new(Vec::new()));
@@ -587,7 +610,7 @@ impl TlsMockServer {
             received: received.clone(),
             attempts: attempts.clone(),
             seen_nonces: Mutex::new(HashSet::new()),
-            agent_pubkey: pki.agent_pubkey,
+            agent_pubkey,
             reject_status,
             responder,
         });
@@ -664,6 +687,205 @@ async fn handle_tls_conn(
         }
     }
     Ok(())
+}
+
+/// SPEC-023 §Operational §6 — the enrollment listener over TLS: server
+/// authentication only, TLS 1.3 with the server certificate `pki`'s CA
+/// issued, unless the mode says otherwise. `POST /v1/agents/enroll` records
+/// every request body and answers 200 with a client certificate the CA
+/// issues for the agent's key (so an enrolled agent can heartbeat over
+/// mTLS), or a programmed status. Counts every TCP connection it accepts,
+/// whether its handshake completes or not.
+pub struct TlsEnrollMock {
+    pub base_url: String,
+    enroll_received: Arc<Mutex<Vec<Value>>>,
+    enroll_plan: Arc<Mutex<Vec<u16>>>,
+    enroll_default_status: Arc<Mutex<u16>>,
+    connections: Arc<AtomicUsize>,
+    _task: JoinHandle<()>,
+}
+
+struct EnrollState {
+    enroll_received: Arc<Mutex<Vec<Value>>>,
+    enroll_plan: Arc<Mutex<Vec<u16>>>,
+    enroll_default_status: Arc<Mutex<u16>>,
+    issuer: Arc<Issuer>,
+}
+
+impl TlsEnrollMock {
+    pub async fn start(pki: &TlsTestPki, mode: TlsMockMode) -> Self {
+        let (cert, key) = server_pair(pki, mode);
+        let config = rustls::ServerConfig::builder_with_provider(server_provider(mode))
+            .with_protocol_versions(server_versions(mode))
+            .expect("protocol versions")
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .expect("server cert");
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind tls enroll mock");
+        let port = listener.local_addr().expect("local_addr").port();
+
+        let enroll_received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let enroll_plan: Arc<Mutex<Vec<u16>>> = Arc::new(Mutex::new(Vec::new()));
+        let enroll_default_status: Arc<Mutex<u16>> = Arc::new(Mutex::new(200));
+        let connections = Arc::new(AtomicUsize::new(0));
+        let state = Arc::new(EnrollState {
+            enroll_received: enroll_received.clone(),
+            enroll_plan: enroll_plan.clone(),
+            enroll_default_status: enroll_default_status.clone(),
+            issuer: pki.issuer.clone(),
+        });
+
+        let counted = connections.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                let (tcp, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                counted.fetch_add(1, Ordering::SeqCst);
+                let acceptor = acceptor.clone();
+                let state = state.clone();
+                tokio::spawn(async move {
+                    if let Ok(tls) = acceptor.accept(tcp).await {
+                        let _ = handle_enroll_conn(tls, state).await;
+                    }
+                });
+            }
+        });
+
+        Self {
+            // The IP, as the mTLS mock's: the server cert carries a 127.0.0.1 SAN.
+            base_url: format!("https://127.0.0.1:{port}"),
+            enroll_received,
+            enroll_plan,
+            enroll_default_status,
+            connections,
+            _task: task,
+        }
+    }
+
+    pub fn enroll_received_count(&self) -> usize {
+        self.enroll_received.lock().expect("enroll lock").len()
+    }
+
+    pub fn enroll_received(&self) -> Vec<Value> {
+        self.enroll_received.lock().expect("enroll lock").clone()
+    }
+
+    /// Forget all recorded enrollment requests (used to assert a second
+    /// run does not POST to `/v1/agents/enroll`).
+    pub fn reset_enroll(&self) {
+        self.enroll_received.lock().expect("enroll lock").clear();
+    }
+
+    /// Program a finite sequence of enrollment HTTP statuses (consumed
+    /// one per request). After the sequence is exhausted, the default
+    /// status applies.
+    pub fn set_enroll_plan(&self, codes: Vec<u16>) {
+        let mut plan = self.enroll_plan.lock().expect("enroll_plan lock");
+        plan.clear();
+        plan.extend(codes);
+    }
+
+    /// Set the status returned for every enrollment request once the
+    /// finite plan is empty. Defaults to 200. Use 500 to make every
+    /// retry fail (AC-008).
+    pub fn set_enroll_default(&self, code: u16) {
+        *self
+            .enroll_default_status
+            .lock()
+            .expect("enroll_default lock") = code;
+    }
+
+    /// The TCP connections accepted so far, a failed handshake's included.
+    pub fn connections(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
+    }
+}
+
+async fn handle_enroll_conn(
+    mut tls: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+    state: Arc<EnrollState>,
+) -> std::io::Result<()> {
+    let mut buf = [0u8; 8192];
+    let mut data: Vec<u8> = Vec::new();
+    loop {
+        let n = tls.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(());
+        }
+        data.extend_from_slice(&buf[..n]);
+        let Some(hdr_end) = find_subsequence(&data, b"\r\n\r\n") else {
+            continue;
+        };
+        let content_length = parse_content_length(&data[..hdr_end]);
+        let body_start = hdr_end + 4;
+        if data.len() < body_start + content_length {
+            continue;
+        }
+        let request_line = String::from_utf8_lossy(&data[..hdr_end])
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let (status, body) = if request_line.starts_with("POST /v1/agents/enroll ") {
+            answer_enroll(&data[body_start..body_start + content_length], &state)
+        } else {
+            (404, json!({ "error": "not found" }))
+        };
+        let body = body.to_string();
+        let resp = format!(
+            "HTTP/1.1 {status} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            status_text(status),
+            body.len()
+        );
+        tls.write_all(resp.as_bytes()).await?;
+        let _ = tls.shutdown().await;
+        return Ok(());
+    }
+}
+
+/// Record the request and answer it: the programmed status, and on 2xx the
+/// response with a client certificate for the request's `agent_pubkey`.
+fn answer_enroll(body: &[u8], state: &EnrollState) -> (u16, Value) {
+    let Ok(req) = serde_json::from_slice::<Value>(body) else {
+        return (400, json!({ "error": "malformed request" }));
+    };
+    state
+        .enroll_received
+        .lock()
+        .expect("enroll lock")
+        .push(req.clone());
+    let code = {
+        let mut plan = state.enroll_plan.lock().expect("enroll_plan lock");
+        if plan.is_empty() {
+            *state
+                .enroll_default_status
+                .lock()
+                .expect("enroll_default lock")
+        } else {
+            plan.remove(0)
+        }
+    };
+    if !(200..300).contains(&code) {
+        return (code, json!({ "error": "enrollment rejected by mock" }));
+    }
+    let pubkey: Option<[u8; 32]> = req["agent_pubkey"].as_str().and_then(|s| {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(s)
+            .ok()
+            .and_then(|b| b.try_into().ok())
+    });
+    match pubkey {
+        Some(key) => (
+            code,
+            enroll_response(&state.issuer.client_cert_pem(TEST_AGENT_ID, key)),
+        ),
+        None => (400, json!({ "error": "malformed agent_pubkey" })),
+    }
 }
 
 fn process_body(body: &[u8], state: &TlsMockState) -> u16 {
@@ -759,7 +981,10 @@ fn status_text(status: u16) -> &'static str {
         200 => "OK",
         400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
         409 => "Conflict",
+        500 => "Internal Server Error",
         503 => "Service Unavailable",
         _ => "Error",
     }

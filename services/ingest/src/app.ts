@@ -7,13 +7,18 @@ import type { Services } from "./services.js";
 type LoggerOpt = FastifyServerOptions["logger"];
 
 /**
- * Plain-HTTP listener app (FR-002): `/health` + `POST /v1/agents/enroll`.
- * Accepts clients with no certificate yet (enrollment chicken-and-egg).
+ * The enrollment listener's app (FR-002): `/health` + `POST /v1/agents/enroll`. It asks
+ * for no client certificate (enrollment chicken-and-egg). Over HTTPS with `https`, the
+ * server certificate's options (SPEC-023 §Operational §6); plain HTTP without.
  */
-export function buildEnrollApp(services: Services, logger: LoggerOpt = false): FastifyInstance {
-  const app = Fastify({ logger });
-  registerEnrollRoutes(app, services);
-  return app;
+export function buildEnrollApp(
+  services: Services,
+  logger: LoggerOpt = false,
+  https?: HttpsServerOptions,
+): FastifyInstance {
+  const app = https ? Fastify({ logger, https }) : Fastify({ logger });
+  registerEnrollRoutes(app as unknown as FastifyInstance, services);
+  return app as unknown as FastifyInstance;
 }
 
 /**
