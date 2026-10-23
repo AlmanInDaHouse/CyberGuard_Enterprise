@@ -4,7 +4,7 @@ name: infra-ci
 # Docker Compose reads it, every profile included, then asserts its port bindings,
 # its network mode and its image references (infra/dev/check-compose.mjs), after
 # the check's own test. The test backends are named here because the check
-# compares their ClickHouse image with the compose's.
+# compares their ClickHouse and Valkey images with the compose's.
 on:
   push:
     branches: [main]

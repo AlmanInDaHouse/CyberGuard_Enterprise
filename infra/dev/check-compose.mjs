@@ -29,9 +29,28 @@ if (!composePath) {
 }
 
 const compose = JSON.parse(readFileSync(composePath, "utf8"));
-// redis, docker.io/redis or docker.io/library/redis, with any tag or digest.
-const REDIS_REPOSITORY = /^(?:docker\.io\/)?(?:library\/)?redis(?::[\w][\w.-]*)?(?:@sha256:[0-9a-f]{64})?$/;
-const VALKEY_PINNED = /^valkey\/valkey:\d+\.\d+\.\d+-alpine$/;
+// An image of the redis repository under any registry or namespace path (redis,
+// docker.io/library/redis, mirror.gcr.io/library/redis, bitnami/redis, ...) or of the
+// redis namespace (redis/redis-stack-server), with any tag or digest.
+const REDIS_REPOSITORY =
+  /^(?:[\w.-]+(?::\d+)?\/)*(?:redis|redis\/[\w.-]+)(?::[\w][\w.-]*)?(?:@sha256:[0-9a-f]{64})?$/;
+// Valkey's image, by any registry path, and the dev compose's pinned form of it.
+const VALKEY_IMAGE = /(?:^|\/)valkey\/valkey(?::|@|$)/;
+const VALKEY_PINNED = /^valkey\/valkey:\d+\.\d+\.\d+-alpine(?:@sha256:[0-9a-f]{64})?$/;
+
+/**
+ * The image-like tokens a backend file quotes: a quoted run without whitespace that
+ * holds ":", "/" or "@", each quote kind scanned on its own so that an apostrophe
+ * elsewhere does not pair with another kind of quote. A bare word such as a network
+ * alias "redis" is not an image reference here.
+ */
+function quotedImages(text) {
+  const tokens = [];
+  for (const re of [/"([^"\s]+)"/g, /'([^'\s]+)'/g, /`([^`\s]+)`/g]) {
+    for (const m of text.matchAll(re)) if (/[:/@]/.test(m[1])) tokens.push(m[1]);
+  }
+  return tokens;
+}
 const services = Object.entries(compose.services ?? {});
 const failures = [];
 let published = 0;
@@ -97,12 +116,11 @@ if (compose.services?.redis === undefined) {
   failures.push(`redis: the key-value store's image ${valkey ?? "(none)"} is not valkey/valkey:<major>.<minor>.<patch>-alpine`);
 }
 for (const path of backendPaths) {
-  const text = readFileSync(path, "utf8");
-  const quoted = [...text.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => m[1]);
+  const quoted = quotedImages(readFileSync(path, "utf8"));
   for (const image of quoted.filter((q) => REDIS_REPOSITORY.test(q))) {
     failures.push(`${path}: starts ${image}, an image of the redis repository; the key-value store runs Valkey`);
   }
-  const named = quoted.filter((q) => q.startsWith("valkey/valkey"));
+  const named = quoted.filter((q) => VALKEY_IMAGE.test(q));
   if (named.length === 0) failures.push(`${path}: names no Valkey image`);
   for (const image of named) {
     if (image !== valkey) failures.push(`${path}: starts ${image}, the dev compose ${valkey ?? "(none)"}`);

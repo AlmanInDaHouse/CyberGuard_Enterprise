@@ -36,8 +36,11 @@ export async function startBackends(): Promise<Backends> {
 
     const redis = await new GenericContainer("valkey/valkey:9.1.2-alpine")
       .withCommand(["valkey-server", "--requirepass", "cyberguard_dev"])
+      // Checked with valkey-cli (SPEC-023 §Operational §13), the password from its
+      // environment.
+      .withEnvironment({ VALKEYCLI_AUTH: "cyberguard_dev" })
       .withExposedPorts(6379)
-      .withWaitStrategy(Wait.forLogMessage(/Ready to accept connections/))
+      .withWaitStrategy(Wait.forSuccessfulCommand("valkey-cli ping | grep -q PONG"))
       .start();
     started.push(redis);
 

@@ -123,10 +123,24 @@ test("deploy_ac_022: the key-value store off Valkey, off a patch release, or apa
   const missing = render();
   delete missing.services.redis;
   refuses(missing, /the dev compose has no redis service/);
-  refuses(render(), /starts redis:7\.4-alpine, an image of the redis repository/, `image("${CLICKHOUSE}"); image("${VALKEY}"); image("redis:7.4-alpine")`);
-  refuses(render(), /starts valkey\/valkey:9\.0\.6-alpine, the dev compose valkey\/valkey:9\.1\.2-alpine/, `image("${CLICKHOUSE}"); image("valkey/valkey:9.0.6-alpine")`);
-  refuses(render(), /names no Valkey image/, `image("${CLICKHOUSE}")`);
+  refuses(render(), /backends-\d+\.ts: starts redis:7\.4-alpine, an image of the redis repository/, `image("${CLICKHOUSE}"); image("${VALKEY}"); image("redis:7.4-alpine")`);
+  refuses(render(), /backends-\d+\.ts: starts valkey\/valkey:9\.0\.6-alpine, the dev compose valkey\/valkey:9\.1\.2-alpine/, `image("${CLICKHOUSE}"); image("valkey/valkey:9.0.6-alpine")`);
+  refuses(render(), /backends-\d+\.ts: names no Valkey image/, `image("${CLICKHOUSE}")`);
   const elsewhere = render();
   elsewhere.services.cache = { image: "redis:7-alpine" };
   refuses(elsewhere, /cache: the image redis:7-alpine is of the redis repository/);
+});
+
+test("deploy_ac_022: other spellings of the two repositories are seen; a digest and a bare alias are not refused", () => {
+  for (const image of ["mirror.gcr.io/library/redis:7.4-alpine", "redis/redis-stack-server:7.4.0-v1", "bitnami/redis:7.4"]) {
+    refuses(render(), new RegExp(`backends-\\d+\\.ts: starts ${image.replace(/[./]/g, "\\$&")}, an image of the redis repository`), `image("${CLICKHOUSE}"); image("${VALKEY}"); image("${image}")`);
+  }
+  refuses(render(), /backends-\d+\.ts: starts docker\.io\/valkey\/valkey:8\.0\.0-alpine, the dev compose/, `image("${CLICKHOUSE}"); image("${VALKEY}"); image("docker.io/valkey/valkey:8.0.0-alpine")`);
+  refuses(render(), /backends-\d+\.ts: starts valkey\/valkey:9\.1-alpine, the dev compose/, `image("${CLICKHOUSE}"); image("valkey/valkey:9.1-alpine")`);
+  refuses(render(), /backends-\d+\.ts: starts redis:7\.4-alpine/, `image("${CLICKHOUSE}"); image("${VALKEY}"); don't("redis:7.4-alpine")`);
+  assert.equal(check(render(), `image("${CLICKHOUSE}"); image("${VALKEY}").withNetworkAliases("redis")`).status, 0);
+  const digest = render();
+  const pinned = `${VALKEY}@sha256:${"b".repeat(64)}`;
+  digest.services.redis.image = pinned;
+  assert.equal(check(digest, `image("${CLICKHOUSE}"); image("${pinned}")`).status, 0);
 });

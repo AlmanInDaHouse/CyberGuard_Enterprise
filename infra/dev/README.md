@@ -40,9 +40,9 @@ PGPASSWORD=cyberguard_dev psql -h 127.0.0.1 -p 15432 -U cyberguard -d cyberguard
 # ClickHouse — clickhouse-client
 clickhouse-client --host 127.0.0.1 --port 9000 --user cyberguard --password cyberguard_dev --database cyberguard
 
-# Valkey — valkey-cli (redis-cli speaks the same protocol); the password from the
-# environment, off the command line
-VALKEYCLI_AUTH=cyberguard_dev valkey-cli -h 127.0.0.1 -p 16379
+# Valkey — valkey-cli, the password from the environment rather than the process's
+# arguments; a host redis-cli reads the same REDISCLI_AUTH
+REDISCLI_AUTH=cyberguard_dev valkey-cli -h 127.0.0.1 -p 16379
 ```
 
 ## Daily use
@@ -65,5 +65,5 @@ VALKEYCLI_AUTH=cyberguard_dev valkey-cli -h 127.0.0.1 -p 16379
 - **Healthcheck stuck on `starting`**. Containers can take longer than the `start_period` on slow disks. Re-run `task dev:health` after a minute; if still not healthy, `task dev:logs svc=<name>` to inspect.
 - **Permission denied on the named volumes**. Volumes are managed by Docker, not by the host. If a host file mounted under `./postgres/init/` is unreadable, check Windows / WSL2 file-sharing permissions in Docker Desktop.
 - **Want a fully clean slate**. `task dev:reset-data` removes containers and **destroys the named volumes**, then `task dev:up` re-bootstraps the Postgres extensions from scratch.
-- **A Redis volume left from an older stack.** The stack ran Redis 7.4 until SPEC-023; Valkey may not load the data files Redis 7.4 wrote. Remove the volume once: `task dev:down`, `docker volume rm cyberguard-dev_cg_redis_data`, then `task dev:up`. It holds sessions, rate-limit counters, TOTP replay keys and nonces alone (ADR-0003 Rule 5): users sign in again.
+- **A Redis volume left from an older stack.** The stack ran Redis's own image until SPEC-023, and Valkey may not load the data files it wrote. Remove the volume once: `task dev:down`, `docker volume rm cyberguard-dev_cg_redis_data`, then `task dev:up`. It holds sessions, rate-limit counters, TOTP replay keys and nonces alone (ADR-0003 Rule 5): users sign in again.
 - **NATS and MinIO containers left from an older stack.** A stack brought up before debt #96 keeps their containers as orphans of the project; `task dev:up` and `task dev:down` pass `--remove-orphans`, which removes them. Their volumes (`cyberguard-dev_cg_nats_data`, `cyberguard-dev_cg_minio_data`) stay until `docker volume rm` removes them. A container created before debt #18 publishes its ports on every interface; `task dev:up` recreates it from the compose, on `127.0.0.1`, keeping its volume.
