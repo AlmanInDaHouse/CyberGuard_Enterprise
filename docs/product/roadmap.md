@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-43.md](../handoff-session-43.md)).
+([handoff-session-44.md](../handoff-session-44.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -365,7 +365,9 @@ This dependency-ordered document supersedes both for planning.
   Valkey), ADR-0004, ADR-0016, ADR-0019 and ADR-0020, ratified by Manuel on
   2026-10-23, and SPEC-023, Accepted with it. They decide the
   deployment-contract points of Part (b) §2–§4 under Manuel's delegation.
-  F1's code is next. The phase is four SPECs, in this order:
+  F1's code is in progress: its first change, the dev stack and the test
+  backends on Valkey (deploy_ac_022), landed as `1fb731f`..`27764bf`
+  (`docs/handoff-session-44.md`). The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
     images and the release, the forensic anchor, retention);

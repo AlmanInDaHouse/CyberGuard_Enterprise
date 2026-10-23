@@ -23,10 +23,10 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 64** at Session 43's close, the count `docs/handoff-session-43.md` states.
+**Open: 63** at Session 44's close, the count `docs/handoff-session-44.md` states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
+Session N resumes* (at Session 44's close, `docs/handoff-session-44.md:368`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -40,7 +40,7 @@ Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
 | 17 | `INGEST_DETECT_*` absent from SPEC-004 §Configuration | `handoff-session-28.md:169` | A SPEC-004 amendment: recorded as owner-STOP under the rules of the time, Claude Code's since 2026-10-10 (CLAUDE.md *Decision authority*). |
 | 20 | No SPEC consolidates the api's configuration surface; no `/health` | `handoff-session-29.md:120`; `handoff-session-41.md:770` | Roadmap §F's operator configuration surface. |
 | 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143` | A future sweep, not ordered. |
-| 24 | No per-org configurable detection window | `handoff-session-31.md:155` | The SPEC that adds a second org: out of roadmap §F (SPEC-023 §Scope, a delegated decision). |
+| 24 | No per-org configurable detection window | `handoff-session-31.md:155`; `handoff-session-44.md:337` | The SPEC that adds a second org: out of roadmap §F (SPEC-023 §Scope, a delegated decision). |
 | 25 | The detection cycle opens a client per call | `handoff-session-31.md:158`; `handoff-session-34.md:295` | None recorded. |
 | 26 | An incident's MITRE techniques from its first alert; a severity raise sends no email | `handoff-session-31.md:163`; `handoff-session-34.md:303` | Recorded: roadmap §E, which is DONE (`docs/product/roadmap.md` §E) without it. None since. |
 | 29 | The Terminate carries no path | `handoff-session-32.md:190` | The next agent phase that touches the created-time cache. |
@@ -73,16 +73,16 @@ Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
 | 85 | A compromised ingest can forge an api session (shared Redis) | `handoff-session-39.md:666` | Roadmap §F: a Redis user per service. |
 | 86 | Both services act as the Postgres superuser | `handoff-session-39.md:672` | Roadmap §F: a Postgres role per service. |
-| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; ADR-0022, Accepted on 2026-10-23. #111's agent change under gate 1 went without it. |
+| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524`; `handoff-session-44.md:337` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; ADR-0022, Accepted on 2026-10-23. #111's agent change under gate 1 went without it. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694` | Roadmap §F and a SPEC-004 amendment. |
 | 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md:1132` | Roadmap §F. |
 | 94 | Encryption passphrases travel as SQL parameters | `handoff-session-39.md:717` | Roadmap §F's Postgres logging. |
 | 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724` | Roadmap §F's grants, and the DPO's record of processing. |
 | 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140` | Roadmap §F. |
-| 98 | Admins set users' passwords and receive their TOTP secret | `handoff-session-39.md:737` | Roadmap §F's dashboard SPEC (F3), with the user pages: an invitation the user completes (ADR-0022, Accepted 2026-10-23). |
+| 98 | Admins set users' passwords and receive their TOTP secret | `handoff-session-39.md:737`; `handoff-session-44.md:337` | Roadmap §F's dashboard SPEC (F3), with the user pages: an invitation the user completes (ADR-0022, Accepted 2026-10-23). |
 | 99 | One process holds the internet-facing listeners and the CA's key | `handoff-session-39.md:741` | An ADR separating the CA, for Manuel's "sí". |
-| 102 | The api's login deletes no prior session | `handoff-session-40.md:1024` | Roadmap §F's dashboard SPEC (F3), an api change it makes with its pages: the login deletes the session its cookie names (ADR-0022, Accepted 2026-10-23). |
+| 102 | The api's login deletes no prior session | `handoff-session-40.md:1024`; `handoff-session-44.md:337` | Roadmap §F's dashboard SPEC (F3), an api change it makes with its pages: the login deletes the session its cookie names (ADR-0022, Accepted 2026-10-23). |
 | 103 | Without a proxy in front of the dashboard, a client chooses the address the api counts | `handoff-session-40.md:1034` | Roadmap §F: the dashboard only behind a TLS proxy that appends or sets `X-Forwarded-For`. |
 | 104 | The dashboard sends no security headers (CSP, HSTS) | `handoff-session-40.md:1045`; `handoff-session-40.md:1150` | Roadmap §F; not `Referrer-Policy: no-referrer`, which would make SPEC-009's same-origin check refuse every sign-in. |
 | 105 | A certificate and key path that name one file lose the key at a reissue | `handoff-session-40.md:1047` | The next change to `services/ingest/src/cert.ts`. |
@@ -90,13 +90,12 @@ Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
 | 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:1069` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
 | 109 | Whoever can write the rules directory and restart ingest changes detection | `handoff-session-40.md:1079` | Roadmap §F's packaging: the rules read-only in the image. |
 | 110 | The development dependencies carry advisories: since S43, braces, katex and tailwindcss 3's postcss-selector-parser | `handoff-session-40.md:1086`; `handoff-session-42.md:610`; `handoff-session-43.md:517` | tailwindcss's next major (postcss-selector-parser; braces through its chokidar and fast-glob); braces and katex in markdownlint-cli2 when a fixed release falls within their parents' ranges. CI audits every dependency for a critical advisory since `0e26dd7`. |
-| 111 | `cargo audit` lets rustls-pemfile pass, unmaintained, in the agent's runtime (chacha20's half: `fe06426`, S42) | `handoff-session-41.md:737` | PR #37 (`16d5c33`, CI green) replaces it; it lands after elevated gate 1. |
 | 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:746` | Roadmap §F's packaging, with the release artifacts. |
 | 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750` | A later sweep: each action pinned by commit SHA. |
 | 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:728` | With #32. |
-| 115 | ADR-0010 still reads the runner's ETW-open privilege as unvalidated in CI | `handoff-session-42.md:568` | ADR-0010's and ADR-0008's Amendments 2026-10-19, with SPEC-005's, on `adr/s43-115-runner-privilege`, waiting on Manuel's "sí". |
 | 118 | The SPEC-005 marquee's budget log differs from SPEC-005 (`within_budget`, a clock started before enrollment) | `handoff-session-43.md:535` | The next change to the marquee. |
 | 119 | The enrollment contract's texts differ from the code where SPEC-023 does not touch them (ADR-0004, SPEC-002, SPEC-003, SPEC-004) | `handoff-session-43.md:541` | F4, the renewal SPEC of roadmap §F, which rewrites the enrollment contract. |
+| 121 | The dev compose's key-value store runs as root in its container (`sh -c` skips the entrypoint's drop to `valkey`) | `handoff-session-44.md:342` | F1's dev-stack change (SPEC-023 §Operational §13), which passes the password without a shell. |
 
 ## Closed
 
@@ -155,5 +154,8 @@ Session N resumes* (at Session 43's close, `docs/handoff-session-43.md:601`);
 | 100 | The password change counts no failure and leaves its TOTP code usable | `8bd5bc9` | `handoff-session-40.md:1116` |
 | 101 | The login limiter reads its counters, then counts the failure | `8bd5bc9` | `handoff-session-40.md:1119` |
 | 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:1097` |
+| 111 | `cargo audit` let rustls-pemfile pass, unmaintained, in the agent's runtime | `12f8db4` (PR #37, after gate 1 and `s44-gate1`) | `handoff-session-44.md:331` |
+| 115 | ADR-0010 read the runner's ETW-open privilege as unvalidated in CI | `0f2d6e9` (ADR-0010's and ADR-0008's Amendments 2026-10-19, ratified) | `handoff-session-44.md:333` |
 | 116 | apiauth_ac_014's Postgres case fails when the Docker VM's clock falls behind the host's | `57845d4`, opened and closed in S42 | `handoff-session-42.md:577` |
 | 117 | Sentences in ADRs and SPECs the code has outgrown, which #13's sweep left | No commit: classified, each a record (Class H-inline) or superseded by an amendment (S43) | `handoff-session-43.md:272` |
+| 120 | RUSTSEC-2026-0382 (rustls-webpki) and RUSTSEC-2026-0381 (webpki-roots) in the agent's TLS stack | `621bf4f`, opened and closed in S44 | `handoff-session-44.md:334` |
