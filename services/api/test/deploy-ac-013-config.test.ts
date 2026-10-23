@@ -85,6 +85,13 @@ test("a missing required variable is refused, named", () => {
   expectRefused(env, "API_FORENSIC_PASSPHRASE");
 });
 
+test("a refused value's reason is one line, even when it quotes a line break", () => {
+  expectRefused(
+    { ...validEnv(), API_TRUSTED_PROXIES: "10.0.0.1/99\n10.0.0.2" },
+    "API_TRUSTED_PROXIES",
+  );
+});
+
 test("a trusted-proxy list that does not parse is refused, named", () => {
   expectRefused({ ...validEnv(), API_TRUSTED_PROXIES: "not-an-address" }, "API_TRUSTED_PROXIES");
 });

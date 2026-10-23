@@ -121,12 +121,16 @@ describe("GET /health", () => {
         API_DB_ENC_PASSPHRASE: config.API_DB_ENC_PASSPHRASE,
         API_FORENSIC_PASSPHRASE: config.API_FORENSIC_PASSPHRASE,
         API_PORT: String(port),
-        API_LOG_LEVEL: "fatal",
+        API_LOG_LEVEL: "warn",
       },
     });
     let stderr = "";
     child.stderr?.setEncoding("utf8").on("data", (d: string) => {
       stderr += d;
+    });
+    let stdout = "";
+    child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+      stdout += d;
     });
     const url = `http://127.0.0.1:${port}`;
     try {
@@ -137,11 +141,13 @@ describe("GET /health", () => {
         }
         await new Promise((r) => setTimeout(r, 200));
       }
-      // A read, so the pool holds an idle client when the stores go.
-      await fetch(`${url}/v1/incidents`, { headers: { cookie: "cgsess=x" } });
+      // The pool holds, idle, the client the forensic key's load used at start (pg keeps
+      // an idle client 10 s), whose connection the cut ends.
       await Promise.all([pg.cut(), kv.cut(), ch.cut()]);
       await new Promise((r) => setTimeout(r, 1500));
       expect(child.exitCode, stderr).toBeNull();
+      // The lost connection is logged.
+      expect(stdout).toContain("pg_idle_client_error");
       const res = await fetch(`${url}/health`);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ status: "ok" });
@@ -256,6 +262,25 @@ describe("the session's lifetimes are settings", () => {
     const capped = await redis.pttl(key("tok-deploy017-capped"));
     expect(capped).toBeGreaterThan(2 * MINUTE - SLACK);
     expect(capped).toBeLessThanOrEqual(2 * MINUTE);
+  });
+
+  test("a session last used six minutes ago is no session, whatever its entry's time-to-live", async () => {
+    // As after a restart that shortened the idle lifetime: the entry outlives it in Redis.
+    await seedSession(config, {
+      token: "tok-deploy017-idle-past",
+      userId: globalThis.crypto.randomUUID(),
+      role: "viewer",
+      orgId: "deploy017-org",
+      issuedAt: new Date(Date.now() - 10 * MINUTE).toISOString(),
+      lastSeen: new Date(Date.now() - 6 * MINUTE).toISOString(),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/incidents",
+      cookies: { cgsess: "tok-deploy017-idle-past" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(await redis.exists(key("tok-deploy017-idle-past"))).toBe(0);
   });
 
   test("a session issued an hour and a second ago is no session", async () => {

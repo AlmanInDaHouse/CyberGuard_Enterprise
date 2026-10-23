@@ -106,6 +106,10 @@ test.each([["0"], ["65536"], [" 587"]])("INGEST_SMTP_PORT=%j is refused", (value
   expectRefused({ ...validEnv(), ...SMTP, INGEST_SMTP_PORT: value }, "INGEST_SMTP_PORT");
 });
 
+test("an empty INGEST_SMTP_PORT beside the five others set is refused by the all-or-none rule", () => {
+  expectRefused({ ...validEnv(), ...SMTP, INGEST_SMTP_PORT: "" }, "INGEST_SMTP_PORT");
+});
+
 test("the six notification variables empty count as unset (SPEC-023 Amendment 2026-10-23)", () => {
   const empty = Object.fromEntries(Object.keys(SMTP).map((k) => [k, ""]));
   const parsed = loadConfig({ ...validEnv(), ...empty });

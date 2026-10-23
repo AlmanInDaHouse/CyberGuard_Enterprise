@@ -96,6 +96,10 @@ test("once started, ingest keeps running and answers /health with its stores unr
   child.stderr?.setEncoding("utf8").on("data", (d: string) => {
     stderr += d;
   });
+  let stdout = "";
+  child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+    stdout += d;
+  });
   try {
     const start = Date.now();
     while ((await health(enrollPort)) !== 200) {
@@ -109,6 +113,8 @@ test("once started, ingest keeps running and answers /health with its stores unr
     await new Promise((r) => setTimeout(r, 1500));
     expect(child.exitCode, stderr).toBeNull();
     expect(await health(enrollPort)).toBe(200);
+    // The lost connection is logged.
+    expect(stdout).toContain("pg_idle_client_error");
   } finally {
     child.kill();
   }

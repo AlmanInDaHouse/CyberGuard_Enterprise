@@ -43,13 +43,22 @@ export async function buildServices(config: Config, playbooks: Playbook[] = []):
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   // An idle client whose connection ends, Postgres restarting or unreachable, is an
   // `error` event of the pool, which without a listener ends the process: the pool drops
-  // that client, and the next query that needs Postgres fails where it is made.
-  pool.on("error", () => {});
+  // that client, the event is logged, and the next query that needs Postgres fails where
+  // it is made.
+  const storeLog = pino({ name: "ingest-stores", level: config.INGEST_LOG_LEVEL });
+  pool.on("error", (err) =>
+    storeLog.warn(
+      { event: "pg_idle_client_error", error: err.message },
+      "postgres connection lost",
+    ),
+  );
   const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
   const redis = new Redis(config.INGEST_REDIS_URL, { maxRetriesPerRequest: 1 });
-  // A lost connection, which ioredis would print as an unhandled error event; the
-  // commands' failures reach their callers.
-  redis.on("error", () => {});
+  // A lost connection, which ioredis would print as an unhandled error event: logged, and
+  // the commands' failures reach their callers.
+  redis.on("error", (err) =>
+    storeLog.warn({ event: "redis_connection_error", error: err.message }, "redis connection lost"),
+  );
   const ch = createClient({
     url: config.INGEST_CH_URL,
     username: config.INGEST_CH_USER,

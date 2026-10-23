@@ -12,7 +12,8 @@ export class ConfigError extends Error {
     readonly variable: string,
     readonly reason: string,
   ) {
-    super(`invalid configuration: ${variable}: ${reason}`);
+    // One line: a reason that quotes a value could carry a line break.
+    super(`invalid configuration: ${variable}: ${reason.replace(/[\r\n]+/g, " ")}`);
     this.name = "ConfigError";
   }
 }

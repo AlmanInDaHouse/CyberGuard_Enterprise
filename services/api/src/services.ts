@@ -1,6 +1,7 @@
 import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import { Redis } from "ioredis";
 import pg from "pg";
+import { pino } from "pino";
 import { type AuthService, createAuthService } from "./auth/service.js";
 import { type TrustedProxies, parseTrustedProxies } from "./auth/source-address.js";
 import type { Config } from "./config.js";
@@ -46,17 +47,20 @@ const PG_QUERY_TIMEOUT_MS = 6000;
  * The api's Postgres pool. A query that failed leaves the pool with its client. An idle
  * client whose connection ends, Postgres restarting or unreachable, is an `error` event of
  * the pool, which without a listener would end the process (SPEC-023 deploy_ac_017: the
- * api keeps answering /health): the pool drops that client, and the next query that needs
- * Postgres fails, is logged and answers 503.
+ * api keeps answering /health): the pool drops that client, `onError` hears it, and the
+ * next query that needs Postgres fails, is logged and answers 503.
  */
-export function createPgPool(connectionString: string): pg.Pool {
+export function createPgPool(
+  connectionString: string,
+  onError: (err: Error) => void = () => {},
+): pg.Pool {
   const pool = new pg.Pool({
     connectionString,
     connectionTimeoutMillis: PG_CONNECTION_TIMEOUT_MS,
     statement_timeout: PG_STATEMENT_TIMEOUT_MS,
     query_timeout: PG_QUERY_TIMEOUT_MS,
   });
-  pool.on("error", () => {});
+  pool.on("error", onError);
   return pool;
 }
 
@@ -70,22 +74,31 @@ const REDIS_TIMEOUT_MS = 5000;
  * failed reconnection the commands it queued fail too, so no request waits for Redis
  * to return (debt #69). Every failure reaches the caller, which answers 503. A lost
  * connection is also an `error` event of the client, listened to here so that ioredis
- * does not print it as unhandled: the commands' failures are what is logged.
+ * does not print it as unhandled; `onError` hears it, and the commands' failures are
+ * logged where they answer 503.
  */
-export function createRedisClient(url: string): Redis {
+export function createRedisClient(url: string, onError: (err: Error) => void = () => {}): Redis {
   const redis = new Redis(url, {
     connectTimeout: REDIS_TIMEOUT_MS,
     commandTimeout: REDIS_TIMEOUT_MS,
     maxRetriesPerRequest: 1,
   });
-  redis.on("error", () => {});
+  redis.on("error", onError);
   return redis;
 }
 
 export async function buildServices(config: Config): Promise<Services> {
   const trustedProxies = parseTrustedProxies(config.API_TRUSTED_PROXIES);
-  const pool = createPgPool(config.API_PG_URL);
-  const redis = createRedisClient(config.API_REDIS_URL);
+  const storeLog = pino({ name: "api-stores", level: config.API_LOG_LEVEL });
+  const pool = createPgPool(config.API_PG_URL, (err) =>
+    storeLog.warn(
+      { event: "pg_idle_client_error", error: err.message },
+      "postgres connection lost",
+    ),
+  );
+  const redis = createRedisClient(config.API_REDIS_URL, (err) =>
+    storeLog.warn({ event: "redis_connection_error", error: err.message }, "redis connection lost"),
+  );
   const ch = createClient({
     url: config.API_CH_URL,
     username: config.API_CH_USER,
