@@ -211,6 +211,33 @@ test.each([[""], ["-1"], ["5s"], ["5e3"], ["2147483648"]])(
   },
 );
 
+// A retention out of bounds stops ingest (deploy_ac_011, SPEC-023 §Data contracts §3).
+test.each(
+  ["PROCESS", "NETWORK", "LOGON", "HEARTBEAT"].flatMap((c) =>
+    ["6", "3651", "1e2", ""].map((v) => [`INGEST_RETENTION_${c}_DAYS`, v]),
+  ),
+)("%s=%j is refused", (variable, value) => {
+  expectRefused({ ...validEnv(), [variable]: value }, variable);
+});
+
+test("the retention's defaults are 365, 365, 365 and 30 days, and 7 and 3650 are taken", () => {
+  const defaults = loadConfig(validEnv());
+  expect([
+    defaults.INGEST_RETENTION_PROCESS_DAYS,
+    defaults.INGEST_RETENTION_NETWORK_DAYS,
+    defaults.INGEST_RETENTION_LOGON_DAYS,
+    defaults.INGEST_RETENTION_HEARTBEAT_DAYS,
+  ]).toEqual([365, 365, 365, 30]);
+  const bounds = loadConfig({
+    ...validEnv(),
+    INGEST_RETENTION_PROCESS_DAYS: "7",
+    INGEST_RETENTION_HEARTBEAT_DAYS: "3650",
+  });
+  expect([bounds.INGEST_RETENTION_PROCESS_DAYS, bounds.INGEST_RETENTION_HEARTBEAT_DAYS]).toEqual([
+    7, 3650,
+  ]);
+});
+
 test("a missing required variable is refused, named", () => {
   const { INGEST_CA_PASSPHRASE: _, ...env } = validEnv();
   expectRefused(env, "INGEST_CA_PASSPHRASE");

@@ -2,6 +2,11 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import {
+  RETENTION_DEFAULTS,
+  RETENTION_MAX_DAYS,
+  RETENTION_MIN_DAYS,
+} from "./db/clickhouse-bootstrap.js";
 
 // SPEC-014 — the optional SMTP/notify block treats an empty string (an unset
 // `${CG_*:-}` compose default) as ABSENT, so "notify unconfigured" is the clean
@@ -51,6 +56,10 @@ function optionalInteger(min: number, max: number) {
 /** An integer from `min` to `max`; `fallback` when unset. */
 const integer = (min: number, max: number, fallback: number) =>
   optionalInteger(min, max).transform((n) => n ?? fallback);
+
+/** A retention period in days, in SPEC-023 §Data contracts §3's bounds. */
+const retentionDays = (fallback: number) =>
+  integer(RETENTION_MIN_DAYS, RETENTION_MAX_DAYS, fallback);
 
 /** A TCP port: an integer from 1 to 65535. */
 const port = (fallback: number) => integer(1, 65_535, fallback);
@@ -157,6 +166,13 @@ const Fields = z.object({
   // set directory that does not exist is logged at warn, an unset one resolves to
   // the bundled playbooks/. An empty value counts as unset.
   INGEST_SOAR_PLAYBOOKS_DIR: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  // SPEC-023 §Operational §9 — the days a row stays in ClickHouse after its arrival, per
+  // class of cges_events and for heartbeats, 7 to 3650; the migration step sets them as the
+  // tables' time-to-live.
+  INGEST_RETENTION_PROCESS_DAYS: retentionDays(RETENTION_DEFAULTS.processDays),
+  INGEST_RETENTION_NETWORK_DAYS: retentionDays(RETENTION_DEFAULTS.networkDays),
+  INGEST_RETENTION_LOGON_DAYS: retentionDays(RETENTION_DEFAULTS.logonDays),
+  INGEST_RETENTION_HEARTBEAT_DAYS: retentionDays(RETENTION_DEFAULTS.heartbeatDays),
   // SPEC-014 / ADR-0017 — incident email notification (notify-only). This SMTP
   // block is OPTIONAL and all-or-nothing: when unset, notification is disabled
   // cleanly (the boot does NOT fail — detection still runs, only the email is skipped,
