@@ -99,6 +99,9 @@ export function buildApp(services: Services, logger: LoggerOpt = false): Fastify
     return reply.code(code).send({ error: code < 500 ? "bad_request" : "internal" });
   });
 
+  // SPEC-023 §Data contracts §2 (debt #20): the container's health check. It calls
+  // nothing, so it answers while a store is unreachable.
+  app.get("/health", async () => ({ status: "ok" }));
   registerAuthRoutes(app, services);
   registerReadRoutes(app, services);
   return app;

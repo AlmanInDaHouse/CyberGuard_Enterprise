@@ -153,20 +153,31 @@ function assertRulesLoadable(rulesDir: string): SigmaRule[] {
 }
 
 /**
+ * The rule set the production driver evaluates: none with the off-switch
+ * (INGEST_DETECT_INTERVAL_MS=0), else the directory's, fail-loud as above. startIngest
+ * calls it before it opens a listener (SPEC-023 §Operational §2).
+ */
+export function loadDetectionRules(config: Config): SigmaRule[] {
+  return config.INGEST_DETECT_INTERVAL_MS > 0
+    ? assertRulesLoadable(config.INGEST_DETECT_RULES_DIR)
+    : [];
+}
+
+/**
  * Wire the driver to production dependencies: orgs from the agents table via the
  * shared pool, and the real runDetectionCycle carrying services.notify (null ⇒
  * undefined ⇒ notification disabled cleanly; configured ⇒ SPEC-014 active in
- * production). Started in startIngest after the listeners bind; stopped in the
- * server's close() (server.ts). When enabled (interval > 0) it fail-louds at
- * boot on an empty/unreadable rules dir.
+ * production). Started in startIngest after the listeners bind, with the rules it
+ * loaded before them; stopped in the server's close() (server.ts). Without `rules`
+ * it loads them itself, fail-loud when enabled (interval > 0) on an empty/unreadable
+ * rules dir.
  */
 export function startProdDetectionDriver(
   config: Config,
   services: Services,
   log?: DriverLog,
+  rules: SigmaRule[] = loadDetectionRules(config),
 ): DetectionDriver {
-  const rules =
-    config.INGEST_DETECT_INTERVAL_MS > 0 ? assertRulesLoadable(config.INGEST_DETECT_RULES_DIR) : [];
   return startDetectionDriver({
     intervalMs: config.INGEST_DETECT_INTERVAL_MS,
     listOrgs: () => listEnrolledOrgs(services.pool),

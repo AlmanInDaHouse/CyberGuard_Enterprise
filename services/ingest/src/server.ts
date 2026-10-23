@@ -11,7 +11,7 @@ import {
 } from "./cert.js";
 import type { Config } from "./config.js";
 import { runMigrations } from "./db/migrate.js";
-import { startProdDetectionDriver } from "./detect/driver.js";
+import { loadDetectionRules, startProdDetectionDriver } from "./detect/driver.js";
 import { buildServices } from "./services.js";
 import { loadPlaybooks } from "./soar/loader.js";
 import type { LoadedPlaybooks } from "./soar/types.js";
@@ -88,9 +88,12 @@ export async function startIngest(
 ): Promise<IngestServer> {
   // SPEC-022 §Operational §1 — the playbooks load first, before any client is built
   // or any migration runs: a refused playbook rejects here and leaves nothing open.
+  // SPEC-023 §Operational §2 — the detection rules too, so a rule set that fails
+  // leaves no listener open.
   const log = options.log ?? pino({ name: "ingest-boot", level: config.INGEST_LOG_LEVEL });
   const playbooks = loadPlaybooks(config.INGEST_SOAR_PLAYBOOKS_DIR);
   logSoarIdle(log, playbooks);
+  const rules = loadDetectionRules(config);
 
   if (config.INGEST_RUN_MIGRATIONS) {
     await runMigrations(config);
@@ -164,8 +167,11 @@ export async function startIngest(
     // on a self-rescheduling interval and carries services.notify (SPEC-014).
     // Cycle errors are logged best-effort; it is stopped in close() below BEFORE
     // services are torn down, so no cycle is mid-flight when the pool closes.
-    const detectionDriver = startProdDetectionDriver(config, services, (event, fields) =>
-      enrollApp.log.error(fields ?? {}, event),
+    const detectionDriver = startProdDetectionDriver(
+      config,
+      services,
+      (event, fields) => enrollApp.log.error(fields ?? {}, event),
+      rules,
     );
     enrollApp.log.info(
       { interval_ms: config.INGEST_DETECT_INTERVAL_MS },

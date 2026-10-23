@@ -30,6 +30,7 @@ import {
   resolveSession as resolveSessionRedis,
   revokeAllForUser,
   revokeSession,
+  sessionLifetimes,
 } from "./session.js";
 import { generateSecret, provisioningUri, verifyTotp } from "./totp.js";
 
@@ -135,6 +136,8 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
   const pool = asStore(rawPool);
   const redis = asStore(rawRedis);
   const ORG = "default";
+  // SPEC-023 §Data contracts §3: a session's idle lifetime and cap are settings.
+  const lifetimes = sessionLifetimes(config);
   // The constant-work material (Amendment 2026-10-15 items 11 and 12), made at start so
   // the first refused login or confirmation of a process does no extra work.
   constantWorkHash().catch(() => {});
@@ -352,11 +355,15 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
         );
         if (firstUse === null) return reject();
 
-        const { token, csrfToken } = await createSession(redis, {
-          user_id: user.user_id,
-          org_id: user.org_id,
-          role: user.role,
-        });
+        const { token, csrfToken } = await createSession(
+          redis,
+          {
+            user_id: user.user_id,
+            org_id: user.org_id,
+            role: user.role,
+          },
+          lifetimes,
+        );
         // Read the row again (Amendment 2026-10-15 item 9): a change that committed since
         // the first read raised the version, and its deletion may have run before this
         // session existed. Then this session goes too.
@@ -417,7 +424,7 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
     },
 
     resolveSession(token) {
-      return resolveSessionRedis(redis, token);
+      return resolveSessionRedis(redis, token, Date.now(), lifetimes);
     },
 
     async createUser(input, ctx) {

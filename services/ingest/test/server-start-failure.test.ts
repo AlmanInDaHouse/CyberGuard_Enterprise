@@ -55,7 +55,7 @@ test("a failed heartbeat listen closes the enroll listener it follows", async ()
   }
 });
 
-test("the driver's fail-loud refusal closes both listeners", async () => {
+test("the driver's fail-loud refusal leaves both ports free", async () => {
   const config = inject("ingestConfig");
   const enrollPort = await freePort();
   const heartbeatPort = await freePort();
@@ -71,7 +71,8 @@ test("the driver's fail-loud refusal closes both listeners", async () => {
       }),
     ).rejects.toThrow("refusing to start a detection-dark driver");
 
-    // Both listeners were bound before the driver refused; both ports bind again.
+    // The rules are read before a listener opens (SPEC-023 §Operational §2,
+    // deploy_ac_013); both ports bind again.
     await release(await hold(enrollPort));
     await release(await hold(heartbeatPort));
   } finally {

@@ -70,6 +70,8 @@ export async function startBackends(): Promise<Backends> {
       API_BIND_HOST: "127.0.0.1",
       API_RUN_MIGRATIONS: true,
       API_LOG_LEVEL: "warn",
+      API_SESSION_IDLE_MINUTES: 480,
+      API_SESSION_MAX_HOURS: 24,
     };
 
     await runMigrations(config);

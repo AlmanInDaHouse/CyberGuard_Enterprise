@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { loadConfig } from "./config.js";
+import { ConfigError, loadConfig } from "./config.js";
 import { type IngestServer, startIngest } from "./server.js";
 
 async function main(): Promise<void> {
@@ -25,7 +25,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`cg-ingest: fatal: ${String(err)}\n`);
+  // SPEC-023 §Operational §2: a refused value is one line that names its variable.
+  const line = err instanceof ConfigError ? err.message : String(err);
+  process.stderr.write(`cg-ingest: fatal: ${line}\n`);
   process.exit(1);
 });
 

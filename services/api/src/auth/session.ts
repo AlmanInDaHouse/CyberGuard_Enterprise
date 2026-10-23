@@ -16,9 +16,29 @@ export interface SessionInfo {
 
 const PREFIX = "cgsess:";
 /** NFR-008-002 and SPEC-008's second Amendment 2026-10-16: a session ends after 8 h
- *  without use, and 24 h after its login at the latest. */
+ *  without use, and 24 h after its login at the latest. SPEC-023 makes both settings
+ *  (API_SESSION_IDLE_MINUTES, API_SESSION_MAX_HOURS), bounded by these values. */
 export const SESSION_IDLE_MS = 8 * 60 * 60 * 1000;
 export const SESSION_CAP_MS = 24 * 60 * 60 * 1000;
+
+/** A session's idle lifetime and its cap, in milliseconds. */
+export interface SessionLifetimes {
+  idleMs: number;
+  capMs: number;
+}
+
+const DEFAULT_LIFETIMES: SessionLifetimes = { idleMs: SESSION_IDLE_MS, capMs: SESSION_CAP_MS };
+
+/** The lifetimes a configuration sets (SPEC-023 §Data contracts §3). */
+export function sessionLifetimes(config: {
+  API_SESSION_IDLE_MINUTES: number;
+  API_SESSION_MAX_HOURS: number;
+}): SessionLifetimes {
+  return {
+    idleMs: config.API_SESSION_IDLE_MINUTES * 60 * 1000,
+    capMs: config.API_SESSION_MAX_HOURS * 60 * 60 * 1000,
+  };
+}
 
 function randomToken(): string {
   return Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
@@ -27,6 +47,7 @@ function randomToken(): string {
 export async function createSession(
   redis: Redis,
   info: { user_id: string; org_id: string; role: string },
+  lifetimes: SessionLifetimes = DEFAULT_LIFETIMES,
 ): Promise<{ token: string; csrfToken: string }> {
   const token = randomToken();
   const csrfToken = randomToken();
@@ -39,14 +60,15 @@ export async function createSession(
     issued_at: now,
     last_seen: now,
   });
-  await redis.set(`${PREFIX}${token}`, payload, "PX", SESSION_IDLE_MS);
+  await redis.set(`${PREFIX}${token}`, payload, "PX", lifetimes.idleMs);
   return { token, csrfToken };
 }
 
 /**
  * The session a token names, or null. Resolving it is a use (SPEC-008's second
- * Amendment 2026-10-16): the entry is rewritten with `last_seen` now and 8 h more,
- * within 24 h of `issued_at`, which never changes. A session past its cap, or whose
+ * Amendment 2026-10-16): the entry is rewritten with `last_seen` now and the idle
+ * lifetime more (8 h by default), within the cap (24 h by default) of `issued_at`,
+ * which never changes. A session past its cap, or whose
  * entry or `issued_at` cannot be read, is deleted and is no session. The rewrite is `XX`: a
  * revocation that deletes the entry between the read and the rewrite stays done
  * (auth_ac_005). A Redis error propagates, as the session check's store failure.
@@ -55,6 +77,7 @@ export async function resolveSession(
   redis: Redis,
   token: string,
   now: number = Date.now(),
+  lifetimes: SessionLifetimes = DEFAULT_LIFETIMES,
 ): Promise<SessionInfo | null> {
   if (!token) return null;
   const key = `${PREFIX}${token}`;
@@ -62,7 +85,7 @@ export async function resolveSession(
   if (!raw) return null;
   const p = entryOf(raw);
   const left =
-    typeof p?.issued_at === "string" ? Date.parse(p.issued_at) + SESSION_CAP_MS - now : Number.NaN;
+    typeof p?.issued_at === "string" ? Date.parse(p.issued_at) + lifetimes.capMs - now : Number.NaN;
   if (p === null || !(left > 0)) {
     await redis.del(key);
     return null;
@@ -71,7 +94,7 @@ export async function resolveSession(
     key,
     JSON.stringify({ ...p, last_seen: new Date(now).toISOString() }),
     "PX",
-    Math.min(SESSION_IDLE_MS, left),
+    Math.min(lifetimes.idleMs, left),
     "XX",
   );
   return { user_id: p.user_id, org_id: p.org_id, role: p.role, csrf_token: p.csrf_token };
