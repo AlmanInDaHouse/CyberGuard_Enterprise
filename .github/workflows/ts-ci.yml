@@ -15,6 +15,9 @@ on:
       - "schemas/playbooks/**"
       # SPEC-017: the ingest job builds the agent and launches it (ac-001-marquee).
       - "agent/**"
+      # SPEC-023 §Operational §4: deploy_ac_004/005 and the runtime-role tests start
+      # Postgres with the bundle's initialisation.
+      - "deploy/docker/postgres/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -35,6 +38,9 @@ on:
       - "schemas/playbooks/**"
       # SPEC-017: the ingest job builds the agent and launches it (ac-001-marquee).
       - "agent/**"
+      # SPEC-023 §Operational §4: deploy_ac_004/005 and the runtime-role tests start
+      # Postgres with the bundle's initialisation.
+      - "deploy/docker/postgres/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"

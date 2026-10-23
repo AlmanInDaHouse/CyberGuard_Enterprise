@@ -35,7 +35,7 @@ task dev:health
 
 ```sh
 # PostgreSQL — psql client
-PGPASSWORD=cyberguard_dev psql -h 127.0.0.1 -p 15432 -U cyberguard -d cyberguard
+PGPASSWORD=cyberguard_dev PGOPTIONS="-c search_path=ingest,api,public" psql -h 127.0.0.1 -p 15432 -U cyberguard -d cyberguard
 
 # ClickHouse — clickhouse-client
 clickhouse-client --host 127.0.0.1 --port 9000 --user cyberguard --password cyberguard_dev --database cyberguard
