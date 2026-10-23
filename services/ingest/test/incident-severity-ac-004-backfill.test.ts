@@ -94,6 +94,9 @@ async function seedIncidentPre0006(
 
 test("incident_severity_ac_004: 0006 backfills each incident's severity_id to MAX(its alerts)", async () => {
   const pool = new pg.Pool({ connectionString: pgDatabaseUrl(config.INGEST_PG_URL, THROWAWAY_DB) });
+  // The drop of the throwaway database ends a backend the pool's end left closing: heard, not
+  // an uncaught error event.
+  pool.on("error", () => {});
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const migrator = new Migrator({

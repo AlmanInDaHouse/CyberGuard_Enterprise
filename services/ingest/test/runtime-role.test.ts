@@ -68,6 +68,9 @@ beforeAll(async () => {
   runtime = { ...suite, INGEST_PG_URL: url("cg_ingest", "ingest") };
   runtimePool = new pg.Pool({ connectionString: runtime.INGEST_PG_URL });
   superPool = new pg.Pool({ connectionString: url("postgres", "ingest") });
+  // The container's stop ends a backend a pool's end left closing.
+  runtimePool.on("error", () => {});
+  superPool.on("error", () => {});
 }, 240_000);
 
 afterAll(async () => {

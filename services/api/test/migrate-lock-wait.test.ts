@@ -94,6 +94,9 @@ test("a command that waited and completed has applied the migrations, in a datab
   const url = new URL(config.API_PG_URL);
   url.pathname = `/${db}`;
   const other = new pg.Client({ connectionString: url.toString() });
+  // The drop of the throwaway database ends a backend the pool's end left closing: heard, not
+  // an uncaught error event.
+  other.on("error", () => {});
   await other.connect();
   try {
     // Advisory locks are the database's: this one is held in the empty database.

@@ -61,6 +61,9 @@ afterAll(async () => {
 
 test("late_ac_006: migration 0007 starts an existing cursor at the beginning, applies twice, and its down restores last_time", async () => {
   const pool = new pg.Pool({ connectionString: pgDatabaseUrl(config.INGEST_PG_URL, THROWAWAY_DB) });
+  // The drop of the throwaway database ends a backend the pool's end left closing: heard, not
+  // an uncaught error event.
+  pool.on("error", () => {});
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     // Ingest's schema, as its migration step uses it (SPEC-023 §Operational §4).

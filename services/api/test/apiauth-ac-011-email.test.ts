@@ -114,9 +114,11 @@ test("migration 0004 refuses an org whose addresses clash, naming no address, an
   try {
     // Migrate the throwaway database to 0003, as a deployment before this amendment.
     const folder = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/db/migrations");
-    const k = new Kysely<unknown>({
-      dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: throwaway }) }),
-    });
+    // The drop of the throwaway database ends a backend the pool's end left closing: heard, not
+    // an uncaught error event.
+    const kPool = new pg.Pool({ connectionString: throwaway });
+    kPool.on("error", () => {});
+    const k = new Kysely<unknown>({ dialect: new PostgresDialect({ pool: kPool }) });
     try {
       const migrator = new Migrator({
         db: k,
@@ -142,6 +144,7 @@ test("migration 0004 refuses an org whose addresses clash, naming no address, an
       await k.destroy();
     }
     const pool = new pg.Pool({ connectionString: throwaway });
+    pool.on("error", () => {});
     const insert = (email: string) =>
       pool.query(
         `INSERT INTO users (user_id, org_id, email, password_hash, totp_secret, role)

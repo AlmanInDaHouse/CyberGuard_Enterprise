@@ -172,6 +172,7 @@ describe("migrate.js", () => {
     await createPgDatabase(config.INGEST_PG_URL, db);
     const url = pgDatabaseUrl(config.INGEST_PG_URL, db);
     const other = new pg.Client({ connectionString: url });
+    other.on("error", () => {});
     await other.connect();
     try {
       // Advisory locks are the database's: this one is held in the empty database.
@@ -232,6 +233,7 @@ describe("migrate.js", () => {
         "cg-ingest migrate: fatal: invalid configuration: INGEST_CH_URL: must be a URL",
       );
       const other = new pg.Client({ connectionString: pgDatabaseUrl(config.INGEST_PG_URL, db) });
+      other.on("error", () => {});
       await other.connect();
       try {
         const tables = await other.query<{ n: string }>(
