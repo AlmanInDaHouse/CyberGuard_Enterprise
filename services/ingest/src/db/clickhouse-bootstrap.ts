@@ -1,5 +1,25 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 
+/** The days a row stays after its arrival (SPEC-023 §Operational §9). */
+export interface Retention {
+  processDays: number;
+  networkDays: number;
+  logonDays: number;
+  heartbeatDays: number;
+}
+
+/** The bounds of each period, in days (SPEC-023 §Data contracts §3). */
+export const RETENTION_MIN_DAYS = 7;
+export const RETENTION_MAX_DAYS = 3650;
+
+/** The periods an operator who sets none gets (SPEC-023 §Data contracts §3). */
+export const RETENTION_DEFAULTS: Readonly<Retention> = Object.freeze({
+  processDays: 365,
+  networkDays: 365,
+  logonDays: 365,
+  heartbeatDays: 30,
+});
+
 /**
  * The ClickHouse tables ingest writes and the statements that create them, in the
  * order they run: `heartbeats` (SPEC-004) and `cges_events` (SPEC-005, with the
@@ -7,7 +27,11 @@ import type { ClickHouseClient } from "@clickhouse/client";
  * bootstrap (`migrate.ts`) runs it, and so does the api test harness, which reads
  * `cges_events` (SPEC-010) and keeps no copy of this DDL (debt #6).
  */
-export async function bootstrapClickHouseTables(ch: ClickHouseClient): Promise<void> {
+export async function bootstrapClickHouseTables(
+  ch: ClickHouseClient,
+  retention: Retention,
+): Promise<void> {
+  checkRetention(retention);
   await ch.command({
     query: `
       CREATE TABLE IF NOT EXISTS heartbeats (
@@ -120,15 +144,61 @@ export async function bootstrapClickHouseTables(ch: ClickHouseClient): Promise<v
     `,
   });
 
-  // ADR-0019 §9, SPEC-020 §Data contracts "Retention" — a logon row is deleted
-  // once its arrival is 365 days old; no other class has a time-to-live. Set on
-  // every bootstrap without materializing it, so a rerun rewrites no part; rows
-  // of class 3002 did not exist before SPEC-020.
-  await ch.command({
-    query: `
-      ALTER TABLE cges_events
-      MODIFY TTL toDateTime(arrived_at) + toIntervalDay(365) DELETE WHERE class_uid = 3002
-    `,
-    clickhouse_settings: { materialize_ttl_after_modify: 0 },
-  });
+  await applyRetention(ch, retention);
+}
+
+/** The periods go into the DDL: whatever the caller, each is a whole number of days in
+ *  bounds, checked before any statement runs. */
+function checkRetention(retention: Retention): void {
+  for (const name of ["processDays", "networkDays", "logonDays", "heartbeatDays"] as const) {
+    const days = retention[name];
+    if (!Number.isInteger(days) || days < RETENTION_MIN_DAYS || days > RETENTION_MAX_DAYS) {
+      throw new Error(
+        `retention: ${name} must be a whole number of days from ${RETENTION_MIN_DAYS} to ${RETENTION_MAX_DAYS}`,
+      );
+    }
+  }
+}
+
+/** The time-to-live rules of each table, as `MODIFY TTL` takes them. */
+function retentionTtl(r: Retention): { cges_events: string; heartbeats: string } {
+  const at = "toDateTime(arrived_at)";
+  const longest = Math.max(r.processDays, r.networkDays, r.logonDays);
+  return {
+    cges_events: [
+      `${at} + toIntervalDay(${r.processDays}) DELETE WHERE class_uid = 1007`,
+      `${at} + toIntervalDay(${r.networkDays}) DELETE WHERE class_uid = 4001`,
+      `${at} + toIntervalDay(${r.logonDays}) DELETE WHERE class_uid = 3002`,
+      `${at} + toIntervalDay(${longest}) DELETE WHERE class_uid NOT IN (1007, 4001, 3002)`,
+    ].join(", "),
+    heartbeats: `${at} + toIntervalDay(${r.heartbeatDays})`,
+  };
+}
+
+/** The table's time-to-live as `SHOW CREATE TABLE` prints it, with DELETE, its default, left
+ *  out; empty when it has none. */
+async function currentTtl(ch: ClickHouseClient, table: string): Promise<string> {
+  const rs = await ch.query({ query: `SHOW CREATE TABLE ${table}`, format: "TabSeparatedRaw" });
+  const m = /\nTTL (.*)\n/.exec(await rs.text());
+  return (m?.[1] ?? "").replace(/ DELETE/g, "");
+}
+
+/**
+ * SPEC-023 §Operational §9 (ADR-0019 Amendment 2026-10-19) — the retention, per class of
+ * cges_events (1007, 4001, 3002; a row of another class keeps the longest of the three) and
+ * on heartbeats, measured from the row's arrival. A table whose time-to-live already says
+ * these days is left as it is; one that says others gets the new rules, materialised
+ * (`MATERIALIZE TTL`, ClickHouse's default after `MODIFY TTL`), so that rows already stored
+ * are measured against the new period too. ClickHouse deletes at its merges, so a row may
+ * outlive its period by the time a merge takes.
+ */
+async function applyRetention(ch: ClickHouseClient, retention: Retention): Promise<void> {
+  const ttl = retentionTtl(retention);
+  for (const table of ["cges_events", "heartbeats"] as const) {
+    if ((await currentTtl(ch, table)) === ttl[table].replace(/ DELETE/g, "")) continue;
+    await ch.command({
+      query: `ALTER TABLE ${table} MODIFY TTL ${ttl[table]}`,
+      clickhouse_settings: { materialize_ttl_after_modify: 1 },
+    });
+  }
 }

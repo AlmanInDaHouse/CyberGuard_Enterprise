@@ -30,12 +30,17 @@ function chClient(config: Config): ClickHouseClient {
 
 /** Create ingest's ClickHouse tables (`heartbeats` and `cges_events`) in the api test ClickHouse. */
 export async function bootstrapIngestClickHouse(config: Config): Promise<void> {
-  const { bootstrapClickHouseTables } = (await import(
+  const { bootstrapClickHouseTables, RETENTION_DEFAULTS } = (await import(
     pathToFileURL(INGEST_CLICKHOUSE_BOOTSTRAP).href
-  )) as { bootstrapClickHouseTables(ch: ClickHouseClient): Promise<void> };
+  )) as {
+    bootstrapClickHouseTables(ch: ClickHouseClient, retention: unknown): Promise<void>;
+    RETENTION_DEFAULTS: unknown;
+  };
   const ch = chClient(config);
   try {
-    await bootstrapClickHouseTables(ch);
+    // The retention's defaults (SPEC-023 §Data contracts §3), ingest's own, as its
+    // migration step sets them unless the operator says otherwise.
+    await bootstrapClickHouseTables(ch, RETENTION_DEFAULTS);
   } finally {
     await ch.close();
   }

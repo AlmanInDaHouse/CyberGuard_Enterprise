@@ -37,13 +37,18 @@ export function folderMigrationProvider(migrationFolder: string): MigrationProvi
   };
 }
 
-/** The variables a migration run uses: the stores' (SPEC-023 §Data contracts §4). */
+/** The variables a migration run uses: the stores' and the retention's (SPEC-023 §Data
+ *  contracts §4), all checked before anything is changed. */
 export const MIGRATE_VARIABLES = [
   "INGEST_PG_URL",
   "INGEST_CH_URL",
   "INGEST_CH_USER",
   "INGEST_CH_PASSWORD",
   "INGEST_CH_DB",
+  "INGEST_RETENTION_PROCESS_DAYS",
+  "INGEST_RETENTION_NETWORK_DAYS",
+  "INGEST_RETENTION_LOGON_DAYS",
+  "INGEST_RETENTION_HEARTBEAT_DAYS",
 ] as const;
 export type MigrateConfig = Pick<Config, (typeof MIGRATE_VARIABLES)[number]>;
 
@@ -61,6 +66,7 @@ export const INGEST_SCHEMA = "ingest";
  * double-apply. The lock is taken and released on one connection, held apart from the
  * migrator's. Without `wait`, a run that finds the lock held skips and returns false; with
  * it, the run waits for the lock, so a command that completes has applied the migrations.
+ * `underLock`, when given, runs after the migrations and before the lock is released.
  *
  * SPEC-023 §Operational §4: each connection's search path is ingest's schema and then
  * `public`, whatever the URL says, so a migration's table lands in the schema; the migrator
@@ -71,6 +77,7 @@ export const INGEST_SCHEMA = "ingest";
 export async function runPgMigrations(
   config: Pick<Config, "INGEST_PG_URL">,
   options: MigrateOptions = {},
+  underLock?: () => Promise<void>,
 ): Promise<boolean> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   // A lost connection fails the run with its fatal line, not as an unheard error event.
@@ -110,6 +117,7 @@ export async function runPgMigrations(
         if (error) {
           throw error instanceof Error ? error : new Error(String(error));
         }
+        await underLock?.();
       } finally {
         await lock.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
       }
@@ -124,13 +132,14 @@ export async function runPgMigrations(
 
 /**
  * Ingest's migration step: the Postgres migrations (`runPgMigrations`), then, unless they
- * were skipped, the ClickHouse tables (`./clickhouse-bootstrap.ts`). Idempotent.
+ * were skipped, the ClickHouse tables and the retention (`./clickhouse-bootstrap.ts`), under
+ * the same lock, so two runs set the retention one after the other. Idempotent.
  */
 export async function runMigrations(
   config: MigrateConfig,
   options: MigrateOptions = {},
 ): Promise<void> {
-  if (await runPgMigrations(config, options)) await bootstrapClickHouse(config);
+  await runPgMigrations(config, options, () => bootstrapClickHouse(config));
 }
 
 async function bootstrapClickHouse(config: MigrateConfig): Promise<void> {
@@ -141,7 +150,12 @@ async function bootstrapClickHouse(config: MigrateConfig): Promise<void> {
     database: config.INGEST_CH_DB,
   });
   try {
-    await bootstrapClickHouseTables(ch);
+    await bootstrapClickHouseTables(ch, {
+      processDays: config.INGEST_RETENTION_PROCESS_DAYS,
+      networkDays: config.INGEST_RETENTION_NETWORK_DAYS,
+      logonDays: config.INGEST_RETENTION_LOGON_DAYS,
+      heartbeatDays: config.INGEST_RETENTION_HEARTBEAT_DAYS,
+    });
   } finally {
     await ch.close();
   }

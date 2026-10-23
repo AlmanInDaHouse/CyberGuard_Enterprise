@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GenericContainer, type StartedTestContainer, Wait } from "testcontainers";
 import type { Config } from "../../src/config.js";
+import { RETENTION_DEFAULTS } from "../../src/db/clickhouse-bootstrap.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { RULES_WINDOWS_DIR } from "./detect.js";
 
@@ -82,6 +83,11 @@ export async function startBackends(): Promise<Backends> {
       // boot startIngest with the driver on run with SOAR idle, as they run with
       // notification unset. A soar_ac test builds its own carrier.
       INGEST_SOAR_PLAYBOOKS_DIR: mkdtempSync(join(tmpdir(), "cg-soar-none-")),
+      // SPEC-023 §Operational §9: the retention's defaults, the code's own.
+      INGEST_RETENTION_PROCESS_DAYS: RETENTION_DEFAULTS.processDays,
+      INGEST_RETENTION_NETWORK_DAYS: RETENTION_DEFAULTS.networkDays,
+      INGEST_RETENTION_LOGON_DAYS: RETENTION_DEFAULTS.logonDays,
+      INGEST_RETENTION_HEARTBEAT_DAYS: RETENTION_DEFAULTS.heartbeatDays,
     };
 
     await runMigrations(config);

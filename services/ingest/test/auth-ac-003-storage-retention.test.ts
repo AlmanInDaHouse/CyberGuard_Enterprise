@@ -13,10 +13,11 @@ import {
 // columns with their types and defaults, on a new table and on a table created
 // without them; a row written before reads the defaults; a second bootstrap leaves
 // the create statement unchanged; that statement carries a 365-day time-to-live on
-// arrived_at restricted to class 3002. In a throwaway database, OPTIMIZE ... FINAL
-// deletes a 3002 row 366 days old and keeps a 1007 row of the same age and a 3002
-// row 364 days old. As in net_ac_003, the cases that need a table without the
-// columns run the real bootstrap against a throwaway database.
+// arrived_at for class 3002. As SPEC-023's deploy_ac_011 restates it, the time-to-live
+// is per class and the defaults are 365 days for 1007, 4001 and 3002 alike: in a
+// throwaway database, OPTIMIZE ... FINAL deletes a row of each of the three 366 days old
+// and keeps one of each 364 days old. As in net_ac_003, the cases that need a table
+// without the columns run the real bootstrap against a throwaway database.
 
 const THROWAWAY_DB = "auth_ac_003";
 
@@ -47,9 +48,10 @@ const EXPECTED_COLUMNS: ColumnRow[] = [
 ];
 const LOGON_COLUMNS = EXPECTED_COLUMNS.map((c) => c.name);
 
-/** The time-to-live as ClickHouse normalizes it in the create statement. */
+/** The class-3002 rule of the time-to-live, as ClickHouse normalizes it in the create
+ *  statement (SPEC-023 §Operational §9: one rule per class, the defaults 365 days). */
 const TTL_CLAUSE =
-  /TTL toDateTime\(arrived_at\) \+ toIntervalDay\(365\)( DELETE)? WHERE class_uid = 3002/;
+  /toDateTime\(arrived_at\) \+ toIntervalDay\(365\)( DELETE)? WHERE class_uid = 3002/;
 
 let config: Config;
 
@@ -174,13 +176,12 @@ test("auth_ac_003: the bootstrap adds the eleven columns and the class-3002 time
   expect(await showCreate(THROWAWAY_DB)).toBe(before);
 });
 
-test("auth_ac_003: the time-to-live deletes a 3002 row 366 days old and nothing else", async () => {
+test("auth_ac_003, as deploy_ac_011 restates it: with the defaults, a 1007, 4001 or 3002 row 366 days old goes, and one 364 days old stays", async () => {
   await bootstrap(THROWAWAY_DB);
-  const expired = row(3002, 366);
-  const young = row(3002, 364);
-  const process = row(1007, 366);
+  const expired = [row(1007, 366), row(4001, 366), row(3002, 366)];
+  const young = [row(1007, 364), row(4001, 364), row(3002, 364)];
   await withClient(THROWAWAY_DB, (ch) =>
-    ch.insert({ table: "cges_events", format: "JSONEachRow", values: [expired, young, process] }),
+    ch.insert({ table: "cges_events", format: "JSONEachRow", values: [...expired, ...young] }),
   );
   await withClient(THROWAWAY_DB, (ch) => ch.command({ query: "OPTIMIZE TABLE cges_events FINAL" }));
 
@@ -188,10 +189,10 @@ test("auth_ac_003: the time-to-live deletes a 3002 row 366 days old and nothing 
     const rs = await ch.query({
       query: `SELECT toString(event_id) AS id FROM cges_events
               WHERE event_id IN ({ids:Array(UUID)})`,
-      query_params: { ids: [expired.event_id, young.event_id, process.event_id] },
+      query_params: { ids: [...expired, ...young].map((r) => r.event_id) },
       format: "JSONEachRow",
     });
     return (await rs.json<{ id: string }>()).map((r) => r.id).sort();
   });
-  expect(left).toEqual([young.event_id as string, process.event_id as string].sort());
+  expect(left).toEqual(young.map((r) => r.event_id as string).sort());
 });
