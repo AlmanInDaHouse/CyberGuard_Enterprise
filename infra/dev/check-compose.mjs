@@ -40,16 +40,19 @@ const VALKEY_PINNED = /^valkey\/valkey:\d+\.\d+\.\d+-alpine(?:@sha256:[0-9a-f]{6
 
 /**
  * The image-like tokens a backend file quotes: a quoted run without whitespace that
- * holds ":", "/" or "@", each quote kind scanned on its own so that an apostrophe
- * elsewhere does not pair with another kind of quote. A bare word such as a network
- * alias "redis" is not an image reference here.
+ * holds ":", "/" or "@" and does not start with "." (a relative path), each quote kind
+ * scanned on its own so that an apostrophe elsewhere does not pair with another kind of
+ * quote; and every literal a GenericContainer(...) starts, bare words included. A bare
+ * word elsewhere, such as a network alias "redis", is not an image reference here. An
+ * image built from a template or a concatenation is beyond a textual check; the
+ * backends' review covers it.
  */
 function quotedImages(text) {
-  const tokens = [];
+  const tokens = [...text.matchAll(/GenericContainer\(\s*(["'`])([^"'`\s]+)\1/g)].map((m) => m[2]);
   for (const re of [/"([^"\s]+)"/g, /'([^'\s]+)'/g, /`([^`\s]+)`/g]) {
-    for (const m of text.matchAll(re)) if (/[:/@]/.test(m[1])) tokens.push(m[1]);
+    for (const m of text.matchAll(re)) if (/[:/@]/.test(m[1]) && !m[1].startsWith(".")) tokens.push(m[1]);
   }
-  return tokens;
+  return [...new Set(tokens)];
 }
 const services = Object.entries(compose.services ?? {});
 const failures = [];
@@ -120,10 +123,14 @@ for (const path of backendPaths) {
   for (const image of quoted.filter((q) => REDIS_REPOSITORY.test(q))) {
     failures.push(`${path}: starts ${image}, an image of the redis repository; the key-value store runs Valkey`);
   }
-  const named = quoted.filter((q) => VALKEY_IMAGE.test(q));
+  const named = quoted.filter((q) => VALKEY_IMAGE.test(q) || /valkey/i.test(q.split(/[:@]/)[0]));
   if (named.length === 0) failures.push(`${path}: names no Valkey image`);
   for (const image of named) {
-    if (image !== valkey) failures.push(`${path}: starts ${image}, the dev compose ${valkey ?? "(none)"}`);
+    if (!VALKEY_PINNED.test(image)) {
+      failures.push(`${path}: starts ${image}, not valkey/valkey:<major>.<minor>.<patch>-alpine`);
+    } else if (image !== valkey) {
+      failures.push(`${path}: starts ${image}, the dev compose ${valkey ?? "(none)"}`);
+    }
   }
 }
 

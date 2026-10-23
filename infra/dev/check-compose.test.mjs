@@ -135,10 +135,16 @@ test("deploy_ac_022: other spellings of the two repositories are seen; a digest 
   for (const image of ["mirror.gcr.io/library/redis:7.4-alpine", "redis/redis-stack-server:7.4.0-v1", "bitnami/redis:7.4"]) {
     refuses(render(), new RegExp(`backends-\\d+\\.ts: starts ${image.replace(/[./]/g, "\\$&")}, an image of the redis repository`), `image("${CLICKHOUSE}"); image("${VALKEY}"); image("${image}")`);
   }
-  refuses(render(), /backends-\d+\.ts: starts docker\.io\/valkey\/valkey:8\.0\.0-alpine, the dev compose/, `image("${CLICKHOUSE}"); image("${VALKEY}"); image("docker.io/valkey/valkey:8.0.0-alpine")`);
-  refuses(render(), /backends-\d+\.ts: starts valkey\/valkey:9\.1-alpine, the dev compose/, `image("${CLICKHOUSE}"); image("valkey/valkey:9.1-alpine")`);
+  refuses(render(), /backends-\d+\.ts: starts docker\.io\/valkey\/valkey:8\.0\.0-alpine, not valkey\/valkey:<major>/, `image("${CLICKHOUSE}"); image("${VALKEY}"); image("docker.io/valkey/valkey:8.0.0-alpine")`);
+  refuses(render(), /backends-\d+\.ts: starts valkey\/valkey:9\.1-alpine, not valkey\/valkey:<major>/, `image("${CLICKHOUSE}"); image("valkey/valkey:9.1-alpine")`);
   refuses(render(), /backends-\d+\.ts: starts redis:7\.4-alpine/, `image("${CLICKHOUSE}"); image("${VALKEY}"); don't("redis:7.4-alpine")`);
   assert.equal(check(render(), `image("${CLICKHOUSE}"); image("${VALKEY}").withNetworkAliases("redis")`).status, 0);
+  refuses(render(), /backends-\d+\.ts: starts redis, an image of the redis repository/, `image("${CLICKHOUSE}"); image("${VALKEY}"); new GenericContainer("redis")`);
+  refuses(render(), /backends-\d+\.ts: starts ghcr\.io\/valkey-io\/valkey:7\.2, not valkey\/valkey:<major>/, `image("${CLICKHOUSE}"); image("${VALKEY}"); new GenericContainer("ghcr.io/valkey-io/valkey:7.2")`);
+  const bothFloating = render();
+  bothFloating.services.redis.image = "valkey/valkey:9.1-alpine";
+  refuses(bothFloating, /backends-\d+\.ts: starts valkey\/valkey:9\.1-alpine, not valkey\/valkey:<major>/, `image("${CLICKHOUSE}"); image("valkey/valkey:9.1-alpine")`);
+  assert.equal(check(render(), `image("${CLICKHOUSE}"); image("${VALKEY}"); import x from "./lib/redis"`).status, 0);
   const digest = render();
   const pinned = `${VALKEY}@sha256:${"b".repeat(64)}`;
   digest.services.redis.image = pinned;
