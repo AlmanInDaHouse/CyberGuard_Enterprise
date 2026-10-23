@@ -120,81 +120,81 @@ function defaultDetectRulesDir(): string {
  * SPEC-004 §Configuration, with SPEC-023 §Data contracts §3's checks. Validated at
  * startup; the service refuses to start on a missing/invalid variable.
  */
-const EnvSchema = z
-  .object({
-    INGEST_PG_URL: z.string().url(),
-    INGEST_CH_URL: z.string().url(),
-    INGEST_CH_USER: z.string().default("default"),
-    INGEST_CH_PASSWORD: z.string().default(""),
-    INGEST_CH_DB: z.string().default("default"),
-    INGEST_REDIS_URL: z.string().url(),
-    INGEST_ENROLL_PORT: port(8080),
-    INGEST_HEARTBEAT_PORT: port(8443),
-    // Bind address for BOTH listeners. Default loopback = the host-process
-    // topology (tests, `pnpm dev`); a container needs a non-loopback bind such
-    // as 0.0.0.0. Independent of the cert SAN, which is verified against the
-    // host the agent dials (SPEC-003 FR-005), not the bound interface.
-    INGEST_BIND_HOST: z.string().min(1).default("127.0.0.1"),
-    INGEST_SERVER_CERT_PATH: z.string().min(1).default("/certs/server.pem"),
-    INGEST_SERVER_KEY_PATH: z.string().min(1).default("/certs/server-key.pem"),
-    INGEST_CA_PASSPHRASE: z.string().min(1),
-    INGEST_RUN_MIGRATIONS: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((v) => v === "true"),
-    INGEST_LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
-    // ADR-0012 Amendment 2026-06-07 — production detection driver tunables.
-    // Ports pattern: env-with-default, operator-overridable, NOT all-or-nothing
-    // (unlike the SMTP block). INGEST_DETECT_INTERVAL_MS is the poll interval; a
-    // value of 0 DISABLES the driver entirely (no ticks) — the operator
-    // kill-switch, and what the detect-ac-001 marquee sets so its explicit
-    // runDetectionCycle is the sole producer. INGEST_DETECT_RULES_DIR is the
-    // Sigma rules directory the driver loads (fail-loud at boot if it is empty).
-    // An empty interval is refused, not read as 0 (SPEC-023 §Data contracts §3).
-    INGEST_DETECT_INTERVAL_MS: integer(0, MAX_TIMER_MS, 5000),
-    INGEST_DETECT_RULES_DIR: z.string().min(1).default(defaultDetectRulesDir()),
-    // SPEC-022 §Operational §1 — the SOAR playbooks directory. Optional with NO
-    // default here, so the loader (src/soar/loader.ts) can tell set from unset: a
-    // set directory that does not exist is logged at warn, an unset one resolves to
-    // the bundled playbooks/. An empty value counts as unset.
-    INGEST_SOAR_PLAYBOOKS_DIR: z.preprocess(blankToUndefined, z.string().min(1).optional()),
-    // SPEC-014 / ADR-0017 — incident email notification (notify-only). This SMTP
-    // block is OPTIONAL and all-or-nothing: when unset, notification is disabled
-    // cleanly (the boot does NOT fail — detection still runs, only the email is skipped,
-    // ADR-0017 §Consequences); when ANY member is set, ALL six are required (the
-    // superRefine below). The values are an operator-set deployment contract
-    // (ADR-0017 §Out of scope), never defaulted here.
-    INGEST_SMTP_HOST: optionalSecret(),
-    INGEST_SMTP_PORT: z.preprocess(blankToUndefined, optionalInteger(1, 65_535)),
-    INGEST_SMTP_USER: optionalSecret(),
-    INGEST_SMTP_PASS: optionalSecret(),
-    INGEST_SMTP_FROM: optionalSecret(),
-    INGEST_NOTIFY_RECIPIENT: optionalSecret(),
-  })
-  .superRefine((cfg, ctx) => {
-    // Debt #105: a reissue writes the certificate and then the key, so one file for
-    // both loses the key.
-    if (sameFile(cfg.INGEST_SERVER_CERT_PATH, cfg.INGEST_SERVER_KEY_PATH)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["INGEST_SERVER_KEY_PATH"],
-        message: "names the same file as INGEST_SERVER_CERT_PATH",
-      });
-    }
-    const present = SMTP_KEYS.filter((k) => cfg[k] !== undefined);
-    if (present.length > 0 && present.length < SMTP_KEYS.length) {
-      for (const k of SMTP_KEYS) {
-        if (cfg[k] === undefined) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [k],
-            message:
-              "incident notification (SMTP) is all-or-nothing: set all six INGEST_SMTP_* / INGEST_NOTIFY_RECIPIENT vars, or none",
-          });
-        }
+const Fields = z.object({
+  INGEST_PG_URL: z.string().url(),
+  INGEST_CH_URL: z.string().url(),
+  INGEST_CH_USER: z.string().default("default"),
+  INGEST_CH_PASSWORD: z.string().default(""),
+  INGEST_CH_DB: z.string().default("default"),
+  INGEST_REDIS_URL: z.string().url(),
+  INGEST_ENROLL_PORT: port(8080),
+  INGEST_HEARTBEAT_PORT: port(8443),
+  // Bind address for BOTH listeners. Default loopback = the host-process
+  // topology (tests, `pnpm dev`); a container needs a non-loopback bind such
+  // as 0.0.0.0. Independent of the cert SAN, which is verified against the
+  // host the agent dials (SPEC-003 FR-005), not the bound interface.
+  INGEST_BIND_HOST: z.string().min(1).default("127.0.0.1"),
+  INGEST_SERVER_CERT_PATH: z.string().min(1).default("/certs/server.pem"),
+  INGEST_SERVER_KEY_PATH: z.string().min(1).default("/certs/server-key.pem"),
+  INGEST_CA_PASSPHRASE: z.string().min(1),
+  INGEST_RUN_MIGRATIONS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  INGEST_LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
+  // ADR-0012 Amendment 2026-06-07 — production detection driver tunables.
+  // Ports pattern: env-with-default, operator-overridable, NOT all-or-nothing
+  // (unlike the SMTP block). INGEST_DETECT_INTERVAL_MS is the poll interval; a
+  // value of 0 DISABLES the driver entirely (no ticks) — the operator
+  // kill-switch, and what the detect-ac-001 marquee sets so its explicit
+  // runDetectionCycle is the sole producer. INGEST_DETECT_RULES_DIR is the
+  // Sigma rules directory the driver loads (fail-loud at boot if it is empty).
+  // An empty interval is refused, not read as 0 (SPEC-023 §Data contracts §3).
+  INGEST_DETECT_INTERVAL_MS: integer(0, MAX_TIMER_MS, 5000),
+  INGEST_DETECT_RULES_DIR: z.string().min(1).default(defaultDetectRulesDir()),
+  // SPEC-022 §Operational §1 — the SOAR playbooks directory. Optional with NO
+  // default here, so the loader (src/soar/loader.ts) can tell set from unset: a
+  // set directory that does not exist is logged at warn, an unset one resolves to
+  // the bundled playbooks/. An empty value counts as unset.
+  INGEST_SOAR_PLAYBOOKS_DIR: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  // SPEC-014 / ADR-0017 — incident email notification (notify-only). This SMTP
+  // block is OPTIONAL and all-or-nothing: when unset, notification is disabled
+  // cleanly (the boot does NOT fail — detection still runs, only the email is skipped,
+  // ADR-0017 §Consequences); when ANY member is set, ALL six are required (the
+  // superRefine below). The values are an operator-set deployment contract
+  // (ADR-0017 §Out of scope), never defaulted here.
+  INGEST_SMTP_HOST: optionalSecret(),
+  INGEST_SMTP_PORT: z.preprocess(blankToUndefined, optionalInteger(1, 65_535)),
+  INGEST_SMTP_USER: optionalSecret(),
+  INGEST_SMTP_PASS: optionalSecret(),
+  INGEST_SMTP_FROM: optionalSecret(),
+  INGEST_NOTIFY_RECIPIENT: optionalSecret(),
+});
+
+const EnvSchema = Fields.superRefine((cfg, ctx) => {
+  // Debt #105: a reissue writes the certificate and then the key, so one file for
+  // both loses the key.
+  if (sameFile(cfg.INGEST_SERVER_CERT_PATH, cfg.INGEST_SERVER_KEY_PATH)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["INGEST_SERVER_KEY_PATH"],
+      message: "names the same file as INGEST_SERVER_CERT_PATH",
+    });
+  }
+  const present = SMTP_KEYS.filter((k) => cfg[k] !== undefined);
+  if (present.length > 0 && present.length < SMTP_KEYS.length) {
+    for (const k of SMTP_KEYS) {
+      if (cfg[k] === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [k],
+          message:
+            "incident notification (SMTP) is all-or-nothing: set all six INGEST_SMTP_* / INGEST_NOTIFY_RECIPIENT vars, or none",
+        });
       }
     }
-  });
+  }
+});
 
 export type Config = z.infer<typeof EnvSchema>;
 
@@ -215,12 +215,31 @@ function reasonOf(issue: z.ZodIssue): string {
   return issue.message;
 }
 
-/** The configuration `env` gives, or a ConfigError naming the first variable refused. */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = EnvSchema.safeParse(env);
+/** The parsed value, or a ConfigError naming the first variable refused. */
+function parsedOr<T>(parsed: z.SafeParseReturnType<unknown, T>): T {
   if (!parsed.success) {
     const issue = parsed.error.issues[0] as z.ZodIssue;
     throw new ConfigError(issue.path.join("."), reasonOf(issue));
   }
   return parsed.data;
+}
+
+/** The configuration `env` gives, or a ConfigError naming the first variable refused. */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  return parsedOr(EnvSchema.safeParse(env));
+}
+
+type Shape = typeof Fields.shape;
+
+/**
+ * The variables a command uses, checked as the service checks them, and no other
+ * (SPEC-023 §Data contracts §4: each command validates only the variables it uses).
+ */
+export function loadConfigFor<K extends keyof Shape>(
+  keys: readonly K[],
+  env: NodeJS.ProcessEnv = process.env,
+): Pick<Config, K> {
+  // The mask names keys of Fields alone, which zod's Exactly<> cannot see through a generic K.
+  const mask = Object.fromEntries(keys.map((k) => [k, true])) as never;
+  return parsedOr(Fields.pick(mask).safeParse(env)) as unknown as Pick<Config, K>;
 }

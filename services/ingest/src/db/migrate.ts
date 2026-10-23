@@ -2,21 +2,14 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createClient } from "@clickhouse/client";
-import {
-  Kysely,
-  type Migration,
-  type MigrationProvider,
-  Migrator,
-  PostgresDialect,
-  sql,
-} from "kysely";
+import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
-import { type Config, loadConfig } from "../config.js";
+import { type Config, ConfigError, loadConfigFor } from "../config.js";
 import { bootstrapClickHouseTables } from "./clickhouse-bootstrap.js";
 
 // Fixed key for the Postgres advisory lock that serialises migration
 // application across instances (SPEC-004 MUST-2 single-applier).
-const MIGRATION_LOCK_KEY = 4_927_004;
+export const MIGRATION_LOCK_KEY = 4_927_004;
 
 /**
  * Auto-discovering migration provider that imports each file via a `file://`
@@ -42,40 +35,70 @@ export function folderMigrationProvider(migrationFolder: string): MigrationProvi
   };
 }
 
+/** The variables a migration run uses: the stores' (SPEC-023 §Data contracts §4). */
+export const MIGRATE_VARIABLES = [
+  "INGEST_PG_URL",
+  "INGEST_CH_URL",
+  "INGEST_CH_USER",
+  "INGEST_CH_PASSWORD",
+  "INGEST_CH_DB",
+] as const;
+export type MigrateConfig = Pick<Config, (typeof MIGRATE_VARIABLES)[number]>;
+
+/** How a run takes the advisory lock: the service skips when another process holds it; the
+ *  one-shot's command waits for it (SPEC-023 §Data contracts §4). */
+export interface MigrateOptions {
+  wait?: boolean;
+}
+
 /**
- * Apply Postgres migrations (under a `pg_try_advisory_lock`, so concurrent
- * instances cannot double-apply), then bootstrap the ClickHouse tables
- * (`./clickhouse-bootstrap.ts`). Idempotent.
+ * Apply Postgres migrations under an advisory lock, so concurrent instances cannot
+ * double-apply, then bootstrap the ClickHouse tables (`./clickhouse-bootstrap.ts`). The
+ * lock is taken and released on one connection, held apart from the migrator's. Without
+ * `wait`, a run that finds the lock held skips, the ClickHouse bootstrap included; with it,
+ * the run waits for the lock, so a command that completes has applied the migrations.
+ * Idempotent.
  */
-export async function runMigrations(config: Config = loadConfig()): Promise<void> {
+export async function runMigrations(
+  config: MigrateConfig,
+  options: MigrateOptions = {},
+): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
-    const lock = await sql<{
-      locked: boolean;
-    }>`SELECT pg_try_advisory_lock(${MIGRATION_LOCK_KEY}) AS locked`.execute(db);
-    if (!lock.rows[0]?.locked) {
-      // Another instance holds the lock and is migrating; skip.
-      return;
-    }
+    const lock = await pool.connect();
     try {
-      const migrator = new Migrator({
-        db,
-        provider: folderMigrationProvider(
-          path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations"),
-        ),
-      });
-      const { error, results } = await migrator.migrateToLatest();
-      for (const r of results ?? []) {
-        if (r.status === "Error") {
-          throw new Error(`migration failed: ${r.migrationName}`);
-        }
+      if (options.wait) {
+        await lock.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+      } else {
+        const r = await lock.query<{ locked: boolean }>(
+          "SELECT pg_try_advisory_lock($1) AS locked",
+          [MIGRATION_LOCK_KEY],
+        );
+        // Another instance holds the lock and is migrating; skip.
+        if (!r.rows[0]?.locked) return;
       }
-      if (error) {
-        throw error instanceof Error ? error : new Error(String(error));
+      try {
+        const migrator = new Migrator({
+          db,
+          provider: folderMigrationProvider(
+            path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations"),
+          ),
+        });
+        const { error, results } = await migrator.migrateToLatest();
+        for (const r of results ?? []) {
+          if (r.status === "Error") {
+            throw new Error(`migration failed: ${r.migrationName}`);
+          }
+        }
+        if (error) {
+          throw error instanceof Error ? error : new Error(String(error));
+        }
+      } finally {
+        await lock.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
       }
     } finally {
-      await sql`SELECT pg_advisory_unlock(${MIGRATION_LOCK_KEY})`.execute(db);
+      lock.release();
     }
   } finally {
     await db.destroy();
@@ -84,7 +107,7 @@ export async function runMigrations(config: Config = loadConfig()): Promise<void
   await bootstrapClickHouse(config);
 }
 
-async function bootstrapClickHouse(config: Config): Promise<void> {
+async function bootstrapClickHouse(config: MigrateConfig): Promise<void> {
   const ch = createClient({
     url: config.INGEST_CH_URL,
     username: config.INGEST_CH_USER,
@@ -98,12 +121,15 @@ async function bootstrapClickHouse(config: Config): Promise<void> {
   }
 }
 
-// Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly.
+// Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly: the one-shot's
+// command, which validates the stores' variables alone and waits for the lock.
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  runMigrations()
+  Promise.resolve()
+    .then(() => runMigrations(loadConfigFor(MIGRATE_VARIABLES), { wait: true }))
     .then(() => process.exit(0))
     .catch((e: unknown) => {
-      process.stderr.write(`cg-ingest migrate: ${String(e)}\n`);
+      const line = e instanceof ConfigError ? e.message : String(e);
+      process.stderr.write(`cg-ingest migrate: fatal: ${line}\n`);
       process.exit(1);
     });
 }

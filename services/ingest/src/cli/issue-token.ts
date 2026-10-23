@@ -4,7 +4,7 @@
 // No HTTP admin endpoint in SPEC-004 (§Ratification decision 2).
 
 import pg from "pg";
-import { loadConfig } from "../config.js";
+import { ConfigError, loadConfigFor } from "../config.js";
 
 /** ADR-0004 enrollment-token TTL: 15 minutes. */
 const TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -18,7 +18,8 @@ function parseOrg(argv: string[]): string {
 }
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  // SPEC-023 §Data contracts §4: it validates INGEST_PG_URL alone.
+  const config = loadConfigFor(["INGEST_PG_URL"]);
   const org = parseOrg(process.argv.slice(2));
   const token = Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString(
     "base64url",
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`cg-ingest issue-token: ${String(err)}\n`);
+  const line = err instanceof ConfigError ? `fatal: ${err.message}` : String(err);
+  process.stderr.write(`cg-ingest issue-token: ${line}\n`);
   process.exit(1);
 });
