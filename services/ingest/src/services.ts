@@ -9,6 +9,7 @@ import type { Database } from "./db/schema.js";
 import type { NotifyConfig } from "./notify/index.js";
 import { buildNotifyConfig } from "./notify/transport.js";
 import type { Playbook, SoarConfig } from "./soar/types.js";
+import { watchPool, watchRedis } from "./store-events.js";
 
 /**
  * The shared persistence + crypto layer behind both listeners (FR-002):
@@ -41,24 +42,12 @@ export interface Services {
 
 export async function buildServices(config: Config, playbooks: Playbook[] = []): Promise<Services> {
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
-  // An idle client whose connection ends, Postgres restarting or unreachable, is an
-  // `error` event of the pool, which without a listener ends the process: the pool drops
-  // that client, the event is logged, and the next query that needs Postgres fails where
-  // it is made.
+  // A lost connection, idle or checked out, neither ends the process nor goes unlogged.
   const storeLog = pino({ name: "ingest-stores", level: config.INGEST_LOG_LEVEL });
-  pool.on("error", (err) =>
-    storeLog.warn(
-      { event: "pg_idle_client_error", error: err.message },
-      "postgres connection lost",
-    ),
-  );
+  watchPool(pool, storeLog);
   const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
   const redis = new Redis(config.INGEST_REDIS_URL, { maxRetriesPerRequest: 1 });
-  // A lost connection, which ioredis would print as an unhandled error event: logged, and
-  // the commands' failures reach their callers.
-  redis.on("error", (err) =>
-    storeLog.warn({ event: "redis_connection_error", error: err.message }, "redis connection lost"),
-  );
+  watchRedis(redis, storeLog);
   const ch = createClient({
     url: config.INGEST_CH_URL,
     username: config.INGEST_CH_USER,

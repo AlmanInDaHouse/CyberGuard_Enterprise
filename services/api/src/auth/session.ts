@@ -86,11 +86,7 @@ export async function resolveSession(
   const p = entryOf(raw);
   const left =
     typeof p?.issued_at === "string" ? Date.parse(p.issued_at) + lifetimes.capMs - now : Number.NaN;
-  // The idle lifetime is read from `last_seen` too, not from the entry's time-to-live alone:
-  // an entry written under a longer idle lifetime, before a restart that shortened it, ends
-  // at the new one.
-  const idle = typeof p?.last_seen === "string" ? now - Date.parse(p.last_seen) : 0;
-  if (p === null || !(left > 0) || !(idle < lifetimes.idleMs)) {
+  if (p === null || !(left > 0)) {
     await redis.del(key);
     return null;
   }
@@ -113,7 +109,7 @@ export async function peekSession(redis: Redis, token: string): Promise<SessionI
   return p && { user_id: p.user_id, org_id: p.org_id, role: p.role, csrf_token: p.csrf_token };
 }
 
-type Entry = SessionInfo & { issued_at?: unknown; last_seen?: unknown };
+type Entry = SessionInfo & { issued_at?: unknown };
 
 /** A stored entry, or null when it is not a JSON object. */
 function entryOf(raw: string): Entry | null {

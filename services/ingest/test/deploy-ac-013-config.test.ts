@@ -108,6 +108,14 @@ test.each([["0"], ["65536"], [" 587"]])("INGEST_SMTP_PORT=%j is refused", (value
 
 test("an empty INGEST_SMTP_PORT beside the five others set is refused by the all-or-none rule", () => {
   expectRefused({ ...validEnv(), ...SMTP, INGEST_SMTP_PORT: "" }, "INGEST_SMTP_PORT");
+  // Refused as unset, by the all-or-none rule, not as a malformed integer.
+  const r = start({ ...validEnv(), ...SMTP, INGEST_SMTP_PORT: "" });
+  expect(r.stderr).toContain("all-or-nothing");
+});
+
+test("leading zeros are digits (SPEC-023 Amendment 2026-10-23 item 1)", () => {
+  const parsed = loadConfig({ ...validEnv(), INGEST_ENROLL_PORT: "08080" });
+  expect(parsed.INGEST_ENROLL_PORT).toBe(8080);
 });
 
 test("the six notification variables empty count as unset (SPEC-023 Amendment 2026-10-23)", () => {

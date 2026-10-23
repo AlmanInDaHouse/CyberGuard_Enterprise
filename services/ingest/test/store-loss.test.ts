@@ -113,8 +113,44 @@ test("once started, ingest keeps running and answers /health with its stores unr
     await new Promise((r) => setTimeout(r, 1500));
     expect(child.exitCode, stderr).toBeNull();
     expect(await health(enrollPort)).toBe(200);
-    // The lost connection is logged.
-    expect(stdout).toContain("pg_idle_client_error");
+    // The lost connections are logged.
+    expect(stdout).toContain("pg_connection_lost");
+    expect(stdout).toContain("redis_unreachable");
+  } finally {
+    child.kill();
+  }
+});
+
+test("a connection lost while its client is checked out does not end the process", async () => {
+  // A pool watched as ingest's services watch theirs, with a client checked out when the cut comes.
+  const pg = await forwarder(inject("ingestConfig").INGEST_PG_URL);
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "test/fixtures/checkout-loss.ts", pg.url],
+    {
+      cwd: PACKAGE_DIR,
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+    stdout += d;
+  });
+  child.stderr?.setEncoding("utf8").on("data", (d: string) => {
+    stderr += d;
+  });
+  const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+  try {
+    const begun = Date.now();
+    while (!stdout.includes("checked-out")) {
+      if (child.exitCode !== null || Date.now() - begun > 60_000) {
+        throw new Error(`the program did not check a client out: ${stderr}`);
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await pg.cut();
+    expect(await exited, stderr).toBe(0);
+    expect(stdout).toContain("query failed");
   } finally {
     child.kill();
   }

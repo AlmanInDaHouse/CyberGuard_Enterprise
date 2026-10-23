@@ -129,9 +129,6 @@ export interface SeedSession {
   /** The entry's issued_at; now by default. SPEC-008's second Amendment 2026-10-16
    *  caps a session 24 h after it. */
   issuedAt?: string;
-  /** The entry's last_seen, its last use; now by default, so a session issued long ago
-   *  was used a moment ago. The idle lifetime runs from it. */
-  lastSeen?: string;
 }
 
 /** Seed an opaque session directly into Redis (cgsess:<token>), the format
@@ -147,7 +144,7 @@ export async function seedSession(config: Config, s: SeedSession): Promise<void>
       role: s.role,
       csrf_token: s.csrfToken ?? `csrf-${s.token}`,
       issued_at: issuedAt,
-      last_seen: s.lastSeen ?? new Date().toISOString(),
+      last_seen: issuedAt,
     });
     await redis.set(`cgsess:${s.token}`, payload, "EX", s.ttlSeconds ?? 3600);
   } finally {

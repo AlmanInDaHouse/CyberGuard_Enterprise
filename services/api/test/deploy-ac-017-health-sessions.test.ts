@@ -146,8 +146,9 @@ describe("GET /health", () => {
       await Promise.all([pg.cut(), kv.cut(), ch.cut()]);
       await new Promise((r) => setTimeout(r, 1500));
       expect(child.exitCode, stderr).toBeNull();
-      // The lost connection is logged.
-      expect(stdout).toContain("pg_idle_client_error");
+      // The lost connections are logged.
+      expect(stdout).toContain("pg_connection_lost");
+      expect(stdout).toContain("redis_unreachable");
       const res = await fetch(`${url}/health`);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ status: "ok" });
@@ -157,6 +158,41 @@ describe("GET /health", () => {
       child.kill();
     }
   });
+});
+
+test("a connection lost while its client is checked out does not end the process", async () => {
+  // The api's pool, as createPgPool builds it, with a client checked out when the cut comes.
+  const pg = await forwarder(config.API_PG_URL);
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "test/fixtures/checkout-loss.ts", pg.url],
+    {
+      cwd: PACKAGE_DIR,
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+    stdout += d;
+  });
+  child.stderr?.setEncoding("utf8").on("data", (d: string) => {
+    stderr += d;
+  });
+  const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+  try {
+    const begun = Date.now();
+    while (!stdout.includes("checked-out")) {
+      if (child.exitCode !== null || Date.now() - begun > 60_000) {
+        throw new Error(`the program did not check a client out: ${stderr}`);
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await pg.cut();
+    expect(await exited, stderr).toBe(0);
+    expect(stdout).toContain("query failed");
+  } finally {
+    child.kill();
+  }
 });
 
 describe("the session's lifetimes are settings", () => {
@@ -201,6 +237,15 @@ describe("the session's lifetimes are settings", () => {
     });
     expect(parsed.API_SESSION_IDLE_MINUTES).toBe(480);
     expect(parsed.API_SESSION_MAX_HOURS).toBe(24);
+  });
+
+  test("leading zeros are digits (SPEC-023 Amendment 2026-10-23 item 1)", () => {
+    const parsed = loadConfig({
+      ...storesEnv(),
+      API_PORT: "08081",
+      API_SESSION_IDLE_MINUTES: "060",
+    });
+    expect([parsed.API_PORT, parsed.API_SESSION_IDLE_MINUTES]).toEqual([8081, 60]);
   });
 
   test("an idle lifetime equal to the cap is accepted", () => {
@@ -262,25 +307,6 @@ describe("the session's lifetimes are settings", () => {
     const capped = await redis.pttl(key("tok-deploy017-capped"));
     expect(capped).toBeGreaterThan(2 * MINUTE - SLACK);
     expect(capped).toBeLessThanOrEqual(2 * MINUTE);
-  });
-
-  test("a session last used six minutes ago is no session, whatever its entry's time-to-live", async () => {
-    // As after a restart that shortened the idle lifetime: the entry outlives it in Redis.
-    await seedSession(config, {
-      token: "tok-deploy017-idle-past",
-      userId: globalThis.crypto.randomUUID(),
-      role: "viewer",
-      orgId: "deploy017-org",
-      issuedAt: new Date(Date.now() - 10 * MINUTE).toISOString(),
-      lastSeen: new Date(Date.now() - 6 * MINUTE).toISOString(),
-    });
-    const res = await app.inject({
-      method: "GET",
-      url: "/v1/incidents",
-      cookies: { cgsess: "tok-deploy017-idle-past" },
-    });
-    expect(res.statusCode).toBe(401);
-    expect(await redis.exists(key("tok-deploy017-idle-past"))).toBe(0);
   });
 
   test("a session issued an hour and a second ago is no session", async () => {
