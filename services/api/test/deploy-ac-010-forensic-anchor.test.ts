@@ -112,6 +112,12 @@ describe("forensic-key.js", () => {
     expect(stored.length).toBe(32);
     expect(r.stdout).toBe(`${stored.toString("base64url")}\nsha256:${sha256Hex(stored)}\n`);
   });
+
+  test("a malformed API_PG_URL is refused with its name, exit 1", () => {
+    const r = run("src/cli/forensic-key.ts", [], { API_PG_URL: "not a url" });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("invalid configuration: API_PG_URL: must be a URL");
+  });
 });
 
 describe("the export and the report carry the fingerprint", () => {
@@ -132,6 +138,8 @@ describe("the export and the report carry the fingerprint", () => {
     expect(stripWs(text)).toContain(stripWs(String(exportBody.forensic_pubkey_sha256)));
     const t = norm(text);
     expect(t).toContain("recorded at installation");
+    // The check is the SHA-256 a verifier computes over the key, not the printed field.
+    expect(t).toContain("the sha-256 the verifier computes over forensic_pubkey");
     expect(t).not.toContain("open questions 1");
   });
 });
@@ -150,6 +158,12 @@ describe("verify-export.js", () => {
     const r = verify(["--fingerprint", fingerprint(), write("ok.json", exportBody)]);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout.trim()).toBe(`verified: 2 events, chain head ${exportBody.chain_root}`);
+  });
+
+  test("a fingerprint in capitals verifies as its lowercase form", () => {
+    const upper = `sha256:${fingerprint().slice(7).toUpperCase()}`;
+    const r = verify(["--fingerprint", upper, write("upper.json", exportBody)]);
+    expect(r.status, r.stderr).toBe(0);
   });
 
   test("without --fingerprint it refuses: exit 2", () => {

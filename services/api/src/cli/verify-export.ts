@@ -41,14 +41,24 @@ function shapeOf(value: unknown): ExportShape | null {
     : null;
 }
 
-/** Verify the export at `file` against the recorded `fingerprint`. */
-export async function verifyExport(fingerprint: string, file: string): Promise<Verdict> {
+/**
+ * Verify the export at `file` against the recorded `fingerprint`. The hexadecimal digits
+ * are compared without case, since some tools print a SHA-256 in capitals.
+ */
+export async function verifyExport(recorded: string, file: string): Promise<Verdict> {
+  const fingerprint = `${recorded.slice(0, 7)}${recorded.slice(7).toLowerCase()}`;
   if (!FINGERPRINT.test(fingerprint)) {
-    return refused("the fingerprint is sha256: and 64 lowercase hexadecimal digits");
+    return refused("the fingerprint is sha256: and 64 hexadecimal digits");
+  }
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return refused(`cannot read ${file}`);
   }
   let exp: ExportShape | null;
   try {
-    exp = shapeOf(JSON.parse(readFileSync(file, "utf8")));
+    exp = shapeOf(JSON.parse(text));
   } catch {
     exp = null;
   }

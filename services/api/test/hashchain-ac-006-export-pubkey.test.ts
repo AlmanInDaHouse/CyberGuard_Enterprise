@@ -13,7 +13,8 @@ import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-s
 //
 // NOTE (§Compliance line 107): verifying against the embedded key is the AC's literal check
 // of cryptographic consistency. It is NOT an endorsement of the verify-against-embedded
-// anti-pattern — a real auditor anchors the key out-of-band (the deferred Open question).
+// anti-pattern — a real auditor anchors the key out-of-band, in the fingerprint recorded at
+// installation (SPEC-023 §Operational §11, deploy_ac_010).
 
 let apph: Awaited<ReturnType<typeof buildTestApp>>;
 let config: Config;

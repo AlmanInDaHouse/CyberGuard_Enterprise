@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import otplib from "otplib";
 import pg from "pg";
 import { beforeAll, expect, inject, test } from "vitest";
+import { verifyPassword } from "../src/auth/password.js";
 import type { Config } from "../src/config.js";
 
 // deploy_ac_016 — SPEC-023 §Operational §8 (debt #77), §Data contracts §4: `create-user.js`
@@ -80,11 +81,13 @@ class Cli {
 
 const secretOf = (uri: string): string => new URL(uri).searchParams.get("secret") ?? "";
 
-/** A six-digit code no window around now accepts for `secret`. */
+/** A six-digit code that no step within two of now accepts for `secret` (the command
+ *  accepts one step either side). */
 function invalidCode(secret: string, n: number): string {
+  const wide = otplib.authenticator.clone({ window: 2 });
   for (let i = n; ; i++) {
     const code = String(100000 + i * 7919).slice(-6);
-    if (!otplib.authenticator.check(code, secret)) return code;
+    if (!wide.check(code, secret)) return code;
   }
 }
 
@@ -104,15 +107,46 @@ async function enrollRows(userId: string) {
   );
 }
 
-test("--password is refused, exit 2, and nothing is written", () => {
+test.each([[["--password", PASSWORD]], [[`--password=${PASSWORD}`]]])(
+  "--password is refused in either form, exit 2, and nothing is written",
+  async (form) => {
+    const r = spawnSync(process.execPath, [...ARGS, "--email", "pw@deploy016.test", ...form], {
+      cwd: PACKAGE_DIR,
+      env: env(),
+      encoding: "utf8",
+      input: `${PASSWORD}\n`,
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("--password");
+    expect(r.stderr).not.toContain(PASSWORD);
+    expect(await userRow("pw@deploy016.test")).toBeUndefined();
+  },
+);
+
+test("--password is refused before the configuration is read: exit 2 with a variable missing", () => {
+  const { API_REDIS_URL: _, ...partial } = env();
   const r = spawnSync(
     process.execPath,
-    [...ARGS, "--email", "pw@deploy016.test", "--password", PASSWORD],
-    { cwd: PACKAGE_DIR, env: env(), encoding: "utf8", input: `${PASSWORD}\n` },
+    [...ARGS, "--email", "pw2@deploy016.test", "--password", "x"],
+    {
+      cwd: PACKAGE_DIR,
+      env: partial,
+      encoding: "utf8",
+      input: "",
+    },
   );
   expect(r.status).toBe(2);
-  expect(r.stderr).toContain("--password");
-  expect(r.stderr).not.toContain(PASSWORD);
+});
+
+test("a variable it uses, malformed, is refused with its name, exit 1", () => {
+  const r = spawnSync(process.execPath, [...ARGS, "--email", "cfg@deploy016.test"], {
+    cwd: PACKAGE_DIR,
+    env: { ...env(), API_REDIS_URL: "not a url" },
+    encoding: "utf8",
+    input: `${PASSWORD}\n`,
+  });
+  expect(r.status).toBe(1);
+  expect(r.stderr).toContain("invalid configuration: API_REDIS_URL: must be a URL");
 });
 
 test("a password the policy refuses is refused before anything is written, exit 2", async () => {
@@ -145,6 +179,12 @@ test("reads the password from a pipe, prints the URI on stdout, and confirms the
   }
   const user = await userRow("first@deploy016.test");
   expect(user?.totp_enrolled).toBe(true);
+  // The password stored is the pipe's first line, as read.
+  const [{ password_hash }] = (await query<{ password_hash: string }>(
+    "SELECT password_hash FROM users WHERE email = $1",
+    ["first@deploy016.test"],
+  )) as [{ password_hash: string }];
+  expect(await verifyPassword(password_hash, PASSWORD)).toBe(true);
   expect(await enrollRows(user?.user_id ?? "")).toEqual([{ outcome: "ok" }]);
   // The accepted code is used up, as the route's is.
   const redisKeys = await import("ioredis").then(async ({ Redis }) => {
@@ -161,9 +201,14 @@ test("reads the password from a pipe, prints the URI on stdout, and confirms the
 test("three invalid codes leave the factor unconfirmed, and the command says how to confirm it", async () => {
   const cli = new Cli(["--email", "second@deploy016.test", "--role", "analyst"]);
   cli.write(PASSWORD);
-  const secret = secretOf(await cli.uri());
-  for (let i = 0; i < 3; i++) cli.write(invalidCode(secret, i));
+  const uri = await cli.uri();
+  const secret = secretOf(uri);
+  const codes = [0, 1, 2].map((i) => invalidCode(secret, i));
+  for (const code of codes) cli.write(code);
   expect(await cli.exited, cli.stderr).toBe(0);
+  for (const secretText of [PASSWORD, secret, uri, ...codes]) {
+    expect(cli.stderr).not.toContain(secretText);
+  }
   const user = await userRow("second@deploy016.test");
   expect(user?.totp_enrolled).toBe(false);
   expect(cli.stderr).toContain("POST /v1/auth/totp/confirm");
@@ -183,5 +228,6 @@ test("--no-confirm skips the question", async () => {
   expect(await cli.exited, cli.stderr).toBe(0);
   const user = await userRow("third@deploy016.test");
   expect(user?.totp_enrolled).toBe(false);
+  expect(cli.stderr).toContain("POST /v1/auth/totp/confirm");
   expect(await enrollRows(user?.user_id ?? "")).toEqual([]);
 });

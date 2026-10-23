@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -25,6 +25,11 @@ beforeAll(async () => {
 afterAll(async () => {
   await holder?.end();
 });
+
+/** The process environment without the API_* variables a developer's shell may set. */
+function withoutApiVars(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("API_")));
+}
 
 /** The advisory locks on the migration key that any session holds. */
 async function heldLocks(): Promise<number> {
@@ -66,6 +71,45 @@ test("the command waits for the lock another session holds, then migrates and ex
   expect(await exited, stderr).toBe(0);
   // Released on the connection that took it: no session holds it after the exit.
   expect(await heldLocks()).toBe(0);
+});
+
+test("a command that waited and completed has applied the migrations, in a database it found empty", async () => {
+  const db = `deploy_migrate_${Date.now()}`;
+  await holder.query(`CREATE DATABASE ${db}`);
+  const url = new URL(config.API_PG_URL);
+  url.pathname = `/${db}`;
+  const other = new pg.Client({ connectionString: url.toString() });
+  await other.connect();
+  try {
+    // Advisory locks are the database's: this one is held in the empty database.
+    await other.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    const child = spawn(process.execPath, ["--import", "tsx", "src/db/migrate.ts"], {
+      cwd: PACKAGE_DIR,
+      env: { ...withoutApiVars(), API_PG_URL: url.toString() },
+    });
+    const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+    await new Promise((r) => setTimeout(r, 2000));
+    await other.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
+    expect(await exited).toBe(0);
+    const tables = await other.query<{ n: string }>(
+      "SELECT count(*) AS n FROM pg_tables WHERE tablename IN ('users', 'audit_log', 'forensic_key')",
+    );
+    expect(Number(tables.rows[0]?.n)).toBe(3);
+  } finally {
+    await other.end();
+    await holder.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+  }
+});
+
+test("the command exits non-zero when it cannot migrate", async () => {
+  const r = spawnSync(process.execPath, ["--import", "tsx", "src/db/migrate.ts"], {
+    cwd: PACKAGE_DIR,
+    encoding: "utf8",
+    env: { ...withoutApiVars(), API_PG_URL: "postgres://u:p@127.0.0.1:1/db" },
+    timeout: 60_000,
+  });
+  expect(r.status).toBe(1);
+  expect(r.stderr).toMatch(/^cg-api migrate: fatal: /);
 });
 
 test("the service's own run skips while another session holds the lock", async () => {

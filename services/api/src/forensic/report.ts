@@ -27,7 +27,9 @@ export const INTEGRITY_LIMITATION_NOTE =
   "intact under the key whose public half (forensic_pubkey) is shown above; it does not " +
   "prove that key is authentic. A verifier checks the key against the fingerprint recorded " +
   "at installation, outside CyberGuard (out-of-band anchoring, a record trusted " +
-  "independently of this server): forensic_pubkey_sha256 above must equal it.";
+  "independently of this server): the SHA-256 the verifier computes over forensic_pubkey " +
+  "must equal it. forensic_pubkey_sha256 above is that SHA-256 as this server computed " +
+  "it, shown for convenience; it vouches for nothing.";
 
 const styles = StyleSheet.create({
   page: {

@@ -116,7 +116,8 @@ export function registerReadRoutes(app: FastifyInstance, services: Services): vo
   // 404 mirrors the detail/events handlers (malformed :id / not-found / cross-org).
   // The export shape carries NO private-key field, so this route can never serialize
   // the forensic private key. The embedded pubkey is a convenience, NOT a trust root
-  // (SPEC-012 §Compliance line 107) — out-of-band anchoring is the deferred Open-Q.
+  // (SPEC-012 §Compliance line 107): the anchor is the fingerprint recorded at
+  // installation, which verify-export.js checks it against (SPEC-023 §Operational §11).
   app.get(
     "/v1/incidents/:id/forensic-export",
     { onRequest: [requireSession, requireForensicRole], exposeHeadRoute: false },
