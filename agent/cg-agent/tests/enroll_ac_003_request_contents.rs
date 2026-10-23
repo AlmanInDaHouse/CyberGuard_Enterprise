@@ -8,9 +8,10 @@ mod common;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enroll_ac_003_request_contents() {
-    let mock = common::MockServer::start().await;
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let mock = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
     let token = "tok-ac-003-opaque";
-    let fixture = common::enrollment_fixture(&mock.base_url, token);
+    let fixture = common::enrollment_fixture(&mock.base_url, token, &pki);
 
     cg_agent::identity::ensure_identity(&fixture.config, &fixture.config_path)
         .await

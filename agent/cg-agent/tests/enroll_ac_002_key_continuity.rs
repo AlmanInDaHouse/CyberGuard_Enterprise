@@ -10,8 +10,9 @@ use serde_json::Value;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enroll_ac_002_key_continuity() {
-    let mock = common::MockServer::start().await;
-    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-002");
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let mock = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
+    let fixture = common::enrollment_fixture(&mock.base_url, "tok-ac-002", &pki);
 
     // First run: generate + enroll + persist.
     let first = cg_agent::identity::ensure_identity(&fixture.config, &fixture.config_path)

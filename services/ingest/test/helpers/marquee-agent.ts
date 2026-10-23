@@ -149,8 +149,9 @@ export interface MarqueeAgent {
 }
 
 /**
- * Prepare a real cg-agent: write its `agent.toml` with `server.url` (plain
- * enroll), `server.heartbeat_url` (mTLS), the server CA as `trust_anchor_path`,
+ * Prepare a real cg-agent: write its `agent.toml` with `server.url` (enrollment, over
+ * TLS since SPEC-023, the agent trusting its anchor), `server.heartbeat_url` (mTLS), the
+ * server CA as `trust_anchor_path`,
  * and an `[enrollment]` block carrying the issued token. One `main()` run does
  * enroll-then-heartbeat (SPEC-003 Amendment 2026-05-22) on the secure path,
  * which on Windows also captures processes (SPEC-017).

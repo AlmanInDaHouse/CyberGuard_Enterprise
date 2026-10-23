@@ -68,6 +68,13 @@ pub enum EnrollmentError {
     /// Could not persist or load identity artifacts. Exit 5.
     #[error("identity persistence/load failed: {0}")]
     Persistence(String),
+
+    /// Enrollment's TLS (SPEC-023 §Operational §6): the server certificate
+    /// did not validate against the trust anchor, which ends enrollment
+    /// without the retries of a network failure, or the TLS client could
+    /// not be built from the trust anchor. Exit 6, SPEC-003's code for both.
+    #[error(transparent)]
+    Tls(#[from] TlsError),
 }
 
 impl EnrollmentError {
@@ -78,6 +85,7 @@ impl EnrollmentError {
             EnrollmentError::Refused(_) => 3,
             EnrollmentError::Unreachable { .. } => 4,
             EnrollmentError::Persistence(_) => 5,
+            EnrollmentError::Tls(tls) => tls.exit_code(),
         }
     }
 }

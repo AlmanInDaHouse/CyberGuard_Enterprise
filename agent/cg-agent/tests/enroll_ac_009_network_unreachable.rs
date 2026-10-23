@@ -11,7 +11,8 @@ use cg_agent::errors::EnrollmentError;
 async fn enroll_ac_009_network_unreachable() {
     // A URL whose port is closed: connection attempts are refused.
     let url = common::closed_port_url().await;
-    let fixture = common::enrollment_fixture(&url, "tok-ac-009");
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let fixture = common::enrollment_fixture(&url, "tok-ac-009", &pki);
 
     let err = cg_agent::identity::ensure_identity(&fixture.config, &fixture.config_path)
         .await

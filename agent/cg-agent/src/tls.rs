@@ -4,6 +4,8 @@
 //! cipher suites (`TLS_AES_256_GCM_SHA384`, `TLS_CHACHA20_POLY1305_SHA256`),
 //! with a root store loaded from `server.trust_anchor_path` and client
 //! authentication backed by the SPEC-002 identity (cert + Ed25519 key).
+//! Enrollment's client takes the same versions, suites and roots, without
+//! a client certificate (SPEC-023 §Operational §6).
 //!
 //! The transport speaks HTTP/1.1 directly over a `tokio-rustls` stream
 //! rather than through reqwest. That is deliberate: a fatal handshake
@@ -44,13 +46,8 @@ fn restricted_provider() -> rustls::crypto::CryptoProvider {
     }
 }
 
-/// Build the rustls `ClientConfig` for the secure heartbeat path.
-/// `trust_anchor_pem` is the PEM contents of `server.trust_anchor_path`;
-/// `identity` supplies the client certificate chain and signing key.
-pub fn build_client_config(
-    trust_anchor_pem: &[u8],
-    identity: &Identity,
-) -> Result<rustls::ClientConfig, TlsError> {
+/// The root store of the trust anchor: its certificates, at least one.
+fn anchor_roots(trust_anchor_pem: &[u8]) -> Result<rustls::RootCertStore, TlsError> {
     let mut roots = rustls::RootCertStore::empty();
     for cert in certificates_from_pem(trust_anchor_pem, "trust anchor")? {
         roots
@@ -62,6 +59,32 @@ pub fn build_client_config(
             "trust anchor contains no certificates".to_string(),
         ));
     }
+    Ok(roots)
+}
+
+/// Build the rustls `ClientConfig` for enrollment (SPEC-023 §Operational
+/// §6): TLS 1.3 with the ADR-0004 cipher suites, as the heartbeat client,
+/// trusting the roots of the trust anchor alone, and presenting no client
+/// certificate (the agent has none before it enrolls).
+pub fn build_enrollment_config(trust_anchor_pem: &[u8]) -> Result<rustls::ClientConfig, TlsError> {
+    let roots = anchor_roots(trust_anchor_pem)?;
+    Ok(
+        rustls::ClientConfig::builder_with_provider(Arc::new(restricted_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .map_err(|e| TlsError::ClientConfig(format!("tls versions: {e}")))?
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )
+}
+
+/// Build the rustls `ClientConfig` for the secure heartbeat path.
+/// `trust_anchor_pem` is the PEM contents of `server.trust_anchor_path`;
+/// `identity` supplies the client certificate chain and signing key.
+pub fn build_client_config(
+    trust_anchor_pem: &[u8],
+    identity: &Identity,
+) -> Result<rustls::ClientConfig, TlsError> {
+    let roots = anchor_roots(trust_anchor_pem)?;
 
     let client_chain =
         certificates_from_pem(identity.client_certificate_pem.as_bytes(), "client cert")?;
@@ -298,6 +321,39 @@ fn classify_handshake_error(e: &std::io::Error) -> SendResult {
     }
 }
 
+/// The reason a failed request did not trust the server's certificate, when
+/// that is why it failed: a `rustls::Error::InvalidCertificate` in the
+/// error's source chain, directly or inside `io::Error`s, however nested
+/// (reqwest's connector wraps tokio-rustls's `io::Error` in another, whose
+/// `source` skips both): an untrusted chain, an expired certificate, a name
+/// mismatch. `None` for any other failure (SPEC-023 §Operational §6).
+pub fn untrusted_server_cert(err: &(dyn std::error::Error + 'static)) -> Option<String> {
+    let mut current = Some(err);
+    while let Some(e) = current {
+        if let Some(r @ rustls::Error::InvalidCertificate(_)) = rustls_error_in(e) {
+            return Some(r.to_string());
+        }
+        current = e.source();
+    }
+    None
+}
+
+/// The `rustls::Error` that `e` is, or that the `io::Error` `e` carries,
+/// through any `io::Error`s it nests.
+fn rustls_error_in<'a>(e: &'a (dyn std::error::Error + 'static)) -> Option<&'a rustls::Error> {
+    if let Some(r) = e.downcast_ref::<rustls::Error>() {
+        return Some(r);
+    }
+    let mut io = e.downcast_ref::<std::io::Error>()?;
+    loop {
+        let inner = io.get_ref()?;
+        if let Some(r) = inner.downcast_ref::<rustls::Error>() {
+            return Some(r);
+        }
+        io = inner.downcast_ref::<std::io::Error>()?;
+    }
+}
+
 fn parse_status(buf: &[u8]) -> Option<u16> {
     let text = String::from_utf8_lossy(buf);
     let line = text.lines().next()?;
@@ -308,8 +364,36 @@ fn parse_status(buf: &[u8]) -> Option<u16> {
 
 #[cfg(test)]
 mod tests {
-    use super::certificates_from_pem;
+    use super::{certificates_from_pem, untrusted_server_cert};
     use crate::errors::TlsError;
+
+    /// An error as reqwest's connector returns a failed handshake: an
+    /// `io::Error` of kind Other around tokio-rustls's, around `err`.
+    fn wrapped(err: rustls::Error) -> std::io::Error {
+        std::io::Error::other(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+    }
+
+    #[test]
+    fn an_invalid_certificate_is_found_through_nested_io_errors() {
+        let err = wrapped(rustls::Error::InvalidCertificate(
+            rustls::CertificateError::UnknownIssuer,
+        ));
+        let reason = untrusted_server_cert(&err).expect("an untrusted server certificate");
+        assert!(reason.contains("UnknownIssuer"), "{reason}");
+    }
+
+    #[test]
+    fn other_handshake_failures_are_not_an_untrusted_certificate() {
+        for err in [
+            rustls::Error::AlertReceived(rustls::AlertDescription::ProtocolVersion),
+            rustls::Error::AlertReceived(rustls::AlertDescription::HandshakeFailure),
+            rustls::Error::PeerIncompatible(rustls::PeerIncompatible::Tls12NotOffered),
+        ] {
+            assert_eq!(untrusted_server_cert(&wrapped(err.clone())), None, "{err}");
+        }
+        let reset = std::io::Error::from(std::io::ErrorKind::ConnectionReset);
+        assert_eq!(untrusted_server_cert(&reset), None);
+    }
 
     fn self_signed(cn: &str) -> rcgen::Certificate {
         let key = rcgen::KeyPair::generate().expect("key");

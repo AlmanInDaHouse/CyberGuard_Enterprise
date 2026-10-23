@@ -211,6 +211,46 @@ test.each([[""], ["-1"], ["5s"], ["5e3"], ["2147483648"]])(
   },
 );
 
+// SPEC-023 §Operational §6: the server names, 1 to 20 DNS names or addresses.
+test.each([
+  [""],
+  [","],
+  ["cg.example.test,not a name"],
+  ["-bad.example.test"],
+  [`${"a".repeat(64)}.example.test`],
+  [Array.from({ length: 21 }, (_, i) => `h${i}.example.test`).join(",")],
+])("INGEST_SERVER_NAMES=%j is refused", (value) => {
+  expectRefused({ ...validEnv(), INGEST_SERVER_NAMES: value }, "INGEST_SERVER_NAMES");
+});
+
+test("the server names default to localhost and 127.0.0.1; DNS names, IPv4 and IPv6 are taken", () => {
+  expect(loadConfig(validEnv()).INGEST_SERVER_NAMES).toEqual(["localhost", "127.0.0.1"]);
+  expect(
+    loadConfig({ ...validEnv(), INGEST_SERVER_NAMES: "cg.example.test, 10.0.0.5 ,::1,fe80::1" })
+      .INGEST_SERVER_NAMES,
+  ).toEqual(["cg.example.test", "10.0.0.5", "::1", "fe80::1"]);
+  const twenty = Array.from({ length: 20 }, (_, i) => `h${i}.example.test`);
+  expect(
+    loadConfig({ ...validEnv(), INGEST_SERVER_NAMES: twenty.join(",") }).INGEST_SERVER_NAMES,
+  ).toEqual(twenty);
+  // 253 characters in all: three labels of 63 and one of 61, with the three dots between.
+  const longest = `${[..."abc"].map((c) => c.repeat(63)).join(".")}.${"d".repeat(61)}`;
+  expect(longest).toHaveLength(253);
+  expect(loadConfig({ ...validEnv(), INGEST_SERVER_NAMES: longest }).INGEST_SERVER_NAMES).toEqual([
+    longest,
+  ]);
+  expectRefused({ ...validEnv(), INGEST_SERVER_NAMES: `${longest}e` }, "INGEST_SERVER_NAMES");
+});
+
+test("INGEST_ENROLL_TLS defaults to true, and false is taken", () => {
+  expect(loadConfig(validEnv()).INGEST_ENROLL_TLS).toBe(true);
+  expect(loadConfig({ ...validEnv(), INGEST_ENROLL_TLS: "false" }).INGEST_ENROLL_TLS).toBe(false);
+});
+
+test.each([["yes"], ["TRUE"], [""]])("INGEST_ENROLL_TLS=%j is refused", (value) => {
+  expectRefused({ ...validEnv(), INGEST_ENROLL_TLS: value }, "INGEST_ENROLL_TLS");
+});
+
 // A retention out of bounds stops ingest (deploy_ac_011, SPEC-023 §Data contracts §3).
 test.each(
   ["PROCESS", "NETWORK", "LOGON", "HEARTBEAT"].flatMap((c) =>

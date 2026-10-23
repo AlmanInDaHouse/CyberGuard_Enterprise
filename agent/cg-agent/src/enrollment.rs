@@ -2,7 +2,7 @@
 //! contracts, §Failure modes.
 
 use crate::config::{AgentConfig, EnrollmentConfig};
-use crate::errors::EnrollmentError;
+use crate::errors::{EnrollmentError, TlsError};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -44,10 +44,12 @@ pub struct EnrolledIdentity {
     pub public_key: [u8; crate::crypto::KEY_LEN],
 }
 
-/// Run the enrollment exchange against `{server.url}/v1/agents/enroll`:
-/// generate a keypair, POST the request with the retry policy
-/// (5xx / network retried; 4xx terminal), parse and validate the
-/// response. Does NOT persist — that is `identity::persist_identity`.
+/// Run the enrollment exchange against `{server.url}/v1/agents/enroll`,
+/// over TLS 1.3 trusting the roots of `server.trust_anchor_path` alone
+/// (SPEC-023 §Operational §6): generate a keypair, POST the request with
+/// the retry policy (5xx / network retried; 4xx and an untrusted server
+/// certificate terminal), parse and validate the response. Does NOT
+/// persist — that is `identity::persist_identity`.
 pub async fn enroll(config: &AgentConfig) -> Result<EnrolledIdentity, EnrollmentError> {
     let enr = config
         .enrollment
@@ -88,7 +90,17 @@ pub async fn enroll(config: &AgentConfig) -> Result<EnrolledIdentity, Enrollment
         "{}/v1/agents/enroll",
         config.server.url.trim_end_matches('/')
     );
+    // SPEC-023 §Operational §6: TLS 1.3 with the ADR-0004 suites, the trust
+    // anchor's roots alone, no client certificate.
+    let anchor_path = config.server.trust_anchor_path.as_deref().ok_or_else(|| {
+        TlsError::ClientConfig("enrollment requires server.trust_anchor_path".to_string())
+    })?;
+    let anchor = std::fs::read(anchor_path)
+        .map_err(|e| TlsError::ClientConfig(format!("read trust anchor {anchor_path}: {e}")))?;
+    let tls = crate::tls::build_enrollment_config(&anchor)?;
     let client = reqwest::Client::builder()
+        .use_preconfigured_tls(tls)
+        .https_only(true)
         .timeout(Duration::from_secs(enr.timeout_seconds))
         .build()
         .map_err(|e| EnrollmentError::Persistence(format!("http client build failed: {e}")))?;
@@ -108,7 +120,9 @@ pub async fn enroll(config: &AgentConfig) -> Result<EnrolledIdentity, Enrollment
 /// POST the enrollment request with the SPEC-002 retry policy: 5xx and
 /// network errors are retried with exponential backoff up to
 /// `max_retries` total attempts; 4xx responses are terminal (FR-009 to
-/// FR-011). Returns the validated `EnrollmentResponse` on `200 OK`.
+/// FR-011), and so is a server certificate the trust anchor does not
+/// vouch for (SPEC-023 §Operational §6). Returns the validated
+/// `EnrollmentResponse` on `200 OK`.
 async fn post_with_retry(
     client: &reqwest::Client,
     url: &str,
@@ -161,7 +175,13 @@ async fn post_with_retry(
                 }
             }
             Err(e) => {
-                // Network-layer failure — retryable.
+                // SPEC-023 §Operational §6: an untrusted server certificate
+                // ends enrollment at once (exit 6); no retry makes it trusted.
+                if let Some(reason) = crate::tls::untrusted_server_cert(&e) {
+                    tracing::warn!(error = %reason, "enrollment failed: server certificate not trusted");
+                    return Err(TlsError::ServerCertUntrusted(reason).into());
+                }
+                // Any other network-layer failure — retryable.
                 last_error = e.to_string();
             }
         }

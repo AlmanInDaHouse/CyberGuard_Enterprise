@@ -1,4 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
+import { isIP } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -86,6 +87,25 @@ function canonicalPath(p: string): string {
   return process.platform === "win32" || process.platform === "darwin" ? real.toLowerCase() : real;
 }
 
+/** The most names the server certificate carries (SPEC-023 §Operational §6). */
+const MAX_SERVER_NAMES = 20;
+/** A DNS name: labels of letters, digits and inner hyphens, 1 to 63 each, 253 in all. */
+const DNS_LABEL = /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$/;
+
+/** Why a list of server names is refused, or null when it is a list of 1 to 20 DNS names
+ *  and IPv4 or IPv6 addresses. The reasons name no entry. */
+function serverNamesProblem(names: string[]): string | null {
+  if (names.length === 0 || names.every((n) => n === "")) return "must name at least one host";
+  if (names.length > MAX_SERVER_NAMES) return `must name at most ${MAX_SERVER_NAMES} hosts`;
+  for (const name of names) {
+    if (isIP(name) !== 0) continue;
+    if (name.length > 253 || !name.split(".").every((label) => DNS_LABEL.test(label))) {
+      return "each entry must be a DNS name or an IP address";
+    }
+  }
+  return null;
+}
+
 /** Whether two paths name one file: one canonical path, or one file on disk (a hard link). */
 function sameFile(a: string, b: string): boolean {
   if (canonicalPath(a) === canonicalPath(b)) return true;
@@ -145,6 +165,26 @@ const Fields = z.object({
   INGEST_BIND_HOST: z.string().min(1).default("127.0.0.1"),
   INGEST_SERVER_CERT_PATH: z.string().min(1).default("/certs/server.pem"),
   INGEST_SERVER_KEY_PATH: z.string().min(1).default("/certs/server-key.pem"),
+  // SPEC-023 §Operational §6 — the names agents reach the server by: the SANs of the
+  // certificate the server issues itself, and its subject's CN, the first of them.
+  INGEST_SERVER_NAMES: z
+    .string()
+    .default("localhost,127.0.0.1")
+    .transform((value, ctx) => {
+      const names = value.split(",").map((n) => n.trim());
+      const reason = serverNamesProblem(names);
+      if (reason) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: reason });
+        return z.NEVER;
+      }
+      return names;
+    }),
+  // SPEC-023 §Operational §6 — the enrollment listener serves HTTPS with the server
+  // certificate; `false` keeps plain HTTP, for the test suites that post to it in clear.
+  INGEST_ENROLL_TLS: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   INGEST_CA_PASSPHRASE: z.string().min(1),
   INGEST_RUN_MIGRATIONS: z
     .enum(["true", "false"])

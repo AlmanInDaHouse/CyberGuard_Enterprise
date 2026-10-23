@@ -37,7 +37,8 @@ let server: IngestServer;
 
 beforeAll(async () => {
   config = inject("ingestConfig");
-  server = await startIngest(config);
+  // Enrollment over TLS, as the agent requires it with [enrollment] (SPEC-023 §Operational §6).
+  server = await startIngest({ ...config, INGEST_ENROLL_TLS: true });
 });
 
 afterAll(async () => {
@@ -47,8 +48,6 @@ afterAll(async () => {
 test.skipIf(process.platform !== "win32")(
   "SPEC-005 AC-001 marquee: real cg-agent captures probe Launch + Terminate, persists 2 rows to ClickHouse cges_events with full SPEC-005 shape",
   async () => {
-    const marqueeStartMs = Date.now();
-
     // Issue an enrollment token + start the agent against the stack.
     const token = await issueToken(config);
 
@@ -78,6 +77,8 @@ test.skipIf(process.platform !== "win32")(
     // but Phase 3.4 (and SPEC-005 generally) is Windows-targeted per
     // ADR-0011 §Out-of-scope (Linux/macOS deferred).
     const { spawn } = await import("node:child_process");
+    // NFR-005-004 measures from the probe's spawn to both rows readable (debt #118).
+    const probeSpawnMs = Date.now();
     const probe = spawn("cmd.exe", ["/c", "exit 0"], { stdio: "ignore" });
     const probePid = probe.pid;
     if (probePid === undefined) {
@@ -116,13 +117,14 @@ test.skipIf(process.platform !== "win32")(
       agentId = identityJson.agent_id;
       events = await getCgesEvents(config, agentId);
     } finally {
-      marqueeElapsedSeconds = (Date.now() - marqueeStartMs) / 1000;
+      marqueeElapsedSeconds = (Date.now() - probeSpawnMs) / 1000;
+      // SPEC-005 §Observability: `marquee_elapsed_seconds` and a `verdict` (debt #118).
       console.info(
         JSON.stringify({
           event: "spec_005_marquee_complete",
           marquee_elapsed_seconds: marqueeElapsedSeconds,
           budget_seconds: 45,
-          within_budget: marqueeElapsedSeconds <= 45,
+          verdict: marqueeElapsedSeconds <= 45 ? "pass" : "fail",
         }),
       );
     }

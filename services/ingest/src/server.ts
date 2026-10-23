@@ -16,9 +16,13 @@ import { buildServices } from "./services.js";
 import { loadPlaybooks } from "./soar/loader.js";
 import type { LoadedPlaybooks } from "./soar/types.js";
 
+/** ADR-0004 §Transport's cipher suites, the two both listeners take (SPEC-023 §Operational §6). */
+export const TLS_CIPHER_SUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256";
+
 /** A running ingest server: the two listener URLs and the CA PEM. */
 export interface IngestServer {
-  /** Base URL of the plain-HTTP enroll listener (e.g. `http://127.0.0.1:PORT`). */
+  /** Base URL of the enroll listener: `https://127.0.0.1:PORT`, or `http://` with
+   *  INGEST_ENROLL_TLS=false. */
   enrollUrl: string;
   /** Base URL of the mTLS heartbeat listener (e.g. `https://127.0.0.1:PORT`). */
   heartbeatUrl: string;
@@ -109,7 +113,11 @@ export async function startIngest(
     // reissued if it needs it, before the mTLS listener binds.
     const certPath = config.INGEST_SERVER_CERT_PATH;
     const keyPath = config.INGEST_SERVER_KEY_PATH;
-    const certChecks = { now: options.serverCert?.now ?? Date.now, log };
+    const certChecks = {
+      now: options.serverCert?.now ?? Date.now,
+      log,
+      names: config.INGEST_SERVER_NAMES,
+    };
     let serverIdentity: ServerIdentity = await ensureServerCert(
       services.ca,
       certPath,
@@ -117,17 +125,28 @@ export async function startIngest(
       certChecks,
     );
     // The secure context's options besides the pair; a reissue while running
-    // replaces the context with these and the new pair.
+    // replaces each listener's context with these and the new pair.
     const secureContext = {
       ca: services.ca.caCertPem,
-      // TLS 1.3 only. Node's default 1.3 suites include the two the agent's
-      // rustls offers (TLS_AES_256_GCM_SHA384 / TLS_CHACHA20_POLY1305_SHA256),
-      // so negotiation succeeds (ADR-0004 / SPEC-003 FR-006).
+      // TLS 1.3 only, with the two cipher suites ADR-0004 §Transport allows, the two the
+      // agent's rustls offers (SPEC-023 §Operational §6): Node's default would add
+      // TLS_AES_128_GCM_SHA256.
       minVersion: "TLSv1.3" as const,
+      ciphers: TLS_CIPHER_SUITES,
     };
+    // SPEC-023 §Operational §6 — the enrollment listener serves HTTPS with the server
+    // certificate and asks for no client certificate; INGEST_ENROLL_TLS=false keeps it in
+    // clear, for the test suites that post to it so.
+    const enrollTls = config.INGEST_ENROLL_TLS;
 
     const logger = { level: config.INGEST_LOG_LEVEL };
-    const enrollApp = buildEnrollApp(services, logger);
+    const enrollApp = buildEnrollApp(
+      services,
+      logger,
+      enrollTls
+        ? { ...secureContext, key: serverIdentity.keyPem, cert: serverIdentity.certPem }
+        : undefined,
+    );
     built.push(enrollApp);
     const heartbeatApp = buildHeartbeatApp(
       services,
@@ -142,14 +161,20 @@ export async function startIngest(
     );
     built.push(heartbeatApp);
     const heartbeatServer = heartbeatApp.server as unknown as TlsServer;
-    // SPEC-004 Amendment 2026-10-15 item 7 — an expired certificate is not served:
-    // a connection closed before its handshake is one the agent retries, while an
-    // expired certificate makes it exit (SPEC-003 exit 6). The margin covers an
-    // agent whose clock runs ahead of the server's.
-    heartbeatServer.prependListener("connection", (socket: Socket) => {
-      const left = serverIdentity.notAfter.getTime() - certChecks.now();
-      if (left <= SERVER_EXPIRY_MARGIN_MS) socket.destroy();
-    });
+    // The listeners that serve the server certificate: both, enrollment over TLS.
+    const tlsServers = enrollTls
+      ? [heartbeatServer, enrollApp.server as unknown as TlsServer]
+      : [heartbeatServer];
+    // SPEC-004 Amendment 2026-10-15 item 7, on each TLS listener (SPEC-023 §Operational
+    // §6) — an expired certificate is not served: a connection closed before its
+    // handshake is one the agent retries, while an expired certificate makes it exit
+    // (SPEC-003 exit 6). The margin covers an agent whose clock runs ahead of the server's.
+    for (const tlsServer of tlsServers) {
+      tlsServer.prependListener("connection", (socket: Socket) => {
+        const left = serverIdentity.notAfter.getTime() - certChecks.now();
+        if (left <= SERVER_EXPIRY_MARGIN_MS) socket.destroy();
+      });
+    }
 
     await enrollApp.listen({ host: bindHost, port: config.INGEST_ENROLL_PORT });
     await heartbeatApp.listen({ host: bindHost, port: config.INGEST_HEARTBEAT_PORT });
@@ -192,11 +217,15 @@ export async function startIngest(
             certChecks,
           );
           if (!next) return;
-          heartbeatServer.setSecureContext({
-            ...secureContext,
-            key: next.keyPem,
-            cert: next.certPem,
-          });
+          // Each listener that serves the certificate takes the new pair: each new
+          // handshake gets it (SPEC-023 §Operational §6).
+          for (const tlsServer of tlsServers) {
+            tlsServer.setSecureContext({
+              ...secureContext,
+              key: next.keyPem,
+              cert: next.certPem,
+            });
+          }
           serverIdentity = next;
         } catch (err) {
           log.error(
@@ -213,7 +242,7 @@ export async function startIngest(
     );
 
     return {
-      enrollUrl: `http://${bindHost}:${enrollPort}`,
+      enrollUrl: `${enrollTls ? "https" : "http"}://${bindHost}:${enrollPort}`,
       heartbeatUrl: `https://${bindHost}:${heartbeatPort}`,
       caCertPem: services.ca.caCertPem,
       async close() {

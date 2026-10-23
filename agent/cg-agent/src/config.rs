@@ -31,9 +31,10 @@ pub struct AgentConfig {
 pub struct ServerConfig {
     pub url: String,
     /// PEM file of trust-anchor root cert(s) for SERVER identity
-    /// (SPEC-003 §Configuration). Its presence activates the secure
-    /// heartbeat path (TLS 1.3 mTLS + signed envelope); absent ⇒
-    /// SPEC-001 plain-HTTP legacy path.
+    /// (SPEC-003 §Configuration), the roots enrollment trusts too (SPEC-023
+    /// §Operational §6), required with `[enrollment]`. Its presence
+    /// activates the secure heartbeat path (TLS 1.3 mTLS + signed
+    /// envelope); absent ⇒ SPEC-001 plain-HTTP legacy path.
     #[serde(default)]
     pub trust_anchor_path: Option<String>,
     /// Optional separate URL for the secure heartbeat path (SPEC-003
@@ -280,15 +281,31 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
         ));
     }
 
+    // SPEC-023 §Operational §6 (SPEC-002 and SPEC-003 by scope): enrollment
+    // runs over TLS, trusting the roots of the trust anchor alone, so with
+    // [enrollment] server.url must be https and trust_anchor_path is required.
+    if config.enrollment.is_some() {
+        if !config.server.url.starts_with("https://") {
+            return Err(ConfigError::Invalid(
+                "server.url must use https when [enrollment] is set".to_string(),
+            ));
+        }
+        if config.server.trust_anchor_path.is_none() {
+            return Err(ConfigError::MissingKey(
+                "server.trust_anchor_path".to_string(),
+            ));
+        }
+    }
+
     // SPEC-003 §Configuration: when the secure path is configured, the
     // server URL must be https, the canonical form must be JCS, and the
     // minimum TLS version must be 1.3.
     if config.server.trust_anchor_path.is_some() {
         // SPEC-003 Amendment 2026-05-22 (b): the https requirement applies to
         // the secure heartbeat *target*. When `heartbeat_url` is set it carries
-        // the mTLS scheme (validated below) and `server.url` is the plain-HTTP
-        // enroll endpoint (SPEC-004 FR-002 / SPEC-002 §Scope); the constraint on
-        // `server.url` therefore applies only when `heartbeat_url` is absent (the
+        // the mTLS scheme (validated below) and `server.url` is the enroll
+        // endpoint, https with [enrollment] since SPEC-023 (checked above); the
+        // constraint here applies only when `heartbeat_url` is absent (the
         // secure path then falls back to `server.url`).
         if config.server.heartbeat_url.is_none() && !config.server.url.starts_with("https://") {
             return Err(ConfigError::Invalid(

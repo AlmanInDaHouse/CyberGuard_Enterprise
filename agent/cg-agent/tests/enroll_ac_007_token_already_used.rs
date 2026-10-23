@@ -8,9 +8,10 @@ use cg_agent::errors::EnrollmentError;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enroll_ac_007_token_already_used() {
-    let mock = common::MockServer::start().await;
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let mock = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
     mock.set_enroll_plan(vec![409]);
-    let fixture = common::enrollment_fixture(&mock.base_url, "used-token");
+    let fixture = common::enrollment_fixture(&mock.base_url, "used-token", &pki);
 
     let err = cg_agent::identity::ensure_identity(&fixture.config, &fixture.config_path)
         .await

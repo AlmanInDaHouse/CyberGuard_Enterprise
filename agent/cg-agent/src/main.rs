@@ -3,9 +3,10 @@
 //! the secure path).
 //!
 //! Wires the CLI (`--config <path>`), configuration loading, JSON logger
-//! initialisation, the load-or-enroll identity step (SPEC-002), the
-//! secure path (SPEC-003 + SPEC-017, when `server.trust_anchor_path` is
-//! set), and graceful shutdown on `Ctrl+C`.
+//! initialisation, the load-or-enroll identity step (SPEC-002, over TLS
+//! since SPEC-023), the secure path (SPEC-003 + SPEC-017, when
+//! `server.trust_anchor_path` is set, as it always is with
+//! `[enrollment]`), and graceful shutdown on `Ctrl+C`.
 
 use cg_agent::errors::{AgentError, EnrollmentError, TlsError};
 use cg_agent::{
@@ -68,19 +69,9 @@ async fn main() -> ExitCode {
         };
     }
 
-    // SPEC-002 path: enroll (if configured) then the SPEC-001 plain-HTTP
-    // heartbeat, adopting the server-assigned agent_id.
-    if cfg.enrollment.is_some() {
-        match identity::ensure_identity(&cfg, &cli.config).await {
-            Ok(id) => cfg.agent.id = id.agent_id,
-            Err(e) => {
-                report_enrollment_error(&e);
-                return ExitCode::from(e.exit_code());
-            }
-        }
-    }
-
-    // SPEC-001 plain path.
+    // SPEC-001 plain path: no [enrollment] and no trust anchor. An enrolled
+    // agent always has a trust anchor (SPEC-023 §Operational §6), so it
+    // heartbeats on the secure path above.
     match run(cfg, shutdown).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -99,21 +90,28 @@ fn report_enrollment_error(err: &EnrollmentError) {
             eprintln!("cg-agent: enrollment failed: server unreachable after {attempts} attempts")
         }
         EnrollmentError::Persistence(msg) => eprintln!("cg-agent: identity error: {msg}"),
+        EnrollmentError::Tls(tls) => report_tls_error(tls),
+    }
+}
+
+/// SPEC-003 §Failure-modes stderr line for a TLS error, on enrollment's
+/// client or the heartbeat's.
+fn report_tls_error(err: &TlsError) {
+    match err {
+        TlsError::ServerCertUntrusted(m) => {
+            eprintln!("cg-agent: tls: server certificate verification failed: {m}")
+        }
+        TlsError::ClientConfig(m) => eprintln!("cg-agent: tls: client configuration failed: {m}"),
+        TlsError::ClientCertRejected(_) => {
+            eprintln!("cg-agent: tls: server rejected client certificate")
+        }
     }
 }
 
 /// SPEC-003 / SPEC-017 §Failure-modes stderr line for a secure-path error.
 fn report_agent_error(err: &AgentError) {
     match err {
-        AgentError::Tls(TlsError::ServerCertUntrusted(m)) => {
-            eprintln!("cg-agent: tls: server certificate verification failed: {m}")
-        }
-        AgentError::Tls(TlsError::ClientConfig(m)) => {
-            eprintln!("cg-agent: tls: client configuration failed: {m}")
-        }
-        AgentError::Tls(TlsError::ClientCertRejected(_)) => {
-            eprintln!("cg-agent: tls: server rejected client certificate")
-        }
+        AgentError::Tls(tls) => report_tls_error(tls),
         AgentError::Signing(s) => eprintln!("cg-agent: signing failed: {s}"),
         // SPEC-017 §Operational §1: the line goes to stderr and to the log.
         AgentError::Etw(etw) => {

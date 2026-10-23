@@ -7,9 +7,10 @@ mod common;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enroll_ac_011_token_hygiene() {
-    let mock = common::MockServer::start().await;
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let mock = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
     let secret = "tok-ac-011-secret-value";
-    let fixture = common::enrollment_fixture(&mock.base_url, secret);
+    let fixture = common::enrollment_fixture(&mock.base_url, secret, &pki);
 
     // Sanity: the token is on disk before the first run.
     let before = std::fs::read_to_string(&fixture.config_path).expect("read agent.toml");
