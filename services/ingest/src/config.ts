@@ -1,5 +1,5 @@
-import { existsSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
@@ -57,9 +57,28 @@ const port = (fallback: number) => integer(1, 65_535, fallback);
 /** setTimeout's longest delay; a longer one fires at once. */
 const MAX_TIMER_MS = 2_147_483_647;
 
-/** Whether two paths name one file: one resolved path, or one file on disk. */
+/**
+ * The path a file has or would have: its real path when it exists, else its directory's
+ * real path and its name, so a link to the directory is seen through; lower-cased where
+ * the file system ignores case.
+ */
+function canonicalPath(p: string): string {
+  let real: string;
+  try {
+    real = realpathSync(p);
+  } catch {
+    try {
+      real = join(realpathSync(dirname(p)), basename(p));
+    } catch {
+      real = resolve(p);
+    }
+  }
+  return process.platform === "win32" || process.platform === "darwin" ? real.toLowerCase() : real;
+}
+
+/** Whether two paths name one file: one canonical path, or one file on disk (a hard link). */
 function sameFile(a: string, b: string): boolean {
-  if (resolve(a) === resolve(b)) return true;
+  if (canonicalPath(a) === canonicalPath(b)) return true;
   try {
     const sa = statSync(a, { bigint: true });
     const sb = statSync(b, { bigint: true });

@@ -42,14 +42,22 @@ const PG_STATEMENT_TIMEOUT_MS = 5000;
  *  longer than the statement timeout, so a slow statement ends at the server first. */
 const PG_QUERY_TIMEOUT_MS = 6000;
 
-/** The api's Postgres pool. A query that failed leaves the pool with its client. */
+/**
+ * The api's Postgres pool. A query that failed leaves the pool with its client. An idle
+ * client whose connection ends, Postgres restarting or unreachable, is an `error` event of
+ * the pool, which without a listener would end the process (SPEC-023 deploy_ac_017: the
+ * api keeps answering /health): the pool drops that client, and the next query that needs
+ * Postgres fails, is logged and answers 503.
+ */
 export function createPgPool(connectionString: string): pg.Pool {
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString,
     connectionTimeoutMillis: PG_CONNECTION_TIMEOUT_MS,
     statement_timeout: PG_STATEMENT_TIMEOUT_MS,
     query_timeout: PG_QUERY_TIMEOUT_MS,
   });
+  pool.on("error", () => {});
+  return pool;
 }
 
 /** The bound of a connection to Redis and of each command (SPEC-008 Amendment
@@ -60,14 +68,18 @@ const REDIS_TIMEOUT_MS = 5000;
  * The api's Redis client. A command it has not completed within 5 s fails, whether
  * the connection could not be made or the server does not answer, and after one
  * failed reconnection the commands it queued fail too, so no request waits for Redis
- * to return (debt #69). Every failure reaches the caller, which answers 503.
+ * to return (debt #69). Every failure reaches the caller, which answers 503. A lost
+ * connection is also an `error` event of the client, listened to here so that ioredis
+ * does not print it as unhandled: the commands' failures are what is logged.
  */
 export function createRedisClient(url: string): Redis {
-  return new Redis(url, {
+  const redis = new Redis(url, {
     connectTimeout: REDIS_TIMEOUT_MS,
     commandTimeout: REDIS_TIMEOUT_MS,
     maxRetriesPerRequest: 1,
   });
+  redis.on("error", () => {});
+  return redis;
 }
 
 export async function buildServices(config: Config): Promise<Services> {

@@ -1,13 +1,14 @@
-import { type AddressInfo, createServer } from "node:net";
-import { createClient } from "@clickhouse/client";
+import { type ChildProcess, spawn } from "node:child_process";
+import { type AddressInfo, type Socket, connect, createServer } from "node:net";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
 import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createAuthService } from "../src/auth/service.js";
 import { type Config, loadConfig } from "../src/config.js";
 import { type ApiServer, startApi } from "../src/server.js";
-import { type Services, buildServices, createPgPool, createRedisClient } from "../src/services.js";
+import { buildServices } from "../src/services.js";
 import { DEFAULT_PASSWORD, currentTotp, insertUserDirect, seedSession } from "./helpers/db.js";
 
 // deploy_ac_017 — SPEC-023 §Data contracts §3 and debt #20: `GET /health` answers
@@ -15,6 +16,7 @@ import { DEFAULT_PASSWORD, currentTotp, insertUserDirect, seedSession } from "./
 // are unreachable; with API_SESSION_IDLE_MINUTES=5 and API_SESSION_MAX_HOURS=1, a new
 // session's idle lifetime and cap are those.
 
+const PACKAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 /** How far a time-to-live read after a request may fall below the one the request set. */
@@ -33,8 +35,42 @@ afterAll(async () => {
   await redis?.quit();
 });
 
-/** A port on 127.0.0.1 that was bound a moment ago and is closed now: it refuses. */
-function closedPort(): Promise<number> {
+/**
+ * A TCP forwarder on 127.0.0.1 to the host and port of `target`, a store's URL: `url` is
+ * `target` through it, and `cut()` closes it and every connection through it, so the
+ * store is unreachable from then on.
+ */
+async function forwarder(target: string): Promise<{ url: string; cut(): Promise<void> }> {
+  const to = new URL(target);
+  const sockets = new Set<Socket>();
+  const server = createServer((client) => {
+    const upstream = connect(Number(to.port), to.hostname);
+    for (const s of [client, upstream]) {
+      sockets.add(s);
+      s.on("error", () => {});
+      s.on("close", () => {
+        client.destroy();
+        upstream.destroy();
+      });
+    }
+    client.pipe(upstream).pipe(client);
+  });
+  await new Promise<void>((resolve) => server.listen({ host: "127.0.0.1", port: 0 }, resolve));
+  const via = new URL(target);
+  via.hostname = "127.0.0.1";
+  via.port = String((server.address() as AddressInfo).port);
+  return {
+    url: via.toString().replace(/\/$/, ""),
+    cut: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+        for (const s of sockets) s.destroy();
+      }),
+  };
+}
+
+/** A port on 127.0.0.1 that was free a moment ago. */
+function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
     server.once("error", reject);
@@ -43,6 +79,15 @@ function closedPort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
+}
+
+/** The status of a GET, or null when nothing answers. */
+async function statusOf(url: string, cookie?: string): Promise<number | null> {
+  try {
+    return (await fetch(url, { headers: cookie ? { cookie } : {} })).status;
+  } catch {
+    return null;
+  }
 }
 
 describe("GET /health", () => {
@@ -54,48 +99,84 @@ describe("GET /health", () => {
     expect(await res.json()).toEqual({ status: "ok" });
   });
 
-  test("still answers 200 when every store is unreachable", async () => {
-    const real = await buildServices(config);
-    const port = await closedPort();
-    const pg = createPgPool(`postgres://u:p@127.0.0.1:${port}/db`);
-    const unreachableRedis = createRedisClient(`redis://127.0.0.1:${port}`);
-    unreachableRedis.on("error", () => {});
-    const ch = createClient({ url: `http://127.0.0.1:${port}` });
-    const services: Services = {
-      ...real,
-      pg,
-      redis: unreachableRedis,
-      ch,
-      auth: createAuthService(pg, unreachableRedis, config),
-    };
-    const app = buildApp(services);
-    closers.push(async () => {
-      await app.close();
-      await pg.end();
-      unreachableRedis.disconnect();
-      await ch.close();
-      await real.close();
+  test("once started, the api keeps running and answers 200 when every store is unreachable", async () => {
+    // The api, run as a program, reaches each store through a forwarder the test cuts.
+    const pg = await forwarder(config.API_PG_URL);
+    const kv = await forwarder(config.API_REDIS_URL);
+    const ch = await forwarder(config.API_CH_URL);
+    const port = await freePort();
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith("API_")),
+    );
+    const child: ChildProcess = spawn(process.execPath, ["--import", "tsx", "src/index.ts"], {
+      cwd: PACKAGE_DIR,
+      env: {
+        ...env,
+        API_PG_URL: pg.url,
+        API_REDIS_URL: kv.url,
+        API_CH_URL: ch.url,
+        API_CH_USER: config.API_CH_USER,
+        API_CH_PASSWORD: config.API_CH_PASSWORD,
+        API_CH_DB: config.API_CH_DB,
+        API_DB_ENC_PASSPHRASE: config.API_DB_ENC_PASSPHRASE,
+        API_FORENSIC_PASSPHRASE: config.API_FORENSIC_PASSPHRASE,
+        API_PORT: String(port),
+        API_LOG_LEVEL: "fatal",
+      },
     });
-    const res = await app.inject({ method: "GET", url: "/health" });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: "ok" });
-    // The stores are unreachable indeed: a route that reads one does not answer 200.
-    const read = await app.inject({
-      method: "GET",
-      url: "/v1/incidents",
-      cookies: { cgsess: "x" },
+    let stderr = "";
+    child.stderr?.setEncoding("utf8").on("data", (d: string) => {
+      stderr += d;
     });
-    expect(read.statusCode).toBe(503);
+    const url = `http://127.0.0.1:${port}`;
+    try {
+      const begun = Date.now();
+      while ((await statusOf(`${url}/health`)) !== 200) {
+        if (child.exitCode !== null || Date.now() - begun > 60_000) {
+          throw new Error(`the api did not start: ${stderr}`);
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      // A read, so the pool holds an idle client when the stores go.
+      await fetch(`${url}/v1/incidents`, { headers: { cookie: "cgsess=x" } });
+      await Promise.all([pg.cut(), kv.cut(), ch.cut()]);
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(child.exitCode, stderr).toBeNull();
+      const res = await fetch(`${url}/health`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ status: "ok" });
+      // The stores are unreachable indeed: a route that reads one does not answer 200.
+      expect(await statusOf(`${url}/v1/incidents`, "cgsess=x")).toBe(503);
+    } finally {
+      child.kill();
+    }
   });
 });
 
 describe("the session's lifetimes are settings", () => {
   let app: FastifyInstance;
-  const short: Partial<Config> = { API_SESSION_IDLE_MINUTES: 5, API_SESSION_MAX_HOURS: 1 };
   const key = (token: string) => `cgsess:${token}`;
+  /** The suite's stores, as environment variables. */
+  const storesEnv = () => ({
+    API_PG_URL: config.API_PG_URL,
+    API_REDIS_URL: config.API_REDIS_URL,
+    API_CH_URL: config.API_CH_URL,
+    API_CH_USER: config.API_CH_USER,
+    API_CH_PASSWORD: config.API_CH_PASSWORD,
+    API_CH_DB: config.API_CH_DB,
+    API_DB_ENC_PASSPHRASE: config.API_DB_ENC_PASSPHRASE,
+    API_FORENSIC_PASSPHRASE: config.API_FORENSIC_PASSPHRASE,
+  });
 
   beforeAll(async () => {
-    const services = await buildServices({ ...config, ...short });
+    // From the environment, as the service reads it.
+    const short = loadConfig({
+      ...storesEnv(),
+      API_SESSION_IDLE_MINUTES: "5",
+      API_SESSION_MAX_HOURS: "1",
+    });
+    expect([short.API_SESSION_IDLE_MINUTES, short.API_SESSION_MAX_HOURS]).toEqual([5, 1]);
+    const services = await buildServices(short);
     app = buildApp(services);
     await app.ready();
     closers.push(async () => {
@@ -114,6 +195,15 @@ describe("the session's lifetimes are settings", () => {
     });
     expect(parsed.API_SESSION_IDLE_MINUTES).toBe(480);
     expect(parsed.API_SESSION_MAX_HOURS).toBe(24);
+  });
+
+  test("an idle lifetime equal to the cap is accepted", () => {
+    const parsed = loadConfig({
+      ...storesEnv(),
+      API_SESSION_IDLE_MINUTES: "60",
+      API_SESSION_MAX_HOURS: "1",
+    });
+    expect([parsed.API_SESSION_IDLE_MINUTES, parsed.API_SESSION_MAX_HOURS]).toEqual([60, 1]);
   });
 
   test("a login's entry lives 5 minutes", async () => {

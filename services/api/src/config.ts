@@ -3,8 +3,9 @@ import { parseTrustedProxies } from "./auth/source-address.js";
 
 /**
  * A value the start-up checks refuse (SPEC-023 §Operational §2). Its message is the
- * line the entry point prints after `cg-api: fatal: `; it names the variable and
- * never quotes the value, which may be a secret.
+ * line the entry point prints after `cg-api: fatal: `; it names the variable and does
+ * not quote a value that may be a secret: a refused API_TRUSTED_PROXIES entry, an address,
+ * is the one value a reason names.
  */
 export class ConfigError extends Error {
   constructor(

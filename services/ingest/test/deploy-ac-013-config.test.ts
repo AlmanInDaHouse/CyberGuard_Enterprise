@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { type AddressInfo, type Server, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -127,6 +127,52 @@ test("a certificate and a key path that name one file are refused (debt #105)", 
     "INGEST_SERVER_KEY_PATH",
   );
 });
+
+test("a key path through a link to the certificate's directory, files absent, is refused", () => {
+  const dir = tempDir("cg-deploy-013-link-");
+  const real = join(dir, "real");
+  mkdirSync(real);
+  const link = join(dir, "link");
+  // A junction needs no privilege on Windows; elsewhere a directory symlink.
+  symlinkSync(real, link, process.platform === "win32" ? "junction" : "dir");
+  expectRefused(
+    {
+      ...validEnv(),
+      INGEST_SERVER_CERT_PATH: join(real, "server.pem"),
+      INGEST_SERVER_KEY_PATH: join(link, "server.pem"),
+    },
+    "INGEST_SERVER_KEY_PATH",
+  );
+});
+
+test("an existing file reached by a hard link is the same file", () => {
+  const dir = tempDir("cg-deploy-013-hard-");
+  writeFileSync(join(dir, "server.pem"), "x");
+  linkSync(join(dir, "server.pem"), join(dir, "other.pem"));
+  expectRefused(
+    {
+      ...validEnv(),
+      INGEST_SERVER_CERT_PATH: join(dir, "server.pem"),
+      INGEST_SERVER_KEY_PATH: join(dir, "other.pem"),
+    },
+    "INGEST_SERVER_KEY_PATH",
+  );
+});
+
+test.skipIf(process.platform !== "win32")(
+  "on Windows, paths that differ in case alone name one file",
+  () => {
+    const dir = tempDir("cg-deploy-013-case-");
+    expectRefused(
+      {
+        ...validEnv(),
+        INGEST_SERVER_CERT_PATH: join(dir, "server.pem"),
+        INGEST_SERVER_KEY_PATH: join(dir, "SERVER.pem"),
+      },
+      "INGEST_SERVER_KEY_PATH",
+    );
+  },
+);
 
 test.each([["verbose"], ["INFO"], [""]])("INGEST_LOG_LEVEL=%j is refused", (value) => {
   expectRefused({ ...validEnv(), INGEST_LOG_LEVEL: value }, "INGEST_LOG_LEVEL");
