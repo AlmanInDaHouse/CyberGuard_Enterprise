@@ -158,7 +158,7 @@ test("a password the policy refuses is refused before anything is written, exit 
   });
   expect(r.status).toBe(2);
   expect(r.stderr).toContain("refused: password");
-  expect(r.stderr).not.toContain("weak\n");
+  expect(r.stderr).not.toContain("weak");
   expect(await userRow("weak@deploy016.test")).toBeUndefined();
 });
 
@@ -174,7 +174,7 @@ test("reads the password from a pipe, prints the URI on stdout, and confirms the
   // The URI on stdout, once, and nothing else there.
   expect(cli.stdout).toBe(`${uri}\n`);
   // Nothing secret on stderr: not the password, the secret, the URI or the code.
-  for (const secretText of [PASSWORD, secret, uri, code]) {
+  for (const secretText of [PASSWORD, secret, uri, code, config.API_DB_ENC_PASSPHRASE]) {
     expect(cli.stderr).not.toContain(secretText);
   }
   const user = await userRow("first@deploy016.test");

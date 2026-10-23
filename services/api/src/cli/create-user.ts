@@ -12,10 +12,7 @@
 // from the command line: from a terminal, twice and without echo; from a pipe, its
 // first line, and the codes from the lines after it. The command then asks for a
 // current code and confirms the factor, as POST /v1/auth/totp/confirm does.
-import { realpathSync } from "node:fs";
-import * as path from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import type { Redis } from "ioredis";
 import pg from "pg";
 import { appendAudit } from "../auth/audit.js";
@@ -23,7 +20,9 @@ import { hashPassword } from "../auth/password.js";
 import { CreateUserBody } from "../auth/schemas.js";
 import { generateSecret, provisioningUri, verifyTotp } from "../auth/totp.js";
 import { type Config, ConfigError, loadConfigFor } from "../config.js";
+import { isMain } from "../is-main.js";
 import { createRedisClient } from "../services.js";
+import { watchPool } from "../store-events.js";
 
 const ORG = "default";
 /** The invalid codes after which the factor is left unconfirmed. */
@@ -102,6 +101,8 @@ export async function createUserFromCli(
   const ph = await hashPassword(password);
   const secret = generateSecret();
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
+  // A lost connection fails the command where it is used, not as an unheard error event.
+  watchPool(pool);
   const db = await pool.connect();
   try {
     await db.query("BEGIN");
@@ -194,6 +195,8 @@ export async function runCreateUser(
   }
   io.err("cg-api: add the URI above to an authenticator, then give its current code\n");
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
+  // A lost connection fails the command where it is used, not as an unheard error event.
+  watchPool(pool);
   const redis = createRedisClient(config.API_REDIS_URL);
   try {
     for (let attempt = 1; attempt <= CONFIRM_ATTEMPTS; attempt++) {
@@ -307,10 +310,7 @@ const USAGE =
   "usage: create-user --email <email> [--role admin|analyst|viewer] [--no-confirm] (the password on standard input)";
 
 // Run when invoked as a program, also through a symlinked bin; not when a test imports it.
-if (
-  process.argv[1] &&
-  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path.resolve(process.argv[1]))
-) {
+if (isMain(import.meta.url)) {
   Promise.resolve()
     .then(() => {
       // The arguments first: a refused one exits 2 whatever the configuration.

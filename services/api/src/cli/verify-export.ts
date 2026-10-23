@@ -3,11 +3,10 @@
 // export: it refuses to run without one, refuses an export whose embedded key is not the
 // recorded one, and only then recomputes the chain (SPEC-012 §2) and checks the signature.
 // It reads no store and needs no configuration.
-import { readFileSync, realpathSync } from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { fingerprintOf } from "../forensic/fingerprint.js";
 import { computeChain, toHex } from "../forensic/hashchain.js";
+import { isMain } from "../is-main.js";
 import type { TimelineEvent } from "../read/types.js";
 
 /** What the verifier decided: its line and its exit code. */
@@ -90,10 +89,7 @@ export async function runVerifyExport(argv: string[]): Promise<Verdict> {
   return verifyExport(fingerprint, files[0] as string);
 }
 
-if (
-  process.argv[1] &&
-  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path.resolve(process.argv[1]))
-) {
+if (isMain(import.meta.url)) {
   runVerifyExport(process.argv.slice(2)).then(
     (v) => {
       // The verdict on stdout; a refusal, with the usage, on stderr.

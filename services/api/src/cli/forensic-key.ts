@@ -2,16 +2,16 @@
 // public key in base64url, then its fingerprint, `sha256:<hex>`, which the operator
 // records outside CyberGuard at installation. It reads the `forensic_key` row, never an
 // export, and needs only API_PG_URL.
-import { realpathSync } from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { ConfigError, loadConfigFor } from "../config.js";
 import { fingerprintOf } from "../forensic/fingerprint.js";
+import { isMain } from "../is-main.js";
+import { watchPool } from "../store-events.js";
 
 /** The key's two lines, or null when the api has not generated it yet. */
 export async function forensicKeyLines(pgUrl: string): Promise<string | null> {
   const pool = new pg.Pool({ connectionString: pgUrl });
+  watchPool(pool);
   try {
     const res = await pool.query<{ public_key: Buffer }>(
       "SELECT public_key FROM forensic_key WHERE id = 1",
@@ -25,10 +25,7 @@ export async function forensicKeyLines(pgUrl: string): Promise<string | null> {
   }
 }
 
-if (
-  process.argv[1] &&
-  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path.resolve(process.argv[1]))
-) {
+if (isMain(import.meta.url)) {
   Promise.resolve()
     .then(() => forensicKeyLines(loadConfigFor(["API_PG_URL"]).API_PG_URL))
     .then((lines) => {

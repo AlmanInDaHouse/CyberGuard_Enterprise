@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
 import { type Config, ConfigError, loadConfigFor } from "../config.js";
+import { isMain } from "../is-main.js";
+import { watchPool } from "../store-events.js";
 
 /**
  * services/api OWNS its auth migrations independently of services/ingest
@@ -57,6 +59,8 @@ export async function runMigrations(
   options: MigrateOptions = {},
 ): Promise<void> {
   const pool = new pg.Pool({ connectionString: config.API_PG_URL });
+  // A lost connection fails the run with its fatal line, not as an unheard error event.
+  watchPool(pool);
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   try {
     const lock = await pool.connect();
@@ -103,7 +107,7 @@ export async function runMigrations(
 
 // Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly: the one-shot's
 // command, which validates API_PG_URL alone and waits for the lock.
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (isMain(import.meta.url)) {
   Promise.resolve()
     .then(() => runMigrations(loadConfigFor(["API_PG_URL"]), { wait: true }))
     .then(() => process.exit(0))
