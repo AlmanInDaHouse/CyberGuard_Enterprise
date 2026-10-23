@@ -162,7 +162,8 @@ async function bootstrapClickHouse(config: MigrateConfig): Promise<void> {
 }
 
 // Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly: the one-shot's
-// command, which validates the stores' variables alone and waits for the lock.
+// command, which validates the variables it uses, the stores' and the retention's, and waits
+// for the lock.
 if (isMain(import.meta.url)) {
   Promise.resolve()
     .then(() => runMigrations(loadConfigFor(MIGRATE_VARIABLES), { wait: true }))
