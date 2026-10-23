@@ -53,9 +53,13 @@ function expectRefused(env: Record<string, string>, variable: string): void {
   expect(LINE.exec(lines[0] ?? "")?.[1]).toBe(variable);
 }
 
-test.each([["0"], ["65536"], ["8081x"]])("API_PORT=%j is refused", (value) => {
-  expectRefused({ ...validEnv(), API_PORT: value }, "API_PORT");
-});
+// SPEC-023 Amendment 2026-10-23 item 1: decimal digits alone.
+test.each([["0"], ["65536"], ["8081x"], [" 8081"], ["+8081"], ["8081.0"], ["1e3"], ["0x1F91"]])(
+  "API_PORT=%j is refused",
+  (value) => {
+    expectRefused({ ...validEnv(), API_PORT: value }, "API_PORT");
+  },
+);
 
 test.each([["verbose"], ["WARN"], [""]])("API_LOG_LEVEL=%j is refused", (value) => {
   expectRefused({ ...validEnv(), API_LOG_LEVEL: value }, "API_LOG_LEVEL");

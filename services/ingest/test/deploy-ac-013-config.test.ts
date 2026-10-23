@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
-import type { Config } from "../src/config.js";
+import { type Config, loadConfig } from "../src/config.js";
 import { startIngest } from "../src/server.js";
 
 // deploy_ac_013 — SPEC-023 §Operational §2 and §Data contracts §3, ingest's half: the
@@ -92,12 +92,25 @@ test.each([
   ["INGEST_HEARTBEAT_PORT", "0"],
   ["INGEST_HEARTBEAT_PORT", "65536"],
   ["INGEST_ENROLL_PORT", "80a"],
+  // SPEC-023 Amendment 2026-10-23 item 1: decimal digits alone.
+  ["INGEST_ENROLL_PORT", " 8080"],
+  ["INGEST_ENROLL_PORT", "+8080"],
+  ["INGEST_ENROLL_PORT", "8080.0"],
+  ["INGEST_HEARTBEAT_PORT", "1e3"],
+  ["INGEST_HEARTBEAT_PORT", "0x1F90"],
 ])("%s=%s is refused", (variable, value) => {
   expectRefused({ ...validEnv(), [variable]: value }, variable);
 });
 
-test.each([["0"], ["65536"]])("INGEST_SMTP_PORT=%s is refused", (value) => {
+test.each([["0"], ["65536"], [" 587"]])("INGEST_SMTP_PORT=%j is refused", (value) => {
   expectRefused({ ...validEnv(), ...SMTP, INGEST_SMTP_PORT: value }, "INGEST_SMTP_PORT");
+});
+
+test("the six notification variables empty count as unset (SPEC-023 Amendment 2026-10-23)", () => {
+  const empty = Object.fromEntries(Object.keys(SMTP).map((k) => [k, ""]));
+  const parsed = loadConfig({ ...validEnv(), ...empty });
+  expect(parsed.INGEST_SMTP_PORT).toBeUndefined();
+  expect(parsed.INGEST_SMTP_HOST).toBeUndefined();
 });
 
 test.each([["INGEST_SERVER_CERT_PATH"], ["INGEST_SERVER_KEY_PATH"]])(
@@ -178,9 +191,13 @@ test.each([["verbose"], ["INFO"], [""]])("INGEST_LOG_LEVEL=%j is refused", (valu
   expectRefused({ ...validEnv(), INGEST_LOG_LEVEL: value }, "INGEST_LOG_LEVEL");
 });
 
-test.each([[""], ["-1"], ["5s"]])("INGEST_DETECT_INTERVAL_MS=%j is refused", (value) => {
-  expectRefused({ ...validEnv(), INGEST_DETECT_INTERVAL_MS: value }, "INGEST_DETECT_INTERVAL_MS");
-});
+// Item 2 of the amendment: at most 2147483647, the longest delay Node's timers keep.
+test.each([[""], ["-1"], ["5s"], ["5e3"], ["2147483648"]])(
+  "INGEST_DETECT_INTERVAL_MS=%j is refused",
+  (value) => {
+    expectRefused({ ...validEnv(), INGEST_DETECT_INTERVAL_MS: value }, "INGEST_DETECT_INTERVAL_MS");
+  },
+);
 
 test("a missing required variable is refused, named", () => {
   const { INGEST_CA_PASSPHRASE: _, ...env } = validEnv();
