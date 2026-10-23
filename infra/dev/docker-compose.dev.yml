@@ -1,5 +1,5 @@
 # CyberGuard — local development stack: the ADR-0003 stores the code uses
-# (Postgres, ClickHouse, Redis), ingest and the api. ADR-0003's NATS JetStream and
+# (Postgres, ClickHouse, Valkey), ingest and the api. ADR-0003's NATS JetStream and
 # MinIO are left out until a SPEC uses them (debt #96).
 # Dev only. Not for production. See infra/dev/README.md.
 
@@ -54,8 +54,10 @@ services:
       retries: 12
       start_period: 15s
 
+  # The key-value store runs Valkey, a BSD-3-Clause fork of Redis 7.2.4 that speaks
+  # its protocol (ADR-0003 Amendment 2026-10-23); the service keeps the name redis.
   redis:
-    image: redis:7.4-alpine
+    image: valkey/valkey:9.1.2-alpine
     restart: unless-stopped
     networks: [cyberguard-dev]
     ports:
@@ -66,11 +68,12 @@ services:
     command:
       - sh
       - -c
-      - 'redis-server --appendonly yes --requirepass "$$CG_REDIS_PASSWORD"'
+      - 'valkey-server --appendonly yes --requirepass "$$CG_REDIS_PASSWORD"'
     volumes:
       - cg_redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$CG_REDIS_PASSWORD\" ping | grep -q PONG"]
+      # The password reaches valkey-cli through its environment, not its command line.
+      test: ["CMD-SHELL", "VALKEYCLI_AUTH=\"$$CG_REDIS_PASSWORD\" valkey-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 12

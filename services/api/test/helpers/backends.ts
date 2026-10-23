@@ -34,8 +34,8 @@ export async function startBackends(): Promise<Backends> {
       .start();
     started.push(pg);
 
-    const redis = await new GenericContainer("redis:7.4-alpine")
-      .withCommand(["redis-server", "--requirepass", "cyberguard_dev"])
+    const redis = await new GenericContainer("valkey/valkey:9.1.2-alpine")
+      .withCommand(["valkey-server", "--requirepass", "cyberguard_dev"])
       .withExposedPorts(6379)
       .withWaitStrategy(Wait.forLogMessage(/Ready to accept connections/))
       .start();

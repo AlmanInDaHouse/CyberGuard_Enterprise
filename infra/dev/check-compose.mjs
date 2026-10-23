@@ -9,6 +9,10 @@
 //   is built from the repository;
 // - ClickHouse is pinned to a patch release (debt #36), and each test backend named
 //   on the command line starts the same image;
+// - the key-value store, the `redis` service, runs Valkey's image pinned to a patch
+//   release, each test backend starts that image, and no service or backend runs an
+//   image of the redis repository (SPEC-023 deploy_ac_022; ADR-0003 Amendment
+//   2026-10-23: Redis is under RSALv2 and SSPLv1 from 7.4);
 // - neither NATS nor MinIO runs until a SPEC uses them (debt #96): the stack ran NATS
 //   without authentication and MinIO with its dev root credentials, and nothing used
 //   either.
@@ -25,6 +29,9 @@ if (!composePath) {
 }
 
 const compose = JSON.parse(readFileSync(composePath, "utf8"));
+// redis, docker.io/redis or docker.io/library/redis, with any tag or digest.
+const REDIS_REPOSITORY = /^(?:docker\.io\/)?(?:library\/)?redis(?::[\w][\w.-]*)?(?:@sha256:[0-9a-f]{64})?$/;
+const VALKEY_PINNED = /^valkey\/valkey:\d+\.\d+\.\d+-alpine$/;
 const services = Object.entries(compose.services ?? {});
 const failures = [];
 let published = 0;
@@ -42,6 +49,9 @@ for (const [name, service] of services) {
         `${name}: port ${port.published ?? "?"}->${port.target} is published on ${port.host_ip ?? "every interface"}, not 127.0.0.1`,
       );
     }
+  }
+  if (REDIS_REPOSITORY.test(service.image ?? "")) {
+    failures.push(`${name}: the image ${service.image} is of the redis repository; the key-value store runs Valkey`);
   }
   if (/^(nats|minio)$/i.test(name) || /(^|\/)(nats|minio)(:|@|$)/i.test(service.image ?? "")) {
     failures.push(`${name}: NATS and MinIO stay out of the dev stack until a SPEC uses them (debt #96)`);
@@ -80,10 +90,29 @@ for (const path of backendPaths) {
   }
 }
 
+const valkey = compose.services?.redis?.image;
+if (compose.services?.redis === undefined) {
+  failures.push("the dev compose has no redis service, the key-value store");
+} else if (typeof valkey !== "string" || !VALKEY_PINNED.test(valkey)) {
+  failures.push(`redis: the key-value store's image ${valkey ?? "(none)"} is not valkey/valkey:<major>.<minor>.<patch>-alpine`);
+}
+for (const path of backendPaths) {
+  const text = readFileSync(path, "utf8");
+  const quoted = [...text.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => m[1]);
+  for (const image of quoted.filter((q) => REDIS_REPOSITORY.test(q))) {
+    failures.push(`${path}: starts ${image}, an image of the redis repository; the key-value store runs Valkey`);
+  }
+  const named = quoted.filter((q) => q.startsWith("valkey/valkey"));
+  if (named.length === 0) failures.push(`${path}: names no Valkey image`);
+  for (const image of named) {
+    if (image !== valkey) failures.push(`${path}: starts ${image}, the dev compose ${valkey ?? "(none)"}`);
+  }
+}
+
 if (failures.length > 0) {
   for (const failure of failures) console.error(failure);
   process.exit(1);
 }
 console.log(
-  `compose ok: ${services.length} services, ${published} published ports on 127.0.0.1, ${clickhouse} in the compose and in ${backendPaths.length} test backends`,
+  `compose ok: ${services.length} services, ${published} published ports on 127.0.0.1, ${clickhouse} and ${valkey} in the compose and in ${backendPaths.length} test backends`,
 );

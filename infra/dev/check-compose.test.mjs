@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 
 const CHECK = path.join(path.dirname(fileURLToPath(import.meta.url)), "check-compose.mjs");
 const CLICKHOUSE = "clickhouse/clickhouse-server:24.8.14.39";
+const VALKEY = "valkey/valkey:9.1.2-alpine";
 const dir = mkdtempSync(path.join(tmpdir(), "check-compose-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -22,7 +23,7 @@ function render() {
         ports: [{ mode: "ingress", host_ip: "127.0.0.1", target: 8123, published: "8123", protocol: "tcp" }],
       },
       redis: {
-        image: "redis:7.4-alpine",
+        image: VALKEY,
         ports: [{ mode: "ingress", host_ip: "127.0.0.1", target: 6379, published: "16379", protocol: "tcp" }],
       },
       ingest: { build: { context: "." } },
@@ -31,7 +32,9 @@ function render() {
 }
 
 let n = 0;
-function check(compose, backendText = `new GenericContainer("${CLICKHOUSE}")`) {
+const BACKEND = `new GenericContainer("${CLICKHOUSE}"); new GenericContainer("${VALKEY}")`;
+
+function check(compose, backendText = BACKEND) {
   n += 1;
   const composePath = path.join(dir, `compose-${n}.json`);
   const backendPath = path.join(dir, `backends-${n}.ts`);
@@ -51,6 +54,7 @@ test("the render as it stands passes", () => {
   const r = check(render());
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /compose ok: 3 services, 2 published ports on 127\.0\.0\.1/);
+  assert.match(r.stdout, /valkey\/valkey:9\.1\.2-alpine in the compose and in 1 test backends/);
 });
 
 test("a port on every interface, or with no host address, is refused", () => {
@@ -77,7 +81,7 @@ test("an image with no tag, or tagged latest, is refused; a digest is not", () =
   latest.services.redis.image = "redis:latest";
   refuses(latest, /redis: the image redis:latest is tagged latest/);
   const pinned = render();
-  pinned.services.redis.image = `redis:latest@sha256:${"a".repeat(64)}`;
+  pinned.services.ingest = { image: `cyberguard-ingest:latest@sha256:${"a".repeat(64)}` };
   assert.equal(check(pinned).status, 0);
 });
 
@@ -103,6 +107,26 @@ test("ClickHouse off a patch release, or apart from a backend, is refused", () =
   const floating = render();
   floating.services.clickhouse.image = "clickhouse/clickhouse-server:24.8";
   refuses(floating, /clickhouse: the image clickhouse\/clickhouse-server:24\.8 is not pinned/);
-  refuses(render(), /starts clickhouse\/clickhouse-server:24\.3\.1\.1, the dev compose/, 'image("clickhouse/clickhouse-server:24.3.1.1")');
-  refuses(render(), /names no ClickHouse image/, "no image here");
+  refuses(render(), /starts clickhouse\/clickhouse-server:24\.3\.1\.1, the dev compose/, `image("clickhouse/clickhouse-server:24.3.1.1"); image("${VALKEY}")`);
+  refuses(render(), /names no ClickHouse image/, `image("${VALKEY}")`);
+});
+
+// SPEC-023 deploy_ac_022: the key-value store runs Valkey (ADR-0003 Amendment
+// 2026-10-23), one image pinned to a patch release, in the compose and the backends.
+test("deploy_ac_022: the key-value store off Valkey, off a patch release, or apart from a backend, is refused", () => {
+  const redisImage = render();
+  redisImage.services.redis.image = "redis:7.4-alpine";
+  refuses(redisImage, /redis: the key-value store's image redis:7\.4-alpine is not valkey\/valkey:<major>\.<minor>\.<patch>-alpine/);
+  const floating = render();
+  floating.services.redis.image = "valkey/valkey:9.1-alpine";
+  refuses(floating, /redis: the key-value store's image valkey\/valkey:9\.1-alpine is not valkey\/valkey:<major>\.<minor>\.<patch>-alpine/);
+  const missing = render();
+  delete missing.services.redis;
+  refuses(missing, /the dev compose has no redis service/);
+  refuses(render(), /starts redis:7\.4-alpine, an image of the redis repository/, `image("${CLICKHOUSE}"); image("${VALKEY}"); image("redis:7.4-alpine")`);
+  refuses(render(), /starts valkey\/valkey:9\.0\.6-alpine, the dev compose valkey\/valkey:9\.1\.2-alpine/, `image("${CLICKHOUSE}"); image("valkey/valkey:9.0.6-alpine")`);
+  refuses(render(), /names no Valkey image/, `image("${CLICKHOUSE}")`);
+  const elsewhere = render();
+  elsewhere.services.cache = { image: "redis:7-alpine" };
+  refuses(elsewhere, /cache: the image redis:7-alpine is of the redis repository/);
 });
