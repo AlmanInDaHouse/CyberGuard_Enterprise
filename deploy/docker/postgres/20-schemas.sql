@@ -16,6 +16,11 @@ GRANT USAGE ON SCHEMA api TO cg_api;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON DATABASE cyberguard FROM PUBLIC;
 GRANT CONNECT ON DATABASE cyberguard TO cg_ingest_owner, cg_ingest, cg_api_owner, cg_api;
+-- The image's other databases too: the runtime roles connect to `cyberguard` alone, and so
+-- create nothing elsewhere, a temporary table or a large object in `postgres` or `template1`
+-- included.
+REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;
+REVOKE CONNECT ON DATABASE template1 FROM PUBLIC;
 
 -- No runtime role creates or owns a large object (ADR-0022 §4): no privilege governs their
 -- creation, so the functions that create one are closed to PUBLIC. Nothing of CyberGuard's
