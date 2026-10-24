@@ -110,10 +110,31 @@ test("a page carries the CSP with a nonce new per response, and its scripts carr
   for (const tag of scripts) expect(tag).toContain(`nonce="${nonce}"`);
 });
 
-test.each(["/login", "/api/health", "/no-such-page"])(
+/** A static asset the login page loads, as Next serves it from `/_next/static`. */
+async function staticAsset(): Promise<string> {
+  const html = await (await fetch(`${base}/login`)).text();
+  const src = /<script[^>]* src="(\/_next\/static\/[^"]+)"/.exec(html)?.[1];
+  if (!src) throw new Error("no static script on the login page");
+  return src;
+}
+
+test("the 404 page's scripts carry its response's nonce too", async () => {
+  const res = await fetch(`${base}/no-such-page`);
+  expect(res.status).toBe(404);
+  const nonce = nonceOf(res.headers.get("content-security-policy"));
+  const scripts = [...(await res.text()).matchAll(/<script\b[^>]*>/g)].map((m) => m[0]);
+  expect(scripts.length).toBeGreaterThan(0);
+  for (const tag of scripts) expect(tag).toContain(`nonce="${nonce}"`);
+});
+
+test.each(["/login", "/api/health", "/no-such-page", "/", "static"])(
   "%s carries nosniff, the same-origin referrer policy and the permissions policy",
-  async (path) => {
+  async (which) => {
+    const path = which === "static" ? await staticAsset() : which;
     const res = await fetch(`${base}${path}`, { redirect: "manual" });
+    // The home page redirects to the incidents; the asset is served from the build.
+    if (which === "/") expect(res.status).toBe(307);
+    if (which === "static") expect(res.status).toBe(200);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("referrer-policy")).toBe("same-origin");
     expect(res.headers.get("permissions-policy")).toBe("camera=(), microphone=(), geolocation=()");

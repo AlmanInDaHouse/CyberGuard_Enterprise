@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, test } from "vitest";
-import { apiBaseUrl } from "../src/lib/api/client";
+import { apiBaseUrl, apiBaseUrlProblem } from "../src/lib/api/client";
 
 // Debt #67 (docs/handoff-session-38.md): with API_BASE_URL unset, the dashboard
 // read ingest's enroll port (8080) instead of the read API. The default is the
@@ -22,6 +22,21 @@ test("without API_BASE_URL the dashboard reads the api's default listener", asyn
   expect(url.protocol).toBe("http:");
   expect(url.hostname).toBe(api.API_BIND_HOST);
   expect(url.port).toBe(String(api.API_PORT));
+});
+
+// SPEC-023 §Data contracts §3: the start-up check's verdicts (deploy-dashboard.test.ts runs
+// the refusals through the server's start).
+test.each([
+  [undefined, null],
+  ["http://api:8081", null],
+  ["https://api.example.test", null],
+  ["", "must not be empty"],
+  ["ftp://api.example.test", "must be an http: or https: URL"],
+  ["api:8081", "must be an http: or https: URL"],
+  ["not a url", "must be an http: or https: URL"],
+  ["http://u:p@api:8081", "must not carry credentials"],
+])("API_BASE_URL=%j: %j", (value, reason) => {
+  expect(apiBaseUrlProblem({ API_BASE_URL: value })).toBe(reason);
 });
 
 test("API_BASE_URL, when set, is used as given", () => {

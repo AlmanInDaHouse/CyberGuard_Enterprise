@@ -356,6 +356,15 @@ describe("dash_ac_004 — logout", () => {
     expect(pages).toMatch(/^cgsess=/);
   });
 
+  test("a login beside an unprefixed cgsess revokes nothing first", async () => {
+    const { api, calls } = recording({ status: 401, setCookie: [], body: { error: "x" } });
+    await handleLogin(
+      login(credentials("a@b.test", "1", "x"), { cookie: "cgsess=t; cgcsrf=c" }),
+      api,
+    );
+    expect(calls.map((c) => c.path)).toEqual(["/v1/auth/login"]);
+  });
+
   test("a cookie named cgsess, without the prefix, is no session: cleared, 200, the api not called", async () => {
     const { api, calls } = recording({ status: 200, setCookie: [], body: { ok: true } });
     const res = await handleLogout(logout("cgsess=t; cgcsrf=c"), api);

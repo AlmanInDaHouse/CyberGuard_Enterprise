@@ -12,7 +12,8 @@ export interface ApiClient {
 }
 
 /** Why `API_BASE_URL` is refused (SPEC-023 §Data contracts §3): set, it is an `http:` or
- *  `https:` URL, and not the empty string. Null when it is unset or such a URL. The reason
+ *  `https:` URL, and not the empty string; one that carries credentials is refused too,
+ *  since `fetch` refuses every call to it. Null when it is unset or such a URL. The reason
  *  does not quote the value. */
 export function apiBaseUrlProblem(env: Record<string, string | undefined>): string | null {
   const value = env.API_BASE_URL;
@@ -24,9 +25,10 @@ export function apiBaseUrlProblem(env: Record<string, string | undefined>): stri
   } catch {
     return "must be an http: or https: URL";
   }
-  return url.protocol === "http:" || url.protocol === "https:"
-    ? null
-    : "must be an http: or https: URL";
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return "must be an http: or https: URL";
+  }
+  return url.username === "" && url.password === "" ? null : "must not carry credentials";
 }
 
 /** The read-API's base URL: `API_BASE_URL` when set, else the api's own default
