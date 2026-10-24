@@ -1,8 +1,14 @@
 /** The cookies the dashboard's origin holds (SPEC-009's second Amendment 2026-10-15,
  *  the dashboard's login and logout): the api's session token and its CSRF token, both
- *  `HttpOnly`, so no script of the page reads either. */
-export const SESSION_COOKIE = "cgsess";
-export const CSRF_COOKIE = "cgcsrf";
+ *  `HttpOnly`, so no script of the page reads either. Their names carry `__Host-`, so a
+ *  sibling host cannot set one the dashboard reads (SPEC-023 §Operational §7, debt #106);
+ *  the dashboard reads no other name. */
+export const SESSION_COOKIE = "__Host-cgsess";
+export const CSRF_COOKIE = "__Host-cgcsrf";
+
+/** The api's own session cookie, which the dashboard reads from the api's answer and sends
+ *  back in its calls (SPEC-023 §Operational §7). */
+export const API_SESSION_COOKIE = "cgsess";
 
 const ATTRIBUTES = "HttpOnly; Secure; SameSite=Strict; Path=/";
 
@@ -33,10 +39,10 @@ export interface CookieReader {
 }
 
 /**
- * The `Cookie` header a page sends to the read API: the session alone, and none when
- * the browser holds no session (item 6, debt #97).
+ * The `Cookie` header a page sends to the read API: the session alone, under the api's
+ * name, and none when the browser holds no session (item 6, debt #97).
  */
 export function sessionCookieHeader(store: CookieReader): string | undefined {
   const token = tokenShaped(store.get(SESSION_COOKIE)?.value);
-  return token ? `${SESSION_COOKIE}=${token}` : undefined;
+  return token ? `${API_SESSION_COOKIE}=${token}` : undefined;
 }

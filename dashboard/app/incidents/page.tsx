@@ -6,7 +6,7 @@ import { sessionCookieHeader } from "@/lib/auth/cookies";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-// Reading the cgsess cookie + the read-API makes this request-time dynamic; never
+// Reading the session cookie + the read-API makes this request-time dynamic; never
 // statically prerendered (so `next build` compiles without executing the read).
 export const dynamic = "force-dynamic";
 

@@ -1,6 +1,14 @@
 import { RequestCookies } from "next/dist/server/web/spec-extension/cookies";
 import type { AuthApi, AuthApiResponse } from "./api";
-import { CSRF_COOKIE, SESSION_COOKIE, TOKEN, clearCookie, setCookie, tokenShaped } from "./cookies";
+import {
+  API_SESSION_COOKIE,
+  CSRF_COOKIE,
+  SESSION_COOKIE,
+  TOKEN,
+  clearCookie,
+  setCookie,
+  tokenShaped,
+} from "./cookies";
 
 // SPEC-009's second Amendment 2026-10-15, the dashboard's login and logout: two route
 // handlers on the dashboard's origin that call the api server-side. Nothing here logs a
@@ -92,7 +100,7 @@ async function boundedText(req: Request, limit: number): Promise<string | null> 
   }
 }
 
-/** The browser's session and CSRF cookies, read as the pages read `cgsess` (Next's
+/** The browser's session and CSRF cookies, read as the pages read the session (Next's
  *  `cookies()` is built on `RequestCookies`), so a repeated cookie means the same
  *  session to both. */
 function browserCookies(req: Request): { session?: string; csrf?: string } {
@@ -140,7 +148,7 @@ function issuedTokens(res: AuthApiResponse): { session: string; csrf: string } |
   for (const c of res.setCookie) {
     const pair = c.split(";")[0] ?? "";
     const eq = pair.indexOf("=");
-    if (eq !== -1 && pair.slice(0, eq).trim() === SESSION_COOKIE) {
+    if (eq !== -1 && pair.slice(0, eq).trim() === API_SESSION_COOKIE) {
       session = pair.slice(eq + 1).trim();
       break;
     }
@@ -174,7 +182,7 @@ async function revoke(
 ): Promise<AuthApiResponse | null> {
   try {
     return await api.post("/v1/auth/logout", {
-      cookie: `${SESSION_COOKIE}=${session}`,
+      cookie: `${API_SESSION_COOKIE}=${session}`,
       "x-csrf-token": csrf,
       ...forwardedFor(req),
     });

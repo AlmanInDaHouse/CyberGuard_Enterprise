@@ -138,6 +138,12 @@ const tokenOf = (setCookie: string | undefined) =>
 
 const CLEARED = (name: string) => `${name}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
 
+// SPEC-023 §Operational §7 (debt #106): the browser's cookies carry the `__Host-` prefix;
+// the api's own cookie keeps the name `cgsess`.
+const SESS = "__Host-cgsess";
+const CSRF = "__Host-cgcsrf";
+const CLEARED_BOTH = { [SESS]: CLEARED(SESS), [CSRF]: CLEARED(CSRF) };
+
 describe("dash_ac_003 — login", () => {
   test("a user with a password and a confirmed TOTP signs in", async () => {
     await helpers.insertUserDirect(config, { email: "signin@dash003.test", role: "analyst" });
@@ -151,13 +157,13 @@ describe("dash_ac_003 — login", () => {
     expect(await res.json()).toEqual({ ok: true });
     expect(res.headers.get("cache-control")).toBe("no-store");
     const cookies = cookiesOf(res);
-    expect(Object.keys(cookies).sort()).toEqual(["cgcsrf", "cgsess"]);
-    for (const name of ["cgsess", "cgcsrf"]) {
+    expect(Object.keys(cookies).sort()).toEqual([CSRF, SESS]);
+    for (const name of [SESS, CSRF]) {
       expect(cookies[name]).toMatch(
         new RegExp(`^${name}=[A-Za-z0-9_-]+; HttpOnly; Secure; SameSite=Strict; Path=/$`),
       );
     }
-    expect(await read(`cgsess=${tokenOf(cookies.cgsess)}`)).toBe(200);
+    expect(await read(`cgsess=${tokenOf(cookies[SESS])}`)).toBe(200);
   });
 
   test("a wrong code answers 401 and sets no cookie", async () => {
@@ -258,13 +264,13 @@ describe("dash_ac_003 — login", () => {
     await helpers.insertUserDirect(config, { email: "again@dash003.test", role: "analyst" });
     const res = await handleLogin(
       login(credentials("again@dash003.test", helpers.currentTotp()), {
-        cookie: "cgsess=tok-dash003-old; cgcsrf=csrf-dash003-old",
+        cookie: "__Host-cgsess=tok-dash003-old; __Host-cgcsrf=csrf-dash003-old",
       }),
       realApi,
     );
     expect(res.status).toBe(200);
     expect(await read("cgsess=tok-dash003-old")).toBe(401);
-    expect(tokenOf(cookiesOf(res).cgsess)).not.toBe("tok-dash003-old");
+    expect(tokenOf(cookiesOf(res)[SESS])).not.toBe("tok-dash003-old");
   });
 
   test("cookies of another shape are no session: the login revokes nothing", async () => {
@@ -274,7 +280,7 @@ describe("dash_ac_003 — login", () => {
       body: { error: "unauthorized" },
     });
     const res = await handleLogin(
-      login(credentials("a@b.test", "1", "x"), { cookie: "cgsess=a%0Ab; cgcsrf=c" }),
+      login(credentials("a@b.test", "1", "x"), { cookie: "__Host-cgsess=a%0Ab; __Host-cgcsrf=c" }),
       api,
     );
     expect(calls.map((c) => c.path)).toEqual(["/v1/auth/login"]);
@@ -291,13 +297,13 @@ describe("dash_ac_003 — login", () => {
     });
     const res = await handleLogin(
       login(credentials("nobody@dash003.test", "000000"), {
-        cookie: "cgsess=tok-dash003-fail; cgcsrf=csrf-dash003-fail",
+        cookie: "__Host-cgsess=tok-dash003-fail; __Host-cgcsrf=csrf-dash003-fail",
       }),
       realApi,
     );
     expect(res.status).toBe(401);
     expect(await read("cgsess=tok-dash003-fail")).toBe(401);
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 });
 
@@ -309,11 +315,14 @@ describe("dash_ac_004 — logout", () => {
       role: "analyst",
       csrfToken: "csrf-dash004",
     });
-    const res = await handleLogout(logout("cgsess=tok-dash004; cgcsrf=csrf-dash004"), realApi);
+    const res = await handleLogout(
+      logout("__Host-cgsess=tok-dash004; __Host-cgcsrf=csrf-dash004"),
+      realApi,
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
     expect(await helpers.sessionExists(config, "tok-dash004")).toBe(false);
     expect(await read("cgsess=tok-dash004")).toBe(401);
   });
@@ -325,10 +334,13 @@ describe("dash_ac_004 — logout", () => {
       realApi,
     );
     expect(signedIn.status).toBe(200);
-    const session = tokenOf(cookiesOf(signedIn).cgsess) as string;
-    const csrf = tokenOf(cookiesOf(signedIn).cgcsrf) as string;
+    const session = tokenOf(cookiesOf(signedIn)[SESS]) as string;
+    const csrf = tokenOf(cookiesOf(signedIn)[CSRF]) as string;
     expect(csrf).not.toBe(session);
-    const res = await handleLogout(logout(`cgsess=${session}; cgcsrf=${csrf}`), realApi);
+    const res = await handleLogout(
+      logout(`__Host-cgsess=${session}; __Host-cgcsrf=${csrf}`),
+      realApi,
+    );
     expect(res.status).toBe(200);
     expect(await helpers.sessionExists(config, session)).toBe(false);
     expect(await read(`cgsess=${session}`)).toBe(401);
@@ -336,16 +348,29 @@ describe("dash_ac_004 — logout", () => {
 
   test("a repeated cgsess means the session the pages read", async () => {
     const { api, calls } = recording({ status: 200, setCookie: [], body: { ok: true } });
-    const header = "cgsess=first; cgcsrf=c; cgsess=second";
+    const header = "__Host-cgsess=first; __Host-cgcsrf=c; __Host-cgsess=second";
     await handleLogout(logout(header), api);
     const pages = sessionCookieHeader(new RequestCookies(new Headers({ cookie: header })));
     expect(calls[0]?.headers.cookie).toBe(pages);
+    // The api reads its own name.
+    expect(pages).toMatch(/^cgsess=/);
+  });
+
+  test("a cookie named cgsess, without the prefix, is no session: cleared, 200, the api not called", async () => {
+    const { api, calls } = recording({ status: 200, setCookie: [], body: { ok: true } });
+    const res = await handleLogout(logout("cgsess=t; cgcsrf=c"), api);
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(0);
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 
   test("a session the api no longer holds signs out with 200", async () => {
-    const res = await handleLogout(logout("cgsess=tok-dash004-gone; cgcsrf=c"), realApi);
+    const res = await handleLogout(
+      logout("__Host-cgsess=tok-dash004-gone; __Host-cgcsrf=c"),
+      realApi,
+    );
     expect(res.status).toBe(200);
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 
   test("a cgcsrf that does not match answers 502, cleared, and the session stays", async () => {
@@ -355,10 +380,13 @@ describe("dash_ac_004 — logout", () => {
       role: "analyst",
       csrfToken: "csrf-dash004-right",
     });
-    const res = await handleLogout(logout("cgsess=tok-dash004-csrf; cgcsrf=wrong"), realApi);
+    const res = await handleLogout(
+      logout("__Host-cgsess=tok-dash004-csrf; __Host-cgcsrf=wrong"),
+      realApi,
+    );
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "upstream" });
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
     expect(await helpers.sessionExists(config, "tok-dash004-csrf")).toBe(true);
   });
 
@@ -369,44 +397,44 @@ describe("dash_ac_004 — logout", () => {
     "%s still clears both cookies and answers 503",
     async (_name, answer) => {
       const { api, calls } = recording(answer);
-      const res = await handleLogout(logout("cgsess=t; cgcsrf=c"), api);
+      const res = await handleLogout(logout("__Host-cgsess=t; __Host-cgcsrf=c"), api);
       expect(calls.length).toBe(1);
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: "unavailable" });
-      expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+      expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
     },
   );
 
   test("another answer of the api is 502, and the cookies are cleared", async () => {
     const { api } = recording({ status: 500, setCookie: [], body: { error: "internal" } });
-    const res = await handleLogout(logout("cgsess=t; cgcsrf=c"), api);
+    const res = await handleLogout(logout("__Host-cgsess=t; __Host-cgcsrf=c"), api);
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "upstream" });
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 
   test("a cgsess without cgcsrf clears both and answers 503 without calling the api", async () => {
     const { api, calls } = recording({ status: 200, setCookie: [], body: { ok: true } });
-    const res = await handleLogout(logout("cgsess=t"), api);
+    const res = await handleLogout(logout("__Host-cgsess=t"), api);
     expect(calls).toEqual([]);
     expect(res.status).toBe(503);
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 
   test("a cgsess of another shape is no session: cleared, 200, the api not called", async () => {
     const { api, calls } = recording({ status: 200, setCookie: [], body: { ok: true } });
-    const res = await handleLogout(logout("cgsess=a%0Ab; cgcsrf=c"), api);
+    const res = await handleLogout(logout("__Host-cgsess=a%0Ab; __Host-cgcsrf=c"), api);
     expect(calls).toEqual([]);
     expect(res.status).toBe(200);
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 
   test("a cgcsrf of another shape is no cgcsrf: cleared, 503, the api not called", async () => {
     const { api, calls } = recording({ status: 200, setCookie: [], body: { ok: true } });
-    const res = await handleLogout(logout("cgsess=t; cgcsrf=c%24"), api);
+    const res = await handleLogout(logout("__Host-cgsess=t; __Host-cgcsrf=c%24"), api);
     expect(calls).toEqual([]);
     expect(res.status).toBe(503);
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 
   test("no cgsess clears both and answers 200 without calling the api", async () => {
@@ -414,6 +442,6 @@ describe("dash_ac_004 — logout", () => {
     const res = await handleLogout(logout(), api);
     expect(calls).toEqual([]);
     expect(res.status).toBe(200);
-    expect(cookiesOf(res)).toEqual({ cgsess: CLEARED("cgsess"), cgcsrf: CLEARED("cgcsrf") });
+    expect(cookiesOf(res)).toEqual(CLEARED_BOTH);
   });
 });

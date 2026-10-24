@@ -29,7 +29,7 @@ function request(path: "login" | "logout", headers: Record<string, string>): Req
       origin: "https://soc.example",
       host: "soc.example",
       "content-type": "application/json",
-      cookie: "cgsess=held; cgcsrf=held-csrf",
+      cookie: "__Host-cgsess=held; __Host-cgcsrf=held-csrf",
       ...headers,
     },
     body:

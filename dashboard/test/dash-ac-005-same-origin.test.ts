@@ -33,7 +33,7 @@ function request(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      cookie: "cgsess=held; cgcsrf=held-csrf",
+      cookie: "__Host-cgsess=held; __Host-cgcsrf=held-csrf",
       ...headers,
     },
     body,

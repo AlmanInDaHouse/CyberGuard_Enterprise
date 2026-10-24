@@ -6,7 +6,8 @@ import IncidentDetailPage from "../app/incidents/[id]/page";
 import IncidentsPage from "../app/incidents/page";
 
 // dash_ac_007 and dash_ac_008, at the pages themselves — SPEC-009's second Amendment
-// 2026-10-15, items 6 and 7: the incident pages read with `Cookie: cgsess=<token>` and
+// 2026-10-15, items 6 and 7: the incident pages read with `Cookie: cgsess=<token>` (the
+// browser's `__Host-cgsess` under the api's name, SPEC-023 §Operational §7) and
 // no other cookie, with no Cookie header without a session, and carry the sign-out
 // button. Next's `cookies()` is the browser's cookies; `fetch` is the read API.
 
@@ -69,7 +70,7 @@ const PAGES = [
 ] as const;
 
 test.each(PAGES)("%s reads with the session alone and shows sign-out", async (_n, page, body) => {
-  jar.header = "theme=dark; cgsess=tok-pages; cgcsrf=csrf-pages";
+  jar.header = "theme=dark; __Host-cgsess=tok-pages; __Host-cgcsrf=csrf-pages";
   answer(200, body);
   render(await page());
   expect(cookieSent()).toBe("cgsess=tok-pages");
@@ -77,14 +78,14 @@ test.each(PAGES)("%s reads with the session alone and shows sign-out", async (_n
 });
 
 test.each(PAGES)("%s reads a cgsess of another shape as no session", async (_n, page) => {
-  jar.header = "cgsess=a%0Ab; cgcsrf=csrf-pages";
+  jar.header = "__Host-cgsess=a%0Ab; __Host-cgcsrf=csrf-pages";
   answer(401);
   await expect(page()).rejects.toThrow("redirect /login");
   expect(cookieSent()).toBeNull();
 });
 
 test.each(PAGES)("%s sends no Cookie header without a session", async (_n, page) => {
-  jar.header = "theme=dark; cgcsrf=csrf-pages";
+  jar.header = "theme=dark; __Host-cgcsrf=csrf-pages";
   answer(401);
   await expect(page()).rejects.toThrow("redirect /login");
   expect(cookieSent()).toBeNull();
