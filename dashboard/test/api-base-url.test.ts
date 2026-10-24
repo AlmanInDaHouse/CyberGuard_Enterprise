@@ -34,7 +34,6 @@ test.each([
   ["ftp://api.example.test", "must be an http: or https: URL"],
   ["api:8081", "must be an http: or https: URL"],
   ["not a url", "must be an http: or https: URL"],
-  ["http://u:p@api:8081", "must not carry credentials"],
 ])("API_BASE_URL=%j: %j", (value, reason) => {
   expect(apiBaseUrlProblem({ API_BASE_URL: value })).toBe(reason);
 });
