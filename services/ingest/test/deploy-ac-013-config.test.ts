@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import { type Config, loadConfig } from "../src/config.js";
 import { startIngest } from "../src/server.js";
+import { relayPki } from "./helpers/tls-cert.js";
 
 // deploy_ac_013 — SPEC-023 §Operational §2 and §Data contracts §3, ingest's half: the
 // start-up entry point refuses a malformed value with one line that names the variable,
@@ -260,6 +261,58 @@ test("INGEST_ENROLL_TLS defaults to true, and false is taken", () => {
 
 test.each([["yes"], ["TRUE"], [""]])("INGEST_ENROLL_TLS=%j is refused", (value) => {
   expectRefused({ ...validEnv(), INGEST_ENROLL_TLS: value }, "INGEST_ENROLL_TLS");
+});
+
+// SPEC-023 §Data contracts §3 (debt #78): INGEST_SMTP_CA_FILE, the empty string unset, else
+// a readable file holding at least one PEM certificate.
+test("an INGEST_SMTP_CA_FILE that names no file, or a file without a certificate, is refused", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cg-ca-file-"));
+  try {
+    const noCert = join(dir, "no-cert.pem");
+    writeFileSync(noCert, "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n");
+    expectRefused(
+      { ...validEnv(), INGEST_SMTP_CA_FILE: join(dir, "absent.pem") },
+      "INGEST_SMTP_CA_FILE",
+    );
+    expectRefused({ ...validEnv(), INGEST_SMTP_CA_FILE: noCert }, "INGEST_SMTP_CA_FILE");
+    expectRefused({ ...validEnv(), INGEST_SMTP_CA_FILE: dir }, "INGEST_SMTP_CA_FILE");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an empty INGEST_SMTP_CA_FILE counts as unset", () => {
+  expect(
+    loadConfig({ ...validEnv(), INGEST_SMTP_CA_FILE: "" }).INGEST_SMTP_CA_FILE,
+  ).toBeUndefined();
+});
+
+test("a CA file whose first certificate parses is taken; one whose first does not is refused", async () => {
+  const { caPem } = await relayPki();
+  const dir = mkdtempSync(join(tmpdir(), "cg-ca-file-"));
+  try {
+    const good = join(dir, "ca.pem");
+    writeFileSync(good, `issued for the test\n${caPem}`);
+    expect(loadConfig({ ...validEnv(), INGEST_SMTP_CA_FILE: good }).INGEST_SMTP_CA_FILE).toBe(good);
+    // Node stops loading at the corrupt block: the good one after it would not be trusted.
+    const corrupt = join(dir, "corrupt-first.pem");
+    writeFileSync(
+      corrupt,
+      `-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n${caPem}`,
+    );
+    expectRefused({ ...validEnv(), INGEST_SMTP_CA_FILE: corrupt }, "INGEST_SMTP_CA_FILE");
+    // A corrupt block after a good one: Node loads the good one, and so does the check.
+    const corruptLast = join(dir, "corrupt-last.pem");
+    writeFileSync(
+      corruptLast,
+      `${caPem}-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n`,
+    );
+    expect(
+      loadConfig({ ...validEnv(), INGEST_SMTP_CA_FILE: corruptLast }).INGEST_SMTP_CA_FILE,
+    ).toBe(corruptLast);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // A retention out of bounds stops ingest (deploy_ac_011, SPEC-023 §Data contracts §3).

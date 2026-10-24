@@ -1,4 +1,5 @@
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { X509Certificate } from "node:crypto";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isIP } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,6 +128,30 @@ function canonicalServerName(name: string): string {
   return isIP(name) === 6 ? new URL(`http://[${name}]/`).hostname.slice(1, -1) : name;
 }
 
+/** A PEM certificate block. */
+const PEM_CERTIFICATE = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
+
+/** Why a CA file is refused, or null when it is a readable file holding at least one PEM
+ *  certificate Node loads (SPEC-023 §Data contracts §3): Node loads a CA file up to its
+ *  first block that does not parse, so the first certificate block must; a corrupt one
+ *  before a good one would leave the send trusting nothing. The reasons name no path. */
+function caFileProblem(path: string): string | null {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return "must name a readable file";
+  }
+  const first = text.match(PEM_CERTIFICATE)?.[0];
+  if (first === undefined) return "must hold at least one PEM certificate";
+  try {
+    new X509Certificate(first);
+  } catch {
+    return "must hold at least one PEM certificate";
+  }
+  return null;
+}
+
 /** Whether two paths name one file: one canonical path, or one file on disk (a hard link). */
 function sameFile(a: string, b: string): boolean {
   if (canonicalPath(a) === canonicalPath(b)) return true;
@@ -246,6 +271,19 @@ const Fields = z.object({
   INGEST_SMTP_PASS: optionalSecret(),
   INGEST_SMTP_FROM: optionalSecret(),
   INGEST_NOTIFY_RECIPIENT: optionalSecret(),
+  // SPEC-023 §Data contracts §3 (debt #78): the relay's private CA, whose certificates the
+  // send trusts for the relay instead of Node's roots; the empty string counts as unset.
+  INGEST_SMTP_CA_FILE: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .optional()
+      .superRefine((path, ctx) => {
+        if (path === undefined) return;
+        const reason = caFileProblem(path);
+        if (reason) ctx.addIssue({ code: z.ZodIssueCode.custom, message: reason });
+      }),
+  ),
 });
 
 const EnvSchema = Fields.superRefine((cfg, ctx) => {

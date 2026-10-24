@@ -306,7 +306,10 @@ test("a server that names no mechanism the send uses gets the message over TLS w
   }
 });
 
-test("a relay whose certificate the send cannot verify gets no credentials: ESOCKET", async () => {
+// SPEC-023 §Operational §14 (debt #78), amending this case by scope: the send fails with
+// the certificate's verification code, which points the operator to the remedy, where
+// SPEC-022's Amendment 2026-10-15 recorded ESOCKET.
+test("a relay whose certificate the send cannot verify gets no credentials: the verification's code", async () => {
   const cert = await loopbackCert();
   const smtp = await fakeSmtp({ offerAuth: true, starttls: cert });
   try {
@@ -317,7 +320,8 @@ test("a relay whose certificate the send cannot verify gets no credentials: ESOC
         () => null,
         (e: unknown) => e,
       );
-    expect((err as { code?: unknown } | null)?.code).toBe("ESOCKET");
+    // The test's certificate is self-signed, and no root given trusts it.
+    expect((err as { code?: unknown } | null)?.code).toBe("DEPTH_ZERO_SELF_SIGNED_CERT");
     expect(smtp.commands.filter((c) => /^(AUTH|MAIL)/i.test(c))).toEqual([]);
   } finally {
     await smtp.close();
@@ -505,6 +509,20 @@ test("a run whose server closes the connection records a failure, not a timeout"
     expect(execution?.steps.map((s) => [s.step_id, s.outcome, s.detail])).toEqual([
       ["notify", "failed", "send failed: ECONNECTION"],
     ]);
+  } finally {
+    await smtp.close();
+  }
+});
+
+test("a run whose relay's certificate fails verification records the verification's code", async () => {
+  const smtp = await fakeSmtp({ offerAuth: true, starttls: await loopbackCert() });
+  try {
+    const execution = await runOneEmailAgainst("soar-ac-006-unverified", smtp.port);
+    expect(execution?.status).toBe("failed");
+    expect(execution?.steps.map((s) => [s.step_id, s.outcome, s.detail])).toEqual([
+      ["notify", "failed", "send failed: DEPTH_ZERO_SELF_SIGNED_CERT"],
+    ]);
+    expect(smtp.commands.filter((c) => /^(AUTH|MAIL)/i.test(c))).toEqual([]);
   } finally {
     await smtp.close();
   }

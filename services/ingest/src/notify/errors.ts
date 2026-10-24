@@ -13,7 +13,8 @@ export function sendFailureCode(err: unknown): string {
   if (err === null || typeof err !== "object") return "unknown";
   const { code, responseCode } = err as { code?: unknown; responseCode?: unknown };
   const parts: string[] = [];
-  if (typeof code === "string" && /^[A-Z0-9_]{1,32}$/.test(code)) parts.push(code);
+  // 40: the longest certificate verification code is 34 (SPEC-023 §Operational §14).
+  if (typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code)) parts.push(code);
   if (typeof responseCode === "number" && Number.isInteger(responseCode)) {
     parts.push(String(responseCode));
   }

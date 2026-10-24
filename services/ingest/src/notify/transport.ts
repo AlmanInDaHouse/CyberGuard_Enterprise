@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { pino } from "pino";
 import type { Config } from "../config.js";
 import { type SmtpServer, createBoundedSmtpMailer } from "./bounded-send.js";
@@ -19,8 +20,10 @@ import type { NotifyConfig } from "./index.js";
  * this). Constructed once per process,
  * mirroring api's `forensicKey` (ADR-0017 §Decision §2).
  *
- * `options.tls` gives the send trusted roots for the relay's certificate; only the
- * tests pass it, so in production Node's roots apply (SPEC-022 Amendment 2026-10-15).
+ * The send trusts, for the relay's certificate, the certificates of `INGEST_SMTP_CA_FILE`
+ * when it is set, and Node's roots otherwise (SPEC-023 §Operational §14, debt #78;
+ * SPEC-022 Amendment 2026-10-15). `options.tls`, which only the tests pass, takes the
+ * place of both.
  */
 export function buildNotifyConfig(
   config: Config,
@@ -45,12 +48,15 @@ export function buildNotifyConfig(
 
   // Generic SMTP (ADR-0017 §Decision §1) — Gmail is reached as one SMTP host
   // (smtp.gmail.com) among many, never the Gmail REST API / OAuth.
+  const caFile = config.INGEST_SMTP_CA_FILE;
+  const tls =
+    options.tls ?? (caFile === undefined ? undefined : { ca: readFileSync(caFile, "utf8") });
   const mailer = createBoundedSmtpMailer({
     host,
     port,
     user,
     pass,
-    ...(options.tls === undefined ? {} : { tls: options.tls }),
+    ...(tls === undefined ? {} : { tls }),
   });
   const log = pino({ name: "ingest-notify", level: config.INGEST_LOG_LEVEL });
 

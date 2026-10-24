@@ -54,3 +54,57 @@ async function make(): Promise<LoopbackCert> {
     cert: cert.toString("pem"),
   };
 }
+
+export interface RelayPki {
+  /** The CA's certificate, PEM: the file INGEST_SMTP_CA_FILE names. */
+  caPem: string;
+  /** The relay's key and certificate, the CA's issue for 127.0.0.1. */
+  relay: LoopbackCert;
+}
+
+/** A private CA and a relay certificate it issued, for `ip` (127.0.0.1 by default)
+ *  (SPEC-023 deploy_ac_018). */
+export async function relayPki(opts: { ip?: string } = {}): Promise<RelayPki> {
+  const caKeys = await globalThis.crypto.subtle.generateKey(ALG, true, ["sign", "verify"]);
+  const ca = await x509.X509CertificateGenerator.createSelfSigned({
+    serialNumber: "0a",
+    name: "CN=Relay Test CA",
+    notBefore: new Date(Date.now() - 60_000),
+    notAfter: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    signingAlgorithm: ALG,
+    keys: caKeys,
+    extensions: [
+      new x509.BasicConstraintsExtension(true, undefined, true),
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.keyCertSign, true),
+    ],
+  });
+  const keys = await globalThis.crypto.subtle.generateKey(ALG, true, ["sign", "verify"]);
+  const leaf = await x509.X509CertificateGenerator.create({
+    serialNumber: "0b",
+    subject: "CN=127.0.0.1",
+    issuer: ca.subject,
+    notBefore: new Date(Date.now() - 60_000),
+    notAfter: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    signingAlgorithm: ALG,
+    publicKey: keys.publicKey,
+    signingKey: caKeys.privateKey,
+    extensions: [
+      new x509.BasicConstraintsExtension(false, undefined, true),
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
+      new x509.ExtendedKeyUsageExtension([x509.ExtendedKeyUsage.serverAuth]),
+      new x509.SubjectAlternativeNameExtension([{ type: "ip", value: opts.ip ?? "127.0.0.1" }]),
+    ],
+  });
+  const der = await globalThis.crypto.subtle.exportKey("pkcs8", keys.privateKey);
+  const lines =
+    Buffer.from(new Uint8Array(der))
+      .toString("base64")
+      .match(/.{1,64}/g) ?? [];
+  return {
+    caPem: ca.toString("pem"),
+    relay: {
+      key: `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----\n`,
+      cert: leaf.toString("pem"),
+    },
+  };
+}

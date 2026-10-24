@@ -65,14 +65,60 @@ export const SEND_CLOSED_CODE = "ECONNECTION";
 /** The code of a send refused because the server asks for credentials without TLS. */
 export const SEND_NO_TLS_CODE = "ENOTLS";
 
+/**
+ * Node's codes for a certificate its TLS client did not verify, those a send that checks
+ * no revocation list can meet: the X509_V_ERR names Node gives, `UNSPECIFIED` for the
+ * errors it has no name for (a signature digest too weak, a key too small), and the name
+ * check's. A send that fails for one of them
+ * fails with it, not with nodemailer's ESOCKET, which keeps it as `originalCode`: the
+ * code points the operator to the remedy, the relay's CA (SPEC-023 §Operational §14,
+ * debt #78).
+ */
+const CERT_VERIFY_CODES: ReadonlySet<string> = new Set([
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_DECRYPT_CERT_SIGNATURE",
+  "UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY",
+  "CERT_SIGNATURE_FAILURE",
+  "CERT_NOT_YET_VALID",
+  "CERT_HAS_EXPIRED",
+  "ERROR_IN_CERT_NOT_BEFORE_FIELD",
+  "ERROR_IN_CERT_NOT_AFTER_FIELD",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "CERT_CHAIN_TOO_LONG",
+  "CERT_REVOKED",
+  "INVALID_CA",
+  "PATH_LENGTH_EXCEEDED",
+  "INVALID_PURPOSE",
+  "CERT_UNTRUSTED",
+  "CERT_REJECTED",
+  "UNSPECIFIED",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
+/** A connection error whose cause is the relay's certificate, with its verification's code. */
+export function withVerificationCode(err: Error): Error {
+  const e = err as { code?: unknown; originalCode?: unknown };
+  if (
+    e.code === "ESOCKET" &&
+    typeof e.originalCode === "string" &&
+    CERT_VERIFY_CODES.has(e.originalCode)
+  ) {
+    e.code = e.originalCode;
+  }
+  return err;
+}
+
 export interface SmtpServer {
   host: string;
   port: number;
   user: string;
   pass: string;
   /**
-   * Trusted roots for the relay's certificate, passed by the tests only. Absent in
-   * production, so Node's roots apply (an empty list would replace them with none).
+   * Trusted roots for the relay's certificate: INGEST_SMTP_CA_FILE's certificates, or the
+   * tests'. Absent, Node's roots apply (an empty list would replace them with none).
    */
   tls?: { ca: string | string[] };
 }
@@ -147,7 +193,7 @@ export function createBoundedSmtpMailer(server: SmtpServer): NotifyMailer {
             }),
           );
         }, timeoutMs);
-        connection.once("error", (err) => finish(err));
+        connection.once("error", (err) => finish(withVerificationCode(err)));
         // nodemailer ends a connection the server closed before its greeting without
         // an error; a send still open at that point has failed.
         connection.once("end", () =>
