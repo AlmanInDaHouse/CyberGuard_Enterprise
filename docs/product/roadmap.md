@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-44.md](../handoff-session-44.md)).
+([handoff-session-45.md](../handoff-session-45.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -367,7 +367,13 @@ This dependency-ordered document supersedes both for planning.
   deployment-contract points of Part (b) §2–§4 under Manuel's delegation.
   F1's code is in progress: its first change, the dev stack and the test
   backends on Valkey (deploy_ac_022), landed as `1fb731f`..`27764bf`
-  (`docs/handoff-session-44.md`). The phase is four SPECs, in this order:
+  (`docs/handoff-session-44.md`); in S45 the start-up checks, `/health`
+  and the commands, the Postgres schemas and roles, the retention's TTL,
+  enrollment over TLS (under the elevated gate), the dashboard's headers,
+  cookies and health route, and the relay's CA, `0cfa4df`..`f397129`
+  (`docs/handoff-session-45.md`). F1's images, bundle, release,
+  `docs/operations/` and compose stubs remain. The phase is four SPECs, in
+  this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
     images and the release, the forensic anchor, retention);
@@ -385,7 +391,7 @@ This dependency-ordered document supersedes both for planning.
   TLS/CA provisioning, published images, and dashboard in compose. Today
   only the dev stack exists (`infra/dev/docker-compose.dev.yml`, "not for
   production"); root `docker-compose.yml` is `services: {}`; `deploy/` is
-  READMEs.
+  READMEs and the Postgres initialisation (`deploy/docker/postgres/`, S45).
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
 - Blocked by: nothing since 2026-10-23. The deployment-contract decisions
   of Part (b), the compose's location (#12) and the forensic trust
