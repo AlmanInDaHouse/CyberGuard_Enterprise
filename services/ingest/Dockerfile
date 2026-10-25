@@ -1,12 +1,13 @@
-# syntax=docker/dockerfile:1
-# CyberGuard ingest service (SPEC-004). Multi-stage; Node 22 LTS alpine.
+# CyberGuard ingest service (SPEC-004; the image of SPEC-023 §Data contracts §2).
+# Multi-stage; Node 22 LTS alpine, pinned by digest.
 #
-# BUILD CONTEXT = repo ROOT (see infra/dev/docker-compose.dev.yml). The pnpm
-# workspace lockfile (pnpm-lock.yaml), the workspace manifest (pnpm-workspace.yaml)
-# and the detection rules (rules/, ADR-0012 driver) all live at the repo root,
-# OUTSIDE services/ingest — so a services/ingest-scoped context cannot reach them.
+# BUILD CONTEXT = repo ROOT (see infra/dev/docker-compose.dev.yml and deploy-ci.yml). The
+# pnpm workspace lockfile (pnpm-lock.yaml), the workspace manifest (pnpm-workspace.yaml),
+# the detection rules (rules/, ADR-0012 driver), the playbooks and LICENSE/NOTICE all live
+# at the repo root, OUTSIDE services/ingest — so a services/ingest-scoped context cannot
+# reach them.
 
-FROM node:22-alpine AS build
+FROM node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS build
 WORKDIR /repo
 RUN corepack enable
 # Resolve the ingest package's dependency closure from the workspace lockfile.
@@ -19,9 +20,17 @@ COPY services/ingest services/ingest
 RUN pnpm --filter @cyberguard/ingest run build \
  && pnpm --filter @cyberguard/ingest deploy --legacy --prod /deploy
 
-FROM node:22-alpine AS runtime
+FROM node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
+ARG CG_VERSION=dev
+ARG CG_REVISION=unknown
+LABEL org.opencontainers.image.source="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
+      org.opencontainers.image.revision="${CG_REVISION}" \
+      org.opencontainers.image.version="${CG_VERSION}" \
+      org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app
 ENV NODE_ENV=production
+# Everything under /app is owned by root and not writable by the process (uid 1000): the
+# code, the dependencies, the rules and the playbooks (debt #109).
 COPY --from=build /deploy/package.json ./package.json
 COPY --from=build /deploy/node_modules ./node_modules
 # dist comes straight from tsc's flat output (tsconfig.build.json,
@@ -37,7 +46,16 @@ COPY rules ./rules
 # compiles (<cwd>/schemas/playbooks/v0.1/playbook.json) resolve in the image.
 COPY playbooks ./playbooks
 COPY schemas/playbooks ./schemas/playbooks
+COPY LICENSE NOTICE /usr/share/doc/cyberguard/
+# /app/playbooks-none: an empty directory that leaves SOAR idle (CG_SOAR_PLAYBOOKS_DIR,
+# ADR-0021). /certs: owned by the process, so that a new named volume mounted there takes
+# that ownership and ingest can write its server certificate pair into it.
+RUN mkdir /app/playbooks-none /certs \
+ && chown 1000:1000 /certs
+USER node
 EXPOSE 8080 8443
-# Runs as root in the dev image so it can write the self-generated server TLS
-# identity to the /certs volume; non-root hardening is a deploy concern.
+# GET /health on the enrollment listener, over TLS without verifying the certificate
+# (SPEC-023 §Data contracts §2). A stack that sets INGEST_ENROLL_TLS=false sets its own.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s --retries=3 \
+  CMD ["node", "-e", "require('https').get({host:'127.0.0.1',port:Number(process.env.INGEST_ENROLL_PORT||8080),path:'/health',rejectUnauthorized:false,timeout:4000},(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
 CMD ["node", "dist/index.js"]

@@ -7,14 +7,23 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 // SPEC-023 §Operational §7 and deploy_ac_013's dashboard half, against the dashboard's
-// start-up entry point (`next start` over the build, which the gate and ts-ci run first):
+// start-up entry point, the standalone server its image runs (`output: "standalone"`,
+// SPEC-023 §Data contracts §2), over the build that the gate and ts-ci run first; a Windows
+// checkout builds without the standalone output (next.config.mjs) and starts `next start`:
 // every response carries the security headers, the CSP with a nonce new per response that
 // the page's scripts carry; `GET /api/health` answers `200 { "status": "ok" }`; the
 // dashboard refuses an empty `API_BASE_URL` and one that is not `http:` or `https:`, with
 // one line, exit 1. deploy_ac_008 asserts the same through the proxy, in the bundle.
 
 const DASHBOARD_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+/** The standalone server. The tracing root is the repository's, so it sits under `dashboard/`. */
+const SERVER_JS = join(DASHBOARD_DIR, ".next", "standalone", "dashboard", "server.js");
 const NEXT_BIN = join(DASHBOARD_DIR, "node_modules", "next", "dist", "bin", "next");
+const WINDOWS = process.platform === "win32";
+/** The start-up command on `port`: the standalone server, which reads PORT and HOSTNAME, or
+ *  `next start` on Windows, which reads its flags and not HOSTNAME. */
+const startCommand = (port: number) =>
+  WINDOWS ? [NEXT_BIN, "start", "-p", String(port), "-H", "127.0.0.1"] : [SERVER_JS];
 const LINE = /^cg-dashboard: fatal: invalid configuration: API_BASE_URL: [^\n]+$/;
 
 const CSP_WITHOUT_NONCE = [
@@ -40,14 +49,16 @@ function freePort(): Promise<number> {
   });
 }
 
-/** The environment of a start: this process's, without its API_BASE_URL. */
-function baseEnv(): NodeJS.ProcessEnv {
+/** The environment of a start on `port`: this process's, without its API_BASE_URL. */
+function baseEnv(port: number): NodeJS.ProcessEnv {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && name !== "API_BASE_URL") env[name] = value;
   }
   env.NODE_ENV = "production";
   env.NEXT_TELEMETRY_DISABLED = "1";
+  env.PORT = String(port);
+  env.HOSTNAME = "127.0.0.1";
   return env as NodeJS.ProcessEnv;
 }
 
@@ -55,14 +66,14 @@ let server: ChildProcess | undefined;
 let base = "";
 
 beforeAll(async () => {
-  if (!existsSync(join(DASHBOARD_DIR, ".next", "BUILD_ID"))) {
+  if (!existsSync(WINDOWS ? join(DASHBOARD_DIR, ".next", "BUILD_ID") : SERVER_JS)) {
     throw new Error("the dashboard is not built: run `pnpm run build` first");
   }
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, [NEXT_BIN, "start", "-p", String(port), "-H", "127.0.0.1"], {
+  server = spawn(process.execPath, startCommand(port), {
     cwd: DASHBOARD_DIR,
-    env: { ...baseEnv(), API_BASE_URL: "http://127.0.0.1:9" },
+    env: { ...baseEnv(port), API_BASE_URL: "http://127.0.0.1:9" },
     stdio: "ignore",
   });
   const start = Date.now();
@@ -149,16 +160,12 @@ test.each([
   ["127.0.0.1:8081", "a host and port without a scheme"],
 ])("API_BASE_URL=%j (%s) stops the dashboard with one line", async (value) => {
   const port = await freePort();
-  const r = spawnSync(
-    process.execPath,
-    [NEXT_BIN, "start", "-p", String(port), "-H", "127.0.0.1"],
-    {
-      cwd: DASHBOARD_DIR,
-      env: { ...baseEnv(), API_BASE_URL: value },
-      encoding: "utf8",
-      timeout: 60_000,
-    },
-  );
+  const r = spawnSync(process.execPath, startCommand(port), {
+    cwd: DASHBOARD_DIR,
+    env: { ...baseEnv(port), API_BASE_URL: value },
+    encoding: "utf8",
+    timeout: 60_000,
+  });
   expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(1);
   const lines = r.stderr.trim().split(/\r?\n/);
   expect(lines, r.stderr).toHaveLength(1);

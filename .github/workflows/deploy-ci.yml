@@ -1,0 +1,70 @@
+name: deploy-ci
+
+# SPEC-023 §Operational §12: on a pull request that touches the deployment or what its
+# images are built from, build the four product images from the commit and run
+# deploy/docker/test/ against them (deploy_ac_019's image half, with deploy_ac_001's clause on
+# the Dockerfiles). It pushes nothing. It also runs every Monday on main, and on demand, so
+# that a change outside the repository that breaks the build shows (the runner's Docker,
+# a registry or a package that stops serving a pinned version). Its third-party actions are
+# pinned by commit SHA, the release they point to in the comment.
+on:
+  pull_request:
+    paths:
+      - "deploy/**"
+      - "docs/operations/**"
+      - "services/**"
+      - "dashboard/**"
+      - "agent/**"
+      - "rules/**"
+      - "playbooks/**"
+      - "schemas/playbooks/**"
+      - "LICENSE"
+      - "NOTICE"
+      - ".dockerignore"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/deploy-ci.yml"
+  schedule:
+    # Mondays, 06:41 UTC
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: The four images, built from the commit and checked
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          # The root package.json declares pnpm, which setup-node's cache would
+          # resolve before corepack exists; this job installs nothing.
+          package-manager-cache: false
+
+      - name: Build the images
+        run: |
+          set -eu
+          build() {
+            docker build --build-arg CG_VERSION=0.0.0-ci --build-arg CG_REVISION="$GITHUB_SHA" \
+              -f "$2" -t "cyberguard-$1:test" .
+          }
+          build ingest services/ingest/Dockerfile
+          build api services/api/Dockerfile
+          build dashboard dashboard/Dockerfile
+          build proxy deploy/docker/proxy/Dockerfile
+
+      - name: Run deploy/docker/test against them
+        env:
+          CG_TEST_REVISION: ${{ github.sha }}
+        run: node --test "deploy/docker/test/*.test.mjs"

@@ -60,7 +60,7 @@ tasks:
       - sh: 'test -f infra/dev/.env'
         msg: "infra/dev/.env not found. Run: cp infra/dev/.env.example infra/dev/.env"
     cmds:
-      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env up -d --remove-orphans
+      - docker compose -f infra/dev/docker-compose.dev.yml --env-file infra/dev/.env up -d --build --remove-orphans
 
   dev:down:
     desc: "Stop and remove dev containers. Named volumes are preserved; use dev:reset-data for a clean slate."

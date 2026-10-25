@@ -11,6 +11,11 @@ const nextConfig = {
   // The repo is a pnpm workspace; pin the file-tracing root to the monorepo root so
   // Next does not mis-infer it from an unrelated lockfile elsewhere on the machine.
   outputFileTracingRoot: repoRoot,
+  // The image runs Next's standalone server (SPEC-023 §Data contracts §2); with the tracing
+  // root above it is .next/standalone/dashboard/server.js. Its tree links the pnpm store
+  // with symbolic links, which Windows refuses to an unprivileged process, so a Windows
+  // checkout builds without it; the image and CI build on Linux.
+  output: process.platform === "win32" ? undefined : "standalone",
 };
 
 export default nextConfig;

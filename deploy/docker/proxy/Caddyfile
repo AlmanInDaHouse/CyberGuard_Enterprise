@@ -1,0 +1,48 @@
+# CyberGuard proxy (SPEC-023 §Operational §5). The compose sets CG_DASHBOARD_HOSTNAME,
+# CG_TLS_MODE (provided or internal) and CG_HTTPS_PORT in the proxy's environment; Caddy
+# substitutes them when it reads this file.
+{
+	# No admin endpoint: the configuration is this file, read at start.
+	admin off
+	# The proxy listens on 8443 and 8080 inside its container; the redirect is the site below.
+	http_port 8080
+	https_port 8443
+	auto_https disable_redirects
+	# In internal mode, do not try to install the internal CA's root in the container's trust.
+	skip_install_trust
+	# HTTP/1.1 and HTTP/2 alone: no HTTP/3, which would listen on UDP and advertise the
+	# container's port rather than the published one.
+	servers {
+		protocols h1 h2
+	}
+}
+
+(tls-provided) {
+	tls /etc/caddy/tls/dashboard.crt /etc/caddy/tls/dashboard.key
+}
+
+(tls-internal) {
+	tls internal
+}
+
+https://{$CG_DASHBOARD_HOSTNAME}:8443 {
+	# A mode other than provided or internal names no snippet, and Caddy refuses to start.
+	import tls-{$CG_TLS_MODE}
+	header Strict-Transport-Security "max-age=31536000"
+	# Caddy's defaults, with no trusted_proxies: a client's X-Forwarded-* headers are not
+	# trusted; X-Forwarded-For is set to the proxy's peer, Host passed unchanged,
+	# X-Forwarded-Host set to it and X-Forwarded-Proto to https. The image pins Caddy by
+	# digest (SPEC-023 deploy_ac_008).
+	reverse_proxy dashboard:3000
+	log {
+		output stdout
+	}
+}
+
+# Any host on the HTTP port: to the dashboard's hostname on the published HTTPS port.
+http://:8080 {
+	redir https://{$CG_DASHBOARD_HOSTNAME}:{$CG_HTTPS_PORT}{uri} 308
+	log {
+		output stdout
+	}
+}

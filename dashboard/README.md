@@ -30,3 +30,7 @@ Expected views (per MVP scope):
 - `middleware.ts` sets on every response a Content Security Policy with a nonce new per response, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and a `Permissions-Policy`; `next dev` sets no CSP. Every page renders at request time (`app/layout.tsx`), so Next puts the nonce on its scripts (SPEC-023 §Operational §7).
 - The browser's cookies are `__Host-cgsess` and `__Host-cgcsrf`; the api's own session cookie keeps the name `cgsess`, which the dashboard sends it.
 - `GET /api/health` answers `200 { "status": "ok" }`, calling nothing.
+
+## Image
+
+`dashboard/Dockerfile` builds `cyberguard-dashboard` from the repository's root: Next's standalone server (`output: "standalone"` in `next.config.mjs`), run as uid 1000 with `NEXT_TELEMETRY_DISABLED=1`, listening on `PORT` (3000) of `HOSTNAME` (`0.0.0.0`), its health check `GET /api/health` (SPEC-023 §Data contracts §2). `pnpm run build` copies the static assets beside the standalone server (`scripts/standalone-assets.mjs`). A Windows checkout builds without the standalone output, whose tree is made of symbolic links that Windows refuses to an unprivileged process; there the start-up test runs `next start`, and the image, built on Linux, runs the standalone server.
