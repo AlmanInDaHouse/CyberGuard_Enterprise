@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createClient } from "@clickhouse/client";
 import { Kysely, type Migration, type MigrationProvider, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
-import { type Config, ConfigError, loadConfigFor } from "../config.js";
+import { type Config, loadConfigFor } from "../config.js";
 import { isMain } from "../is-main.js";
 import { watchPool } from "../store-events.js";
 import { bootstrapClickHouseTables } from "./clickhouse-bootstrap.js";
@@ -52,10 +52,41 @@ export const MIGRATE_VARIABLES = [
 ] as const;
 export type MigrateConfig = Pick<Config, (typeof MIGRATE_VARIABLES)[number]>;
 
+/** How long the one-shot's command waits for the advisory lock before it fails (SPEC-023
+ *  §Data contracts §4, its Amendment 2026-10-25; debt #122). */
+export const MIGRATION_LOCK_WAIT_MS = 300_000;
+
 /** How a run takes the advisory lock: the service skips when another process holds it; the
- *  one-shot's command waits for it (SPEC-023 §Data contracts §4). */
+ *  one-shot's command waits for it (SPEC-023 §Data contracts §4), up to `waitMs`
+ *  (MIGRATION_LOCK_WAIT_MS unless given), and then fails. A role refused the lock function
+ *  (the bundle's runtime roles, SPEC-023 Amendment 2026-10-25, item 2) fails either way. */
 export interface MigrateOptions {
   wait?: boolean;
+  waitMs?: number;
+}
+
+/**
+ * Takes the migration lock on `lock`, waiting up to `waitMs`: the bound is the connection's
+ * lock_timeout for that statement alone, so a migration's own statements are not bounded by
+ * it. A lock still held when it runs out fails the run, naming the lock.
+ */
+async function waitForLock(lock: pg.PoolClient, waitMs: number): Promise<void> {
+  const ms = Math.max(1, Math.trunc(waitMs));
+  await lock.query(`SET lock_timeout = ${ms}`);
+  try {
+    await lock.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+  } catch (err) {
+    // 55P03 lock_not_available: the lock_timeout ran out.
+    if ((err as { code?: string }).code === "55P03") {
+      throw new Error(
+        `the migration lock is held by another session: waited ${Math.round(ms / 1000)} s`,
+      );
+    }
+    throw err;
+  } finally {
+    // A lost connection already failed the run; its reset's failure would only hide why.
+    await lock.query("RESET lock_timeout").catch(() => {});
+  }
 }
 
 /** Ingest's schema (SPEC-023 §Operational §4): its tables and its migration ledger. */
@@ -65,7 +96,8 @@ export const INGEST_SCHEMA = "ingest";
  * Apply ingest's Postgres migrations under an advisory lock, so concurrent instances cannot
  * double-apply. The lock is taken and released on one connection, held apart from the
  * migrator's. Without `wait`, a run that finds the lock held skips and returns false; with
- * it, the run waits for the lock, so a command that completes has applied the migrations.
+ * it, the run waits for the lock, so a command that completes has applied the migrations,
+ * and fails when the lock is still held after `waitMs`.
  * `underLock`, when given, runs after the migrations and before the lock is released.
  *
  * SPEC-023 §Operational §4: each connection's search path is ingest's schema and then
@@ -91,7 +123,7 @@ export async function runPgMigrations(
     const lock = await pool.connect();
     try {
       if (options.wait) {
-        await lock.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+        await waitForLock(lock, options.waitMs ?? MIGRATION_LOCK_WAIT_MS);
       } else {
         const r = await lock.query<{ locked: boolean }>(
           "SELECT pg_try_advisory_lock($1) AS locked",
@@ -161,6 +193,13 @@ async function bootstrapClickHouse(config: MigrateConfig): Promise<void> {
   }
 }
 
+/** The command's one line for a failure: the error's message, without a class name's prefix,
+ *  so that the lock's line reads as SPEC-023 Amendment 2026-10-25, item 1, quotes it. */
+export function migrateFatalLine(e: unknown): string {
+  const reason = e instanceof Error && e.message !== "" ? e.message : String(e);
+  return `cg-ingest migrate: fatal: ${reason}`;
+}
+
 // Allow `tsx src/db/migrate.ts` / `node dist/db/migrate.js` to run directly: the one-shot's
 // command, which validates the variables it uses, the stores' and the retention's, and waits
 // for the lock.
@@ -169,8 +208,7 @@ if (isMain(import.meta.url)) {
     .then(() => runMigrations(loadConfigFor(MIGRATE_VARIABLES), { wait: true }))
     .then(() => process.exit(0))
     .catch((e: unknown) => {
-      const line = e instanceof ConfigError ? e.message : String(e);
-      process.stderr.write(`cg-ingest migrate: fatal: ${line}\n`);
+      process.stderr.write(`${migrateFatalLine(e)}\n`);
       process.exit(1);
     });
 }

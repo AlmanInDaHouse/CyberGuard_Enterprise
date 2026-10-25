@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
-import { MIGRATION_LOCK_KEY, runMigrations } from "../src/db/migrate.js";
+import {
+  MIGRATION_LOCK_KEY,
+  MIGRATION_LOCK_WAIT_MS,
+  migrateFatalLine,
+  runMigrations,
+} from "../src/db/migrate.js";
 
 // SPEC-023 §Data contracts §4 — `node dist/db/migrate.js`, the one-shot's command, waits
 // for its advisory lock, taken and released on one connection, rather than skipping when
@@ -166,4 +171,56 @@ test("the service's own run skips while another session holds the lock", async (
 test("the service's own run releases the lock it took", async () => {
   await runMigrations(config);
   expect(await heldLocks()).toBe(0);
+});
+
+// SPEC-023 Amendment 2026-10-25 (debt #122): the command waits up to five minutes, then
+// fails naming the lock, having changed nothing, rather than holding `docker compose up
+// --wait` without bound.
+test("the wait is bounded: a lock still held after it fails the run, naming the lock, having changed nothing", async () => {
+  expect(MIGRATION_LOCK_WAIT_MS).toBe(300_000);
+  const db = `deploy_migrate_wait_${Date.now()}`;
+  await holder.query(`CREATE DATABASE ${db}`);
+  const url = new URL(config.API_PG_URL);
+  url.pathname = `/${db}`;
+  const other = new pg.Client({ connectionString: url.toString() });
+  other.on("error", () => {});
+  await other.connect();
+  try {
+    // Advisory locks are the database's: this one is held in the empty database.
+    await other.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    const start = Date.now();
+    const failed = await runMigrations(
+      { API_PG_URL: url.toString() },
+      { wait: true, waitMs: 2000 },
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    // The command's line for it, as SPEC-023 Amendment 2026-10-25 quotes it.
+    expect(migrateFatalLine(failed)).toBe(
+      "cg-api migrate: fatal: the migration lock is held by another session: waited 2 s",
+    );
+    const elapsed = Date.now() - start;
+    // Measured by Postgres in the Docker VM, whose clock steps against the host's: it
+    // waited, rather than failing at once.
+    expect(elapsed).toBeGreaterThanOrEqual(1000);
+    expect(elapsed).toBeLessThan(15_000);
+    // Having changed nothing: no table, no schema of the api's.
+    const changed = await other.query<{ tables: string; schemas: string }>(
+      `SELECT (SELECT count(*) FROM pg_tables
+                 WHERE schemaname NOT IN ('pg_catalog', 'information_schema')) AS tables,
+              (SELECT count(*) FROM pg_namespace WHERE nspname = 'api') AS schemas`,
+    );
+    expect(changed.rows[0]).toEqual({ tables: "0", schemas: "0" });
+    // The run that gave up holds nothing: the only advisory lock is this session's.
+    const held = await other.query<{ n: string }>(
+      `SELECT count(*) AS n FROM pg_locks
+        WHERE locktype = 'advisory' AND pid <> pg_backend_pid()
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+    );
+    expect(Number(held.rows[0]?.n)).toBe(0);
+  } finally {
+    await other.end();
+    await holder.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+  }
 });

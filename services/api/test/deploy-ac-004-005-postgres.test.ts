@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createUserFromCli } from "../src/cli/create-user.js";
 import type { Config } from "../src/config.js";
-import { runMigrations } from "../src/db/migrate.js";
+import { MIGRATION_LOCK_KEY as API_LOCK_KEY, runMigrations } from "../src/db/migrate.js";
 import { buildServices } from "../src/services.js";
 import { DEFAULT_PASSWORD, currentTotp, insertUserDirect, seedSession } from "./helpers/db.js";
 import { insertCgesEvent } from "./helpers/events-schema.js";
@@ -19,8 +19,8 @@ import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-s
 // logs no statement's parameters. And the api's own code runs as `cg_api`: the forensic key,
 // the bootstrap command, a sign-in and the reads of ingest's tables.
 //
-// Until the bundle's tests drive its compose (deploy-ci.yml), these run here, against a
-// Postgres started with the bundle's own initialisation files.
+// deploy_ac_004's and deploy_ac_005's test (SPEC-023 Amendment 2026-10-25, item 6): here,
+// against a Postgres started with the bundle's own initialisation files.
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const INIT = join(REPO, "deploy", "docker", "postgres");
@@ -165,6 +165,71 @@ describe("deploy_ac_004 — the roles", () => {
       await refused(pool, "SELECT lo_create(0)");
       await refused(pool, "SELECT lo_creat(-1)");
       await refused(pool, "SELECT lo_from_bytea(0, '\\x00')");
+    }
+  });
+
+  // SPEC-023 Amendment 2026-10-25 (debt #122): a runtime role takes no advisory lock, so it
+  // cannot hold a migration's key; the owner roles, which the migrations above ran as, do.
+  test("neither runtime role takes an advisory lock; the owner roles do", async () => {
+    // The sixteen: four functions and their pg_try_ forms, each with a bigint key and with
+    // two integer keys.
+    const takers = [
+      "advisory_lock",
+      "advisory_lock_shared",
+      "advisory_xact_lock",
+      "advisory_xact_lock_shared",
+    ].flatMap((f) =>
+      [`pg_${f}`, `pg_try_${f}`].flatMap((fn) => [`${fn}(4927004)`, `${fn}(8927008, 1)`]),
+    );
+    expect(takers).toHaveLength(16);
+    for (const role of RUNTIME) {
+      const pool = as(role, role === "cg_ingest" ? "ingest" : "api");
+      for (const call of takers) await refused(pool, `SELECT ${call}`);
+    }
+    for (const owner of ["cg_ingest_owner", "cg_api_owner"] as const) {
+      const r = await as(owner).query<{ locked: boolean }>(
+        "SELECT pg_try_advisory_xact_lock(424242) AS locked",
+      );
+      expect(r.rows[0]?.locked).toBe(true);
+    }
+  });
+
+  // SPEC-023 Amendment 2026-10-25, item 2: a service's own run (`*_RUN_MIGRATIONS=true`) as
+  // its runtime role is refused the lock, held or not, and fails.
+  test("a service's own run as its runtime role is refused the lock, held or not, and fails", async () => {
+    const ingest = (await import(pathToFileURL(INGEST_MIGRATE).href)) as {
+      MIGRATION_LOCK_KEY: number;
+      runPgMigrations(config: { INGEST_PG_URL: string }): Promise<boolean>;
+    };
+    const runs = [
+      () => ingest.runPgMigrations({ INGEST_PG_URL: url("cg_ingest", "ingest") }),
+      () => runMigrations({ API_PG_URL: url("cg_api", "api") }),
+    ];
+    async function refusedRuns(): Promise<void> {
+      for (const run of runs) {
+        const err = await run().then(
+          () => null,
+          (e: unknown) => e as { code?: string; message?: string },
+        );
+        expect(err, "the run was not refused").not.toBeNull();
+        expect(err?.code, err?.message).toBe("42501");
+        // Refused the lock itself, not a later statement of the migrator's.
+        expect(err?.message).toBe("permission denied for function pg_try_advisory_lock");
+      }
+    }
+    await refusedRuns();
+    // Held by another session: refused all the same, rather than skipped.
+    const holder = new pg.Client({ connectionString: url("postgres") });
+    holder.on("error", () => {});
+    await holder.connect();
+    try {
+      await holder.query("SELECT pg_advisory_lock($1), pg_advisory_lock($2)", [
+        ingest.MIGRATION_LOCK_KEY,
+        API_LOCK_KEY,
+      ]);
+      await refusedRuns();
+    } finally {
+      await holder.end();
     }
   });
 

@@ -26,3 +26,27 @@ REVOKE CONNECT ON DATABASE template1 FROM PUBLIC;
 -- creation, so the functions that create one are closed to PUBLIC. Nothing of CyberGuard's
 -- uses them.
 REVOKE EXECUTE ON FUNCTION lo_create(oid), lo_creat(integer), lo_from_bytea(oid, bytea) FROM PUBLIC;
+
+-- Debt #122 (SPEC-023 Amendment 2026-10-25): no runtime role takes an advisory lock, so none
+-- can hold a migration's key and stall the one-shots; the owner roles, which the migrations
+-- run as, take them. Function privileges are the database's, as these are `cyberguard`'s.
+REVOKE EXECUTE ON FUNCTION
+  pg_advisory_lock(bigint), pg_advisory_lock(integer, integer),
+  pg_advisory_lock_shared(bigint), pg_advisory_lock_shared(integer, integer),
+  pg_advisory_xact_lock(bigint), pg_advisory_xact_lock(integer, integer),
+  pg_advisory_xact_lock_shared(bigint), pg_advisory_xact_lock_shared(integer, integer),
+  pg_try_advisory_lock(bigint), pg_try_advisory_lock(integer, integer),
+  pg_try_advisory_lock_shared(bigint), pg_try_advisory_lock_shared(integer, integer),
+  pg_try_advisory_xact_lock(bigint), pg_try_advisory_xact_lock(integer, integer),
+  pg_try_advisory_xact_lock_shared(bigint), pg_try_advisory_xact_lock_shared(integer, integer)
+FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION
+  pg_advisory_lock(bigint), pg_advisory_lock(integer, integer),
+  pg_advisory_lock_shared(bigint), pg_advisory_lock_shared(integer, integer),
+  pg_advisory_xact_lock(bigint), pg_advisory_xact_lock(integer, integer),
+  pg_advisory_xact_lock_shared(bigint), pg_advisory_xact_lock_shared(integer, integer),
+  pg_try_advisory_lock(bigint), pg_try_advisory_lock(integer, integer),
+  pg_try_advisory_lock_shared(bigint), pg_try_advisory_lock_shared(integer, integer),
+  pg_try_advisory_xact_lock(bigint), pg_try_advisory_xact_lock(integer, integer),
+  pg_try_advisory_xact_lock_shared(bigint), pg_try_advisory_xact_lock_shared(integer, integer)
+TO cg_ingest_owner, cg_api_owner;
