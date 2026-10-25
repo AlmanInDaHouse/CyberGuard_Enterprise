@@ -4,11 +4,12 @@ name: deploy-ci
 # images are built from, build the four product images from the commit and run
 # deploy/docker/test/ against them: the images (deploy_ac_019's image half), the compose's
 # contract (deploy_ac_001), the set-up script (deploy_ac_002) and the stack an operator brings
-# up from the bundle (deploy_ac_003 and 006 to 011), with a Linux debug build of cg-agent for
-# deploy_ac_009. It pushes nothing. It also runs every Monday on main, and on demand, so
-# that a change outside the repository that breaks the build shows (the runner's Docker,
-# a registry or a package that stops serving a pinned version). Its third-party actions are
-# pinned by commit SHA, the release they point to in the comment.
+# up from the bundle (deploy_ac_003 and 006 to 012: the backup and restore need gpg, which the
+# runner has), with a Linux debug build of cg-agent for deploy_ac_009 and 012. It pushes
+# nothing. It also runs every Monday on main, and on demand, so that a change outside the
+# repository that breaks the build shows (the runner's Docker, a registry or a package that
+# stops serving a pinned version). Its third-party actions are pinned by commit SHA, the
+# release they point to in the comment.
 on:
   pull_request:
     paths:

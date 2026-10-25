@@ -1,13 +1,13 @@
-// SPEC-023 deploy_ac_003 and 006 to 011, against the bundle brought up as an operator does:
+// SPEC-023 deploy_ac_003 and 006 to 012, against the bundle brought up as an operator does:
 // setup.sh, `docker compose up --wait`, the first admin through create-user.js, with the
 // images built from the commit (docker-compose.test.yml) and provided TLS from a test CA.
 // It needs Docker, openssl and POSIX root (setup.sh's chown), and runs when CG_TEST_STACK=1,
-// as deploy-ci.yml sets it; deploy_ac_009 also needs a Linux debug build of cg-agent, named by
-// CG_TEST_AGENT.
+// as deploy-ci.yml sets it; deploy_ac_009 and 012 also need a Linux debug build of cg-agent,
+// named by CG_TEST_AGENT, and 012 gpg.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { X509Certificate, createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { tmpdir } from "node:os";
@@ -43,6 +43,9 @@ let elapsedMs;
 const admin = { email: "admin@cg.example.test", password: strongPassword(), secret: "" };
 const usedCodes = new Set();
 const temps = [];
+// What deploy_ac_012 finds after a restore: the agent deploy_ac_009 enrolled, the incident
+// deploy_ac_010 seeded, and the fingerprints both printed.
+const prior = { agentHome: "", agentId: "", caFingerprint: "", forensicFingerprint: "", incident: "" };
 
 const composeArgs = (args) => ["compose", "-p", project, "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", ...args];
 const compose = (args, opts = {}) => run("docker", composeArgs(args), { cwd: dir, ...opts });
@@ -414,6 +417,7 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
       const m = /^(-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+-----END CERTIFICATE-----)\nsha256:([0-9a-f]{64})$/.exec(out);
       assert.ok(m, out);
       caPemIngest = `${m[1]}\n`;
+      prior.caFingerprint = `sha256:${m[2]}`;
       assert.equal(m[2], createHash("sha256").update(new X509Certificate(caPemIngest).raw).digest("hex"));
       token = ok("docker", composeArgs(["exec", "-T", "ingest", "node", "dist/cli/issue-token.js"]), { cwd: dir });
       assert.match(token, /^\S{16,}$/);
@@ -452,6 +456,8 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
           }
         }
         assert.ok(agentId, `the agent did not enroll: ${agent.stderr}`);
+        prior.agentHome = home;
+        prior.agentId = agentId;
         assert.ok(rows > 0, `no heartbeat row for ${agentId}: ${agent.stderr}`);
         // The row was there when the query began, at most 60 s in.
         const seconds = (seenAt - start) / 1000;
@@ -476,6 +482,7 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
       assert.equal(raw.toString("hex"), stored);
       assert.equal(fp, `sha256:${createHash("sha256").update(raw).digest("hex")}`);
       fingerprint = fp;
+      prior.forensicFingerprint = fp;
     });
 
     test("an export of a seeded incident, requested from the api on the app network with an admin's session, carries the fingerprint; the report answers", async () => {
@@ -510,6 +517,7 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
       assert.equal(report.type, "application/pdf");
       assert.equal(report.head, "%PDF-");
 
+      prior.incident = ids.incident;
       const io = mkdtempSync(join(tmpdir(), "cg-export-"));
       temps.push(io);
       // Read by the api image's uid 1000.
@@ -616,6 +624,102 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
         assert.deepEqual({ cges_events: ttlOf("cges_events"), heartbeats: ttlOf("heartbeats") }, before);
         setEnv(dir, { [name]: previous });
       }
+    });
+  });
+  // Last: it replaces the stack by a new one, restored.
+  describe("deploy_ac_012: backup and restore", { skip: !AGENT && "set CG_TEST_AGENT to a Linux debug build of cg-agent" }, () => {
+    const scripts = { ...process.env, COMPOSE_PROJECT_NAME: project, COMPOSE_FILE: "docker-compose.yml:docker-compose.test.yml" };
+    let files;
+
+    test("backup.sh writes two encrypted files, mode 0700 directory, and leaves no archive on ClickHouse's backup disk", () => {
+      assert.ok(prior.agentId && prior.incident, "an agent enrolled (deploy_ac_009) and an incident exists (deploy_ac_010)");
+      scripts.COMPOSE_PROJECT_NAME = project;
+      const r = run("sh", ["backup.sh"], { cwd: dir, env: scripts });
+      assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+      const backups = join(dir, "backups");
+      assert.equal(statSync(backups).mode & 0o777, 0o700);
+      const names = readdirSync(backups).sort();
+      assert.equal(names.length, 2, names.join(", "));
+      const pg = names.find((n) => /^cyberguard-postgres-\d{8}T\d{6}Z\.dump\.gpg$/.test(n));
+      const ch = names.find((n) => /^cyberguard-clickhouse-\d{8}T\d{6}Z\.zip\.gpg$/.test(n));
+      assert.ok(pg && ch, names.join(", "));
+      files = { pg: join(backups, pg), ch: join(backups, ch) };
+      // No pg_dump header, no zip header: encrypted.
+      assert.notEqual(readFileSync(files.pg).subarray(0, 5).toString("latin1"), "PGDMP");
+      assert.notEqual(readFileSync(files.ch).subarray(0, 2).toString("latin1"), "PK");
+      for (const file of [files.pg, files.ch]) {
+        const other = run("gpg", ["--batch", "--quiet", "--no-symkey-cache", "--pinentry-mode", "loopback", "--passphrase", "not-the-passphrase", "--decrypt", "--output", "/dev/null", file]);
+        assert.notEqual(other.status, 0, `${file} opened with another passphrase`);
+      }
+      // It prints no passphrase.
+      assert.doesNotMatch(`${r.stdout}${r.stderr}`, new RegExp(env.get("CG_BACKUP_PASSPHRASE")));
+      assert.equal(ok("docker", composeArgs(["exec", "-T", "clickhouse", "ls", "-A", "/backups"]), { cwd: dir }), "");
+    });
+
+    test("restore.sh refuses, before it changes anything, a manipulated archive and a stack whose stores are not empty", () => {
+      assert.ok(files, "backup.sh ran");
+      const running = () =>
+        ["proxy", "dashboard", "api", "ingest"].every((name) => states().get(name)?.State === "running");
+      // One byte changed in the middle of the encrypted archive: gpg finds it manipulated.
+      const tampered = join(dirname(files.ch), "tampered.zip.gpg");
+      const bytes = readFileSync(files.ch);
+      bytes[bytes.length >> 1] ^= 0x01;
+      writeFileSync(tampered, bytes);
+      try {
+        const bad = run("sh", ["restore.sh", files.pg, tampered], { cwd: dir, env: scripts });
+        assert.equal(bad.status, 1, `${bad.stdout}${bad.stderr}`);
+        assert.match(bad.stdout, /tampered\.zip\.gpg does not decrypt with this \.env's passphrase, or gpg finds it manipulated/);
+        assert.ok(!`${bad.stdout}${bad.stderr}`.includes(env.get("CG_BACKUP_PASSPHRASE")), "restore.sh printed the passphrase");
+        assert.ok(running(), "a service was stopped");
+      } finally {
+        rmSync(tampered, { force: true });
+      }
+      // The installation that was backed up, still running: its stores are not empty.
+      const live = run("sh", ["restore.sh", files.pg, files.ch], { cwd: dir, env: scripts });
+      assert.equal(live.status, 1, `${live.stdout}${live.stderr}`);
+      assert.match(live.stdout, /Postgres is not empty \(\d+ tables in ingest and api\): restore into a new stack/);
+      assert.ok(running(), "a service was stopped");
+    });
+
+    test("a new stack with the same .env and restore.sh: the services start, the fingerprints are those printed before, the agent's heartbeats are accepted, the incident is listed", async () => {
+      assert.ok(files, "backup.sh ran");
+      const down = compose(["down", "-v", "--remove-orphans"]);
+      assert.equal(down.status, 0, down.stderr);
+      const r = run("sh", ["restore.sh", files.pg, files.ch], { cwd: dir, env: scripts });
+      assert.equal(r.status, 0, `${r.stdout}${r.stderr}${compose(["logs", "--no-color", "--tail", "40"]).stdout}`);
+      assert.ok(!`${r.stdout}${r.stderr}`.includes(env.get("CG_BACKUP_PASSPHRASE")), "restore.sh printed the passphrase");
+      assert.equal(ok("docker", composeArgs(["exec", "-T", "clickhouse", "ls", "-A", "/backups"]), { cwd: dir }), "", "an archive left on the backup disk");
+
+      const s = states();
+      for (const name of ["proxy", "dashboard", "api", "ingest", "postgres", "clickhouse", "redis"]) {
+        assert.equal(s.get(name)?.Health, "healthy", name);
+      }
+      for (const name of ["ingest-migrate", "api-migrate"]) assert.equal(s.get(name)?.ExitCode, 0, name);
+
+      const forensic = ok("docker", composeArgs(["exec", "-T", "api", "node", "dist/cli/forensic-key.js"]), { cwd: dir }).split("\n")[1];
+      assert.equal(forensic, prior.forensicFingerprint);
+      const ca = ok("docker", composeArgs(["exec", "-T", "ingest", "node", "dist/cli/export-ca.js"]), { cwd: dir }).split("\n").pop();
+      assert.equal(ca, prior.caFingerprint);
+
+      // The enrolled agent, with its certificate and no new enrollment.
+      const heartbeats = () =>
+        Number(clickhouse("cg_admin", env.get("CG_CH_ADMIN_PASSWORD"), `SELECT count() FROM cyberguard.heartbeats WHERE agent_id = toUUID('${prior.agentId}')`).stdout.trim() || 0);
+      const restored = heartbeats();
+      assert.ok(restored > 0, "the agent's heartbeats were restored");
+      const agent = startAgent(join(prior.agentHome, "agent.toml"));
+      try {
+        const start = Date.now();
+        while (Date.now() - start < 60_000 && heartbeats() <= restored) await new Promise((res) => setTimeout(res, 1000));
+        assert.ok(heartbeats() > restored, `no heartbeat accepted after the restore: ${agent.stderr}`);
+      } finally {
+        await agent.stop();
+      }
+
+      const signedIn = await login();
+      assert.equal(signedIn.status, 200, signedIn.body);
+      const list = apiGet("/v1/incidents", cookiesOf(signedIn).get("__Host-cgsess"));
+      assert.equal(list.status, 200, list.body);
+      assert.ok(list.body.includes(prior.incident), `${prior.incident} not listed`);
     });
   });
 });

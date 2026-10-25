@@ -18,6 +18,7 @@ In brief, as root, in this directory, on a host with Docker Engine and its Compo
 | `docker-compose.yml` | The production compose: the proxy, the dashboard, the api, ingest, the three stores and the two migration one-shots. |
 | `.env.example` | The bundle variables with their defaults, the secrets empty. |
 | `setup.sh` | Fills `.env` (SPEC-023 §Operational §3). |
+| `backup.sh`, `restore.sh` | Write the two encrypted backup files into `CG_BACKUP_DIR`, and restore them into a new stack with the same `.env` (§Operational §10). |
 | `postgres/` | The database's roles, schemas and logging settings, run once on an empty volume. |
 | `clickhouse/` | The server's settings (its own logs' period, the backup disk) and its users, grants and row policies, run once on an empty volume. |
 | `redis/` | The key-value store's entrypoint, which writes its ACL file from `.env`. |

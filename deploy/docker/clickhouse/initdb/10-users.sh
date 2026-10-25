@@ -16,7 +16,9 @@
   sha256() { printf '%s' "$1" | sha256sum | cut -d ' ' -f 1; }
   ingest_hash=$(sha256 "${CG_CH_INGEST_PASSWORD:?}")
   api_hash=$(sha256 "${CG_CH_API_PASSWORD:?}")
-  clickhouse-client --host 127.0.0.1 --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --multiquery <<SQL
+  # The administrator's name and password, from the environment (CLICKHOUSE_USER,
+  # CLICKHOUSE_PASSWORD), which clickhouse-client reads: on no command line.
+  clickhouse-client --host 127.0.0.1 --multiquery <<SQL
 CREATE USER IF NOT EXISTS cg_ingest IDENTIFIED WITH sha256_hash BY '$ingest_hash' DEFAULT DATABASE cyberguard;
 GRANT SELECT, INSERT ON cyberguard.* TO cg_ingest;
 CREATE USER IF NOT EXISTS cg_api IDENTIFIED WITH sha256_hash BY '$api_hash' DEFAULT DATABASE cyberguard SETTINGS readonly = 2;
