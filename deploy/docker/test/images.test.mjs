@@ -247,7 +247,7 @@ describe("the proxy image", () => {
     assert.equal(dockerOk(["run", "--rm", "--entrypoint", "stat", image, "-c", "%u", "/data", "/config"]), "10001\n10001");
   });
 
-  test("answers its health check, redirects HTTP to HTTPS on the published port, and answers HTTPS with HSTS over HTTP/1.1 or 2 alone", async () => {
+  test("answers its health check, redirects HTTP to HTTPS on the published port, and answers HTTPS with HSTS and no HTTP/3 advertised", async () => {
     const id = dockerOk([
       "run",
       "-d",

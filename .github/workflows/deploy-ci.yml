@@ -4,7 +4,8 @@ name: deploy-ci
 # images are built from, build the four product images from the commit and run
 # deploy/docker/test/ against them: the images (deploy_ac_019's image half), the compose's
 # contract (deploy_ac_001), the set-up script (deploy_ac_002) and the stack an operator brings
-# up from the bundle (deploy_ac_003 and 006 to 008). It pushes nothing. It also runs every Monday on main, and on demand, so
+# up from the bundle (deploy_ac_003 and 006 to 011), with a Linux debug build of cg-agent for
+# deploy_ac_009. It pushes nothing. It also runs every Monday on main, and on demand, so
 # that a change outside the repository that breaks the build shows (the runner's Docker,
 # a registry or a package that stops serving a pinned version). Its third-party actions are
 # pinned by commit SHA, the release they point to in the comment.
@@ -22,6 +23,9 @@ on:
       - "LICENSE"
       - "NOTICE"
       - ".dockerignore"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -65,12 +69,22 @@ jobs:
           build dashboard dashboard/Dockerfile
           build proxy deploy/docker/proxy/Dockerfile
 
+      # deploy_ac_009's agent: the Linux debug build, which enrolls and heartbeats without
+      # capture. The runner's rustup installs the toolchain rust-toolchain.toml pins.
+      - name: Build cg-agent (Linux, debug)
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install
+          cargo build --locked -p cg-agent
+
       # As root, as the installation runs setup.sh (its chown), one file at a time: each stack
       # test brings up a stack of its own.
       - name: Run deploy/docker/test against them
         env:
           CG_TEST_REVISION: ${{ github.sha }}
           CG_TEST_STACK: "1"
+          CG_TEST_AGENT: ${{ github.workspace }}/target/debug/cg-agent
         run: >-
-          sudo --preserve-env=CG_TEST_REVISION,CG_TEST_STACK env "PATH=$PATH"
+          sudo --preserve-env=CG_TEST_REVISION,CG_TEST_STACK,CG_TEST_AGENT env "PATH=$PATH"
           node --test --test-concurrency=1 "deploy/docker/test/*.test.mjs"
