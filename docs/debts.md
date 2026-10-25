@@ -23,10 +23,10 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 56** at Session 45's close, the count `docs/handoff-session-45.md` states.
+**Open: 51** at Session 46's close, the count `docs/handoff-session-46.md` states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 45's close, `docs/handoff-session-45.md:401`);
+Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -66,29 +66,24 @@ Session N resumes* (at Session 45's close, `docs/handoff-session-45.md:401`);
 | 66 | Gate output noise (`logman` text, a stop line with nothing stopped) | `handoff-session-38.md:1070` | The next change to either file. |
 | 73 | ADR-0021 §2 says `ajv-cli` reads JSON | `handoff-session-38.md:1127` | An ADR-0021 amendment, for Manuel's "sí". |
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
-| 85 | A compromised ingest can forge an api session (shared Redis) | `handoff-session-39.md:666` | Roadmap §F: a Redis user per service. |
-| 86 | Both services act as the Postgres superuser | `handoff-session-39.md:672`; `handoff-session-45.md:363` | F1's bundle: its compose connects each service as its role (the roles exist since `5d6a564`). |
 | 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524`; `handoff-session-44.md:337` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; ADR-0022, Accepted on 2026-10-23. #111's agent change under gate 1 went without it. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694`; `handoff-session-45.md:356` | F4, roadmap §F's renewal SPEC (SPEC-023 §Out of scope); the TLS half landed in `63ea972`. |
-| 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `handoff-session-39.md:711`; `handoff-session-40.md:1132`; `handoff-session-45.md:357` | F1's images (non-root); the key file's mode landed in `63ea972`. |
-| 94 | Encryption passphrases travel as SQL parameters | `handoff-session-39.md:717`; `handoff-session-45.md:363` | F1's bundle: its compose runs Postgres with `deploy/docker/postgres/30-logging.sql` (since `5d6a564`). |
-| 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724`; `handoff-session-45.md:361` | F1's bundle (the ClickHouse grants), and the DPO's record of processing; the retention landed in `047eaf5`. |
+| 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724`; `handoff-session-45.md:361`; `handoff-session-46.md:450` | F1's data-protection document (`docs/operations/`), and the DPO's record of processing; the retention landed in `047eaf5`, the ClickHouse grants in `b794f52`. |
 | 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140` | Roadmap §F. |
 | 98 | Admins set users' passwords and receive their TOTP secret | `handoff-session-39.md:737`; `handoff-session-44.md:337` | Roadmap §F's dashboard SPEC (F3), with the user pages: an invitation the user completes (ADR-0022, Accepted 2026-10-23). |
 | 99 | One process holds the internet-facing listeners and the CA's key | `handoff-session-39.md:741` | An ADR separating the CA, for Manuel's "sí". |
 | 102 | The api's login deletes no prior session | `handoff-session-40.md:1024`; `handoff-session-44.md:337` | Roadmap §F's dashboard SPEC (F3), an api change it makes with its pages: the login deletes the session its cookie names (ADR-0022, Accepted 2026-10-23). |
-| 103 | Without a proxy in front of the dashboard, a client chooses the address the api counts | `handoff-session-40.md:1034` | Roadmap §F: the dashboard only behind a TLS proxy that appends or sets `X-Forwarded-For`. |
-| 104 | The dashboard sends no security headers (CSP, HSTS) | `handoff-session-40.md:1045`; `handoff-session-40.md:1150`; `handoff-session-45.md:359` | F1's bundle: HSTS at the proxy; the dashboard's headers landed in `84a4aad`. |
-| 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `handoff-session-40.md:1069` | Roadmap §F: a ClickHouse user per service, the api's read-only. |
-| 109 | Whoever can write the rules directory and restart ingest changes detection | `handoff-session-40.md:1079` | Roadmap §F's packaging: the rules read-only in the image. |
 | 110 | The development dependencies carry advisories: since S43, braces, katex and tailwindcss 3's postcss-selector-parser | `handoff-session-40.md:1086`; `handoff-session-42.md:610`; `handoff-session-43.md:517` | tailwindcss's next major (postcss-selector-parser; braces through its chokidar and fast-glob); braces and katex in markdownlint-cli2 when a fixed release falls within their parents' ranges. CI audits every dependency for a critical advisory since `0e26dd7`. |
-| 112 | No tool checks the dependencies' licences, and no SBOM is produced | `handoff-session-41.md:746` | Roadmap §F's packaging, with the release artifacts. |
+| 112 | No SBOM is produced, and the licence check does not run in the release | `handoff-session-41.md:746`; `handoff-session-46.md:452` | F1's release workflow: the SBOM, the licence check in the release and its report; the check landed in `867ac68`. |
 | 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750` | A later sweep: each action pinned by commit SHA. |
 | 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:728` | With #32. |
 | 119 | The enrollment contract's texts differ from the code where SPEC-023 does not touch them (ADR-0004, SPEC-002, SPEC-003, SPEC-004) | `handoff-session-43.md:541` | F4, the renewal SPEC of roadmap §F, which rewrites the enrollment contract. |
-| 122 | The migrate one-shot waits for its advisory lock without bound, and any role can take another service's key | `handoff-session-45.md:368` | F1's bundle (a timeout on the one-shots), or a SPEC-023 amendment. |
-| 123 | SPEC-023 §Operational §6 cites `agent/cg-agent/src/tls.rs:83`, now another line | `handoff-session-45.md:373` | The next SPEC-023 amendment. |
+| 124 | A compromised ingest can still rewrite the evidence the forensic key signs (its ClickHouse inserts, the newest row kept; its alerts) | `handoff-session-46.md:457` | Manuel's (threat model R7). |
+| 125 | A session that raises `log_parameter_max_length_on_error` for itself logs a passphrase parameter | `handoff-session-46.md:462` | Manuel's (threat model R10). |
+| 127 | #122's remainder: a one-shot's DDL waits without bound for a running service's table lock; Kysely's shared lock unbounded; an owner role can take the other service's key | `handoff-session-46.md:467` | F1's upgrade document: ingest and the api stopped before the one-shots run. |
+| 128 | The proxy image keeps Caddy's title, description, URL and vendor labels beside CyberGuard's four | `handoff-session-46.md:472` | F1's release workflow, which sets the images' metadata. |
+| 129 | The dashboard image ships sharp's libvips (LGPL-3.0-or-later) and `caniuse-lite` (CC-BY-4.0) without their notices | `handoff-session-46.md:476` | F1's release workflow: sharp left out of the dashboard (no `next/image`), and the images' third-party notices. |
 
 ## Closed
 
@@ -161,3 +156,14 @@ Session N resumes* (at Session 45's close, `docs/handoff-session-45.md:401`);
 | 118 | The SPEC-005 marquee's budget log differs from SPEC-005 (`within_budget`, a clock started before enrollment) | `63ea972` | `handoff-session-45.md:350` |
 | 120 | RUSTSEC-2026-0382 (rustls-webpki) and RUSTSEC-2026-0381 (webpki-roots) in the agent's TLS stack | `621bf4f`, opened and closed in S44 | `handoff-session-44.md:334` |
 | 121 | The dev compose's key-value store runs as root in its container (`sh -c` skips the entrypoint's drop to `valkey`) | `5d6a564` | `handoff-session-45.md:348` |
+| 85 | A compromised ingest can forge an api session (shared Redis) | `b794f52` | `handoff-session-46.md:438` |
+| 86 | Both services act as the Postgres superuser | `b794f52` | `handoff-session-46.md:439` |
+| 92 | The containers run as root; a TLS key file ingest wrote before `b293500` keeps its mode | `7385f32` | `handoff-session-46.md:436` |
+| 94 | Encryption passphrases travel as SQL parameters | `b794f52` | `handoff-session-46.md:440` |
+| 103 | Without a proxy in front of the dashboard, a client chooses the address the api counts | `b794f52` | `handoff-session-46.md:442` |
+| 104 | The dashboard sends no security headers (CSP, HSTS) | `b794f52`, `7385f32` | `handoff-session-46.md:444` |
+| 108 | Ingest and the api share one ClickHouse credential, which can write the events the forensic key signs | `b794f52` | `handoff-session-46.md:445` |
+| 109 | Whoever can write the rules directory and restart ingest changes detection | `7385f32` | `handoff-session-46.md:437` |
+| 122 | The migrate one-shot waits for its advisory lock without bound, and any role can take another service's key | `2217725` | `handoff-session-46.md:434` |
+| 123 | SPEC-023 §Operational §6 cites `agent/cg-agent/src/tls.rs:83`, now another line | `9c06fd2`, restored by `03b7976` | `handoff-session-46.md:435` |
+| 126 | GHSA-mrhx-c7xc-m3w5 in zod below 4.6.6 (memory exhaustion validating oversized collections) | `aa56b49`, opened and closed in S46 | `handoff-session-46.md:465` |

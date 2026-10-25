@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-45.md](../handoff-session-45.md)).
+([handoff-session-46.md](../handoff-session-46.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -371,8 +371,10 @@ This dependency-ordered document supersedes both for planning.
   and the commands, the Postgres schemas and roles, the retention's TTL,
   enrollment over TLS (under the elevated gate), the dashboard's headers,
   cookies and health route, and the relay's CA, `0cfa4df`..`f397129`
-  (`docs/handoff-session-45.md`). F1's images, bundle, release,
-  `docs/operations/` and compose stubs remain. The phase is four SPECs, in
+  (`docs/handoff-session-45.md`); in S46 the four images, the bundle with
+  its tests in `deploy-ci.yml` (deploy_ac_001 to 012), #122's lock wait and
+  the licence check, `aa56b49`..`867ac68` (`docs/handoff-session-46.md`).
+  F1's release, `docs/operations/` and compose stubs remain. The phase is four SPECs, in
   this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
