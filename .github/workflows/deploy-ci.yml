@@ -30,6 +30,8 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - ".github/scripts/check-licences.mjs"
+      - ".github/scripts/licences-allowed.json"
       - ".github/workflows/deploy-ci.yml"
   schedule:
     # Mondays, 06:41 UTC
@@ -78,6 +80,14 @@ jobs:
         run: |
           rustup toolchain install
           cargo build --locked -p cg-agent
+
+      # deploy_ac_019's licence clause, on the repository: the production dependencies,
+      # installed without their scripts, and the agent's crates (the fixture is a test below).
+      - name: Check the licences
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+          node .github/scripts/check-licences.mjs
 
       # As root, as the installation runs setup.sh (its chown), one file at a time: each stack
       # test brings up a stack of its own.

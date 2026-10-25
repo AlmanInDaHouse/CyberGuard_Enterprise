@@ -11,6 +11,8 @@ name: dependency-audit
 #   crates never compiled included. Any vulnerability advisory fails the run,
 #   whatever its severity; an unmaintained, unsound or yanked crate is printed as a
 #   warning and passes.
+# - licences (debt #112, SPEC-023 §Operational §12): the production pnpm dependencies
+#   and the agent's runtime crates, against .github/scripts/licences-allowed.json.
 
 on:
   push:
@@ -23,6 +25,8 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "agent/**/Cargo.toml"
+      - ".github/scripts/check-licences.mjs"
+      - ".github/scripts/licences-allowed.json"
       - ".github/workflows/dependency-audit.yml"
   pull_request:
     paths:
@@ -33,6 +37,8 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "agent/**/Cargo.toml"
+      - ".github/scripts/check-licences.mjs"
+      - ".github/scripts/licences-allowed.json"
       - ".github/workflows/dependency-audit.yml"
   schedule:
     # Mondays, 06:17 UTC.
@@ -100,3 +106,34 @@ jobs:
 
       - name: cargo audit
         run: cargo audit
+
+  licences:
+    name: Licences (production dependencies and the agent's crates)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      # pnpm licenses reads the installed packages' manifests; no install script runs.
+      - name: pnpm install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install Rust toolchain (reads rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+
+      - name: Check the licences
+        run: node .github/scripts/check-licences.mjs --report licences.md

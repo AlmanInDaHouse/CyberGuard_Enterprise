@@ -8,7 +8,7 @@ covers the third-party packages the repository locks: `pnpm-lock.yaml` for
 
 ## The audit in CI
 
-[`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) runs three
+[`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) runs four
 jobs:
 
 - `pnpm audit --prod --audit-level=high` reads `pnpm-lock.yaml`. It audits the
@@ -21,9 +21,15 @@ jobs:
   workspace locks, the agent's development dependencies with them. Any
   vulnerability advisory fails the run, whatever its severity; an unmaintained,
   unsound or yanked crate is printed as a warning and passes.
+- `check-licences.mjs` reads the licences of the production pnpm dependencies
+  and of the agent's runtime crates; one that
+  `.github/scripts/licences-allowed.json` does not admit fails the run, named.
+  Red for a licence: replace the package, or add the licence or the package to
+  the list, a reviewed change with its reason (debt #112).
 
 It runs on a push to `main` or a pull request that changes a lockfile, a
-`package.json`, a Cargo manifest or the workflow itself; every Monday at
+`package.json`, a Cargo manifest, the licence checker or its list, or the
+workflow itself; every Monday at
 06:17 UTC, on `main`; and by hand (`workflow_dispatch`). The weekly run is
 what catches an advisory published after a release: it turns `main` red with
 no commit of ours.
@@ -70,7 +76,12 @@ scripts or a native build); Claude Code decides the others. Either way the
 change records the package's name, version, licence and reason. Before it is
 added:
 
-- its licence is compatible with the workspace's Apache-2.0;
+- its licence is compatible with the workspace's Apache-2.0, and, for a
+  production dependency of the services, the dashboard or the agent, one that
+  `.github/scripts/licences-allowed.json` admits: `dependency-audit.yml`'s
+  licences job runs `.github/scripts/check-licences.mjs`, which fails, naming
+  the package, on any other (SPEC-023 §Operational §12, debt #112). A licence
+  or a package added to that list is a reviewed change, with its reason;
 - its maintainers and releases are active;
 - `pnpm audit` reports nothing against it, run locally, and neither does
   `cargo audit`, run locally (cargo-audit 0.22.2, on CLAUDE.md's *Approved
@@ -109,9 +120,11 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
   `Cargo.lock`), and CI installs from them (`--frozen-lockfile`, `--locked`),
   so a release enters only through a lockfile change someone reviews. Nothing
   checks a release's provenance.
-- **Licences** are checked when a dependency is added, by hand. No tool checks
-  the licences of transitive dependencies, and no SBOM is produced (debt
-  #112).
+- **Licences** beyond the checked ones. `check-licences.mjs` reads the
+  production pnpm dependencies as CI installs them (on Linux with glibc) and
+  the agent's runtime crates for its Windows target. What an image ships
+  beyond them is not checked: its base image's packages, and the musl build
+  of a native package the image installs. No SBOM is produced (debt #112).
 - **The warnings `cargo audit` lets pass**: an unmaintained, unsound or
   yanked crate passes with a warning, as chacha20 0.10.0, in the agent's
   development dependencies, did until Session 42, and rustls-pemfile,
