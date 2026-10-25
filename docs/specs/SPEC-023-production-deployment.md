@@ -434,6 +434,28 @@ Proposed by Claude Code on 2026-10-19 under Manuel's delegation ("lo que dependa
 - The dev stack and the suites' shared backends connect as one superuser, which the revocation does not touch. The tests that connect as the roles over the bundle's initialisation (`services/api/test/deploy-ac-004-005-postgres.test.ts`, `services/ingest/test/runtime-role.test.ts`) run their code as those roles, which takes no advisory lock.
 - No other section changes, and no other criterion.
 
+## Amendment 2026-10-25: the report's text, the `app` network's addresses, the proxy's protocols and its answer to another host
+
+**What surfaced it.** The reviews of the bundle and of its tests, Session 46.
+
+- deploy_ac_010 names no place for its clause "the report's text carries the same fingerprint", so §Acceptance criteria puts its test under `deploy/docker/test/`. The text is extracted with `unpdf`, a development dependency of the api (`services/api/test/helpers/pdf.ts`) that no image carries, and the api's suite asserts it (`services/api/test/deploy-ac-010-forensic-anchor.test.ts`).
+- The production compose gives the `app` network a fixed subnet, so that the dashboard's address, which `API_TRUSTED_PROXIES` names, is fixed. No sentence of this SPEC names those addresses, and an operator whose own network uses them needs to know them.
+- Caddy, by default, also serves HTTP/3 on UDP. It then advertises it with `Alt-Svc` on the container's port, not on `CG_HTTPS_PORT`, and the compose publishes TCP alone.
+- §Operational §5 says the proxy "proxies every request to `dashboard:3000`" and adds HSTS "to every HTTPS response". Over HTTPS, a request whose `Host` is not `${CG_DASHBOARD_HOSTNAME}` matches no site of the proxy's: Caddy proxies it nowhere and answers it `200` with an empty body, without HSTS, when the TLS handshake completes, which it does when the certificate it serves covers the name the client asked for.
+
+**The amendment.**
+
+1. §Acceptance criteria, deploy_ac_010: its clause on the report's text is asserted in the api's suite (`services/api/test/deploy-ac-010-forensic-anchor.test.ts`). For that clause, the bundle's test asserts that the report, requested on the `app` network, answers as a PDF; the criterion's other clauses stay the bundle's.
+2. §Operational §1, *Networks*: the `app` network's subnet is `10.254.254.0/28`, and Docker hands out addresses from `10.254.254.8/29` alone. The dashboard's address is `10.254.254.2`, outside that range, and the api's `API_TRUSTED_PROXIES` is that address. The configuration document names them, and says how an operator whose network overlaps the subnet changes the four together, in a compose override file.
+3. §Operational §5:
+   - The bundle's proxy serves no HTTP/3: it listens on TCP alone and advertises no `Alt-Svc`.
+   - Over HTTPS, it proxies every request whose `Host` names `${CG_DASHBOARD_HOSTNAME}`, with or without a port, in any letter case, to `dashboard:3000`, and adds `Strict-Transport-Security: max-age=31536000` to its responses to those requests; a request too malformed to be routed is answered by Caddy's server without it. It proxies no request for another host, whose answer, when it gets one, may lack the header.
+
+**Effect.**
+
+- Item 2 names addresses of the bundle, an operator surface. Item 3 narrows §Operational §5's sentences "It proxies every request to `dashboard:3000`" and its HSTS sentence to requests for the host the proxy serves, and adds a requirement on the bundle's proxy, no HTTP/3, which it already meets; with no release yet, neither breaks an installation. ADR-0022 §2 says that, to the browser, the proxy's responses carry HSTS (`docs/adr/0022-single-node-production-deployment.md:37`): this amendment reads it as the responses to requests for the dashboard's hostname, which the proxy forwards from the dashboard, since HSTS on another host's answer would pin that host, which the proxy does not serve. That reading is listed for Manuel's audit; the ADR is his. Both are delegated decisions, taken by Claude Code on 2026-10-25 under the delegation Manuel gave for Session 46, and listed for his audit in `docs/handoff-session-46.md`.
+- deploy_ac_008 asserts item 3's HSTS for the dashboard's hostname. deploy_ac_019's image test also asserts, for the proxy image, item 3's HSTS on an HTTPS response for that hostname and that no HTTP/3 is advertised; deploy_ac_019's text is unchanged. No other section changes, and no other criterion.
+
 ## References
 
 - ADR-0022, the Amendments 2026-10-19 of ADR-0001, ADR-0003, ADR-0004, ADR-0016 and ADR-0019, and the Amendments 2026-10-23 of ADR-0003 and ADR-0020; ADR-0010, ADR-0014, ADR-0015.
