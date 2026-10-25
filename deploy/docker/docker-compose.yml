@@ -1,0 +1,336 @@
+# CyberGuard's production compose (SPEC-023 §Operational §1; ADR-0022). One host, the
+# operator's bundle directory: set-up first (`./setup.sh`, which fills `.env`), then
+# `docker compose up -d --wait`.
+#
+# In the repository the four product images are named by tag; the published bundle names
+# each as <name>:<version>@sha256:<digest> (the release, SPEC-023 §Operational §12). The
+# stores' images are their publishers', pinned by digest. Every secret is a `${CG_…}` of
+# `.env` with no default, the ones a container uses required (`:?`), so nothing starts
+# before setup.sh has run.
+
+# The project's name keeps the volumes' and networks' names wherever the bundle is unpacked
+# (SPEC-023 Amendment 2026-10-25, item 5).
+name: cyberguard-enterprise
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Ingest, the api, the dashboard, the proxy and the one-shots.
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+x-ingest-stores: &ingest-stores
+  INGEST_CH_URL: http://clickhouse:8123
+  INGEST_CH_DB: cyberguard
+  INGEST_RETENTION_PROCESS_DAYS: ${CG_RETENTION_PROCESS_DAYS:-365}
+  INGEST_RETENTION_NETWORK_DAYS: ${CG_RETENTION_NETWORK_DAYS:-365}
+  INGEST_RETENTION_LOGON_DAYS: ${CG_RETENTION_LOGON_DAYS:-365}
+  INGEST_RETENTION_HEARTBEAT_DAYS: ${CG_RETENTION_HEARTBEAT_DAYS:-30}
+  INGEST_LOG_LEVEL: ${CG_LOG_LEVEL:-info}
+
+services:
+  proxy:
+    <<: *hardened
+    image: ghcr.io/almanindahouse/cyberguard-proxy:unreleased
+    user: "10001:10001"
+    restart: unless-stopped
+    tmpfs: [/tmp]
+    environment:
+      CG_DASHBOARD_HOSTNAME: ${CG_DASHBOARD_HOSTNAME:?run setup.sh}
+      CG_TLS_MODE: ${CG_TLS_MODE:-provided}
+      CG_HTTPS_PORT: ${CG_HTTPS_PORT:-443}
+    ports:
+      - "${CG_BIND_ADDRESS:-0.0.0.0}:${CG_HTTPS_PORT:-443}:8443"
+      - "${CG_BIND_ADDRESS:-0.0.0.0}:${CG_HTTP_PORT:-80}:8080"
+    volumes:
+      - proxy_data:/data
+      - proxy_config:/config
+      - ./tls:/etc/caddy/tls:ro
+    networks: [public, edge]
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          printf 'GET / HTTP/1.0\r\nHost: %s\r\n\r\n' "$$CG_DASHBOARD_HOSTNAME"
+          | nc -w 3 127.0.0.1 8080 | head -n 1 | grep -q '^HTTP/1\.[01] 308 '
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+
+  dashboard:
+    <<: *hardened
+    image: ghcr.io/almanindahouse/cyberguard-dashboard:unreleased
+    user: "1000:1000"
+    restart: unless-stopped
+    tmpfs: [/tmp, /app/dashboard/.next/cache]
+    environment:
+      API_BASE_URL: http://api:8081
+    networks:
+      edge: {}
+      app:
+        # The address API_TRUSTED_PROXIES names (SPEC-023 §Operational §1).
+        ipv4_address: 10.254.254.2
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get({host:'127.0.0.1',port:3000,path:'/api/health',timeout:4000},(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+
+  api:
+    <<: *hardened
+    image: ghcr.io/almanindahouse/cyberguard-api:unreleased
+    user: "1000:1000"
+    restart: unless-stopped
+    tmpfs: [/tmp]
+    environment:
+      API_PG_URL: postgres://cg_api:${CG_PG_API_PASSWORD:?run setup.sh}@postgres:5432/cyberguard?options=-c%20search_path%3Dapi%2Cpublic
+      API_REDIS_URL: redis://cg_api:${CG_REDIS_API_PASSWORD:?run setup.sh}@redis:6379
+      API_CH_URL: http://clickhouse:8123
+      API_CH_USER: cg_api
+      API_CH_PASSWORD: ${CG_CH_API_PASSWORD:?run setup.sh}
+      API_CH_DB: cyberguard
+      API_DB_ENC_PASSPHRASE: ${CG_API_DB_ENC_PASSPHRASE:?run setup.sh}
+      API_FORENSIC_PASSPHRASE: ${CG_API_FORENSIC_PASSPHRASE:?run setup.sh}
+      API_BIND_HOST: 0.0.0.0
+      API_RUN_MIGRATIONS: "false"
+      API_LOG_LEVEL: ${CG_LOG_LEVEL:-info}
+      API_TRUSTED_PROXIES: 10.254.254.2
+      API_SESSION_IDLE_MINUTES: ${CG_SESSION_IDLE_MINUTES:-480}
+      API_SESSION_MAX_HOURS: ${CG_SESSION_MAX_HOURS:-24}
+    networks: [app, data]
+    depends_on:
+      ingest-migrate:
+        condition: service_completed_successfully
+      api-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get({host:'127.0.0.1',port:8081,path:'/health',timeout:4000},(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+
+  ingest:
+    <<: *hardened
+    image: ghcr.io/almanindahouse/cyberguard-ingest:unreleased
+    user: "1000:1000"
+    restart: unless-stopped
+    tmpfs: [/tmp]
+    environment:
+      <<: *ingest-stores
+      INGEST_PG_URL: postgres://cg_ingest:${CG_PG_INGEST_PASSWORD:?run setup.sh}@postgres:5432/cyberguard?options=-c%20search_path%3Dingest%2Cpublic
+      INGEST_CH_USER: cg_ingest
+      INGEST_CH_PASSWORD: ${CG_CH_INGEST_PASSWORD:?run setup.sh}
+      INGEST_REDIS_URL: redis://cg_ingest:${CG_REDIS_INGEST_PASSWORD:?run setup.sh}@redis:6379
+      INGEST_BIND_HOST: 0.0.0.0
+      INGEST_SERVER_NAMES: ${CG_AGENT_SERVER_NAMES:?run setup.sh}
+      INGEST_CA_PASSPHRASE: ${CG_INGEST_CA_PASSPHRASE:?run setup.sh}
+      INGEST_RUN_MIGRATIONS: "false"
+      INGEST_DETECT_INTERVAL_MS: ${CG_DETECT_INTERVAL_MS:-5000}
+      INGEST_SOAR_PLAYBOOKS_DIR: ${CG_SOAR_PLAYBOOKS_DIR:-}
+      INGEST_SMTP_HOST: ${CG_SMTP_HOST:-}
+      INGEST_SMTP_PORT: ${CG_SMTP_PORT:-}
+      INGEST_SMTP_USER: ${CG_SMTP_USER:-}
+      INGEST_SMTP_PASS: ${CG_SMTP_PASS}
+      INGEST_SMTP_FROM: ${CG_SMTP_FROM:-}
+      INGEST_NOTIFY_RECIPIENT: ${CG_NOTIFY_RECIPIENT:-}
+      INGEST_SMTP_CA_FILE: ${CG_SMTP_CA_FILE:+/run/cyberguard/relay/${CG_SMTP_CA_FILE}}
+    ports:
+      - "${CG_BIND_ADDRESS:-0.0.0.0}:${CG_ENROLL_PORT:-8444}:8080"
+      - "${CG_BIND_ADDRESS:-0.0.0.0}:${CG_HEARTBEAT_PORT:-8443}:8443"
+    volumes:
+      - ingest_certs:/certs
+      - ./relay:/run/cyberguard/relay:ro
+    networks: [data, agents]
+    depends_on:
+      ingest-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('https').get({host:'127.0.0.1',port:8080,path:'/health',rejectUnauthorized:false,timeout:4000},(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+
+  # The one-shots: each service's migrations under its advisory lock, as its owner role;
+  # for ingest, the ClickHouse bootstrap and the retention as the ClickHouse administrator.
+  ingest-migrate:
+    <<: *hardened
+    image: ghcr.io/almanindahouse/cyberguard-ingest:unreleased
+    user: "1000:1000"
+    restart: "no"
+    tmpfs: [/tmp]
+    command: ["node", "dist/db/migrate.js"]
+    # The image's health check is the service's; a one-shot has none.
+    healthcheck:
+      disable: true
+    environment:
+      <<: *ingest-stores
+      INGEST_PG_URL: postgres://cg_ingest_owner:${CG_PG_INGEST_OWNER_PASSWORD:?run setup.sh}@postgres:5432/cyberguard?options=-c%20search_path%3Dingest%2Cpublic
+      INGEST_CH_USER: cg_admin
+      INGEST_CH_PASSWORD: ${CG_CH_ADMIN_PASSWORD:?run setup.sh}
+    networks: [data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  api-migrate:
+    <<: *hardened
+    image: ghcr.io/almanindahouse/cyberguard-api:unreleased
+    user: "1000:1000"
+    restart: "no"
+    tmpfs: [/tmp]
+    command: ["node", "dist/db/migrate.js"]
+    healthcheck:
+      disable: true
+    environment:
+      API_PG_URL: postgres://cg_api_owner:${CG_PG_API_OWNER_PASSWORD:?run setup.sh}@postgres:5432/cyberguard?options=-c%20search_path%3Dapi%2Cpublic
+    networks: [data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    restart: unless-stopped
+    cap_drop: [NET_RAW]
+    logging: *logging
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${CG_PG_SUPERUSER_PASSWORD:?run setup.sh}
+      POSTGRES_DB: cyberguard
+      CG_PG_INGEST_OWNER_PASSWORD: ${CG_PG_INGEST_OWNER_PASSWORD:?run setup.sh}
+      CG_PG_INGEST_PASSWORD: ${CG_PG_INGEST_PASSWORD:?run setup.sh}
+      CG_PG_API_OWNER_PASSWORD: ${CG_PG_API_OWNER_PASSWORD:?run setup.sh}
+      CG_PG_API_PASSWORD: ${CG_PG_API_PASSWORD:?run setup.sh}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres:/docker-entrypoint-initdb.d:ro
+    networks: [data]
+    healthcheck:
+      # Over TCP: the initialisation's temporary server listens on its socket alone.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d cyberguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.14.39@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
+    restart: unless-stopped
+    cap_drop: [NET_RAW]
+    logging: *logging
+    environment:
+      # The image's user, the administrator; the image removes the `default` user.
+      CLICKHOUSE_USER: cg_admin
+      CLICKHOUSE_PASSWORD: ${CG_CH_ADMIN_PASSWORD:?run setup.sh}
+      CLICKHOUSE_DB: cyberguard
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CG_CH_INGEST_PASSWORD: ${CG_CH_INGEST_PASSWORD:?run setup.sh}
+      CG_CH_API_PASSWORD: ${CG_CH_API_PASSWORD:?run setup.sh}
+    volumes:
+      - ch_data:/var/lib/clickhouse
+      - ch_backups:/backups
+      - ./clickhouse/config.d/cyberguard.xml:/etc/clickhouse-server/config.d/cyberguard.xml:ro
+      - ./clickhouse/initdb:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    networks: [data]
+    healthcheck:
+      # On the container's own address: the initialisation's temporary server listens on
+      # 127.0.0.1 alone, where the one-shots cannot reach it.
+      test: ["CMD-SHELL", "wget --spider -q \"http://$$(hostname -i | cut -d ' ' -f 1):8123/ping\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: valkey/valkey:9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+    restart: unless-stopped
+    cap_drop: [NET_RAW]
+    logging: *logging
+    # Writes the ACL file from the environment onto the tmpfs, then runs the image's own
+    # entrypoint, which drops to the image's valkey user (SPEC-023 §Operational §4).
+    entrypoint: ["/bin/sh", "/etc/cyberguard/redis/entrypoint.sh"]
+    environment:
+      CG_REDIS_INGEST_PASSWORD: ${CG_REDIS_INGEST_PASSWORD:?run setup.sh}
+      CG_REDIS_API_PASSWORD: ${CG_REDIS_API_PASSWORD:?run setup.sh}
+      # The health check's PING as cg_ingest, its password not on a command line.
+      VALKEYCLI_AUTH: ${CG_REDIS_INGEST_PASSWORD:?run setup.sh}
+    tmpfs: [/run/cyberguard]
+    volumes:
+      - redis_data:/data
+      - ./redis:/etc/cyberguard/redis:ro
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli --user cg_ingest ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+networks:
+  # The proxy's, to the published ports.
+  public: {}
+  edge:
+    internal: true
+  app:
+    internal: true
+    # The dashboard's fixed address is outside the range Docker hands out, so that the api,
+    # which joins first, never takes it.
+    ipam:
+      config:
+        - subnet: 10.254.254.0/28
+          ip_range: 10.254.254.8/29
+  data:
+    internal: true
+  # Ingest's, to its published ports and to the relay.
+  agents: {}
+
+volumes:
+  pg_data: {}
+  ch_data: {}
+  ch_backups: {}
+  redis_data: {}
+  ingest_certs: {}
+  proxy_data: {}
+  proxy_config: {}

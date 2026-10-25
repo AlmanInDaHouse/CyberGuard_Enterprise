@@ -1,0 +1,16 @@
+# The bundle's tests' override (SPEC-023 §Data contracts §1): the four product images built
+# from the commit, which deploy-ci.yml tags cyberguard-<name>:test. Not in the published
+# bundle.
+services:
+  proxy:
+    image: cyberguard-proxy:${CG_TEST_IMAGE_TAG:-test}
+  dashboard:
+    image: cyberguard-dashboard:${CG_TEST_IMAGE_TAG:-test}
+  api:
+    image: cyberguard-api:${CG_TEST_IMAGE_TAG:-test}
+  api-migrate:
+    image: cyberguard-api:${CG_TEST_IMAGE_TAG:-test}
+  ingest:
+    image: cyberguard-ingest:${CG_TEST_IMAGE_TAG:-test}
+  ingest-migrate:
+    image: cyberguard-ingest:${CG_TEST_IMAGE_TAG:-test}

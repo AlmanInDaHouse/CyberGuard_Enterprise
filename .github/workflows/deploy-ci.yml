@@ -2,8 +2,9 @@ name: deploy-ci
 
 # SPEC-023 §Operational §12: on a pull request that touches the deployment or what its
 # images are built from, build the four product images from the commit and run
-# deploy/docker/test/ against them (deploy_ac_019's image half, with deploy_ac_001's clause on
-# the Dockerfiles). It pushes nothing. It also runs every Monday on main, and on demand, so
+# deploy/docker/test/ against them: the images (deploy_ac_019's image half), the compose's
+# contract (deploy_ac_001), the set-up script (deploy_ac_002) and the stack an operator brings
+# up from the bundle (deploy_ac_003 and 006 to 008). It pushes nothing. It also runs every Monday on main, and on demand, so
 # that a change outside the repository that breaks the build shows (the runner's Docker,
 # a registry or a package that stops serving a pinned version). Its third-party actions are
 # pinned by commit SHA, the release they point to in the comment.
@@ -35,7 +36,7 @@ permissions:
 
 jobs:
   images:
-    name: The four images, built from the commit and checked
+    name: The four images and the bundle, from the commit
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -64,7 +65,12 @@ jobs:
           build dashboard dashboard/Dockerfile
           build proxy deploy/docker/proxy/Dockerfile
 
+      # As root, as the installation runs setup.sh (its chown), one file at a time: each stack
+      # test brings up a stack of its own.
       - name: Run deploy/docker/test against them
         env:
           CG_TEST_REVISION: ${{ github.sha }}
-        run: node --test "deploy/docker/test/*.test.mjs"
+          CG_TEST_STACK: "1"
+        run: >-
+          sudo --preserve-env=CG_TEST_REVISION,CG_TEST_STACK env "PATH=$PATH"
+          node --test --test-concurrency=1 "deploy/docker/test/*.test.mjs"

@@ -1,0 +1,53 @@
+<!-- CyberGuard's ClickHouse server settings (SPEC-023 §Operational §4 and §10), merged into
+     the image's configuration. -->
+<clickhouse>
+    <!-- The server's own log at warning or above, rotated by size. -->
+    <logger>
+        <level>warning</level>
+        <size>100M</size>
+        <count>5</count>
+    </logger>
+
+    <!-- The system log tables keep seven days: a failed insert's row, a logon or a connection
+         among them, stays no longer there (the data-protection document names it). -->
+    <query_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_log>
+    <query_thread_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_thread_log>
+    <part_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </part_log>
+    <text_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+        <level>warning</level>
+    </text_log>
+
+    <!-- A user reads the system database and information_schema only by a grant, which no
+         user but the administrator has: cg_api reads cyberguard.cges_events alone, and the
+         system log tables, which hold other users' queries and errors, are not cg_ingest's
+         or cg_api's to read (SPEC-023 §Operational §4). ClickHouse still leaves a few system
+         tables (tables, columns, databases) to every user, filtered to what that user may
+         see. The image's own config.xml sets both too; this file keeps them whatever a later
+         image's says. -->
+    <access_control_improvements>
+        <select_from_system_db_requires_grant>true</select_from_system_db_requires_grant>
+        <select_from_information_schema_requires_grant>true</select_from_information_schema_requires_grant>
+    </access_control_improvements>
+
+    <!-- The backup disk, the ch_backups volume: backup.sh writes a BACKUP there, streams it
+         out of the container and deletes it (§Operational §10). -->
+    <storage_configuration>
+        <disks>
+            <backups>
+                <type>local</type>
+                <path>/backups/</path>
+            </backups>
+        </disks>
+    </storage_configuration>
+    <backups>
+        <allowed_disk>backups</allowed_disk>
+        <allowed_path>/backups/</allowed_path>
+    </backups>
+</clickhouse>
