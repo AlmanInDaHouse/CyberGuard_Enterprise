@@ -33,6 +33,24 @@ export class ConfigError extends Error {
   }
 }
 
+/**
+ * A URL as zod 3's `.url()` read one: whatever `new URL()` parses, the value kept as written.
+ * zod 4's trims it and deletes its tabs and line breaks, so it would accept values zod 3
+ * refused and hand the clients another string than the one set.
+ */
+const urlString = () =>
+  z.string().refine(
+    (value) => {
+      try {
+        new URL(value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "must be a URL" },
+  );
+
 /** pino's levels (SPEC-023 §Data contracts §3, the log levels' check). */
 export const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
 
@@ -196,12 +214,12 @@ function defaultDetectRulesDir(): string {
  * startup; the service refuses to start on a missing/invalid variable.
  */
 const Fields = z.object({
-  INGEST_PG_URL: z.string().url(),
-  INGEST_CH_URL: z.string().url(),
+  INGEST_PG_URL: urlString(),
+  INGEST_CH_URL: urlString(),
   INGEST_CH_USER: z.string().default("default"),
   INGEST_CH_PASSWORD: z.string().default(""),
   INGEST_CH_DB: z.string().default("default"),
-  INGEST_REDIS_URL: z.string().url(),
+  INGEST_REDIS_URL: urlString(),
   INGEST_ENROLL_PORT: port(8080),
   INGEST_HEARTBEAT_PORT: port(8443),
   // Bind address for BOTH listeners. Default loopback = the host-process
@@ -266,7 +284,7 @@ const Fields = z.object({
   // superRefine below). The values are an operator-set deployment contract
   // (ADR-0017 §Out of scope), never defaulted here.
   INGEST_SMTP_HOST: optionalSecret(),
-  INGEST_SMTP_PORT: z.preprocess(blankToUndefined, optionalInteger(1, 65_535)),
+  INGEST_SMTP_PORT: z.preprocess(blankToUndefined, optionalInteger(1, 65_535)).optional(),
   INGEST_SMTP_USER: optionalSecret(),
   INGEST_SMTP_PASS: optionalSecret(),
   INGEST_SMTP_FROM: optionalSecret(),
@@ -313,35 +331,33 @@ const EnvSchema = Fields.superRefine((cfg, ctx) => {
 
 export type Config = z.infer<typeof EnvSchema>;
 
-/** The reason a check gives, in words that never quote the value. */
-function reasonOf(issue: z.ZodIssue): string {
-  if (issue.code === z.ZodIssueCode.invalid_type && issue.received === "undefined") {
+/** The reason a check gives, in words that never quote the value. `env` tells an unset
+ *  variable from one of the wrong type; zod's issues carry no input unless asked to. */
+function reasonOf(issue: z.core.$ZodIssue, env: NodeJS.ProcessEnv): string {
+  if (issue.code === "invalid_type" && env[String(issue.path[0])] === undefined) {
     return "required";
   }
-  if (issue.code === z.ZodIssueCode.invalid_string && issue.validation === "url") {
-    return "must be a URL";
-  }
-  if (issue.code === z.ZodIssueCode.too_small && issue.type === "string") {
+  if (issue.code === "too_small" && issue.origin === "string") {
     return "must not be empty";
   }
-  if (issue.code === z.ZodIssueCode.invalid_enum_value) {
-    return `must be one of ${issue.options.join(", ")}`;
+  if (issue.code === "invalid_value") {
+    return `must be one of ${issue.values.map(String).join(", ")}`;
   }
   return issue.message;
 }
 
 /** The parsed value, or a ConfigError naming the first variable refused. */
-function parsedOr<T>(parsed: z.SafeParseReturnType<unknown, T>): T {
+function parsedOr<T>(parsed: z.ZodSafeParseResult<T>, env: NodeJS.ProcessEnv): T {
   if (!parsed.success) {
-    const issue = parsed.error.issues[0] as z.ZodIssue;
-    throw new ConfigError(issue.path.join("."), reasonOf(issue));
+    const issue = parsed.error.issues[0] as z.core.$ZodIssue;
+    throw new ConfigError(issue.path.join("."), reasonOf(issue, env));
   }
   return parsed.data;
 }
 
 /** The configuration `env` gives, or a ConfigError naming the first variable refused. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  return parsedOr(EnvSchema.safeParse(env));
+  return parsedOr(EnvSchema.safeParse(env), env);
 }
 
 type Shape = typeof Fields.shape;
@@ -358,5 +374,5 @@ export function loadConfigFor<K extends keyof Shape>(
 ): Pick<Config, K> {
   // The mask names keys of Fields alone, which zod's Exactly<> cannot see through a generic K.
   const mask = Object.fromEntries(keys.map((k) => [k, true])) as never;
-  return parsedOr(Fields.pick(mask).safeParse(env)) as unknown as Pick<Config, K>;
+  return parsedOr(Fields.pick(mask).safeParse(env), env) as unknown as Pick<Config, K>;
 }

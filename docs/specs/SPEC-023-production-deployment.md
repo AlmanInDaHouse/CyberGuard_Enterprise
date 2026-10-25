@@ -399,41 +399,6 @@ Proposed by Claude Code on 2026-10-19 under Manuel's delegation ("lo que dependa
 
 **Effect.** §Data contracts §3's rows read with these two items, and deploy_ac_013 with them: among the refusals it names are a value written otherwise than in decimal digits and an interval above 2147483647. Not backward-compatible: an integer the services accepted before in another form, or an interval above the bound, is refused at the next start, with the variable named. The dev stack's `.env.example` writes its integers in digits, within the bounds. A deployment that sets one of these variables keeps its value when the value is written so, as SPEC-018's Amendment 2026-10-14 says of the interval. No other section changes. Item 1 narrows what an operator may write in variables the operator sets (`CG_SMTP_PORT`, `CG_DETECT_INTERVAL_MS`, `CG_SESSION_*`, `CG_RETENTION_*`) and item 2 bounds one of them, `CG_DETECT_INTERVAL_MS`, which puts both on Manuel's list (CLAUDE.md, *Decision authority*): delegated decisions, taken by Claude Code on 2026-10-23 under the delegation Manuel gave for Session 45, and listed for his audit in `docs/handoff-session-45.md`.
 
-## Amendment 2026-10-25: the migration lock, a TLS citation, the dashboard's Windows build, the bundle's project name, the Postgres criteria's place
-
-**What surfaced it.**
-
-- Debt #122 (`docs/handoff-session-45.md:368`), from the reviews of the commands' and the Postgres roles' code in Session 45. `migrate.js` waits for its advisory lock without bound, so a session that holds the lock and hangs stalls `docker compose up --wait`. Any role can take a migration's key, the runtime ones included, since the advisory-lock functions are open to `PUBLIC`.
-- Debt #123 (`docs/handoff-session-45.md:373`). §Operational §6 cites `agent/cg-agent/src/tls.rs:83` for the heartbeat client's TLS 1.3. Since Session 45 that line is `build_client_config`'s signature.
-- The dashboard's image, Session 46. Next's standalone output links the pnpm store's packages with symbolic links, which Windows refuses to an unprivileged process unless Developer Mode is on, so `next build` with `output: "standalone"` fails on such a Windows checkout.
-- The bundle's compose, Session 46. Compose names a project after the directory its file is in unless the file names one, and it names the volumes and the networks after the project. A newer bundle unpacked in another directory would start empty volumes beside the old ones.
-- deploy_ac_004 and deploy_ac_005 are asserted in the api's suite, against a Postgres that the bundle's initialisation set up (`docs/handoff-session-45.md:248-251`). §Acceptance criteria places a criterion's test under `deploy/docker/test/` unless the criterion names another place, and these two name none.
-
-**The amendment.**
-
-1. §Data contracts §4, `node dist/db/migrate.js`: it waits for its advisory lock up to five minutes. The bound is that one statement's `lock_timeout`, so the migrations' own statements are not bounded by it. Kysely's migrator also takes a lock of its own inside the migrations (`pg_advisory_xact_lock` on one key that both services' migrators share), without that bound: a one-shot that hangs inside a migration holds it, and the other one-shot waits for it. Its own lock still held after five minutes fails the command, which prints `cg-<service> migrate: fatal: the migration lock is held by another session: waited 300 s` and exits 1, having changed nothing. The services' own run (`*_RUN_MIGRATIONS=true`), as a role that may take the lock (the dev stack's and the suites' superuser), keeps skipping when the lock is held.
-2. §Operational §4, Postgres. The initialisation, in `cyberguard`, revokes from `PUBLIC` the `EXECUTE` privilege on the sixteen advisory-lock functions that take a lock and grants it to `cg_ingest_owner` and `cg_api_owner`, which the migrations run as:
-   - the functions are `pg_advisory_lock`, `pg_advisory_lock_shared`, `pg_advisory_xact_lock` and `pg_advisory_xact_lock_shared`, and their `pg_try_` forms;
-   - each takes either a `bigint` key or two `integer` keys.
-
-   No runtime role takes an advisory lock, so none can hold a migration's key. A service run with `*_RUN_MIGRATIONS=true` as its runtime role is refused the lock (SQLSTATE `42501`), whether another session holds it or not, and fails; the production compose sets `false`. SPEC-004's statement that a service's own run skips a lock another instance holds (`docs/specs/SPEC-004-server-ingest-minimal.md:176`), which the api's runner mirrors (`docs/specs/SPEC-008-auth-core.md:169`), is amended so by scope: it holds for a role that may take the lock. deploy_ac_004 also asserts:
-   - as either runtime role, each of the sixteen is refused;
-   - as either owner role, an advisory lock can be taken.
-3. §Operational §6. The heartbeat client's TLS 1.3 is set at `agent/cg-agent/src/tls.rs:106` and the enrollment client's at `:73` (debt #123).
-4. §Data contracts §2, the dashboard's image. `dashboard/next.config.mjs` picks `output` by platform: on every platform but Windows it is `"standalone"`. The image is built on Linux, and CI's dashboard job runs on Linux, both with the standalone server. A Windows checkout builds without it, and there the start-up test (deploy_ac_013's dashboard half) runs `next start`: a Windows run of that half does not exercise the image's entry point, which CI's Linux job and deploy_ac_019's image test do.
-5. §Operational §1. The production compose names its project `cyberguard-enterprise` (`name:`). Its volumes and networks keep their names wherever the bundle is unpacked, a newer bundle's directory included. A project name an operator passes (`-p`, `COMPOSE_PROJECT_NAME`) overrides it, which the configuration document says.
-6. §Acceptance criteria and §Test scenarios:
-   - deploy_ac_004's and deploy_ac_005's test is the api's suite (`services/api/test/deploy-ac-004-005-postgres.test.ts`). It runs against a Postgres that the bundle's initialisation (`deploy/docker/postgres/`) set up, with ingest's and the api's migrations run as their owner roles, and ts-ci runs it on a change to that initialisation. §Test scenarios' bundle tests are deploy_ac_001–003, 006–012 and 019.
-   - deploy_ac_001 also asserts, over the compose: each service's Postgres URL, ClickHouse user and Redis URL name its own runtime credential; each one-shot's Postgres URL names its owner role, and ingest-migrate's ClickHouse user the administrator.
-
-**Effect.**
-
-- Items 1 and 2 bound the migration command and narrow the runtime roles' rights (Manuel's list, *the privilege model*). Item 5 names the bundle's volumes, an operator surface. All three are delegated decisions, taken by Claude Code on 2026-10-25 under the delegation Manuel gave for Session 46, and listed for his audit in `docs/handoff-session-46.md`.
-- Item 1 is not backward-compatible: a one-shot that would have waited longer than five minutes for its lock now fails. An installation from this SPEC's bundle has no earlier release, so item 2 reaches every installed stack through its initialisation; a role or a grant changed later is an upgrade step (§Risks).
-- ADR-0012's Amendment 2026-06-07 (`docs/adr/0012-normalize-before-correlate-pipeline.md:292`) expects detection on more than one instance to take `pg_try_advisory_lock` per org per tick. Under item 2, `cg_ingest`, which runs the detection driver, takes no advisory lock: the SPEC that runs detection on more than one instance grants it that function again, which gives ingest's process every advisory key back: its own and the api's migration keys, whose wait item 1 bounds, and Kysely's key, which both one-shots share and whose wait item 1 does not bound. Listed for Manuel's audit; the ADR is his.
-- The dev stack and the suites' shared backends connect as one superuser, which the revocation does not touch. The tests that connect as the roles over the bundle's initialisation (`services/api/test/deploy-ac-004-005-postgres.test.ts`, `services/ingest/test/runtime-role.test.ts`) run their code as those roles, which takes no advisory lock.
-- No other section changes, and no other criterion.
-
 ## References
 
 - ADR-0022, the Amendments 2026-10-19 of ADR-0001, ADR-0003, ADR-0004, ADR-0016 and ADR-0019, and the Amendments 2026-10-23 of ADR-0003 and ADR-0020; ADR-0010, ADR-0014, ADR-0015.

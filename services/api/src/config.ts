@@ -41,21 +41,39 @@ function integer(min: number, max: number, fallback: number) {
 }
 
 /**
+ * A URL as zod 3's `.url()` read one: whatever `new URL()` parses, the value kept as written.
+ * zod 4's trims it and deletes its tabs and line breaks, so it would accept values zod 3
+ * refused and hand the clients another string than the one set.
+ */
+const urlString = () =>
+  z.string().refine(
+    (value) => {
+      try {
+        new URL(value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "must be a URL" },
+  );
+
+/**
  * SPEC-008 §Configuration (auth-core), with SPEC-023 §Data contracts §3's checks.
  * Validated at startup; the service refuses to start on a missing/invalid variable
  * (mirrors services/ingest/src/config.ts). services/api is its OWN component
  * (ADR-0014 §3) with its own config surface.
  */
 const Fields = z.object({
-  API_PG_URL: z.string().url(),
-  API_REDIS_URL: z.string().url(),
+  API_PG_URL: urlString(),
+  API_REDIS_URL: urlString(),
   // Read-only ClickHouse reader for the forensic event drill (ADR-0015 / SPEC-010;
   // the only ClickHouse the human API touches — reads cges_events for
   // GET /v1/incidents/:id/events). 1:1 mirror of services/ingest/src/config.ts:
   // URL required; user/password/db defaulted. The client is lazy (createClient
   // connects on first query), so the three Postgres read routes do NOT depend on
   // ClickHouse availability (ADR-0015 §Compliance).
-  API_CH_URL: z.string().url(),
+  API_CH_URL: urlString(),
   API_CH_USER: z.string().default("default"),
   API_CH_PASSWORD: z.string().default(""),
   API_CH_DB: z.string().default("default"),
@@ -109,35 +127,33 @@ const EnvSchema = Fields.superRefine((cfg, ctx) => {
 
 export type Config = z.infer<typeof EnvSchema>;
 
-/** The reason a check gives, in words that never quote the value. */
-function reasonOf(issue: z.ZodIssue): string {
-  if (issue.code === z.ZodIssueCode.invalid_type && issue.received === "undefined") {
+/** The reason a check gives, in words that never quote the value. `env` tells an unset
+ *  variable from one of the wrong type; zod's issues carry no input unless asked to. */
+function reasonOf(issue: z.core.$ZodIssue, env: NodeJS.ProcessEnv): string {
+  if (issue.code === "invalid_type" && env[String(issue.path[0])] === undefined) {
     return "required";
   }
-  if (issue.code === z.ZodIssueCode.invalid_string && issue.validation === "url") {
-    return "must be a URL";
-  }
-  if (issue.code === z.ZodIssueCode.too_small && issue.type === "string") {
+  if (issue.code === "too_small" && issue.origin === "string") {
     return "must not be empty";
   }
-  if (issue.code === z.ZodIssueCode.invalid_enum_value) {
-    return `must be one of ${issue.options.join(", ")}`;
+  if (issue.code === "invalid_value") {
+    return `must be one of ${issue.values.map(String).join(", ")}`;
   }
   return issue.message;
 }
 
 /** The parsed value, or a ConfigError naming the first variable refused. */
-function parsedOr<T>(parsed: z.SafeParseReturnType<unknown, T>): T {
+function parsedOr<T>(parsed: z.ZodSafeParseResult<T>, env: NodeJS.ProcessEnv): T {
   if (!parsed.success) {
-    const issue = parsed.error.issues[0] as z.ZodIssue;
-    throw new ConfigError(issue.path.join("."), reasonOf(issue));
+    const issue = parsed.error.issues[0] as z.core.$ZodIssue;
+    throw new ConfigError(issue.path.join("."), reasonOf(issue, env));
   }
   return parsed.data;
 }
 
 /** The configuration `env` gives, or a ConfigError naming the first variable refused. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  return parsedOr(EnvSchema.safeParse(env));
+  return parsedOr(EnvSchema.safeParse(env), env);
 }
 
 type Shape = typeof Fields.shape;
@@ -152,5 +168,5 @@ export function loadConfigFor<K extends keyof Shape>(
 ): Pick<Config, K> {
   // The mask names keys of Fields alone, which zod's Exactly<> cannot see through a generic K.
   const mask = Object.fromEntries(keys.map((k) => [k, true])) as never;
-  return parsedOr(Fields.pick(mask).safeParse(env)) as unknown as Pick<Config, K>;
+  return parsedOr(Fields.pick(mask).safeParse(env), env) as unknown as Pick<Config, K>;
 }

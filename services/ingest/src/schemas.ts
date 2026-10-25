@@ -28,6 +28,26 @@ const AgentBlockSchema = z.object({
  */
 const NanosSchema = z.string().refine((v) => /^[1-9][0-9]{0,18}$/.test(v) && BigInt(v) < 2n ** 63n);
 
+/**
+ * What the wire accepted before zod 4, kept: zod 4's `z.uuid()` admits only RFC 9562's
+ * versions and variant and its `.int()` only safe integers, where zod 3's `.uuid()` took any
+ * 8-4-4-4-12 hexadecimal string (zod 4's `z.guid()`) and its `.int()` any integer. Its IP
+ * address patterns are zod 3.25.76's own, since zod 4's `z.ipv4()` and `z.ipv6()` refuse
+ * the zone a link-local address may carry and take forms zod 3 refused. The two patterns are
+ * copied from zod 3.25.76 (src/v3/types.ts, https://github.com/colinhacks/zod), Copyright (c)
+ * 2025 Colin McDonnell, MIT License, whose condition reads: "The above copyright notice and
+ * this permission notice shall be included in all copies or substantial portions of the
+ * Software." NOTICE carries the attribution.
+ */
+const UuidSchema = z.guid();
+const NonNegativeIntegerSchema = z.number().refine(Number.isInteger).nonnegative();
+const IPV4 =
+  /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
+const IPV6 =
+  /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+/** An IP address in text, as zod 3's `.ip()` read one. */
+export const IpTextSchema = z.string().refine((v) => IPV4.test(v) || IPV6.test(v));
+
 /** A pid that fits the `UInt32` columns (SPEC-017 Amendment 2026-10-16). */
 const PidSchema = z.number().int().min(0).max(4_294_967_295);
 
@@ -49,7 +69,7 @@ const CgesProcessSchema = z.object({
 
 /** SPEC-005 CGES Process Activity event shape (envelope.events[] element). */
 const CgesProcessActivitySchema = z.object({
-  event_id: z.string().uuid(),
+  event_id: UuidSchema,
   /** Strict literal per OCSF Process Activity + ADR-0006 + ADR-0011. */
   class_uid: z.literal(1007),
   /** Launch=1, Terminate=2 per ADR-0011 §3 CGES wire allow-list. */
@@ -61,7 +81,7 @@ const CgesProcessActivitySchema = z.object({
 
 /** SPEC-019 network endpoint: a valid IP address in text and a TCP port. */
 const NetworkEndpointSchema = z.object({
-  ip: z.string().ip(),
+  ip: IpTextSchema,
   port: z.number().int().min(0).max(65535),
 });
 
@@ -73,7 +93,7 @@ const NetworkEndpointSchema = z.object({
  */
 const CgesNetworkActivitySchema = z.object({
   /** A UUID: the agent generates version 7; the version is not checked (SPEC-019 §Operational §6). */
-  event_id: z.string().uuid(),
+  event_id: UuidSchema,
   class_uid: z.literal(4001),
   /** Open, the only activity the agent emits (ADR-0018 §2). */
   activity_id: z.literal(1),
@@ -97,7 +117,7 @@ const CgesNetworkActivitySchema = z.object({
 /** The members every Authentication (3002) element has (SPEC-020 §Data contracts). */
 const CgesAuthenticationBase = {
   /** A UUID: the agent generates version 7; the version is not checked. */
-  event_id: z.string().uuid(),
+  event_id: UuidSchema,
   class_uid: z.literal(3002),
   category_uid: z.literal(3),
   /** Logon, the only activity the agent emits (ADR-0019 §2). */
@@ -116,7 +136,7 @@ const CgesAuthenticationBase = {
   /** Present only when the event has an address; no port (ADR-0019 §4). */
   src_endpoint: z
     .object({
-      ip: z.string().ip(),
+      ip: IpTextSchema,
       hostname: z.string().min(1).optional(),
     })
     .optional(),
@@ -163,10 +183,10 @@ export type CgesEvent = z.infer<typeof CgesEventSchema>;
 const InnerEnvelopeSchema = z.object({
   envelope_version: z.string().min(1),
   agent: AgentBlockSchema,
-  sequence_number: z.number().int().nonnegative(),
+  sequence_number: NonNegativeIntegerSchema,
   sent_at: z.string().min(1),
   status: z.enum(["online", "going_offline"]),
-  uptime_seconds: z.number().int().nonnegative(),
+  uptime_seconds: NonNegativeIntegerSchema,
   /**
    * SPEC-005 events extension. Optional + default([]) for backward
    * compat with SPEC-001/002/003 envelopes that do not carry events
@@ -181,7 +201,7 @@ const InnerEnvelopeSchema = z.object({
 export const OuterEnvelopeSchema = z.object({
   outer_envelope_version: z.string().min(1),
   agent_id: z.string().min(1),
-  sequence_number: z.number().int().nonnegative(),
+  sequence_number: NonNegativeIntegerSchema,
   nonce: z.string().min(1),
   sent_at: z.string().min(1),
   body: InnerEnvelopeSchema,

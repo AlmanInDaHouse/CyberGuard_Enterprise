@@ -101,8 +101,9 @@ const cgSchema = z
   .object({
     heuristic_score: z.number().min(0).max(1),
     severity_id: z.number().int().min(0).max(6),
-    // Checked by hand in checkRuleMetadata, so a missing or wrong value is named.
-    cg_detection_source: z.unknown(),
+    // Checked by hand in checkRuleMetadata, so a missing or wrong value is named. Optional
+    // here: zod 4, unlike zod 3, refuses an absent key whose schema is z.unknown().
+    cg_detection_source: z.unknown().optional(),
     cg_mitre: z
       .object({
         tactics: z.array(z.string().min(1)).nonempty(),
@@ -118,7 +119,7 @@ const ruleShellSchema = z
     title: z.string().min(1),
     level: z.string().min(1),
     logsource: z.object({ category: z.string().min(1) }).passthrough(),
-    detection: z.record(z.unknown()),
+    detection: z.record(z.string(), z.unknown()),
     cg: cgSchema,
   })
   // Top-level metadata (status, description, references, tags, …) is ignored.
@@ -127,7 +128,15 @@ const ruleShellSchema = z
 type RuleShell = z.infer<typeof ruleShellSchema>;
 
 function zodDetail(error: z.ZodError): string {
-  return error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+  return error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${issueMessage(i)}`).join("; ");
+}
+
+/** An issue's message; an unknown key in zod 3's words, which the loader has always given. */
+function issueMessage(issue: z.core.$ZodIssue): string {
+  if (issue.code === "unrecognized_keys") {
+    return `Unrecognized key(s) in object: ${issue.keys.map((k) => `'${k}'`).join(", ")}`;
+  }
+  return issue.message;
 }
 
 /** A metadata value for an error message: `missing`, or its JSON form. */
