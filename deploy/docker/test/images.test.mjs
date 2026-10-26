@@ -308,9 +308,44 @@ describe("the dashboard image", () => {
   });
 
   test("carries no image-processing library", () => {
-    // SPEC-023 Amendment 2026-10-26, item 3 (debt #129).
-    const found = installedPackages(image).filter((p) => /^(sharp|@img\/[^ ]+) /.test(`${p} `));
-    assert.deepEqual(found, []);
+    // SPEC-023 Amendment 2026-10-26, item 3 (debt #129): no package of that name below
+    // /app/node_modules, which holds Next, and no directory or link of that name anywhere in
+    // the image's filesystem.
+    const packages = installedPackages(image);
+    assert.ok(packages.some((p) => p.startsWith("next ")), "Next is not found in /app/node_modules");
+    assert.deepEqual(
+      packages.filter((p) => /^(sharp|@img\/[^ ]+) /.test(`${p} `)),
+      [],
+    );
+    // As root, which reads every directory, so that find's exit says it searched them all.
+    const r = docker([
+      "run",
+      "--rm",
+      "--user",
+      "0",
+      "--entrypoint",
+      "find",
+      image,
+      "/",
+      "-xdev",
+      "(",
+      "-type",
+      "d",
+      "-o",
+      "-type",
+      "l",
+      ")",
+      "(",
+      "-name",
+      "sharp",
+      "-o",
+      "-name",
+      "@img",
+      ")",
+      "-print",
+    ]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), "");
   });
 
   test("refuses an empty API_BASE_URL with one line, exit 1", () => {

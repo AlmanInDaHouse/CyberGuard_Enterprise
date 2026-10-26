@@ -7,7 +7,8 @@
 // repository, and the text of each licence or notice file the published package holds. A
 // package that holds none is named so, and the standard text of its declared licence follows
 // once, from .github/scripts/licence-texts/. It fails, naming each package, when a package
-// has neither a licence file nor a declared licence whose text that directory holds.
+// has neither a licence file nor a declared licence whose text that directory holds, or when
+// its files are not where --sources says.
 //
 //   node third-party-notices.mjs --image <name> --base <reference@digest> --base-software <text>
 //     --out <file> [--modules <node_modules>] [--sources <node_modules>] [--pnpm <file>]
@@ -16,16 +17,19 @@
 // packages' published files are read instead, at the same path below it (the dashboard's
 // standalone tree keeps a package's code and manifest, not its licence files: its packages
 // are read from the build's own node_modules).
-import { readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TEXTS = join(dirname(fileURLToPath(import.meta.url)), "licence-texts");
 
-/** A licence or notice file's name: LICENSE, LICENCE, COPYING or NOTICE, with any suffix. */
-const LICENCE_FILE = /^(licen[cs]es?|copying|notice)([-_.][\w.-]*)?$/i;
-/** Code that a licence file's name pattern would otherwise match (`license.js`). */
-const CODE = /\.(c|m)?(js|ts)$|\.(json|map|d\.ts|node)$/i;
+/** A licence or notice file's name: one that names a licence, copying, a notice or a
+ *  copyright anywhere (LICENSE, LICENSE-MIT, MIT.LICENSE, COPYING, NOTICE, CopyrightNotice.txt,
+ *  ThirdPartyNoticeText.txt). */
+const LICENCE_FILE = /licen[cs]e|copying|notice|copyright/i;
+/** Code, styles and media that the name pattern would otherwise match (`license.js`). */
+const CODE =
+  /\.(c|m)?[jt]sx?$|\.(json|map|node|css|scss|less|html?|sh|py|rb|go|rs|c|h|cc|cpp|hpp|wasm|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|otf|eot|gz|tgz|zip|flow|snap)$/i;
 
 /** The package directories below a node_modules: `<name>` and `@scope/<name>`, recursively
  *  through pnpm's `.pnpm/<id>/node_modules`, each once by its real path. */
@@ -128,7 +132,7 @@ function repositoryOf(manifest) {
   const r = manifest.repository;
   if (typeof r === "string") return r;
   if (r && typeof r.url === "string") return r.url;
-  return typeof manifest.homepage === "string" ? manifest.homepage : null;
+  return null;
 }
 
 /** The SPDX identifiers of an expression, its operators and parentheses aside. */
@@ -136,8 +140,11 @@ function licenceIds(expression) {
   return (expression.match(/[^\s()]+/g) ?? []).filter((t) => !["AND", "OR", "WITH"].includes(t));
 }
 
-/** Builds the file. `packages`: { name, version, manifest, dir }. Returns { text, errors }. */
-export function render({ image, base, baseSoftware, packages, texts }) {
+/**
+ * Builds the file. `packages`: { name, version, manifest, dir }; `bundled`: whether they
+ * include the application's production dependencies (--pnpm). Returns { text, errors }.
+ */
+export function render({ image, base, baseSoftware, packages, texts, bundled = false }) {
   const byKey = new Map();
   for (const p of packages) {
     if (p.name.startsWith("@cyberguard/")) continue; // CyberGuard's own: LICENSE
@@ -160,9 +167,11 @@ export function render({ image, base, baseSoftware, packages, texts }) {
     `The base image's software (${baseSoftware}) is distributed as its publisher distributes`,
     "it, with the licence information it carries.",
     "",
-    `The Node packages this image adds to its base image: ${sorted.length}. For each, its name`,
-    "and version, its declared licence, its author and repository where its manifest names",
-    "them, and the text of each licence or notice file the package holds.",
+    `The Node packages named below: ${sorted.length}. They are those of the image's node_modules${
+      bundled ? " and the application's production dependencies, whose code its compiled bundles may carry" : ""
+    }.`,
+    "For each, its name and version, its declared licence, its author and repository where its",
+    "manifest names them, and the text of each licence or notice file the package holds.",
   ];
   for (const p of sorted) {
     const licence = licenceOf(p.manifest);
@@ -171,6 +180,10 @@ export function render({ image, base, baseSoftware, packages, texts }) {
     parts.push("", rule, `${p.name} ${p.version}`, `Licence: ${licence ?? "(none declared)"}`);
     if (author) parts.push(`Author: ${author}`);
     if (repository) parts.push(`Repository: ${repository}`);
+    if (!existsSync(join(p.dir, "package.json"))) {
+      errors.push(`${p.name}@${p.version}: its files are not at ${p.dir}`);
+      continue;
+    }
     const files = licenceFiles(p.dir);
     if (files.length > 0) {
       for (const file of files) {
@@ -193,7 +206,7 @@ export function render({ image, base, baseSoftware, packages, texts }) {
     parts.push(
       "",
       `The package holds no licence file. The text of ${ids.join(", ")} follows at the end of`,
-      "this file; the package's manifest names its author above.",
+      "this file.",
     );
   }
   if (needed.size > 0) {
@@ -253,7 +266,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(resolve(p
         }
       }
     }
-    const { text, errors } = render({ image, base, baseSoftware, packages, texts: readTexts() });
+    const { text, errors } = render({
+      image,
+      base,
+      baseSoftware,
+      packages,
+      texts: readTexts(),
+      bundled: Boolean(pnpm),
+    });
     for (const e of errors) process.stderr.write(`third-party notices: ${e}\n`);
     if (errors.length > 0) process.exit(1);
     writeFileSync(out, text);

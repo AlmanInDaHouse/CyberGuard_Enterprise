@@ -55,7 +55,16 @@ test("a package's licence and notice files, at any depth outside its node_module
   const dir = pkg(
     join(root, "files", "p"),
     { name: "p", version: "1.2.3", license: "MIT", author: { name: "Ann", email: "ann@example.test" }, repository: { url: "git+https://example.test/p.git" } },
-    { LICENSE: "Copyright (c) 2020 Ann\r\n\r\nThe MIT text.\r\n", "NOTICE.md": "A notice.", "license.js": "code" },
+    {
+      LICENSE: "Copyright (c) 2020 Ann\r\n\r\nThe MIT text.\r\n",
+      "NOTICE.md": "A notice.",
+      "CopyrightNotice.txt": "Copyright (c) Ann's employer.",
+      "ThirdPartyNoticeText.txt": "Notices of what p bundles.",
+      "MIT.LICENSE": "A second licence file.",
+      "license.js": "code",
+      "notice.css": "a style",
+      "README.md": "Not a licence.",
+    },
   );
   pkg(join(dir, "sub"), {}, { COPYING: "The copying file." });
   pkg(join(dir, "node_modules", "q"), { name: "q", version: "1.0.0" }, { LICENSE: "Not p's." });
@@ -68,9 +77,31 @@ test("a package's licence and notice files, at any depth outside its node_module
   assert.ok(text.includes("--- LICENSE ---\nCopyright (c) 2020 Ann\n\nThe MIT text."), text);
   assert.ok(text.includes("--- NOTICE.md ---\nA notice."));
   assert.ok(text.includes("--- sub/COPYING ---\nThe copying file."));
-  assert.ok(!text.includes("license.js") && !text.includes("Not p's."), text);
+  assert.ok(text.includes("--- CopyrightNotice.txt ---\nCopyright (c) Ann's employer."));
+  assert.ok(text.includes("--- ThirdPartyNoticeText.txt ---\nNotices of what p bundles."));
+  assert.ok(text.includes("--- MIT.LICENSE ---\nA second licence file."));
+  for (const other of ["license.js", "notice.css", "README.md", "Not p's.", "Not a licence."]) {
+    assert.ok(!text.includes(other), `${other} in:\n${text}`);
+  }
   assert.ok(lines.includes(`Base image: ${BASE}`));
   assert.ok(text.includes("(Node.js and the Alpine Linux packages) is distributed as its publisher distributes"));
+});
+
+test("a manifest's homepage is not given as its repository, and a package without an author gets no author line", () => {
+  const manifest = { name: "h", version: "1.0.0", license: "MIT", homepage: "https://example.test/h" };
+  const dir = pkg(join(root, "homepage", "h"), manifest);
+  const { text, errors } = render({ ...opts, packages: [{ name: "h", version: "1.0.0", manifest, dir }] });
+  assert.deepEqual(errors, []);
+  const lines = text.split("\n");
+  const at = lines.indexOf("h 1.0.0");
+  assert.deepEqual(lines.slice(at, at + 4), [
+    "h 1.0.0",
+    "Licence: MIT",
+    "",
+    "The package holds no licence file. The text of MIT follows at the end of",
+  ]);
+  assert.ok(!text.includes("https://example.test/h"), text);
+  assert.ok(!/author/i.test(text.slice(text.indexOf("h 1.0.0"))), text);
 });
 
 test("a package that holds no licence file is named so, and the text of its declared licence follows once", () => {
@@ -95,7 +126,13 @@ test("CyberGuard's own packages are left out, and a package at one version is na
   assert.deepEqual(errors, []);
   assert.ok(!text.includes("@cyberguard/x"));
   assert.equal(text.split("\n").filter((l) => l === "d 1.0.0").length, 1);
-  assert.match(text, /^The Node packages this image adds to its base image: 1\./m);
+  assert.match(text, /^The Node packages named below: 1\. They are those of the image's node_modules\.$/m);
+  // With the application's production dependencies (--pnpm), the file says so.
+  const bundled = render({ ...opts, bundled: true, packages: [{ name: "d", version: "1.0.0", manifest, dir }] }).text;
+  assert.match(
+    bundled,
+    /^The Node packages named below: 1\. They are those of the image's node_modules and the application's production dependencies, whose code its compiled bundles may carry\.$/m,
+  );
 });
 
 test("the build fails, naming each package, when one holds no licence file and declares no licence, or one whose text it does not hold", () => {
@@ -112,6 +149,44 @@ test("the build fails, naming each package, when one holds no licence file and d
   assert.match(r.stderr, /^third-party notices: odd@2\.0\.0: no licence file, and no text held for WTFPL$/m);
   assert.doesNotMatch(r.stderr, /ok@1\.0\.0/);
   assert.equal(existsSync(out), false);
+});
+
+test("with --sources, a package's files are read there, at its path below --modules; one that is not there fails the build", () => {
+  // The dashboard's standalone tree: each package's manifest and code, without its licence.
+  const nm = modules("standalone", [
+    ["s@1.0.0", { name: "s", version: "1.0.0", license: "MIT" }],
+    ["t@1.0.0", { name: "t", version: "1.0.0", license: "MIT" }],
+  ]);
+  // The install it was traced from, at the same paths: s's licence; t is not there.
+  const sources = join(root, "install", "node_modules");
+  pkg(join(sources, ".pnpm", "s@1.0.0", "node_modules", "s"), { name: "s", version: "1.0.0", license: "MIT" }, { LICENSE: "S's licence." });
+  const out = join(root, "standalone", "THIRD-PARTY-NOTICES");
+  const args = [SCRIPT, "--image", "test", "--base", BASE, "--base-software", "Node.js", "--modules", nm, "--sources", sources, "--out", out];
+  const r = run(process.execPath, args);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /^third-party notices: t@1\.0\.0: its files are not at .*t$/m);
+  assert.doesNotMatch(r.stderr, /s@1\.0\.0/);
+  assert.equal(existsSync(out), false);
+  pkg(join(sources, ".pnpm", "t@1.0.0", "node_modules", "t"), { name: "t", version: "1.0.0", license: "MIT" }, { LICENSE: "T's licence." });
+  const again = run(process.execPath, args);
+  assert.equal(again.status, 0, again.stderr);
+  const text = readFileSync(out, "utf8");
+  assert.ok(text.includes("--- LICENSE ---\nS's licence."), text);
+  assert.ok(text.includes("--- LICENSE ---\nT's licence."), text);
+});
+
+test("with --pnpm, each package `pnpm licenses list --json` lists is named, from its path", () => {
+  const nm = modules("pnpm", [["ok@1.0.0", { name: "ok", version: "1.0.0", license: "MIT" }, { LICENSE: "Fine." }]]);
+  const bundledDir = pkg(join(root, "pnpm", "bundled"), { name: "bundled", version: "4.5.6", license: "ISC" }, { LICENSE: "Bundled's licence." });
+  const list = join(root, "pnpm", "licences.json");
+  writeFileSync(list, JSON.stringify({ ISC: [{ name: "bundled", versions: ["4.5.6"], paths: [bundledDir] }] }));
+  const out = join(root, "pnpm", "THIRD-PARTY-NOTICES");
+  const r = run(process.execPath, [SCRIPT, "--image", "test", "--base", BASE, "--base-software", "Node.js", "--modules", nm, "--pnpm", list, "--out", out]);
+  assert.equal(r.status, 0, r.stderr);
+  const lines = readFileSync(out, "utf8").split("\n");
+  assert.ok(lines.includes("ok 1.0.0") && lines.includes("bundled 4.5.6"), lines.join("\n"));
+  assert.ok(lines.includes("Bundled's licence."));
+  assert.ok(lines.some((l) => l.endsWith("and the application's production dependencies, whose code its compiled bundles may carry.")));
 });
 
 test("run over a node_modules whose packages it can attribute, it writes the file", () => {

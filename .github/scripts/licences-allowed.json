@@ -1,5 +1,5 @@
 {
-  "comment": "SPEC-023 §Operational §12 (debt #112). The licences a production dependency of the services, the dashboard or the agent may carry: permissive ones, which ask for the notice alone, which each image carries in its THIRD-PARTY-NOTICES. A package named below is admitted under the licence it names as well as under the list above, for the reason given. A change to this file is a reviewed change.",
+  "comment": "SPEC-023 §Operational §12 (debt #112). The licences a production dependency of the services, the dashboard or the agent may carry: permissive ones, which ask for the notice alone. A package named below is admitted under the licence it names as well as under the list above, for the reason given. A change to this file is a reviewed change.",
   "licences": [
     "0BSD",
     "Apache-2.0",

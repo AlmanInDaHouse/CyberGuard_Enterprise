@@ -52,6 +52,21 @@ test("a package the allowlist names is admitted under its licence too, and under
   assert.equal(changed[0].name, "caniuse-lite");
 });
 
+test("the repository's allowlist admits no LGPL, sharp's libvips builds included (SPEC-023 Amendment 2026-10-26, item 3)", () => {
+  const allowlist = JSON.parse(readFileSync(join(REPO, ".github", "scripts", "licences-allowed.json"), "utf8"));
+  const pkg = (name, licence) => ({ ecosystem: "npm", name, version: "1.2.0", licence });
+  const lgpl = [
+    pkg("@img/sharp-libvips-linux-x64", "LGPL-3.0-or-later"),
+    pkg("@img/sharp-libvips-linuxmusl-x64", "LGPL-3.0-or-later"),
+    pkg("@img/sharp-win32-x64", "Apache-2.0 AND LGPL-3.0-or-later"),
+    pkg("some-lgpl-thing", "LGPL-2.1-only"),
+  ];
+  assert.deepEqual(
+    refused(lgpl, allowlist).map((p) => p.name),
+    lgpl.map((p) => p.name),
+  );
+});
+
 test("the checker fails on a fixture with a licence outside the list, naming the package, and writes its report", () => {
   const dir = mkdtempSync(join(tmpdir(), "cg-licences-"));
   try {
