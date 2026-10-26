@@ -67,6 +67,17 @@ jobs:
           # resolve before corepack exists; this job installs nothing.
           package-manager-cache: false
 
+      - name: Set up the supported Docker baseline
+        uses: docker/setup-docker-action@1a6edb0ba9ac496f6850236981f15d8f9a82254d # v5.0.0
+        with:
+          version: v29.1.2
+          set-host: true
+
+      - name: Set up the supported Compose baseline
+        uses: docker/setup-compose-action@112d3e30db3bf437d207fea57f22510569d1ab97 # v2.0.0
+        with:
+          version: v2.40.3
+
       - name: Build the images
         run: |
           set -eu
@@ -100,12 +111,14 @@ jobs:
       # test brings up a stack of its own.
       - name: Run deploy/docker/test against them
         env:
+          GH_TOKEN: ${{ github.token }}
+          CG_TEST_PRODUCTION_BASELINE: "1"
           CG_TEST_REVISION: ${{ github.sha }}
           CG_TEST_VERSION: 0.0.0-ci
           CG_TEST_STACK: "1"
           CG_TEST_AGENT: ${{ github.workspace }}/target/debug/cg-agent
         run: >-
-          sudo --preserve-env=CG_TEST_REVISION,CG_TEST_VERSION,CG_TEST_STACK,CG_TEST_AGENT env "PATH=$PATH"
+          sudo --preserve-env=GH_TOKEN,DOCKER_HOST,CG_TEST_PRODUCTION_BASELINE,CG_TEST_REVISION,CG_TEST_VERSION,CG_TEST_STACK,CG_TEST_AGENT env "PATH=$PATH" "DOCKER_CONFIG=$HOME/.docker"
           node --test --test-concurrency=1 "deploy/docker/test/*.test.mjs"
 
   # SPEC-023 §Operational §12 and its Amendment 2026-10-26, item 4: the release's image builds
@@ -128,6 +141,17 @@ jobs:
         with:
           node-version: "22"
           package-manager-cache: false
+
+      - name: Set up the supported Docker baseline
+        uses: docker/setup-docker-action@1a6edb0ba9ac496f6850236981f15d8f9a82254d # v5.0.0
+        with:
+          version: v29.1.2
+          set-host: true
+
+      - name: Set up the supported Compose baseline
+        uses: docker/setup-compose-action@112d3e30db3bf437d207fea57f22510569d1ab97 # v2.0.0
+        with:
+          version: v2.40.3
 
       # The versions of Docker, Compose and Buildx the dry run ran with, in its log.
       - name: Docker's versions
