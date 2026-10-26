@@ -52,6 +52,17 @@ test("a package the allowlist names is admitted under its licence too, and under
   assert.equal(changed[0].name, "caniuse-lite");
 });
 
+test("no install carries sharp: the root manifest leaves it out, and the lockfile resolves no sharp or @img package (SPEC-023 Amendment 2026-10-26, item 3)", () => {
+  const manifest = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8"));
+  assert.ok(manifest.pnpm?.ignoredOptionalDependencies?.includes("sharp"));
+  const lock = readFileSync(join(REPO, "pnpm-lock.yaml"), "utf8");
+  // A resolved package is keyed name@version, quoted or not, in packages: and snapshots:.
+  const resolved = lock.split("\n").filter((l) => /^\s+'?(sharp|@img\/[^@'\s]+)@/.test(l));
+  assert.deepEqual(resolved, []);
+  // The same pattern finds a package the lockfile does resolve.
+  assert.ok(lock.split("\n").some((l) => /^\s+'?next@/.test(l)));
+});
+
 test("the repository's allowlist admits no LGPL, sharp's libvips builds included (SPEC-023 Amendment 2026-10-26, item 3)", () => {
   const allowlist = JSON.parse(readFileSync(join(REPO, ".github", "scripts", "licences-allowed.json"), "utf8"));
   const pkg = (name, licence) => ({ ecosystem: "npm", name, version: "1.2.0", licence });
