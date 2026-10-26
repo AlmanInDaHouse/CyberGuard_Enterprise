@@ -410,6 +410,25 @@ describe("the proxy image", () => {
       );
       assert.equal(tls.headers["strict-transport-security"], "max-age=31536000");
       assert.equal(tls.headers["alt-svc"], undefined);
+      // The dashboard's hostname in another letter case is the dashboard's; any other host
+      // is answered 421, with no body and no HSTS (the second Amendment 2026-10-26, item 5).
+      const upper = await get(
+        hostPort(id, 8443),
+        "/login",
+        { Host: "CG.EXAMPLE.TEST" },
+        { servername: "cg.example.test", rejectUnauthorized: false },
+      );
+      assert.notEqual(upper.status, 421);
+      assert.equal(upper.headers["strict-transport-security"], "max-age=31536000");
+      const other = await get(
+        hostPort(id, 8443),
+        "/login",
+        { Host: "other.example.test" },
+        { servername: "cg.example.test", rejectUnauthorized: false },
+      );
+      assert.equal(other.status, 421);
+      assert.equal(other.body, "");
+      assert.equal(other.headers["strict-transport-security"], undefined);
     } finally {
       docker(["rm", "-f", "-v", id]);
     }

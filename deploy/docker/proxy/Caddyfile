@@ -39,6 +39,17 @@ https://{$CG_DASHBOARD_HOSTNAME}:8443 {
 	}
 }
 
+# Any other host on the HTTPS port: 421 Misdirected Request, with no body, proxied nowhere
+# and without HSTS (SPEC-023's second Amendment 2026-10-26, item 5). It names no TLS policy
+# of its own: the handshake is the dashboard site's, as before, so one for a name its
+# certificate does not cover, or for none, is refused.
+https://:8443 {
+	respond 421
+	log {
+		output stdout
+	}
+}
+
 # Any host on the HTTP port: to the dashboard's hostname on the published HTTPS port.
 http://:8080 {
 	redir https://{$CG_DASHBOARD_HOSTNAME}:{$CG_HTTPS_PORT}{uri} 308

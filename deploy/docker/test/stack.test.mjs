@@ -368,6 +368,18 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
       assert.equal(redirect.headers.location, `https://${HOST}:${ports.https}/incidents?x=1`);
     });
 
+    test("another host is answered 421, proxied nowhere; the dashboard's hostname in another letter case is proxied (the second Amendment 2026-10-26, item 5)", async () => {
+      const other = await https("GET", "/login", { headers: { Host: `other.example.test:${ports.https}` } });
+      assert.equal(other.status, 421);
+      assert.equal(other.body, "");
+      assert.equal(other.headers["strict-transport-security"], undefined);
+      // The dashboard sets its CSP on every response: none means the dashboard was not reached.
+      assert.equal(other.headers["content-security-policy"], undefined);
+      const upper = await https("GET", "/login", { headers: { Host: `${HOST.toUpperCase()}:${ports.https}` } });
+      assert.equal(upper.status, 200);
+      assert.equal(upper.headers["strict-transport-security"], "max-age=31536000");
+    });
+
     test("only the proxy's and ingest's ports are published on a host address", () => {
       const s = states();
       for (const name of ["api", "dashboard", "postgres", "clickhouse", "redis"]) {
