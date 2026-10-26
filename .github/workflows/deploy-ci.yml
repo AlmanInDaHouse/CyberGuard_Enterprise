@@ -6,9 +6,11 @@ name: deploy-ci
 # contract (deploy_ac_001), the set-up script (deploy_ac_002) and the stack an operator brings
 # up from the bundle (deploy_ac_003 and 006 to 012: the backup and restore need gpg, which the
 # runner has), with a Linux debug build of cg-agent for deploy_ac_009 and 012. It pushes
-# nothing. It also runs every Monday on main, and on demand, so that a change outside the
-# repository that breaks the build shows (the runner's Docker, a registry or a package that
-# stops serving a pinned version). Its third-party actions are pinned by commit SHA, the
+# nothing. Its second job is the release's dry run (SPEC-023 §Operational §12, its Amendment
+# 2026-10-26, item 4): the release's image builds and bundle step, pushed and attested nowhere,
+# which deploy/docker/test/release.test.mjs reads. It also runs every Monday on main, and on
+# demand, so that a change outside the repository that breaks the build shows (the runner's
+# Docker, a registry or a package that stops serving a pinned version). Its third-party actions are pinned by commit SHA, the
 # release they point to in the comment.
 on:
   pull_request:
@@ -34,6 +36,9 @@ on:
       - ".github/scripts/licences-allowed.json"
       - ".github/scripts/third-party-notices.mjs"
       - ".github/scripts/licence-texts/**"
+      - ".github/scripts/release-images.mjs"
+      - ".github/scripts/release-bundle.mjs"
+      - ".github/workflows/release.yml"
       - ".github/workflows/deploy-ci.yml"
   schedule:
     # Mondays, 06:41 UTC
@@ -102,3 +107,46 @@ jobs:
         run: >-
           sudo --preserve-env=CG_TEST_REVISION,CG_TEST_VERSION,CG_TEST_STACK,CG_TEST_AGENT env "PATH=$PATH"
           node --test --test-concurrency=1 "deploy/docker/test/*.test.mjs"
+
+  # SPEC-023 §Operational §12 and its Amendment 2026-10-26, item 4: the release's image builds
+  # and bundle step, run as the release runs them but pushed nowhere and attested nowhere:
+  # each image an OCI layout carrying BuildKit's SBOM and provenance, and the bundle naming
+  # each by its digest. deploy/docker/test/release.test.mjs then reads them (deploy_ac_019's
+  # and deploy_ac_001's dry-run halves).
+  release-dry-run:
+    name: The release's builds and bundle, pushed nowhere
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      # The versions of Docker, Compose and Buildx the dry run ran with, in its log.
+      - name: Docker's versions
+        run: |
+          docker version --format 'Docker Engine {{.Server.Version}}'
+          docker compose version
+          docker buildx version
+
+      - name: Build the images and the bundle
+        run: |
+          set -eu
+          node .github/scripts/release-images.mjs --version 0.0.0-ci --revision "$GITHUB_SHA" \
+            --mode oci --out "$RUNNER_TEMP/release"
+          node .github/scripts/release-bundle.mjs --version 0.0.0-ci \
+            --digests "$RUNNER_TEMP/release/digests.json" --out "$RUNNER_TEMP/release"
+
+      - name: Read them
+        env:
+          CG_TEST_RELEASE_DIR: ${{ runner.temp }}/release
+          CG_TEST_RELEASE_VERSION: 0.0.0-ci
+          CG_TEST_REVISION: ${{ github.sha }}
+        run: node --test deploy/docker/test/release.test.mjs

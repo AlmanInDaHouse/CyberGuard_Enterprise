@@ -374,7 +374,7 @@ This dependency-ordered document supersedes both for planning.
   (`docs/handoff-session-45.md`); in S46 the four images, the bundle with
   its tests in `deploy-ci.yml` (deploy_ac_001 to 012), #122's lock wait and
   the licence check, `aa56b49`..`867ac68` (`docs/handoff-session-46.md`).
-  F1's release workflow and `docs/operations/` remain. The phase is four SPECs, in
+  F1's `docs/operations/` remains. The phase is four SPECs, in
   this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the

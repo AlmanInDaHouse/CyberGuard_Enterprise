@@ -124,7 +124,7 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
   production pnpm dependencies as CI installs them (on Linux with glibc) and
   the agent's runtime crates for its Windows target. What an image ships
   beyond them is not checked: its base image's packages, and the musl build
-  of a native package the image installs. No SBOM is produced (debt #112).
+  of a native package the image installs. Each released image's index carries BuildKit's SBOM attestation, which lists the operating-system and Node packages installed in the image, and each image carries its third-party notices (SPEC-023 Amendment 2026-10-26, items 2 and 4; debt #112); neither checks a licence.
 - **The warnings `cargo audit` lets pass**: an unmaintained, unsound or
   yanked crate passes with a warning, as chacha20 0.10.0, in the agent's
   development dependencies, did until Session 42, and rustls-pemfile,

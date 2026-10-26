@@ -1,0 +1,243 @@
+name: release
+
+# SPEC-023 §Operational §12 and its Amendment 2026-10-26, item 4: a tag v<major>.<minor>.<patch>
+# cuts a release. The licence check runs first; then the four images are built for
+# linux/amd64 with BuildKit's SBOM and provenance attestations, pushed to GHCR with the tags
+# <version> and sha-<commit>, and attested; the agent's executable is built on Windows and
+# attested; the bundle names each image by its digest and is attested; and the GitHub
+# Release carries the bundle, the executable, the licence report and SHA256SUMS. Each job has
+# the permissions it uses alone, and every third-party action is pinned by commit SHA, the
+# release it points to in the comment. deploy-ci.yml runs the image builds and the bundle
+# step as a dry run, pushing and attesting nothing. The first release waits for F2 to F4 and
+# for Manuel's explicit OK (ADR-0022 §7).
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  licences:
+    name: The licence check and its report
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      # The production dependencies, installed without their scripts, and the agent's crates,
+      # read with the toolchain rust-toolchain.toml pins.
+      - name: Check the licences
+        run: |
+          set -eu
+          V="${GITHUB_REF_NAME#v}"
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+          rustup toolchain install
+          node .github/scripts/check-licences.mjs --report "licences-$V.md"
+
+      - name: Keep the report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: licences
+          path: licences-*.md
+          if-no-files-found: error
+
+  images:
+    name: The four images, pushed and attested
+    needs: licences
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digests: ${{ steps.build.outputs.digests }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push
+        id: build
+        run: |
+          set -eu
+          node .github/scripts/release-images.mjs --version "${GITHUB_REF_NAME#v}" \
+            --revision "$GITHUB_SHA" --mode push --out "$RUNNER_TEMP/release"
+          {
+            printf 'digests='
+            node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))))' \
+              "$RUNNER_TEMP/release/digests.json"
+            printf '\n'
+            for n in ingest api dashboard proxy; do
+              printf '%s=%s\n' "$n" "$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]])' "$RUNNER_TEMP/release/digests.json" "$n")"
+            done
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest ingest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/almanindahouse/cyberguard-ingest
+          subject-digest: ${{ steps.build.outputs.ingest }}
+          push-to-registry: true
+
+      - name: Attest api
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/almanindahouse/cyberguard-api
+          subject-digest: ${{ steps.build.outputs.api }}
+          push-to-registry: true
+
+      - name: Attest dashboard
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/almanindahouse/cyberguard-dashboard
+          subject-digest: ${{ steps.build.outputs.dashboard }}
+          push-to-registry: true
+
+      - name: Attest proxy
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/almanindahouse/cyberguard-proxy
+          subject-digest: ${{ steps.build.outputs.proxy }}
+          push-to-registry: true
+
+  agent:
+    name: The agent's executable, built and attested
+    needs: licences
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      # The toolchain rust-toolchain.toml pins; the asset is named before it is attested, since
+      # the attestation records its subject's name.
+      - name: Build cg-agent (release)
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          set -eu
+          rustup toolchain install
+          cargo build --release --locked -p cg-agent
+          cp target/release/cg-agent.exe "cg-agent-${GITHUB_REF_NAME#v}-x86_64-pc-windows-msvc.exe"
+
+      - name: Attest the executable
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: cg-agent-*-x86_64-pc-windows-msvc.exe
+
+      - name: Keep the executable
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent
+          path: cg-agent-*-x86_64-pc-windows-msvc.exe
+          if-no-files-found: error
+
+  bundle:
+    name: The bundle, pinned by digest and attested
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Write the bundle
+        env:
+          DIGESTS: ${{ needs.images.outputs.digests }}
+        run: |
+          set -eu
+          printf '%s' "$DIGESTS" > "$RUNNER_TEMP/digests.json"
+          node .github/scripts/release-bundle.mjs --version "${GITHUB_REF_NAME#v}" \
+            --digests "$RUNNER_TEMP/digests.json" --out .
+
+      - name: Attest the bundle
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: cyberguard-deploy-*.tar.gz
+
+      - name: Keep the bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle
+          path: cyberguard-deploy-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: The GitHub Release
+    needs: [licences, images, agent, bundle]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: assets
+          merge-multiple: true
+
+      # gh is on the runner; the release is created on the pushed tag alone.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          V="${GITHUB_REF_NAME#v}"
+          cd assets
+          sha256sum "cyberguard-deploy-$V.tar.gz" "cg-agent-$V-x86_64-pc-windows-msvc.exe" \
+            "licences-$V.md" > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "CyberGuard $V" \
+            --notes "The bundle, the agent's executable, the licence report and their SHA-256 sums. Install: docs/operations/install.md at $GITHUB_REF_NAME." \
+            "cyberguard-deploy-$V.tar.gz" "cg-agent-$V-x86_64-pc-windows-msvc.exe" \
+            "licences-$V.md" SHA256SUMS
