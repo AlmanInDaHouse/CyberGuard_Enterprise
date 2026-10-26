@@ -374,7 +374,7 @@ This dependency-ordered document supersedes both for planning.
   (`docs/handoff-session-45.md`); in S46 the four images, the bundle with
   its tests in `deploy-ci.yml` (deploy_ac_001 to 012), #122's lock wait and
   the licence check, `aa56b49`..`867ac68` (`docs/handoff-session-46.md`).
-  F1's release, `docs/operations/` and compose stubs remain. The phase is four SPECs, in
+  F1's release workflow and `docs/operations/` remain. The phase is four SPECs, in
   this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
@@ -391,9 +391,9 @@ This dependency-ordered document supersedes both for planning.
   (SPEC-023 deploy_ac_020); the first public release waits for F2 to F4.
 - Does: a production compose, operator runbook, config/secrets surface,
   TLS/CA provisioning, published images, and dashboard in compose. Today
-  only the dev stack exists (`infra/dev/docker-compose.dev.yml`, "not for
-  production"); root `docker-compose.yml` is `services: {}`; `deploy/` is
-  READMEs and the Postgres initialisation (`deploy/docker/postgres/`, S45).
+  the dev stack (`infra/dev/docker-compose.dev.yml`, "not for production")
+  and the bundle (`deploy/docker/`, S46) exist, and no compose file is at
+  the root (ADR-0001 Amendment 2026-10-19; debt #12, S47).
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
 - Blocked by: nothing since 2026-10-23. The deployment-contract decisions
   of Part (b), the compose's location (#12) and the forensic trust
@@ -450,17 +450,20 @@ This dependency-ordered document supersedes both for planning.
    TypeScript, but ADR-0002 + `services/README.md` + `blueprint.md:393`
    still name a Go/Python constellation. (Debt #5 in handoff-26 §Debts;
    ADR-0002/0007 partially amended in S24.)
-2. Criterion-7 deployment contract. Config surfaces the client operator
-   sets; prod compose location (root vs `infra/`); secrets/passphrase
-   provisioning.
-3. Forensic trust anchoring. Out-of-band anchoring of the forensic
-   Ed25519 public key
-   (`docs/adr/0016-forensic-evidence-hash-chain.md:112` /
-   `docs/specs/SPEC-012-forensic-evidence-hashchain.md:36`) — the
-   highest-weight live decision.
-4. Compose basename collision (#12). Root `docker-compose.dev.yml` stub
-   vs the real `infra/dev/` one; resolved at criterion 7; touching
-   ADR-0001 is owner-STOP.
+2. RESOLVED (S44, 2026-10-23) — criterion-7 deployment contract: the
+   configuration surfaces the client operator sets, the production
+   compose's location and the secrets' provisioning are ADR-0022's,
+   ratified by Manuel on 2026-10-23, and SPEC-023's, Accepted with it; the
+   production compose is `deploy/docker/`'s (ADR-0001 Amendment
+   2026-10-19).
+3. RESOLVED (S44, 2026-10-23) — forensic trust anchoring: the key's
+   fingerprint, recorded outside CyberGuard at installation, and a
+   verifier that starts from the record (ADR-0016 Amendment 2026-10-19,
+   ratified by Manuel on 2026-10-23 with ADR-0022).
+4. RESOLVED (S44, 2026-10-23) — compose basename collision (#12): no
+   compose file at the root (ADR-0001 Amendment 2026-10-19, ratified by
+   Manuel on 2026-10-23 with ADR-0022); the two stubs removed in S47
+   (2026-10-26).
 5. RESOLVED (S27, 2026-09-19) — relative order of B2 vs D: D first.
    Owner decision.
 6. RESOLVED (S37, 2026-10-13) — B2 capture source vs the deployment
