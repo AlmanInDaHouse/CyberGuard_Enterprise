@@ -19,6 +19,19 @@ RUN pnpm install --frozen-lockfile --filter @cyberguard/dashboard
 # (dashboard/scripts/standalone-assets.mjs).
 COPY dashboard dashboard
 RUN pnpm --filter @cyberguard/dashboard run build
+# The image's third-party notices (SPEC-023 Amendment 2026-10-26, item 2), from the
+# packages it ships.
+COPY .github/scripts/third-party-notices.mjs /notices/
+COPY .github/scripts/licence-texts /notices/licence-texts
+# The standalone tree keeps each package's code and manifest, not its licence files, so
+# each is read from the install it was traced from, at the same path; the dashboard's
+# production dependencies, whose code its compiled bundles carry, are named too.
+RUN pnpm --filter @cyberguard/dashboard licenses list --prod --json > /notices/pnpm-licences.json \
+ && node /notices/third-party-notices.mjs --image dashboard \
+      --base "node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914" \
+      --base-software "Node.js, npm, Yarn, Corepack and the Alpine Linux packages" \
+      --modules dashboard/.next/standalone/node_modules --sources node_modules \
+      --pnpm /notices/pnpm-licences.json --out /notices/THIRD-PARTY-NOTICES
 
 FROM node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
 ARG CG_VERSION=dev
@@ -44,6 +57,7 @@ ENV NODE_ENV=production \
 # wants a tmpfs in a read-only container.
 COPY --from=build /repo/dashboard/.next/standalone ./
 COPY LICENSE NOTICE /usr/share/doc/cyberguard/
+COPY --from=build /notices/THIRD-PARTY-NOTICES /usr/share/doc/cyberguard/
 USER node
 EXPOSE 3000
 # GET /api/health, which calls nothing (SPEC-023 §Operational §7).

@@ -9,6 +9,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"],
+    "ignoredOptionalDependencies": ["sharp"],
     "overrides": {
       "next>postcss": "^8.5.23",
       "postcss>nanoid": "^3.3.18",

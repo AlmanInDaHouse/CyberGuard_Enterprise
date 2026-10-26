@@ -16,6 +16,10 @@ const nextConfig = {
   // with symbolic links, which Windows refuses to an unprivileged process, so a Windows
   // checkout builds without it; the image and CI build on Linux.
   output: process.platform === "win32" ? undefined : "standalone",
+  // The dashboard renders no optimised image, and its image carries no image-processing
+  // library (sharp is left out of the install, SPEC-023 Amendment 2026-10-26, item 3): the
+  // optimiser's route, /_next/image, answers 404.
+  images: { unoptimized: true },
 };
 
 export default nextConfig;

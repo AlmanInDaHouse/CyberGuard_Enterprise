@@ -60,6 +60,40 @@ function inspect(image) {
   return JSON.parse(dockerOk(["image", "inspect", image]))[0];
 }
 
+/** The base image of a Dockerfile's last stage, as its FROM line names it. */
+function lastBase(dockerfile) {
+  const froms = readFileSync(join(REPO, dockerfile), "utf8")
+    .split(/\r?\n/)
+    .filter((l) => /^\s*FROM\s/i.test(l));
+  const words = froms.at(-1).trim().split(/\s+/).slice(1);
+  return words.find((w) => !w.startsWith("--"));
+}
+
+// Reads the manifests whose paths arrive on standard input; prints "<name> <version>" each.
+const READ_MANIFESTS =
+  'const fs=require("fs");const out=new Set();for(const f of fs.readFileSync(0,"utf8").split("\\n")){if(!f)continue;const m=JSON.parse(fs.readFileSync(f,"utf8"));if(m.name)out.add((m.name+" "+(m.version??"")).trimEnd())}process.stdout.write([...out].join("\\n"))';
+
+/**
+ * The third-party packages a Node image's node_modules holds, as "<name> <version>": each
+ * package directory, found as a manifest right below a node_modules (or its @scope), by
+ * find, which follows no link, so pnpm's store is listed once. CyberGuard's own left out.
+ */
+function installedPackages(image) {
+  const r = docker([
+    "run",
+    "--rm",
+    "-e",
+    `CG_READ=${READ_MANIFESTS}`,
+    "--entrypoint",
+    "sh",
+    image,
+    "-c",
+    "find /app/node_modules -name package.json | grep -E '/node_modules/(@[^/]+/)?[^/]+/package\\.json$' | node -e \"$CG_READ\"",
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.split("\n").filter((p) => p !== "" && !p.startsWith("@cyberguard/"));
+}
+
 /** Waits until a container's health check reports healthy; fails when it reports otherwise. */
 async function healthy(id, timeoutMs = 120_000) {
   const start = Date.now();
@@ -126,7 +160,7 @@ test("deploy_ac_001 (Dockerfiles): every base image is pinned by digest", () => 
   }
 });
 
-for (const { name, uid } of IMAGES) {
+for (const { name, uid, dockerfile } of IMAGES) {
   describe(`the ${name} image`, () => {
     const image = imageOf(name);
 
@@ -141,6 +175,21 @@ for (const { name, uid } of IMAGES) {
         assert.equal(r.status, 0, `${file}: ${r.stderr}`);
         assert.ok(r.stdout.equals(readFileSync(join(REPO, file))), `${file} differs from the repository's`);
       }
+    });
+
+    test("carries THIRD-PARTY-NOTICES, naming its base image and each package it adds", () => {
+      // SPEC-023 Amendment 2026-10-26, item 2 (debt #129).
+      const r = docker(["run", "--rm", "--entrypoint", "cat", image, `${DOC_DIR}/THIRD-PARTY-NOTICES`]);
+      assert.equal(r.status, 0, r.stderr);
+      const lines = new Set(r.stdout.split("\n").map((l) => l.trimEnd()));
+      assert.ok(lines.has(`Base image: ${lastBase(dockerfile)}`), "the notices name another base image");
+      if (name === "proxy") {
+        assert.ok(lines.has("The image adds no third-party package to its base image."));
+        return;
+      }
+      const packages = installedPackages(image);
+      assert.ok(packages.length > 0, "no package found in /app/node_modules");
+      for (const pkg of packages) assert.ok(lines.has(pkg), `${pkg} is not named in the notices`);
     });
 
     test("carries the labels of §Data contracts §2, and no other of their prefix", () => {
@@ -249,9 +298,19 @@ describe("the dashboard image", () => {
       const login = await get(port, "/login");
       assert.equal(login.status, 200);
       assert.match(String(login.headers["content-security-policy"]), /'nonce-[^']+'/);
+      // The optimiser's route is off (SPEC-023 Amendment 2026-10-26, item 3): with it on, a
+      // request for an image of a size it serves would be fetched and answered otherwise.
+      const optimised = await get(port, "/_next/image?url=%2Fapi%2Fhealth&w=64&q=75");
+      assert.equal(optimised.status, 404);
     } finally {
       docker(["rm", "-f", "-v", id]);
     }
+  });
+
+  test("carries no image-processing library", () => {
+    // SPEC-023 Amendment 2026-10-26, item 3 (debt #129).
+    const found = installedPackages(image).filter((p) => /^(sharp|@img\/[^ ]+) /.test(`${p} `));
+    assert.deepEqual(found, []);
   });
 
   test("refuses an empty API_BASE_URL with one line, exit 1", () => {

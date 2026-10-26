@@ -1,0 +1,11 @@
+Third-party notices: CyberGuard proxy
+
+This image carries CyberGuard's Caddyfile, under the licence in LICENSE beside this file,
+and the third-party software named below.
+
+Base image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+The base image's software (Caddy, the Go modules it is built from, and the Alpine Linux
+packages) is distributed as its publisher distributes it, with the licence information
+it carries.
+
+The image adds no third-party package to its base image.

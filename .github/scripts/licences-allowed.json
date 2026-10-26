@@ -1,5 +1,5 @@
 {
-  "comment": "SPEC-023 §Operational §12 (debt #112). The licences a production dependency of the services, the dashboard or the agent may carry: permissive ones, which ask for the notice alone. A package named below is admitted under the licence it names, and only that one, for the reason given. A change to this file is a reviewed change.",
+  "comment": "SPEC-023 §Operational §12 (debt #112). The licences a production dependency of the services, the dashboard or the agent may carry: permissive ones, which ask for the notice alone, which each image carries in its THIRD-PARTY-NOTICES. A package named below is admitted under the licence it names as well as under the list above, for the reason given. A change to this file is a reviewed change.",
   "licences": [
     "0BSD",
     "Apache-2.0",
@@ -21,31 +21,13 @@
       "ecosystem": "npm",
       "name": "caniuse-lite",
       "licence": "CC-BY-4.0",
-      "reason": "Browser-support data that Next reads at build time; attribution, which NOTICE-style reports give."
+      "reason": "Browser-support data, a dependency of Next that its standalone server carries into the dashboard image; CC-BY-4.0, attribution, which the image gives in its THIRD-PARTY-NOTICES: the package, its author and repository, and its licence text."
     },
     {
       "ecosystem": "npm",
       "name": "thirty-two",
       "licence": "Unknown",
       "reason": "otplib's base32 codec. Its package.json declares no licence; its LICENSE.txt is the MIT licence (Copyright (c) 2011, Chris Umbel)."
-    },
-    {
-      "ecosystem": "npm",
-      "name": "@img/sharp-libvips-linux-x64",
-      "licence": "LGPL-3.0-or-later",
-      "reason": "libvips, a shared library sharp loads, which Next depends on for image optimisation; LGPL, dynamically linked and replaceable, its notice and source available upstream."
-    },
-    {
-      "ecosystem": "npm",
-      "name": "@img/sharp-libvips-linuxmusl-x64",
-      "licence": "LGPL-3.0-or-later",
-      "reason": "As @img/sharp-libvips-linux-x64, for the musl build the dashboard image's base uses."
-    },
-    {
-      "ecosystem": "npm",
-      "name": "@img/sharp-win32-x64",
-      "licence": "Apache-2.0 AND LGPL-3.0-or-later",
-      "reason": "sharp's Windows build, which carries libvips (LGPL) beside sharp (Apache-2.0); installed on a Windows developer's checkout."
     }
   ]
 }

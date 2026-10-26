@@ -29,7 +29,8 @@ LABEL org.opencontainers.image.source="https://github.com/AlmanInDaHouse/CyberGu
 RUN setcap -r /usr/bin/caddy \
  && chown 10001:10001 /data /config
 COPY deploy/docker/proxy/Caddyfile /etc/caddy/Caddyfile
-COPY LICENSE NOTICE /usr/share/doc/cyberguard/
+# The image adds no third-party package to Caddy's (SPEC-023 Amendment 2026-10-26, item 2).
+COPY LICENSE NOTICE deploy/docker/proxy/THIRD-PARTY-NOTICES /usr/share/doc/cyberguard/
 USER 10001:10001
 EXPOSE 8443 8080
 # The redirect on 8080 for the dashboard's hostname, answered by the proxy alone.

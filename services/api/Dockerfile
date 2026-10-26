@@ -19,6 +19,14 @@ RUN pnpm install --frozen-lockfile --filter @cyberguard/api...
 COPY services/api services/api
 RUN pnpm --filter @cyberguard/api run build \
  && pnpm --filter @cyberguard/api deploy --legacy --prod /deploy
+# The image's third-party notices (SPEC-023 Amendment 2026-10-26, item 2), from the
+# packages it ships.
+COPY .github/scripts/third-party-notices.mjs /notices/
+COPY .github/scripts/licence-texts /notices/licence-texts
+RUN node /notices/third-party-notices.mjs --image api \
+      --base "node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914" \
+      --base-software "Node.js, npm, Yarn, Corepack and the Alpine Linux packages" \
+      --modules /deploy/node_modules --out /notices/THIRD-PARTY-NOTICES
 
 FROM node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
 ARG CG_VERSION=dev
@@ -42,6 +50,7 @@ COPY --from=build /deploy/node_modules ./node_modules
 # so what code ships never depends on which files pnpm deploy selects.
 COPY --from=build /repo/services/api/dist ./dist
 COPY LICENSE NOTICE /usr/share/doc/cyberguard/
+COPY --from=build /notices/THIRD-PARTY-NOTICES /usr/share/doc/cyberguard/
 USER node
 EXPOSE 8081
 # GET /health (SPEC-008 as SPEC-023 amends it), which touches no store.

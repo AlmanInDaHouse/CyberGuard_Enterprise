@@ -32,6 +32,8 @@ on:
       - "pnpm-workspace.yaml"
       - ".github/scripts/check-licences.mjs"
       - ".github/scripts/licences-allowed.json"
+      - ".github/scripts/third-party-notices.mjs"
+      - ".github/scripts/licence-texts/**"
       - ".github/workflows/deploy-ci.yml"
   schedule:
     # Mondays, 06:41 UTC
