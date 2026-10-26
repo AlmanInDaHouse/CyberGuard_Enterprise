@@ -8,12 +8,13 @@
 // (read-only, every capability dropped, no new privileges) until their health check passes.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync } from "node:fs";
 import { request } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { copyBundle, makeDashboardTls, tlsHandshake } from "./lib.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const TAG = process.env.CG_TEST_IMAGE_TAG || "test";
@@ -206,6 +207,9 @@ for (const { name, uid, dockerfile } of IMAGES) {
       // SPEC-023 Amendment 2026-10-26, item 1 (debt #128).
       assert.equal(labels["org.opencontainers.image.title"], `CyberGuard ${name}`);
       const description = labels["org.opencontainers.image.description"] ?? "";
+      const declaredDescription = /org\.opencontainers\.image\.description="([^"]+)"/.exec(readFileSync(join(REPO, dockerfile), "utf8"))?.[1];
+      assert.ok(declaredDescription, `no description in ${dockerfile}`);
+      assert.equal(description, declaredDescription);
       assert.match(description, /^CyberGuard's /);
       assert.ok(description.toLowerCase().includes(name), `the description names no ${name}: ${description}`);
       assert.equal(labels["org.opencontainers.image.url"], SOURCE);
@@ -359,6 +363,36 @@ describe("the dashboard image", () => {
 
 describe("the proxy image", () => {
   const image = imageOf("proxy");
+
+  for (const mode of ["provided", "internal"]) {
+    test(`deploy_ac_019: ${mode} TLS refuses absent/uncovered SNI independently of HTTP (#134)`, async () => {
+      const dir = copyBundle();
+      makeDashboardTls(dir, "cg.example.test", ["covered.example.test"]);
+      // The isolated image fixture's key must be readable by uid 10001.
+      chmodSync(join(dir, "tls/dashboard.key"), 0o644);
+      const id = dockerOk(["run", "-d", "--read-only", "--tmpfs", "/tmp", "-v", "/data", "-v", "/config",
+        ...HARDENED, "-v", `${join(dir, "tls")}:/etc/caddy/tls:ro`, "-e", "CG_DASHBOARD_HOSTNAME=cg.example.test",
+        "-e", `CG_TLS_MODE=${mode}`, "-e", "CG_HTTPS_PORT=443", "-p", "127.0.0.1::8443", image]);
+      try {
+        await healthy(id);
+        const port = hostPort(id, 8443);
+        assert.equal(await tlsHandshake(port, "cg.example.test"), true);
+        assert.equal(await tlsHandshake(port, ""), false, "no SNI");
+        assert.equal(await tlsHandshake(port, "uncovered.example.test"), false, "uncovered SNI");
+        if (mode === "provided") {
+          assert.equal(await tlsHandshake(port, "covered.example.test"), true);
+          const other = await get(port, "/login", { Host: "covered.example.test" },
+            { servername: "covered.example.test", rejectUnauthorized: false });
+          assert.equal(other.status, 421);
+          assert.equal(other.body, "");
+          assert.equal(other.headers["strict-transport-security"], undefined);
+        }
+        assert.equal(await tlsHandshake(port, "cg.example.test"), true, "listener still available");
+      } finally {
+        docker(["rm", "-f", "-v", id]);
+      }
+    });
+  }
 
   test("its Caddy binary carries no file capability, and runs with every capability dropped", () => {
     assert.equal(dockerOk(["run", "--rm", "--entrypoint", "getcap", image, "/usr/bin/caddy"]), "");

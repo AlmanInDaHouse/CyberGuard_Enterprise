@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { connect as tlsConnect } from "node:tls";
 
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 export const BUNDLE = join(REPO, "deploy", "docker");
@@ -113,7 +114,7 @@ export function freePort() {
  * A test CA and, signed by it, the dashboard's certificate for `hostname`, written as the
  * bundle's tls/dashboard.crt and tls/dashboard.key. Returns the CA's PEM.
  */
-export function makeDashboardTls(dir, hostname) {
+export function makeDashboardTls(dir, hostname, additionalNames = []) {
   const tls = join(dir, "tls");
   const work = tempDir("cg-tls-");
   const ec = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes"];
@@ -122,11 +123,35 @@ export function makeDashboardTls(dir, hostname) {
     "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign"]);
   ok("openssl", ["req", ...ec, "-keyout", join(tls, "dashboard.key"), "-out", join(work, "leaf.csr"),
     "-subj", `/CN=${hostname}`]);
-  writeFileSync(join(work, "leaf.ext"), `subjectAltName=DNS:${hostname}\nextendedKeyUsage=serverAuth\n`);
+  writeFileSync(join(work, "leaf.ext"), `subjectAltName=${[hostname, ...additionalNames].map((n) => `DNS:${n}`).join(",")}\nextendedKeyUsage=serverAuth\n`);
   ok("openssl", ["x509", "-req", "-in", join(work, "leaf.csr"), "-CA", join(work, "ca.crt"),
     "-CAkey", join(work, "ca.key"), "-CAcreateserial", "-days", "2", "-extfile", join(work, "leaf.ext"),
     "-out", join(tls, "dashboard.crt")]);
   return readFileSync(join(work, "ca.crt"), "utf8");
+}
+
+/** A server-side handshake decision, without HTTP. Client certificate verification
+ * is deliberately disabled: an unknown SNI must fail at the server, not merely
+ * because the client's certificate-name check rejected a completed handshake.
+ * A timeout/unreachable listener fails the test rather than counting as refusal. */
+export function tlsHandshake(port, servername) {
+  return new Promise((resolve, reject) => {
+    const socket = tlsConnect({ host: "127.0.0.1", port, servername, rejectUnauthorized: false });
+    const timer = setTimeout(() => finish(undefined, new Error("TLS probe timed out")), 5000);
+    let done = false;
+    function finish(accepted, error) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      socket.destroy();
+      if (error) reject(error); else resolve(accepted);
+    }
+    socket.once("secureConnect", () => finish(true));
+    socket.once("error", (error) => {
+      if (error.code === "ECONNRESET" || /^ERR_SSL_.*ALERT/.test(error.code ?? "")) finish(false);
+      else finish(undefined, error);
+    });
+  });
 }
 
 /** RFC 6238 TOTP (SHA-1, 30 s, six digits) of a base32 secret, at `atMs`. */

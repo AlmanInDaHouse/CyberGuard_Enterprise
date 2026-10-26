@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { X509Certificate, createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import { after, before, describe, test } from "node:test";
 import { connect as tlsConnect } from "node:tls";
 import {
   IS_ROOT,
+  REPO,
   TAG,
   copyBundle,
   freePort,
@@ -27,6 +28,7 @@ import {
   run,
   setEnv,
   strongPassword,
+  tlsHandshake,
 } from "./lib.mjs";
 
 const ENABLED = process.env.CG_TEST_STACK === "1" && IS_ROOT;
@@ -71,13 +73,13 @@ function clickhouse(user, password, query) {
 }
 
 /** A request to the proxy's HTTPS port, as a browser reaching CG_DASHBOARD_HOSTNAME sends it. */
-function https(method, path, { headers = {}, body } = {}) {
+function https(method, path, { headers = {}, body, servername = HOST } = {}) {
   return new Promise((resolve, reject) => {
     const req = httpsRequest(
       {
         host: "127.0.0.1",
         port: ports.https,
-        servername: HOST,
+        servername,
         ca: caPem,
         method,
         path,
@@ -242,7 +244,7 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
       CG_ENROLL_PORT: String(ports.enroll),
       CG_HEARTBEAT_PORT: String(ports.heartbeat),
     });
-    caPem = makeDashboardTls(dir, HOST);
+    caPem = makeDashboardTls(dir, HOST, ["covered.example.test"]);
     ok("sh", ["setup.sh"], { cwd: dir });
     env = readEnv(dir);
     project = `cgtest${randomBytes(4).toString("hex")}`;
@@ -344,6 +346,32 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
   });
 
   describe("deploy_ac_008: the edge and a sign-in", () => {
+    test("TLS refuses absent/uncovered SNI in both modes, with an additional covered provided name (#134)", async () => {
+      try {
+        for (const mode of ["provided", "internal"]) {
+          setEnv(dir, { CG_TLS_MODE: mode });
+          const up = compose(["up", "-d", "--wait", "--no-deps", "proxy"]);
+          assert.equal(up.status, 0, up.stderr);
+          assert.equal(await tlsHandshake(ports.https, HOST), true);
+          assert.equal(await tlsHandshake(ports.https, ""), false);
+          assert.equal(await tlsHandshake(ports.https, "uncovered.example.test"), false);
+          if (mode === "provided") {
+            assert.equal(await tlsHandshake(ports.https, "covered.example.test"), true);
+            const other = await https("GET", "/login", { servername: "covered.example.test", headers: { Host: "covered.example.test" } });
+            assert.equal(other.status, 421);
+            assert.equal(other.body, "");
+            assert.equal(other.headers["strict-transport-security"], undefined);
+            assert.equal(other.headers["content-security-policy"], undefined);
+          }
+          assert.equal(await tlsHandshake(ports.https, HOST), true);
+        }
+      } finally {
+        setEnv(dir, { CG_TLS_MODE: "provided" });
+        const restored = compose(["up", "-d", "--wait", "--no-deps", "proxy"]);
+        assert.equal(restored.status, 0, restored.stderr);
+      }
+    });
+
     test("HTTPS answers with HSTS and the dashboard's headers; HTTP redirects to HTTPS on the published port", async () => {
       const first = await https("GET", "/login");
       const second = await https("GET", "/login");
@@ -529,6 +557,14 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
       assert.equal(report.type, "application/pdf");
       assert.equal(report.head, "%PDF-");
 
+      const forensicDoc = readFileSync(join(REPO, "docs/operations/forensic-verification.md"), "utf8");
+      const auditCommand = /<!-- forensic: audit -->\r?\n\r?\n```sh\r?\n([\s\S]*?)```/.exec(forensicDoc)?.[1];
+      assert.ok(auditCommand, "documented owner-role audit query");
+      assert.ok(ok("sh", ["-c", auditCommand.replaceAll("\r", "")], { cwd: dir,
+        env: { ...process.env, COMPOSE_PROJECT_NAME: project, COMPOSE_FILE: "docker-compose.yml:docker-compose.test.yml" },
+      }).includes(ids.incident),
+        "the documented query reads this export's audit row");
+
       prior.incident = ids.incident;
       const io = mkdtempSync(join(tmpdir(), "cg-export-"));
       temps.push(io);
@@ -570,6 +606,24 @@ describe("the bundle's stack", { skip: !ENABLED && "set CG_TEST_STACK=1, as root
       const signature = verify("signature.json", "--fingerprint", fingerprint);
       assert.equal(signature.status, 1);
       assert.match(`${signature.stdout}${signature.stderr}`, /the signature does not verify/);
+    });
+
+    test("the auditor's private export verifies under its own non-root uid, without network or write access", () => {
+      const io = mkdtempSync(join(tmpdir(), "cg-private-export-"));
+      temps.push(io);
+      writeFileSync(join(io, "export.json"), readFileSync(exportPath), { mode: 0o600 });
+      chmodSync(io, 0o700);
+      chownSync(join(io, "export.json"), 1001, 1001);
+      chownSync(io, 1001, 1001);
+      const verify = (uid) => run("docker", ["run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges:true", "--user", `${uid}:${uid}`, "-v", `${io}:/in:ro`,
+        `cyberguard-api:${TAG}`, "node", "dist/cli/verify-export.js", "--fingerprint", fingerprint, "/in/export.json"]);
+      const good = verify(1001);
+      assert.equal(good.status, 0, good.stderr);
+      assert.match(good.stdout, /^verified: 1 events,/);
+      const refused = verify(1002);
+      assert.equal(refused.status, 2);
+      assert.match(refused.stderr, /cannot read/);
     });
   });
 
