@@ -9,7 +9,9 @@
 # before setup.sh has run.
 
 # The project's name keeps the volumes' and networks' names wherever the bundle is unpacked
-# (SPEC-023 Amendment 2026-10-25, item 5).
+# (SPEC-023 Amendment 2026-10-25, item 5). An installation that needs another sets
+# COMPOSE_PROJECT_NAME in .env, which backup.sh and restore.sh follow too (the second
+# Amendment 2026-10-26, item 3).
 name: cyberguard-enterprise
 
 x-logging: &logging
@@ -79,8 +81,9 @@ services:
     networks:
       edge: {}
       app:
-        # The address API_TRUSTED_PROXIES names (SPEC-023 §Operational §1).
-        ipv4_address: 10.254.254.2
+        # The address API_TRUSTED_PROXIES names, from the same variable (SPEC-023's second
+        # Amendment 2026-10-26, item 4).
+        ipv4_address: ${CG_DASHBOARD_APP_ADDRESS:-10.254.254.2}
     depends_on:
       api:
         condition: service_healthy
@@ -114,7 +117,7 @@ services:
       API_BIND_HOST: 0.0.0.0
       API_RUN_MIGRATIONS: "false"
       API_LOG_LEVEL: ${CG_LOG_LEVEL:-info}
-      API_TRUSTED_PROXIES: 10.254.254.2
+      API_TRUSTED_PROXIES: ${CG_DASHBOARD_APP_ADDRESS:-10.254.254.2}
       API_SESSION_IDLE_MINUTES: ${CG_SESSION_IDLE_MINUTES:-480}
       API_SESSION_MAX_HOURS: ${CG_SESSION_MAX_HOURS:-24}
     networks: [app, data]
@@ -320,11 +323,12 @@ networks:
   app:
     internal: true
     # The dashboard's fixed address is outside the range Docker hands out, so that the api,
-    # which joins first, never takes it.
+    # which joins first, never takes it. The three are .env's (SPEC-023's second
+    # Amendment 2026-10-26, item 4).
     ipam:
       config:
-        - subnet: 10.254.254.0/28
-          ip_range: 10.254.254.8/29
+        - subnet: ${CG_APP_SUBNET:-10.254.254.0/28}
+          ip_range: ${CG_APP_IP_RANGE:-10.254.254.8/29}
   data:
     internal: true
   # Ingest's, to its published ports and to the relay.

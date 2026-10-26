@@ -1,17 +1,52 @@
 // SPEC-023 deploy_ac_001, the compose's contract, over `docker compose config
 // --no-interpolate` of the bundle as the repository holds it (§Operational §1, §Data
-// contracts §2), with its Amendment 2026-10-25 (items 5 and 6). The published bundle's
-// digests are the release dry run's; the Dockerfiles' pins are images.test.mjs's.
+// contracts §2), with its Amendment 2026-10-25 (items 5 and 6) and its second Amendment
+// 2026-10-26 (items 3 and 4), whose project name and app network's addresses are also read
+// rendered, over copies of the bundle with a test .env. The published bundle's digests are the
+// release dry run's; the Dockerfiles' pins are images.test.mjs's.
 import assert from "node:assert/strict";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { BUNDLE, SECRETS, ok } from "./lib.mjs";
+import { BUNDLE, SECRETS, copyBundle, ok } from "./lib.mjs";
+
+/** The environment without the variables a shell may set that Compose would read first. */
+function composeEnv() {
+  const env = { ...process.env };
+  for (const name of Object.keys(env)) {
+    if (name.startsWith("COMPOSE_") || name.startsWith("CG_")) delete env[name];
+  }
+  return env;
+}
 
 const config = JSON.parse(
   ok("docker", ["compose", "-f", join(BUNDLE, "docker-compose.yml"), "config", "--no-interpolate", "--format", "json"], {
     cwd: BUNDLE,
+    env: composeEnv(),
   }),
 );
+
+/** The compose rendered in a copy of the bundle whose .env holds `vars` beside the secrets. */
+function rendered(vars = {}) {
+  const dir = copyBundle();
+  const lines = [
+    "CG_DASHBOARD_HOSTNAME=cg.example.test",
+    "CG_AGENT_SERVER_NAMES=cg.example.test",
+    ...SECRETS.map((s) => `${s}=${"a".repeat(64)}`),
+    ...Object.entries(vars).map(([k, v]) => `${k}=${v}`),
+  ];
+  writeFileSync(join(dir, ".env"), `${lines.join("\n")}\n`);
+  // The bundle's own compose alone, as an operator runs it (no -p, no -f).
+  return JSON.parse(ok("docker", ["compose", "config", "--format", "json"], { cwd: dir, env: composeEnv() }));
+}
+
+/** Whether an IPv4 address lies within a CIDR block. */
+function within(ip, cidr) {
+  const toInt = (a) => a.split(".").reduce((n, o) => n * 256 + Number(o), 0);
+  const [base, bits] = cidr.split("/");
+  const size = 2 ** (32 - Number(bits));
+  return toInt(ip) >= toInt(base) && toInt(ip) < toInt(base) + size;
+}
 const services = config.services;
 
 const LONG_RUNNING = ["proxy", "dashboard", "api", "ingest", "postgres", "clickhouse", "redis"];
@@ -71,21 +106,60 @@ test("the api on no non-internal network, the dashboard not on data, the one-sho
   assert.deepEqual(nets("ingest").sort(), ["agents", "data"]);
 });
 
-test("the dashboard's fixed address on app is the one API_TRUSTED_PROXIES names, outside the range Docker hands out", () => {
+test("the dashboard's address on app and API_TRUSTED_PROXIES come from one variable (the second Amendment 2026-10-26, item 4)", () => {
   const address = services.dashboard.networks.app?.ipv4_address;
-  assert.ok(address);
+  assert.equal(address, "${CG_DASHBOARD_APP_ADDRESS:-10.254.254.2}");
   assert.equal(env("api").API_TRUSTED_PROXIES, address);
-  // In the subnet, and not in its dynamic range, which the api, joining first, draws from.
   const [{ subnet, ip_range: range }] = config.networks.app.ipam.config;
-  const toInt = (ip) => ip.split(".").reduce((n, o) => n * 256 + Number(o), 0);
-  const within = (ip, cidr) => {
-    const [base, bits] = cidr.split("/");
-    const size = 2 ** (32 - Number(bits));
-    return toInt(ip) >= toInt(base) && toInt(ip) < toInt(base) + size;
-  };
-  assert.ok(within(address, subnet), `${address} not in ${subnet}`);
-  assert.ok(range, "app has no ip_range");
-  assert.ok(!within(address, range), `${address} in the dynamic range ${range}`);
+  assert.equal(subnet, "${CG_APP_SUBNET:-10.254.254.0/28}");
+  assert.equal(range, "${CG_APP_IP_RANGE:-10.254.254.8/29}");
+});
+
+for (const [what, vars] of [
+  ["by default", {}],
+  [
+    "with other values in .env",
+    { CG_APP_SUBNET: "10.99.0.0/28", CG_APP_IP_RANGE: "10.99.0.8/29", CG_DASHBOARD_APP_ADDRESS: "10.99.0.2" },
+  ],
+]) {
+  test(`rendered ${what}: the dashboard's address is in the subnet, outside the range Docker hands out, and the one API_TRUSTED_PROXIES names`, () => {
+    const c = rendered(vars);
+    const address = c.services.dashboard.networks.app.ipv4_address;
+    const [{ subnet, ip_range: range }] = c.networks.app.ipam.config;
+    if (vars.CG_APP_SUBNET) {
+      assert.deepEqual([subnet, range, address], [vars.CG_APP_SUBNET, vars.CG_APP_IP_RANGE, vars.CG_DASHBOARD_APP_ADDRESS]);
+    }
+    assert.equal(c.services.api.environment.API_TRUSTED_PROXIES, address);
+    // In the subnet, and not in its dynamic range, which the api, joining first, draws from.
+    assert.ok(within(address, subnet), `${address} not in ${subnet}`);
+    assert.ok(!within(address, range), `${address} in the dynamic range ${range}`);
+  });
+}
+
+test("in another directory the project, its volumes and networks keep their names; COMPOSE_PROJECT_NAME in .env renames them (the second Amendment 2026-10-26, item 3)", () => {
+  const c = rendered();
+  assert.equal(c.name, "cyberguard-enterprise");
+  for (const [key, volume] of Object.entries(c.volumes)) assert.equal(volume.name, `cyberguard-enterprise_${key}`);
+  for (const [key, network] of Object.entries(c.networks)) assert.equal(network.name, `cyberguard-enterprise_${key}`);
+  const other = rendered({ COMPOSE_PROJECT_NAME: "cgother" });
+  assert.equal(other.name, "cgother");
+  for (const [key, volume] of Object.entries(other.volumes)) assert.equal(volume.name, `cgother_${key}`);
+  for (const [key, network] of Object.entries(other.networks)) assert.equal(network.name, `cgother_${key}`);
+});
+
+test(".env.example sets the app network's three variables to the compose's defaults (the second Amendment 2026-10-26, item 4)", () => {
+  // setup.sh writes .env from it, so its values are the ones an installation runs with.
+  const example = new Map(
+    readFileSync(join(BUNDLE, ".env.example"), "utf8")
+      .split("\n")
+      .filter((l) => /^[A-Z_]+=/.test(l))
+      .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+  );
+  assert.equal(example.get("CG_APP_SUBNET"), "10.254.254.0/28");
+  assert.equal(example.get("CG_APP_IP_RANGE"), "10.254.254.8/29");
+  assert.equal(example.get("CG_DASHBOARD_APP_ADDRESS"), "10.254.254.2");
+  assert.ok(within(example.get("CG_DASHBOARD_APP_ADDRESS"), example.get("CG_APP_SUBNET")));
+  assert.ok(!within(example.get("CG_DASHBOARD_APP_ADDRESS"), example.get("CG_APP_IP_RANGE")));
 });
 
 test("api-migrate starts when ingest-migrate has completed successfully (the second Amendment 2026-10-26, item 2)", () => {

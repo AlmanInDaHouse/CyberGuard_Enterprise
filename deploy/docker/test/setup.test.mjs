@@ -45,6 +45,14 @@ describe("deploy_ac_002 — setup.sh", { skip: !IS_ROOT && "needs POSIX root, as
     assert.equal(mode(join(dir, ".env")), 0o600);
   });
 
+  test("a COMPOSE_PROJECT_NAME line of .env is kept (the second Amendment 2026-10-26, item 3)", () => {
+    const dir = ready();
+    writeFileSync(join(dir, ".env"), `${readFileSync(join(dir, ".env"), "utf8")}COMPOSE_PROJECT_NAME=cgother\n`);
+    assert.equal(setup(dir).status, 0);
+    assert.equal(readEnv(dir).get("COMPOSE_PROJECT_NAME"), "cgother");
+    assert.equal(readFileSync(join(dir, ".env"), "utf8").match(/^COMPOSE_PROJECT_NAME=/gm)?.length, 1);
+  });
+
   test("a third run changes no byte", () => {
     const dir = ready();
     assert.equal(setup(dir).status, 0);
