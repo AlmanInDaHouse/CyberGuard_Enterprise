@@ -222,9 +222,13 @@ services:
     environment:
       API_PG_URL: postgres://cg_api_owner:${CG_PG_API_OWNER_PASSWORD:?run setup.sh}@postgres:5432/cyberguard?options=-c%20search_path%3Dapi%2Cpublic
     networks: [data]
+    # After ingest's one-shot, so that the two never wait for each other's locks (SPEC-023's
+    # second Amendment 2026-10-26, item 2).
     depends_on:
       postgres:
         condition: service_healthy
+      ingest-migrate:
+        condition: service_completed_successfully
 
   postgres:
     image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a

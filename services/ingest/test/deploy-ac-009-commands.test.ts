@@ -11,6 +11,7 @@ import {
   MIGRATION_LOCK_WAIT_MS,
   migrateFatalLine,
   runMigrations,
+  runPgMigrations,
 } from "../src/db/migrate.js";
 import { createPgDatabase, dropPgDatabase, pgDatabaseUrl } from "./helpers/throwaway.js";
 
@@ -319,5 +320,131 @@ describe("migrate.js", () => {
       await other.end();
       await dropPgDatabase(config.INGEST_PG_URL, db);
     }
+  });
+
+  // SPEC-023's second Amendment 2026-10-26, item 1 (debts #122, #127): every lock the run
+  // waits for is bounded, not only its own: the one the migrator takes before the
+  // migrations, and a lock on a table a migration changes. A wait that runs out fails the
+  // run with the line for a migration's lock, having committed none of the run's
+  // migrations, and ClickHouse's step, which runs once they have committed, does not run.
+
+  /** The lock Kysely's migrator takes before the migrations: the transaction-level advisory
+   *  key of its Postgres adapter (kysely 0.28, PostgresAdapter.acquireMigrationLock). */
+  const KYSELY_LOCK_KEY = "3853314791062309107";
+
+  /** The migrations a run finds pending in `withPending`'s database. */
+  const PENDING = ["0007_detect_arrival_cursor", "0008_playbook_executions", "0009_runtime_grants"];
+
+  /**
+   * A database with ingest's Postgres migrations applied, and then the ledger's rows of the
+   * last three removed, so that a run has them pending. Over the applied schema they change
+   * nothing (`IF NOT EXISTS` and `IF EXISTS`, and grants to roles the tests' cluster has not), but
+   * 0008 indexes and re-creates a trigger on `playbook_executions`, so it waits for a write
+   * another session has in flight on it.
+   */
+  async function withPending(name: string) {
+    const db = `deploy_migrate_${name}_${Date.now()}`;
+    await createPgDatabase(config.INGEST_PG_URL, db);
+    const url = pgDatabaseUrl(config.INGEST_PG_URL, db);
+    await runPgMigrations({ INGEST_PG_URL: url });
+    const other = new pg.Client({ connectionString: url });
+    other.on("error", () => {});
+    await other.connect();
+    const removed = await other.query("DELETE FROM ingest.kysely_migration WHERE name = ANY($1)", [
+      PENDING,
+    ]);
+    expect(removed.rowCount).toBe(PENDING.length);
+    const applied = async () =>
+      (
+        await other.query<{ name: string }>(
+          "SELECT name FROM ingest.kysely_migration WHERE name = ANY($1) ORDER BY name",
+          [PENDING],
+        )
+      ).rows.map((row) => row.name);
+    const drop = async () => {
+      await other.end();
+      await dropPgDatabase(config.INGEST_PG_URL, db);
+    };
+    return { url, other, applied, drop };
+  }
+
+  /** Runs the command's Postgres step, waiting at most 2 s, and checks the failure it must
+   *  give; returns whether the step after it, ClickHouse's, ran. */
+  async function failsWithMigrationLockLine(url: string): Promise<boolean> {
+    let clickhouse = false;
+    const start = Date.now();
+    const failed = await runPgMigrations(
+      { INGEST_PG_URL: url },
+      { wait: true, waitMs: 2000 },
+      async () => {
+        clickhouse = true;
+      },
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(migrateFatalLine(failed)).toBe(
+      "cg-ingest migrate: fatal: a lock a migration waits for is held by another session: waited 2 s",
+    );
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(1000);
+    expect(elapsed).toBeLessThan(15_000);
+    return clickhouse;
+  }
+
+  test("a lock another session holds on a table a migration changes fails the run with its own line, having committed none of the run's migrations", async () => {
+    const { url, other, applied, drop } = await withPending("table");
+    try {
+      // A running service's write in flight: its transaction holds the table in ROW
+      // EXCLUSIVE mode.
+      await other.query("BEGIN");
+      await other.query("LOCK TABLE ingest.playbook_executions IN ROW EXCLUSIVE MODE");
+      expect(await failsWithMigrationLockLine(url)).toBe(false);
+      await other.query("ROLLBACK");
+      // 0007 ran before 0008 waited, in the same transaction: neither is in the ledger.
+      expect(await applied()).toEqual([]);
+      const held = await other.query<{ n: string }>(
+        `SELECT count(*) AS n FROM pg_locks
+          WHERE locktype = 'advisory' AND pid <> pg_backend_pid()
+            AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+      );
+      expect(Number(held.rows[0]?.n)).toBe(0);
+      // The three were the run's to apply.
+      await runPgMigrations({ INGEST_PG_URL: url }, { wait: true, waitMs: 2000 });
+      expect(await applied()).toEqual(PENDING);
+    } finally {
+      await drop();
+    }
+  });
+
+  test("the lock the migrator takes before the migrations is bounded too, with the same line, committing none of them", async () => {
+    const { url, other, applied, drop } = await withPending("migrator");
+    try {
+      await other.query("SELECT pg_advisory_lock($1)", [KYSELY_LOCK_KEY]);
+      expect(await failsWithMigrationLockLine(url)).toBe(false);
+      expect(await applied()).toEqual([]);
+      await other.query("SELECT pg_advisory_unlock($1)", [KYSELY_LOCK_KEY]);
+      await runPgMigrations({ INGEST_PG_URL: url }, { wait: true, waitMs: 2000 });
+      expect(await applied()).toEqual(PENDING);
+    } finally {
+      await drop();
+    }
+  });
+
+  test("a run that waits fails when its bound cannot be set on a connection, rather than waiting without one", async () => {
+    // Postgres refuses the value: the run must not go on without the bound.
+    let clickhouse = false;
+    const failed = await runPgMigrations(
+      { INGEST_PG_URL: config.INGEST_PG_URL },
+      { wait: true, waitMs: Number.NaN },
+      async () => {
+        clickhouse = true;
+      },
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(migrateFatalLine(failed)).toMatch(/^cg-ingest migrate: fatal: .*lock_timeout/);
+    expect(clickhouse).toBe(false);
   });
 });

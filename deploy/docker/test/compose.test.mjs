@@ -88,6 +88,15 @@ test("the dashboard's fixed address on app is the one API_TRUSTED_PROXIES names,
   assert.ok(!within(address, range), `${address} in the dynamic range ${range}`);
 });
 
+test("api-migrate starts when ingest-migrate has completed successfully (the second Amendment 2026-10-26, item 2)", () => {
+  assert.equal(services["api-migrate"].depends_on["ingest-migrate"]?.condition, "service_completed_successfully");
+  assert.equal(services["api-migrate"].depends_on.postgres?.condition, "service_healthy");
+  // The api still starts when both have.
+  for (const oneShot of ONE_SHOTS) {
+    assert.equal(services.api.depends_on[oneShot]?.condition, "service_completed_successfully");
+  }
+});
+
 test("ingest, the api, the dashboard, the proxy and the one-shots: non-root, read-only, no capability, no new privileges", () => {
   for (const name of HARDENED) {
     const s = services[name];

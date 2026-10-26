@@ -224,3 +224,120 @@ test("the wait is bounded: a lock still held after it fails the run, naming the 
     await holder.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
   }
 });
+
+// SPEC-023's second Amendment 2026-10-26, item 1 (debts #122, #127): every lock the run
+// waits for is bounded, not only its own: the one the migrator takes before the migrations,
+// and a lock on a table a migration changes. A wait that runs out fails the run with the line
+// for a migration's lock, having committed none of the run's migrations.
+
+/** The lock Kysely's migrator takes before the migrations: the transaction-level advisory key
+ *  of its Postgres adapter (kysely 0.28, PostgresAdapter.acquireMigrationLock). */
+const KYSELY_LOCK_KEY = "3853314791062309107";
+
+/** The migrations a run finds pending in `withPending`'s database. */
+const PENDING = ["0005_audit_log_detail", "0006_users_authority_version", "0007_runtime_grants"];
+
+/**
+ * A database with the api's migrations applied, and then the ledger's rows of the last three
+ * removed, so that a run has them pending. Over the applied schema they change nothing
+ * (`ADD COLUMN IF NOT EXISTS`, and grants to a role the tests' cluster has not), but 0006 alters
+ * `users`, so it waits for any lock another session holds on it.
+ */
+async function withPending(
+  name: string,
+): Promise<{ url: string; other: pg.Client; drop: () => Promise<void> }> {
+  const db = `deploy_migrate_${name}_${Date.now()}`;
+  await holder.query(`CREATE DATABASE ${db}`);
+  const url = new URL(config.API_PG_URL);
+  url.pathname = `/${db}`;
+  await runMigrations({ API_PG_URL: url.toString() });
+  const other = new pg.Client({ connectionString: url.toString() });
+  other.on("error", () => {});
+  await other.connect();
+  const removed = await other.query("DELETE FROM api.api_kysely_migration WHERE name = ANY($1)", [
+    PENDING,
+  ]);
+  expect(removed.rowCount).toBe(PENDING.length);
+  return {
+    url: url.toString(),
+    other,
+    drop: async () => {
+      await other.end();
+      await holder.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+    },
+  };
+}
+
+/** The ledger's names of the pending migrations, in the database `other` is connected to. */
+async function applied(other: pg.Client): Promise<string[]> {
+  const r = await other.query<{ name: string }>(
+    "SELECT name FROM api.api_kysely_migration WHERE name = ANY($1) ORDER BY name",
+    [PENDING],
+  );
+  return r.rows.map((row) => row.name);
+}
+
+/** Runs the command's migrations, waiting at most 2 s, and checks the failure it must give. */
+async function failsWithMigrationLockLine(url: string): Promise<void> {
+  const start = Date.now();
+  const failed = await runMigrations({ API_PG_URL: url }, { wait: true, waitMs: 2000 }).then(
+    () => null,
+    (e: unknown) => e,
+  );
+  expect(migrateFatalLine(failed)).toBe(
+    "cg-api migrate: fatal: a lock a migration waits for is held by another session: waited 2 s",
+  );
+  const elapsed = Date.now() - start;
+  expect(elapsed).toBeGreaterThanOrEqual(1000);
+  expect(elapsed).toBeLessThan(15_000);
+}
+
+test("a lock another session holds on a table a migration changes fails the run with its own line, having committed none of the run's migrations", async () => {
+  const { url, other, drop } = await withPending("table");
+  try {
+    // A running service's write in flight: its transaction holds users in ROW EXCLUSIVE mode.
+    await other.query("BEGIN");
+    await other.query("LOCK TABLE api.users IN ROW EXCLUSIVE MODE");
+    await failsWithMigrationLockLine(url);
+    await other.query("ROLLBACK");
+    // 0005 ran before 0006 waited, in the same transaction: neither is in the ledger.
+    expect(await applied(other)).toEqual([]);
+    // The run that gave up holds nothing, and the three were the run's to apply.
+    const held = await other.query<{ n: string }>(
+      `SELECT count(*) AS n FROM pg_locks
+        WHERE locktype = 'advisory' AND pid <> pg_backend_pid()
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+    );
+    expect(Number(held.rows[0]?.n)).toBe(0);
+    await runMigrations({ API_PG_URL: url }, { wait: true, waitMs: 2000 });
+    expect(await applied(other)).toEqual(PENDING);
+  } finally {
+    await drop();
+  }
+});
+
+test("the lock the migrator takes before the migrations is bounded too, with the same line, committing none of them", async () => {
+  const { url, other, drop } = await withPending("migrator");
+  try {
+    await other.query("SELECT pg_advisory_lock($1)", [KYSELY_LOCK_KEY]);
+    await failsWithMigrationLockLine(url);
+    expect(await applied(other)).toEqual([]);
+    await other.query("SELECT pg_advisory_unlock($1)", [KYSELY_LOCK_KEY]);
+    await runMigrations({ API_PG_URL: url }, { wait: true, waitMs: 2000 });
+    expect(await applied(other)).toEqual(PENDING);
+  } finally {
+    await drop();
+  }
+});
+
+test("a run that waits fails when its bound cannot be set on a connection, rather than waiting without one", async () => {
+  // Postgres refuses the value: the run must not go on without the bound.
+  const failed = await runMigrations(
+    { API_PG_URL: config.API_PG_URL },
+    { wait: true, waitMs: Number.NaN },
+  ).then(
+    () => null,
+    (e: unknown) => e,
+  );
+  expect(migrateFatalLine(failed)).toMatch(/^cg-api migrate: fatal: .*lock_timeout/);
+});

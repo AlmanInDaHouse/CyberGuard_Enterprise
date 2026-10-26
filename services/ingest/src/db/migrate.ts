@@ -52,40 +52,45 @@ export const MIGRATE_VARIABLES = [
 ] as const;
 export type MigrateConfig = Pick<Config, (typeof MIGRATE_VARIABLES)[number]>;
 
-/** How long the one-shot's command waits for the advisory lock before it fails (SPEC-023
- *  §Data contracts §4, its Amendment 2026-10-25; debt #122). */
+/** How long the one-shot's command waits for a lock before it fails: its own advisory lock,
+ *  and each lock its migrations wait for, the migrator's own included (SPEC-023 §Data
+ *  contracts §4, its Amendments 2026-10-25 and 2026-10-26; debts #122 and #127). */
 export const MIGRATION_LOCK_WAIT_MS = 300_000;
 
 /** How a run takes the advisory lock: the service skips when another process holds it; the
  *  one-shot's command waits for it (SPEC-023 §Data contracts §4), up to `waitMs`
- *  (MIGRATION_LOCK_WAIT_MS unless given), and then fails. A role refused the lock function
- *  (the bundle's runtime roles, SPEC-023 Amendment 2026-10-25, item 2) fails either way. */
+ *  (MIGRATION_LOCK_WAIT_MS unless given), and then fails, and waits as long at most for each
+ *  lock its migrations need. A role refused the lock function (the bundle's runtime roles,
+ *  SPEC-023 Amendment 2026-10-25, item 2) fails either way. */
 export interface MigrateOptions {
   wait?: boolean;
   waitMs?: number;
 }
 
+/** The bound, in milliseconds, of each lock wait of a run that waits. */
+function boundMs(options: MigrateOptions): number {
+  return Math.max(1, Math.trunc(options.waitMs ?? MIGRATION_LOCK_WAIT_MS));
+}
+
+/** 55P03, lock_not_available: a lock_timeout ran out. */
+function lockTimedOut(err: unknown): boolean {
+  return (err as { code?: string } | null | undefined)?.code === "55P03";
+}
+
 /**
- * Takes the migration lock on `lock`, waiting up to `waitMs`: the bound is the connection's
- * lock_timeout for that statement alone, so a migration's own statements are not bounded by
- * it. A lock still held when it runs out fails the run, naming the lock.
+ * Takes the migration lock on `lock`, whose connection's lock_timeout (set when it connected)
+ * bounds the wait. A lock still held when it runs out fails the run, naming the lock.
  */
-async function waitForLock(lock: pg.PoolClient, waitMs: number): Promise<void> {
-  const ms = Math.max(1, Math.trunc(waitMs));
-  await lock.query(`SET lock_timeout = ${ms}`);
+async function waitForLock(lock: pg.PoolClient, ms: number): Promise<void> {
   try {
     await lock.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
   } catch (err) {
-    // 55P03 lock_not_available: the lock_timeout ran out.
-    if ((err as { code?: string }).code === "55P03") {
+    if (lockTimedOut(err)) {
       throw new Error(
         `the migration lock is held by another session: waited ${Math.round(ms / 1000)} s`,
       );
     }
     throw err;
-  } finally {
-    // A lost connection already failed the run; its reset's failure would only hide why.
-    await lock.query("RESET lock_timeout").catch(() => {});
   }
 }
 
@@ -111,7 +116,21 @@ export async function runPgMigrations(
   options: MigrateOptions = {},
   underLock?: () => Promise<void>,
 ): Promise<boolean> {
-  const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
+  // A run that waits bounds each lock wait of every connection (SPEC-023's second Amendment
+  // 2026-10-26, item 1): its own lock's, the migrator's and each migration statement's. The
+  // bound is set before the pool hands a connection out, so that a connection it cannot be
+  // set on fails the run instead of waiting without bound.
+  const ms = boundMs(options);
+  const pool = new pg.Pool({
+    connectionString: config.INGEST_PG_URL,
+    ...(options.wait
+      ? {
+          onConnect: async (client: pg.ClientBase) => {
+            await client.query(`SET lock_timeout = ${ms}`);
+          },
+        }
+      : {}),
+  });
   // A lost connection fails the run with its fatal line, not as an unheard error event.
   watchPool(pool);
   // Queued on each new client before any query of the migrator's.
@@ -123,7 +142,7 @@ export async function runPgMigrations(
     const lock = await pool.connect();
     try {
       if (options.wait) {
-        await waitForLock(lock, options.waitMs ?? MIGRATION_LOCK_WAIT_MS);
+        await waitForLock(lock, ms);
       } else {
         const r = await lock.query<{ locked: boolean }>(
           "SELECT pg_try_advisory_lock($1) AS locked",
@@ -141,6 +160,14 @@ export async function runPgMigrations(
           migrationTableSchema: INGEST_SCHEMA,
         });
         const { error, results } = await migrator.migrateToLatest();
+        // A lock wait of a run that waits ran out. Kysely ran the pending migrations in one
+        // transaction, which this failure rolled back: the run committed none of them. Any
+        // other failure is reported as before (SPEC-023's second Amendment 2026-10-26, item 1).
+        if (options.wait && lockTimedOut(error)) {
+          throw new Error(
+            `a lock a migration waits for is held by another session: waited ${Math.round(ms / 1000)} s`,
+          );
+        }
         for (const r of results ?? []) {
           if (r.status === "Error") {
             throw new Error(`migration failed: ${r.migrationName}`);
