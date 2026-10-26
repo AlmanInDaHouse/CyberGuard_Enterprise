@@ -7,8 +7,9 @@
 FROM caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
 ARG CG_VERSION=dev
 ARG CG_REVISION=unknown
-# Caddy's image sets its own title, description, URL, documentation and vendor; each label
-# below replaces the one of its key (SPEC-023 Amendment 2026-10-26, item 1).
+# Caddy's image sets labels of the prefix of its own (its title, description, URL,
+# documentation, vendor, version, licences and source); each label below replaces the one of
+# its key (SPEC-023 Amendment 2026-10-26, item 1).
 LABEL org.opencontainers.image.source="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
       org.opencontainers.image.revision="${CG_REVISION}" \
       org.opencontainers.image.version="${CG_VERSION}" \

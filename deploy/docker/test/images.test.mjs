@@ -147,13 +147,18 @@ for (const { name, uid } of IMAGES) {
       const labels = inspect(image).Config.Labels ?? {};
       assert.equal(labels["org.opencontainers.image.source"], SOURCE);
       assert.equal(labels["org.opencontainers.image.licenses"], "Apache-2.0");
-      assert.ok(labels["org.opencontainers.image.version"], "no version label");
+      const version = labels["org.opencontainers.image.version"];
+      assert.ok(version, "no version label");
+      // The build's own version, not a base image's (Caddy's carries its own).
+      if (process.env.CG_TEST_VERSION) assert.equal(version, process.env.CG_TEST_VERSION);
       const revision = labels["org.opencontainers.image.revision"];
       assert.ok(revision, "no revision label");
       if (process.env.CG_TEST_REVISION) assert.equal(revision, process.env.CG_TEST_REVISION);
       // SPEC-023 Amendment 2026-10-26, item 1 (debt #128).
       assert.equal(labels["org.opencontainers.image.title"], `CyberGuard ${name}`);
-      assert.match(labels["org.opencontainers.image.description"] ?? "", /^CyberGuard's /);
+      const description = labels["org.opencontainers.image.description"] ?? "";
+      assert.match(description, /^CyberGuard's /);
+      assert.ok(description.toLowerCase().includes(name), `the description names no ${name}: ${description}`);
       assert.equal(labels["org.opencontainers.image.url"], SOURCE);
       assert.equal(
         labels["org.opencontainers.image.documentation"],

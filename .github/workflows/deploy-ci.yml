@@ -94,8 +94,9 @@ jobs:
       - name: Run deploy/docker/test against them
         env:
           CG_TEST_REVISION: ${{ github.sha }}
+          CG_TEST_VERSION: 0.0.0-ci
           CG_TEST_STACK: "1"
           CG_TEST_AGENT: ${{ github.workspace }}/target/debug/cg-agent
         run: >-
-          sudo --preserve-env=CG_TEST_REVISION,CG_TEST_STACK,CG_TEST_AGENT env "PATH=$PATH"
+          sudo --preserve-env=CG_TEST_REVISION,CG_TEST_VERSION,CG_TEST_STACK,CG_TEST_AGENT env "PATH=$PATH"
           node --test --test-concurrency=1 "deploy/docker/test/*.test.mjs"
