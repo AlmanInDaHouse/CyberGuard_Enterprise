@@ -542,6 +542,124 @@ Proposed by Claude Code on 2026-10-19 under Manuel's delegation ("lo que dependa
   - for item 4, the override file (Session 46);
   - for item 5, Caddy's empty `200`; closing the connection, which keeps ADR-0022 §2's letter but gives a client no status; and a redirect to the dashboard's hostname, which answers a misdirected request with a pointer.
 
+## Amendment 2026-10-26: the operator's procedures and their verification
+
+**What surfaced it.** Session 47's operations drafts leave six parts of the
+operator's contract unsettled: creating later users, preserving client addresses,
+the supported Docker versions, installing an operator-provided ingest pair, a
+usable logging-driver example, and the proxy's TLS refusal (debt #134). This
+amendment specifies the requirements before the documents and their tests land.
+
+**The amendment.**
+
+1. **Users after the first.** Superseding §Operational §8's last bullet and
+   §Scope's dashboard deferral where they prescribe the later-user procedure,
+   and amending SPEC-008 §Operational §6 by scope on its restriction of all
+   later creation to the authenticated API:
+   until F3 supplies the user pages, the server operator creates later users with
+   `docker compose exec api node dist/cli/create-user.js --email <e> --role <r>`,
+   where the role is `admin`, `analyst` or `viewer`. The password and TOTP code
+   are read from standard input, with the same confirmation as the first admin.
+   Creation writes `user.create`, with no acting principal and with the role in
+   its detail; successful confirmation writes `user.totp.enroll`. This is a
+   host-administrator procedure, not a new unauthenticated network endpoint.
+   The runbook explains its temporary custody of the user's password and TOTP
+   secret (debt #98, still F3's), and gives a standard-input procedure for
+   `POST /v1/auth/totp/confirm` inside the api container if confirmation was
+   interrupted. An unconfirmed account must not be recreated to recover it.
+   The authenticated user API and its authorization remain unchanged.
+2. **Client addresses.** The installation must preserve an external client's
+   source address through the host to the proxy and ingest. The runbook must
+   give a rootful Linux Docker daemon configuration, merged with the host's
+   existing configuration, that disables the userland proxy and retains Docker's
+   packet forwarding and firewall management. It must require direct IPv4
+   access to an IPv4 `CG_BIND_ADDRESS`, with no source NAT or intervening proxy,
+   and verify the address observed from a different host before accepting the
+   installation. It must not claim that disabling the userland proxy preserves
+   every hairpin or IPv6-to-IPv4 route. IPv6-only access and hairpin access need
+   a separately verified network design; the supplied procedure does not certify
+   them. The runbook must explain the effect of a daemon restart on other
+   containers and keep the api and stores unpublished. This supersedes the
+   client-address row's mitigation in §Risks; deploy_ac_008's IPv4 assertion
+   remains, and the operator checks the actual production route.
+3. **Prerequisites.** The supported installation baseline is a Linux x86-64
+   host, rootful Docker Engine 29.1.2 or later and Docker Compose 2.40.3 or later.
+   These are support floors, not instructions to hold an unpatched release;
+   operators must use maintained, patched versions at or above them. The
+   installation document must give version checks and distinguish this production
+   baseline from Docker Desktop and the nested daemon used by local tests. A
+   test on a newer version does not certify the minimum; the handoff must record
+   the versions actually exercised. This supersedes §Operational §1's Compose
+   bullet: CI must exercise a version at or above the floor and record it,
+   rather than define the minimum by whichever version the runner supplies.
+   S47's Desktop execution is evidence for the chosen baseline, not a rootful
+   Linux certification. This does not change the image build tools pinned by
+   §Operational §12.
+4. **An operator-provided ingest pair.** §Operational §6's placement is made
+   executable in the configuration document: before ingest's first start,
+   create its service container without starting it, place the certificate at
+   `/certs/server.pem` and its key at `/certs/server-key.pem` in its
+   `ingest_certs` named volume, owned by uid 1000, the key mode `0600`, and
+   then start the stack. Use the bundle's project name from `.env`; do not
+   assume the default volume prefix. The procedure must use the release's
+   ingest image and no separately downloaded helper image. The certificate
+   must name the agents' URLs; distribute its issuer's trust anchor instead of
+   the output of `export-ca.js`. Renewal replaces both files while ingest is
+   stopped, then starts it; the operator keeps the pair separately for restore.
+   No new environment variable or mount replaces §Data contracts §3's defaults.
+5. **Log shipping.** The configuration document must give a complete Compose
+   override example sending every service's and one-shot's logs to an operator's
+   syslog collector over TLS with certificate verification. The collector's
+   address and host-side CA path are explicit operator substitutions. The
+   example must replace the `json-file` options, rather than merge them into
+   the new driver's options, and specify bounded local caching. It must explain
+   how to apply the override, its collector availability and delivery limits,
+   and that the collector must enforce the required year of retention. The
+   bundle's default remains rotated local logs; no collector is added to it.
+6. **TLS refusal, debt #134.** On the proxy's HTTPS listener, a ClientHello
+   without SNI, or with a DNS name outside the names covered by its configured
+   certificate, must fail the handshake in both `provided` and `internal`
+   mode. No HTTP response is required for those failures. A handshake for the
+   dashboard's hostname must succeed; a provided certificate may cover
+   additional names. After a successful handshake, HTTP routing still depends
+   on `Host`, with the `421` of the preceding amendment for another host.
+   deploy_ac_008 and the proxy image part of deploy_ac_019 must assert these
+   handshake cases in both modes, independently of HTTP routing, and also the
+   provided-certificate case with an additional covered name. This is a product
+   requirement, not a requirement on a third-party server's internal policy.
+7. **Document verification.** deploy_ac_021 keeps every server command in
+   `install.md` executable by a test in `deploy/docker/test/`. The tests must
+   read the document's command blocks, substitute fixture values for operator
+   placeholders, execute the commands, and fail on an unhandled server command.
+   Interactive user creation must run through a pseudo-terminal, confirm TOTP,
+   and assert the user's role, the audit rows and the absence of password echo.
+   Environment preparation and external endpoints may be fixtures; a stub that
+   returns success instead of invoking a documented program is not execution.
+   Before the first release, the file verification commands run against local
+   fixtures: checksums and extraction succeed, and the real attestation verifier
+   must reject an unattested fixture. Positive verification of published assets
+   remains deploy_ac_019's first-release gate; the test must not claim that a
+   rejected fixture proves a release's provenance. The endpoint procedure keeps
+   its manual elevated validation and deploy_ac_020's timed first installation.
+
+**Effect and delegated decisions.** All seven items are taken under Manuel's
+Session 48 delegation, for an enterprise operator, and recorded for his audit.
+They leave ADR-0022's architecture, F2 to F4 and their release gates unchanged.
+Items 1 to 5 replace missing or incomplete operating procedures, item 6 adds
+testable TLS requirements, and item 7 makes the document test's evidence and
+its pre-release limit explicit. The existing API, TLS trust anchors, container
+privileges, network layout and default logging configuration do not change.
+
+Discarded: a hand-written HTTP login and user-creation session in the runbook
+when the existing host CLI can create and confirm the user; a claim of universal
+IP preservation from one daemon switch; older Docker floors inferred only from
+individual feature introductions, rather than the versions exercised in S47's
+release dry run; an extra helper image to place ingest's pair; clear-text remote
+logs; unspecified TLS fallback; and a mocked successful provenance check before
+a release exists. The version floors and the direct IPv4 installation procedure
+narrow the documented supported environment; they do not reject existing
+configuration in code. No public release has yet shipped.
+
 ## References
 
 - ADR-0022, the Amendments 2026-10-19 of ADR-0001, ADR-0003, ADR-0004, ADR-0016 and ADR-0019, and the Amendments 2026-10-23 of ADR-0003 and ADR-0020; ADR-0010, ADR-0014, ADR-0015.
