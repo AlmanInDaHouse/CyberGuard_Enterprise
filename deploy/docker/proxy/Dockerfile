@@ -7,10 +7,17 @@
 FROM caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
 ARG CG_VERSION=dev
 ARG CG_REVISION=unknown
+# Caddy's image sets its own title, description, URL, documentation and vendor; each label
+# below replaces the one of its key (SPEC-023 Amendment 2026-10-26, item 1).
 LABEL org.opencontainers.image.source="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
       org.opencontainers.image.revision="${CG_REVISION}" \
       org.opencontainers.image.version="${CG_VERSION}" \
-      org.opencontainers.image.licenses="Apache-2.0"
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="CyberGuard proxy" \
+      org.opencontainers.image.description="CyberGuard's TLS proxy in front of its dashboard, built on Caddy." \
+      org.opencontainers.image.url="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
+      org.opencontainers.image.documentation="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise/tree/${CG_REVISION}/docs/operations" \
+      org.opencontainers.image.vendor="The CyberGuard Authors"
 # Caddy's binary carries the file capability cap_net_bind_service, and a binary whose file
 # capability lies outside the bounding set does not execute under cap_drop: [ALL]. The proxy
 # listens on 8443 and 8080, which need none, so the capability is removed. /data and /config

@@ -1,9 +1,9 @@
 // SPEC-023 §Data contracts §2 and deploy_ac_019's image half, with deploy_ac_001's clause
 // on the Dockerfiles: the four product images, built from the commit (deploy-ci.yml builds
 // them as cyberguard-<name>:test before this file runs; CG_TEST_IMAGE_TAG names another tag).
-// Each runs as its non-root uid, carries LICENSE, NOTICE, the four labels and a health
-// check, and its Dockerfile pins every base image by digest; in the ingest image uid 1000
-// cannot write the rules or the playbooks; the proxy's Caddy binary carries no file
+// Each runs as its non-root uid, carries LICENSE, NOTICE, the labels of §Data contracts §2
+// and a health check, and its Dockerfile pins every base image by digest; in the ingest image
+// uid 1000 cannot write the rules or the playbooks; the proxy's Caddy binary carries no file
 // capability. The dashboard and the proxy are also started as the bundle runs them
 // (read-only, every capability dropped, no new privileges) until their health check passes.
 import assert from "node:assert/strict";
@@ -20,6 +20,18 @@ const TAG = process.env.CG_TEST_IMAGE_TAG || "test";
 const SOURCE = "https://github.com/AlmanInDaHouse/CyberGuard_Enterprise";
 const DOC_DIR = "/usr/share/doc/cyberguard";
 const HARDENED = ["--cap-drop", "ALL", "--security-opt", "no-new-privileges:true"];
+/** The labels of §Data contracts §2 (SPEC-023 Amendment 2026-10-26, item 1). */
+const OCI_LABELS = [
+  "source",
+  "revision",
+  "version",
+  "licenses",
+  "title",
+  "description",
+  "url",
+  "documentation",
+  "vendor",
+].map((k) => `org.opencontainers.image.${k}`);
 
 const IMAGES = [
   { name: "ingest", uid: "1000", dockerfile: "services/ingest/Dockerfile" },
@@ -131,15 +143,27 @@ for (const { name, uid } of IMAGES) {
       }
     });
 
-    test("carries the four labels", () => {
+    test("carries the labels of §Data contracts §2, and no other of their prefix", () => {
       const labels = inspect(image).Config.Labels ?? {};
       assert.equal(labels["org.opencontainers.image.source"], SOURCE);
       assert.equal(labels["org.opencontainers.image.licenses"], "Apache-2.0");
       assert.ok(labels["org.opencontainers.image.version"], "no version label");
-      assert.ok(labels["org.opencontainers.image.revision"], "no revision label");
-      if (process.env.CG_TEST_REVISION) {
-        assert.equal(labels["org.opencontainers.image.revision"], process.env.CG_TEST_REVISION);
-      }
+      const revision = labels["org.opencontainers.image.revision"];
+      assert.ok(revision, "no revision label");
+      if (process.env.CG_TEST_REVISION) assert.equal(revision, process.env.CG_TEST_REVISION);
+      // SPEC-023 Amendment 2026-10-26, item 1 (debt #128).
+      assert.equal(labels["org.opencontainers.image.title"], `CyberGuard ${name}`);
+      assert.match(labels["org.opencontainers.image.description"] ?? "", /^CyberGuard's /);
+      assert.equal(labels["org.opencontainers.image.url"], SOURCE);
+      assert.equal(
+        labels["org.opencontainers.image.documentation"],
+        `${SOURCE}/tree/${revision}/docs/operations`,
+      );
+      assert.equal(labels["org.opencontainers.image.vendor"], "The CyberGuard Authors");
+      // Every label of the prefix is one of these nine, so a base image's label (Caddy's
+      // title, description, URL, documentation and vendor) cannot remain beside them.
+      const oci = Object.keys(labels).filter((k) => k.startsWith("org.opencontainers.image."));
+      assert.deepEqual(oci.sort(), [...OCI_LABELS].sort());
     });
 
     test("has a health check", () => {

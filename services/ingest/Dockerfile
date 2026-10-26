@@ -26,7 +26,12 @@ ARG CG_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
       org.opencontainers.image.revision="${CG_REVISION}" \
       org.opencontainers.image.version="${CG_VERSION}" \
-      org.opencontainers.image.licenses="Apache-2.0"
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="CyberGuard ingest" \
+      org.opencontainers.image.description="CyberGuard's ingest service: agent enrollment and telemetry, detection and response." \
+      org.opencontainers.image.url="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
+      org.opencontainers.image.documentation="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise/tree/${CG_REVISION}/docs/operations" \
+      org.opencontainers.image.vendor="The CyberGuard Authors"
 WORKDIR /app
 ENV NODE_ENV=production
 # Everything under /app is owned by root and not writable by the process (uid 1000): the

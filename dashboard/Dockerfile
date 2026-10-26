@@ -26,7 +26,12 @@ ARG CG_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
       org.opencontainers.image.revision="${CG_REVISION}" \
       org.opencontainers.image.version="${CG_VERSION}" \
-      org.opencontainers.image.licenses="Apache-2.0"
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="CyberGuard dashboard" \
+      org.opencontainers.image.description="CyberGuard's web dashboard for the security operations team." \
+      org.opencontainers.image.url="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise" \
+      org.opencontainers.image.documentation="https://github.com/AlmanInDaHouse/CyberGuard_Enterprise/tree/${CG_REVISION}/docs/operations" \
+      org.opencontainers.image.vendor="The CyberGuard Authors"
 WORKDIR /app
 # HOSTNAME is the address Next's server binds (Docker would otherwise set it to the
 # container's id); PORT its port.
