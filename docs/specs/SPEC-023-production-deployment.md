@@ -456,6 +456,92 @@ Proposed by Claude Code on 2026-10-19 under Manuel's delegation ("lo que dependa
 - Item 2 names addresses of the bundle, an operator surface. Item 3 narrows §Operational §5's sentences "It proxies every request to `dashboard:3000`" and its HSTS sentence to requests for the host the proxy serves, and adds a requirement on the bundle's proxy, no HTTP/3, which it already meets; with no release yet, neither breaks an installation. ADR-0022 §2 says that, to the browser, the proxy's responses carry HSTS (`docs/adr/0022-single-node-production-deployment.md:37`): this amendment reads it as the responses to requests for the dashboard's hostname, which the proxy forwards from the dashboard, since HSTS on another host's answer would pin that host, which the proxy does not serve. That reading is listed for Manuel's audit; the ADR is his. Both are delegated decisions, taken by Claude Code on 2026-10-25 under the delegation Manuel gave for Session 46, and listed for his audit in `docs/handoff-session-46.md`.
 - deploy_ac_008 asserts item 3's HSTS for the dashboard's hostname. deploy_ac_019's image test also asserts, for the proxy image, item 3's HSTS on an HTTPS response for that hostname and that no HTTP/3 is advertised; deploy_ac_019's text is unchanged. No other section changes, and no other criterion.
 
+## Amendment 2026-10-26: the images' labels and third-party notices, the dashboard without an image library, the release's artifacts
+
+**What surfaced it.**
+
+- Debt #128 (`docs/handoff-session-46.md:472`). The proxy image keeps five labels its base image sets, `org.opencontainers.image.title`, `.description`, `.url`, `.documentation` and `.vendor`, which name Caddy, beside the four §Data contracts §2 sets.
+- Debt #129 (`docs/handoff-session-46.md:476`), and Session 47's review of the licence allowlist. The dashboard image ships sharp and its libvips build (LGPL-3.0-or-later), and the dashboard renders no optimised image. The images carry `LICENSE` and `NOTICE` alone. Of the packages the dashboard image ships, it carries one licence file: Next's standalone output keeps their code and manifests. Ingest's and the api's images carry the licence files their packages publish, and nothing for the packages that publish none.
+- Debt #112 (`docs/handoff-session-41.md:746`). §Operational §12 does not say what the SBOM lists, nor how the release's artifacts are named, which the operator documents give.
+
+**The amendment.**
+
+1. §Data contracts §2, the labels. Beside the four, each image is labelled with `org.opencontainers.image.title`, `.description`, `.url`, `.documentation` and `.vendor`, naming CyberGuard and the image. Every `org.opencontainers.image.*` label an image carries is one of those nine, with the value its Dockerfile gives it, so that none of its base image's remains beside them. deploy_ac_019's "the four labels" reads "the labels of §Data contracts §2".
+2. §Data contracts §2, the notices. Beside `LICENSE` and `NOTICE`, each image carries `/usr/share/doc/cyberguard/THIRD-PARTY-NOTICES`:
+   - It names each Node package the image adds to its base image: each package directory below `/app/node_modules`, the application's, those of pnpm's store `.pnpm` among them, and, in the dashboard's, the dashboard's production dependencies and theirs, whose code its compiled bundles carry. For each, it gives its name, its version, its declared licence, its author and repository where its manifest names them, and the text of each licence or notice file the published package holds.
+   - For a package that holds none, it says so, and the text of its declared licence follows, once in the file.
+   - It names the base image by its reference and digest, and says that the base image's software (Node.js, npm, Yarn, Corepack and the operating system's packages; in the proxy's, Caddy, the Go modules it is built from and the operating system's packages) is distributed as its publisher distributes it, with the licence information it carries.
+
+   An image's build fails when a package it adds has neither a licence file nor a declared licence whose text the build holds. The repository's `NOTICE`, which each image carries, points to the file. deploy_ac_019 also asserts that each image carries the file, that the file names every package directory of the image's `node_modules` by its name and version, and that it names the base image of its Dockerfile's last stage.
+3. §Data contracts §2, the dashboard. The dashboard image carries no image-processing library: no `sharp` package and no package of the `@img` scope. No install of the repository's dependencies carries sharp, the licence check's included, and so neither does the image. The dashboard renders no optimised image, and its server answers a request to `/_next/image` with `404`. deploy_ac_019 also asserts both of the image.
+4. §Operational §12, the release:
+   - A fifth job, **licences** (ubuntu, `contents: read`), runs the licence check and writes its report. The images and agent jobs start once it has passed, so that nothing is pushed, attested or published when the allowlist refuses a licence.
+   - The images job's second tag is `sha-<commit>`, where `<commit>` is the tagged commit's full SHA. Each image's SBOM lists the operating-system packages and the Node packages installed in the image. No SBOM of the image sees the code that the dashboard's bundles compile in: its third-party notices name those packages (item 2). The BuildKit image the builds run in and the SBOM generator are pinned by digest, as the actions are by commit.
+   - `cyberguard-deploy-<version>.tar.gz` unpacks into one directory, `cyberguard-deploy-<version>/`. It holds the files of `deploy/docker/` that the repository tracks, without `test/`, `proxy/` and `docker-compose.test.yml`, with the modes the repository gives them (`setup.sh`, `backup.sh` and `restore.sh` among those it makes executable). Its `README.md` names `docs/operations/install.md` at the tag `v<version>`.
+   - The release's assets: the bundle; the agent's executable, as `cg-agent-<version>-x86_64-pc-windows-msvc.exe`; the licence report, as `licences-<version>.md`; and `SHA256SUMS`, the SHA-256 of those three in `sha256sum`'s format.
+
+   deploy_ac_019's dry-run half also asserts that each image the dry run builds carries BuildKit's SBOM and provenance attestations, attached to it in the OCI layout the dry run writes (it pushes nothing, and makes no GitHub attestation), that the dashboard's SBOM names `next` and no `sharp`, and that the bundle unpacks as above. deploy_ac_001's clause over the published bundle's compose runs over the dry run's bundle, rendered with a test `.env`: every image is pinned by digest, and each product image is `ghcr.io/almanindahouse/cyberguard-<name>:<version>@sha256:<digest>`, with the digest the dry run built.
+
+**Effect.**
+
+- Additive: labels, a file in each image, the job that runs first, the assets' names. The dashboard image loses sharp, which no page uses. The allowlist loses its three entries for sharp's packages (a reviewed change, §Operational §12), so the check refuses LGPL-3.0-or-later again.
+- Items 1 to 4 are packaging (Manuel's list), and the allowlist's loss of its entries for sharp reverses Session 46's delegated allowlist decision (`docs/handoff-session-46.md:347`): delegated decisions, taken by Claude Code on 2026-10-26 under the delegation Manuel gave for Session 47, and listed for his audit in `docs/handoff-session-47.md`. ADR-0022 §7 is unchanged. No other section changes.
+- Discarded:
+  - shipping libvips with its notices, its licence's texts and a source offer: a copyleft library that no page uses, in the internet-facing image;
+  - notices for the licence check's packages alone, since the images ship packages it does not list;
+  - building Caddy from source to collect its modules' licence texts: the proxy ships Caddy as its publisher builds it.
+
+## Amendment 2026-10-26: the migration command's lock waits, the one-shots' order, the project name and the `app` network's addresses in `.env`, the proxy's answer to another host
+
+**What surfaced it.** Session 47 reviewed Session 46's delegated decisions, which Manuel asked Claude Code to revise ("revísalo tú y en caso de modificación hazlo bajo tu criterio", 2026-10-26):
+
+- The first Amendment 2026-10-25, item 1, bounds the command's own lock alone. A one-shot can wait inside a migration for a table lock that a running service holds, the case of debt #127. It then waits without bound, the other one-shot waits behind it, and the api waits for both. `docker compose up --wait` stalls, the hazard debt #122 named.
+- Its item 5 offers `-p` beside `COMPOSE_PROJECT_NAME`. `backup.sh` and `restore.sh` run `docker compose` in the bundle's directory and follow only what Compose reads there, so under `-p` they act on another project.
+- The second Amendment 2026-10-25, item 2, has an operator change four values in a compose override file. When one of them, `API_TRUSTED_PROXIES`, disagrees with the dashboard's address, nothing fails. The api then takes every sign-in's source as the dashboard's address: one per-address rate-limit bucket for all users, and every audit row naming the dashboard. An override file is also one more file to carry to a newer bundle's directory.
+- Over HTTPS, a request for another host is answered `200` with an empty body (its item 3's *What surfaced it*). A monitor that sends another `Host` reads that as up.
+
+**The amendment.**
+
+1. §Data contracts §4, `node dist/db/migrate.js`, superseding the first Amendment 2026-10-25, item 1, where they differ:
+   - The command bounds at five minutes each wait for a lock it needs: its own advisory lock, and every lock its migrations wait for, the one the migrator takes before them included.
+   - A wait that runs out fails the command. It exits 1 having committed none of that run's Postgres migrations and, for ingest, having changed nothing in ClickHouse.
+   - It prints `cg-<service> migrate: fatal: the migration lock is held by another session: waited 300 s` for its own lock, and `cg-<service> migrate: fatal: a lock a migration waits for is held by another session: waited 300 s` for any other.
+   - The services' own run (`*_RUN_MIGRATIONS=true`) is unchanged. Ingest's ClickHouse step runs once the Postgres migrations have committed, and a failure there leaves them committed, as before.
+
+   Each service's suite also asserts it: a lock that another session holds on a table a migration changes fails the command, with the second line, having committed none of that run's migrations.
+2. §Operational §1, *Order*: `api-migrate` starts when `ingest-migrate` has completed successfully, so the two one-shots never wait for each other's locks. The api still starts when both have. deploy_ac_001 also asserts it.
+3. §Operational §1 and, superseding it where they differ, the first Amendment 2026-10-25, item 5:
+   - An installation that needs another project name sets `COMPOSE_PROJECT_NAME` in its `.env` before its first `docker compose up`, and keeps it there.
+   - `setup.sh` keeps the line. Every `docker compose` command run in the bundle's directory then acts on that project, those `backup.sh` and `restore.sh` run among them. The line moves with `.env` to a newer bundle's directory and to a restore.
+   - The configuration document gives that form alone, not `-p`. It says that the volumes and networks are named `<project>_<name>`, and that a bundle unpacked in another directory under the same name is the same installation, whose `docker compose up` replaces the running containers. It also says that a second installation on one host sets, before its first `up`, its own project name, the `app` network's addresses (item 4) and other published ports.
+
+   deploy_ac_001 also asserts, over a copy of the bundle in another directory, the project name and each volume and network named `cyberguard-enterprise_<name>`, and, with `COMPOSE_PROJECT_NAME` in `.env`, that name. deploy_ac_002 also asserts that `setup.sh` keeps a `COMPOSE_PROJECT_NAME` line.
+4. §Data contracts §3, superseding the second Amendment 2026-10-25, item 2, where they differ. Three bundle variables:
+
+   | Variable | Default | Meaning |
+   |---|---|---|
+   | `CG_APP_SUBNET` | `10.254.254.0/28` | The `app` network's subnet. |
+   | `CG_APP_IP_RANGE` | `10.254.254.8/29` | The addresses Docker hands out on `app`, inside the subnet. |
+   | `CG_DASHBOARD_APP_ADDRESS` | `10.254.254.2` | The dashboard's address on `app`, inside the subnet and outside the range (→ `API_TRUSTED_PROXIES`). |
+
+   - The compose sets both the dashboard's address and `API_TRUSTED_PROXIES` from `CG_DASHBOARD_APP_ADDRESS`.
+   - The installation document has the operator check, before the first `up`, that the host routes no network overlapping `CG_APP_SUBNET`, and set the three variables otherwise.
+   - The configuration document says that changing them on an installed stack takes `docker compose down`, then `docker compose up -d --wait`.
+
+   deploy_ac_001 also asserts that the dashboard's address and `API_TRUSTED_PROXIES` are set from the same variable. Rendered with a test `.env` that sets the three to other values, the address is inside the subnet and outside the range, and `API_TRUSTED_PROXIES` names it.
+5. §Operational §5 and, superseding it where they differ, the second Amendment 2026-10-25, item 3: over HTTPS, a request whose `Host` does not name `${CG_DASHBOARD_HOSTNAME}` is answered `421 Misdirected Request`, with no body, and is proxied nowhere. That answer carries no HSTS, as item 3 allows. A request too malformed to be routed is answered by Caddy's server, as item 3 has it. deploy_ac_008 and deploy_ac_019's proxy image test also assert it. They also assert that a `Host` naming the dashboard's hostname in other letter case is proxied, with HSTS.
+
+**Effect.**
+
+- Item 1 is not backward-compatible for a migration that waits more than five minutes for a lock: a one-shot that would have waited without bound now fails. Debt #127 narrows. A one-shot's statement still queues for a running service's table lock, up to the bound, and the service's statements on that table wait behind it meanwhile. An owner role can still take the other service's key; the other one-shot then waits for it at most the bound, and fails. The upgrade document stops ingest and the api before the one-shots run.
+- The first Amendment 2026-10-25's note on ADR-0012's multi-instance detection stands, but for its clause that item 1 does not bound the wait for Kysely's key, which item 1 now bounds. A grant of `pg_try_advisory_lock` to `cg_ingest` would give ingest's process the migration keys, and item 1 now bounds every wait for them.
+- Item 1 bounds the migration command, as the item it supersedes did, items 3 and 4 change the operator surface, and item 5 changes what the proxy answers (Manuel's list). The four are delegated decisions, taken by Claude Code on 2026-10-26 under Manuel's request, and listed for his audit in `docs/handoff-session-47.md`. No release has shipped, so none breaks an installation. ADR-0022 §2's reading by the second Amendment 2026-10-25 is unchanged.
+- Discarded:
+  - for item 1, a timeout in the compose, which would kill a one-shot inside a migration, and a bound on the own lock alone (Session 46);
+  - for item 3, `-p`, which neither script follows;
+  - for item 4, the override file (Session 46);
+  - for item 5, Caddy's empty `200`; closing the connection, which keeps ADR-0022 §2's letter but gives a client no status; and a redirect to the dashboard's hostname, which answers a misdirected request with a pointer.
+
 ## References
 
 - ADR-0022, the Amendments 2026-10-19 of ADR-0001, ADR-0003, ADR-0004, ADR-0016 and ADR-0019, and the Amendments 2026-10-23 of ADR-0003 and ADR-0020; ADR-0010, ADR-0014, ADR-0015.
