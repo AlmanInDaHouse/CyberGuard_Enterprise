@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-46.md](../handoff-session-46.md)).
+([handoff-session-47.md](../handoff-session-47.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -373,7 +373,11 @@ This dependency-ordered document supersedes both for planning.
   cookies and health route, and the relay's CA, `0cfa4df`..`f397129`
   (`docs/handoff-session-45.md`); in S46 the four images, the bundle with
   its tests in `deploy-ci.yml` (deploy_ac_001 to 012), #122's lock wait and
-  the licence check, `aa56b49`..`867ac68` (`docs/handoff-session-46.md`).
+  the licence check, `aa56b49`..`867ac68` (`docs/handoff-session-46.md`);
+  in S47 the images' labels and third-party notices, the one-shots' bounded
+  lock waits, the `app` addresses and the project name in `.env`, the
+  proxy's `421`, no root compose and the release workflow with its dry run,
+  `59c2bff`..`e58ca2b` (`docs/handoff-session-47.md`).
   F1's `docs/operations/` remains. The phase is four SPECs, in
   this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration

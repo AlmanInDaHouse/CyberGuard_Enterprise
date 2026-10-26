@@ -23,10 +23,10 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 51** at Session 46's close, the count `docs/handoff-session-46.md` states.
+**Open: 52** at Session 47's close, the count `docs/handoff-session-47.md` states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
+Session N resumes* (at Session 47's close, `docs/handoff-session-47.md:601`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -36,7 +36,6 @@ Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 | 4 | `detect_ac_001` "0 events" trap: a stale binary and a dirty cursor look the same | `handoff-session-26.md:158` | Assert a captured event count above zero. |
 | 5 | Go named where the server is TypeScript | `handoff-session-26.md:161` | Roadmap Part (b) §1. `services/README.md` follows ADR-0002 Amendment 2026-10-14; `docs/product/blueprint.md:393` still names Go. |
 | 7 | JCS canonicalization duplicated (`canonical.ts`, `jcs.ts`) | `handoff-session-26.md:167` | A shared package, which may be a new component: Manuel's, ask first (`docs/handoff-session-38.md:899`). |
-| 12 | Compose basename collision (root stub and `infra/dev/`) | `handoff-session-27.md:140` | Roadmap §F; Part (b) §4. |
 | 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143` | A future sweep, not ordered. |
 | 24 | No per-org configurable detection window | `handoff-session-31.md:155`; `handoff-session-44.md:337` | The SPEC that adds a second org: out of roadmap §F (SPEC-023 §Scope, a delegated decision). |
 | 25 | The detection cycle opens a client per call | `handoff-session-31.md:158`; `handoff-session-34.md:295` | None recorded. |
@@ -55,7 +54,6 @@ Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 | 52 | The process callback writes a `trace` line per record | `handoff-session-36.md:289` | The next change under `agent/cg-agent/src/etw/` (B2's branch, parked). |
 | 53 | The AC-006 line lacks `activity_id` and `event_id` | `handoff-session-36.md:300` | With #52. |
 | 54 | Stale "roadmap §D" / "B2" destinations in the engine and `rules/windows/README.md` | `handoff-session-36.md:168` | B2's implementation branch (parked). |
-| 55 | The threat model described the Phase-0 plan | `handoff-session-36.md:306`; `handoff-session-38.md:527` | Its Amendment 2026-10-15 landed (`9ad6ca6`); open until Manuel's audit of it (`docs/handoff-session-39.md:570`). |
 | 56 | `alert.json` says the agent's `event_id`s are UUIDv4 | `handoff-session-36.md:323` | B2's implementation branch (parked). |
 | 58 | The schemas require `schema_version`; the wire carries none | `handoff-session-37.md:469` | B2's implementation branch (parked). |
 | 59 | No environment runs the agent on Windows 10 or Server 2019 | `handoff-session-37.md:480`; `handoff-session-38.md:525` | Manuel: a machine of each; matters for B2's second session (parked). |
@@ -75,15 +73,18 @@ Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 | 99 | One process holds the internet-facing listeners and the CA's key | `handoff-session-39.md:741` | An ADR separating the CA, for Manuel's "sí". |
 | 102 | The api's login deletes no prior session | `handoff-session-40.md:1024`; `handoff-session-44.md:337` | Roadmap §F's dashboard SPEC (F3), an api change it makes with its pages: the login deletes the session its cookie names (ADR-0022, Accepted 2026-10-23). |
 | 110 | The development dependencies carry advisories: since S43, braces, katex and tailwindcss 3's postcss-selector-parser | `handoff-session-40.md:1086`; `handoff-session-42.md:610`; `handoff-session-43.md:517` | tailwindcss's next major (postcss-selector-parser; braces through its chokidar and fast-glob); braces and katex in markdownlint-cli2 when a fixed release falls within their parents' ranges. CI audits every dependency for a critical advisory since `0e26dd7`. |
-| 112 | No SBOM is produced, and the licence check does not run in the release | `handoff-session-41.md:746`; `handoff-session-46.md:452` | F1's release workflow: the SBOM, the licence check in the release and its report; the check landed in `867ac68`. |
 | 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750` | A later sweep: each action pinned by commit SHA. |
 | 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:728` | With #32. |
 | 119 | The enrollment contract's texts differ from the code where SPEC-023 does not touch them (ADR-0004, SPEC-002, SPEC-003, SPEC-004) | `handoff-session-43.md:541` | F4, the renewal SPEC of roadmap §F, which rewrites the enrollment contract. |
 | 124 | A compromised ingest can still rewrite the evidence the forensic key signs (its ClickHouse inserts, the newest row kept; its alerts) | `handoff-session-46.md:457` | Manuel's (threat model R7). |
 | 125 | A session that raises `log_parameter_max_length_on_error` for itself logs a passphrase parameter | `handoff-session-46.md:462` | Manuel's (threat model R10). |
-| 127 | #122's remainder: a one-shot's DDL waits without bound for a running service's table lock; Kysely's shared lock unbounded; an owner role can take the other service's key | `handoff-session-46.md:467` | F1's upgrade document: ingest and the api stopped before the one-shots run. |
-| 128 | The proxy image keeps Caddy's title, description, URL and vendor labels beside CyberGuard's four | `handoff-session-46.md:472` | F1's release workflow, which sets the images' metadata. |
-| 129 | The dashboard image ships sharp's libvips (LGPL-3.0-or-later) and `caniuse-lite` (CC-BY-4.0) without their notices | `handoff-session-46.md:476` | F1's release workflow: sharp left out of the dashboard (no `next/image`), and the images' third-party notices. |
+| 127 | #122's remainder: a one-shot's statement queues, up to the 5-min bound, for a running service's table lock, whose writes wait behind it; an owner role can take the other service's key, and the other one-shot fails after the bound | `handoff-session-46.md:467`; `handoff-session-47.md:529` | F1's upgrade document: ingest and the api stopped before the one-shots run. |
+| 130 | Third-party notices beyond the Node packages: Caddy's Go modules' texts, the agent's crates, the base images' GPL sources, Next's vendored packages | `handoff-session-47.md:542` | Before the first release (F4). |
+| 131 | The agent reports Cargo's version, not the release's | `handoff-session-47.md:553` | F2's SPEC, the installer. |
+| 132 | A locally built image's `documentation` label points to `tree/unknown` | `handoff-session-47.md:557` | A sweep. |
+| 133 | The dashboard image ships `typescript`, carried by Next's output tracing | `handoff-session-47.md:560` | A sweep (`outputFileTracingExcludes`). |
+| 134 | The proxy refuses a handshake for a name its certificate does not cover, or for none, which no SPEC states | `handoff-session-47.md:563` | The next SPEC-023 amendment, with `docs/operations/`. |
+| 135 | Nothing technical keeps a `v*.*.*` tag from publishing before F2 to F4 and Manuel's OK | `handoff-session-47.md:568` | Manuel's: a protected `release` environment or a tag ruleset. |
 
 ## Closed
 
@@ -97,6 +98,7 @@ Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 | 9 | `buildReport` resolved the incident twice | `3f15192` | `handoff-session-41.md:781` |
 | 10 | The drill answered 404 when ClickHouse was down | `ff20923`, `4a6e981` | `handoff-session-38.md:1183` |
 | 11 | ADR amendments summarized in the catalog row or in §Dependencies, inconsistently | `194c628` | `handoff-session-26.md:177` |
+| 12 | Compose basename collision (root stub and `infra/dev/`) | `275288d` | `handoff-session-47.md:518` |
 | 13 | Stale `path:line` citations after code moved | `5ddec66`, after the elevated gate (S42) | `handoff-session-27.md:145`; `handoff-session-28.md:153`; `handoff-session-31.md:137`; `handoff-session-41.md:772` |
 | 14 | MVP-criteria altitude grouping | No live instance left (S36) | `handoff-session-36.md:166` |
 | 15 | The api image not buildable | `569f92d` | `handoff-session-29.md:116` |
@@ -121,6 +123,7 @@ Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 | 47 | No retention for the classes other than 3002 | `047eaf5` | `handoff-session-45.md:349` |
 | 48 | ADR-0012:240 said 4001 and 3002 are schema-only | `be69547` | `handoff-session-36.md:155` |
 | 49 | ADR-0019's `windows-sys` feature wording | No defect (S36) | `handoff-session-36.md:157` |
+| 55 | The threat model described the Phase-0 plan | Manuel's audit, "Auditado, conforme" (2026-10-26), no commit | `handoff-session-47.md:519` |
 | 57 | CLAUDE.md on a SPEC header's `Last updated` | `ac80734` | `handoff-session-38.md:1181` |
 | 60 | An unelevated agent left its ETW session | `abde0a5` | `handoff-session-37.md:536` |
 | 63 | The marquees left the last session running | `a9452b0..928cfbf` | `handoff-session-38.md:1168` |
@@ -150,6 +153,7 @@ Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 | 106 | The dashboard's cookies carry no `__Host-` prefix | `84a4aad` | `handoff-session-45.md:351` |
 | 107 | The dashboard's logout answered the api's `403` with `403` after clearing the cookies | `fe59102`, `1697e60` (opened and closed in S40) | `handoff-session-40.md:1097` |
 | 111 | `cargo audit` let rustls-pemfile pass, unmaintained, in the agent's runtime | `12f8db4` (PR #37, after gate 1 and `s44-gate1`) | `handoff-session-44.md:331` |
+| 112 | No SBOM is produced, and the licence check does not run in the release | `e58ca2b`; the check `867ac68` | `handoff-session-47.md:521` |
 | 115 | ADR-0010 read the runner's ETW-open privilege as unvalidated in CI | `0f2d6e9` (ADR-0010's and ADR-0008's Amendments 2026-10-19, ratified) | `handoff-session-44.md:333` |
 | 116 | apiauth_ac_014's Postgres case fails when the Docker VM's clock falls behind the host's | `57845d4`, opened and closed in S42 | `handoff-session-42.md:577` |
 | 117 | Sentences in ADRs and SPECs the code has outgrown, which #13's sweep left | No commit: classified, each a record (Class H-inline) or superseded by an amendment (S43) | `handoff-session-43.md:272` |
@@ -167,3 +171,5 @@ Session N resumes* (at Session 46's close, `docs/handoff-session-46.md:509`);
 | 122 | The migrate one-shot waits for its advisory lock without bound, and any role can take another service's key | `2217725` | `handoff-session-46.md:434` |
 | 123 | SPEC-023 §Operational §6 cites `agent/cg-agent/src/tls.rs:83`, now another line | `9c06fd2`, restored by `03b7976` | `handoff-session-46.md:435` |
 | 126 | GHSA-mrhx-c7xc-m3w5 in zod below 4.6.6 (memory exhaustion validating oversized collections) | `aa56b49`, opened and closed in S46 | `handoff-session-46.md:465` |
+| 128 | The proxy image keeps Caddy's title, description, URL and vendor labels beside CyberGuard's four | `2f63baa`, `696329a` | `handoff-session-47.md:523` |
+| 129 | The dashboard image ships sharp's libvips (LGPL-3.0-or-later) and `caniuse-lite` (CC-BY-4.0) without their notices | `6fb5568`, `0386700`, `b70ed79` | `handoff-session-47.md:524` |
