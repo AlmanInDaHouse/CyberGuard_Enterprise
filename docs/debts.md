@@ -23,41 +23,41 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 52** at Session 47's close, the count `docs/handoff-session-47.md` states.
+**Open: 49** at Session 48's close, the count `docs/handoff-session-48.md` states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 47's close, `docs/handoff-session-47.md:601`);
+Session N resumes* (at Session 48's close, `docs/handoff-session-48.md#how-session-49-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
 
 | # | Debt | Entry | Destination |
 |---|---|---|---|
-| 4 | `detect_ac_001` "0 events" trap: a stale binary and a dirty cursor look the same | `handoff-session-26.md:158` | Assert a captured event count above zero. |
+| 4 | `detect_ac_001` "0 events" trap: a stale binary and a dirty cursor look the same | `handoff-session-26.md:158`; `handoff-session-48.md#debts` | F2's first capture/gate change: assert positive captured-event evidence before diagnosing a cursor failure (S48 delegated). |
 | 5 | Go named where the server is TypeScript | `handoff-session-26.md:161` | Roadmap Part (b) §1. `services/README.md` follows ADR-0002 Amendment 2026-10-14; `docs/product/blueprint.md:393` still names Go. |
-| 7 | JCS canonicalization duplicated (`canonical.ts`, `jcs.ts`) | `handoff-session-26.md:167` | A shared package, which may be a new component: Manuel's, ask first (`docs/handoff-session-38.md:899`). |
-| 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143` | A future sweep, not ordered. |
+| 7 | JCS canonicalization duplicated (`canonical.ts`, `jcs.ts`) | `handoff-session-26.md:167`; `handoff-session-48.md#debts` | After F3's user/forensic work: propose shared JCS ownership and a contract before extraction; any new-component ADR still needs Manuel's explicit yes (S48 delegated destination). |
+| 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143`; `handoff-session-48.md#debts` | Pre-release documentary/code-comment sweep with #136 (S48 delegated). |
 | 24 | No per-org configurable detection window | `handoff-session-31.md:155`; `handoff-session-44.md:337` | The SPEC that adds a second org: out of roadmap §F (SPEC-023 §Scope, a delegated decision). |
-| 25 | The detection cycle opens a client per call | `handoff-session-31.md:158`; `handoff-session-34.md:295` | None recorded. |
-| 26 | An incident's MITRE techniques from its first alert; a severity raise sends no email | `handoff-session-31.md:163`; `handoff-session-34.md:303` | Recorded: roadmap §E, which is DONE (`docs/product/roadmap.md` §E) without it. None since. |
+| 25 | The detection cycle opens a client per call | `handoff-session-31.md:158`; `handoff-session-34.md:295`; `handoff-session-48.md#debts` | F4 pre-release load measurements: measure connection churn before changing client lifetime (S48 delegated). |
+| 26 | An incident's MITRE techniques from its first alert; a severity raise sends no email | `handoff-session-31.md:163`; `handoff-session-34.md:303`; `handoff-session-48.md#debts` | F3's incident/alert-page contract: specify technique accumulation and severity-escalation notification before implementation (S48 delegated). |
 | 29 | The Terminate carries no path | `handoff-session-32.md:190` | The next agent phase that touches the created-time cache. |
 | 31 | An event's `time` not bounded at ingest; widened to 1007's `event_id` and pids | `handoff-session-33.md:157`; `handoff-session-35.md:565`; `handoff-session-41.md:765`; `handoff-session-42.md:339` | Its shape half done (`90ee7e7`). No bound behind arrival in the MVP (Manuel, SPEC-017 Amendment 2026-10-19, the first); a bound ahead of arrival once a measurement shows what an honest agent's times do across a correction of its host's clock (a host change, which waits for his OK). |
-| 32 | A 500 that is not connectivity is resent without bound | `handoff-session-33.md:160`; `handoff-session-41.md:761` | None recorded; since `90ee7e7` a malformed time, id, pid or exit code no longer makes one, but times over more than 100 days or a lone surrogate still do. |
-| 35 | The driver's drain ceiling | `handoff-session-33.md:172` | None recorded. |
-| 37 | `detect_ac_001` runs a single cycle | `handoff-session-33.md:178` | Drain until a cycle returns fewer rows than the limit. |
+| 32 | A 500 that is not connectivity is resent without bound | `handoff-session-33.md:160`; `handoff-session-41.md:761`; `handoff-session-48.md#debts` | F4 pre-release delivery hardening with #114: contract first for permanent rejection versus retry, preserving evidence of dropped batches (S48 delegated). |
+| 35 | The driver's drain ceiling | `handoff-session-33.md:172`; `handoff-session-48.md#debts` | F4 pre-release load measurements with #25/#61; measure backlog/drain behavior before changing the contracted ceiling (S48 delegated). |
+| 37 | `detect_ac_001` runs a single cycle | `handoff-session-33.md:178`; `handoff-session-48.md#debts` | F2's first capture/gate change with #4: drain the fixture until a cycle returns fewer rows than the limit (S48 delegated). |
 | 38 | The forensic evidence unit carries no `class_uid` | `handoff-session-34.md:310` | A precondition of any rule that cites an event other than a process event (ADR-0018 §9, SPEC-019 §Out of scope). |
-| 39 | The CGES examples' members differ from the wire's (their `time` aligned in S41) | `handoff-session-34.md:317`; `handoff-session-41.md:758` | Sweep. |
-| 42 | A POST per batch interval when the server shares the agent's host | `handoff-session-35.md:569` | Connection reuse in the agent's TLS client. |
-| 46 | Two rules on the validity of a marquee run clash | `handoff-session-35.md:586` | None recorded. |
-| 50 | A dead subscription that answered 4317 would not be found | `handoff-session-35.md:604` | None: measuring it restarts a host service (SPEC-020 §Risks). |
+| 39 | The CGES examples' members differ from the wire's (their `time` aligned in S41) | `handoff-session-34.md:317`; `handoff-session-41.md:758`; `handoff-session-48.md#debts` | Pre-release documentary/schema-example sweep (S48 delegated). |
+| 42 | A POST per batch interval when the server shares the agent's host | `handoff-session-35.md:569`; `handoff-session-48.md#debts` | F4 agent renewal/delivery work: measure and implement connection reuse under its contract (S48 delegated). |
+| 46 | Two rules on the validity of a marquee run clash | `handoff-session-35.md:586`; `handoff-session-48.md#debts` | Before F2's first runtime change: reconcile the living gate rules; until then satisfy the conservative combination, never claim an expired gate valid (S48 delegated). |
+| 50 | A dead subscription that answered 4317 would not be found | `handoff-session-35.md:604`; `handoff-session-48.md#debts` | F2/F4 isolated Windows fault test; Manuel runs the elevated service-restart experiment, not the development host during ordinary work (S48 delegated destination). |
 | 51 | The S4U success measured only on a local account in a workgroup | `handoff-session-35.md:607` | Watch on any other developer machine. |
 | 52 | The process callback writes a `trace` line per record | `handoff-session-36.md:289` | The next change under `agent/cg-agent/src/etw/` (B2's branch, parked). |
 | 53 | The AC-006 line lacks `activity_id` and `event_id` | `handoff-session-36.md:300` | With #52. |
 | 54 | Stale "roadmap §D" / "B2" destinations in the engine and `rules/windows/README.md` | `handoff-session-36.md:168` | B2's implementation branch (parked). |
 | 56 | `alert.json` says the agent's `event_id`s are UUIDv4 | `handoff-session-36.md:323` | B2's implementation branch (parked). |
 | 58 | The schemas require `schema_version`; the wire carries none | `handoff-session-37.md:469` | B2's implementation branch (parked). |
-| 59 | No environment runs the agent on Windows 10 or Server 2019 | `handoff-session-37.md:480`; `handoff-session-38.md:525` | Manuel: a machine of each; matters for B2's second session (parked). |
-| 61 | The sessions buffer in the mode Microsoft advises against at high rates | `handoff-session-37.md:502` | A load measurement before roadmap §F. |
+| 59 | No environment runs the agent on Windows 10 or Server 2019 | `handoff-session-37.md:480`; `handoff-session-38.md:525`; `handoff-session-48.md#debts` | F2 release-validation matrix: obtain Windows 10 and Server 2019 execution evidence before claiming those targets validated; external machines remain required (S48 delegated). |
+| 61 | The sessions buffer in the mode Microsoft advises against at high rates | `handoff-session-37.md:502`; `handoff-session-48.md#debts` | F4 pre-release load gate with #25/#35; the earlier 'before F' destination was missed and is superseded (S48 delegated). |
 | 62 | SPEC-005 names the wrong call for exit 9 | `handoff-session-37.md:511` | SPEC-021 (parked). |
 | 64 | ADR-0008's helper names differ from the code's | `handoff-session-38.md:1051`; `handoff-session-38.md:1197` | The code takes ADR-0008's names at the next change to `agent/cg-agent/src/etw/`, under the elevated gate. |
 | 65 | An orphaned marquee agent can still leave its session | `handoff-session-38.md:1063` | Reopen if a gate leaves a session; a `try`/`finally` in each marquee. |
@@ -67,24 +67,21 @@ Session N resumes* (at Session 47's close, `docs/handoff-session-47.md:601`);
 | 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524`; `handoff-session-44.md:337` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; ADR-0022, Accepted on 2026-10-23. #111's agent change under gate 1 went without it. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694`; `handoff-session-45.md:356` | F4, roadmap §F's renewal SPEC (SPEC-023 §Out of scope); the TLS half landed in `63ea972`. |
-| 95 | Logon telemetry is personal data with no asset entry | `handoff-session-39.md:724`; `handoff-session-45.md:361`; `handoff-session-46.md:450` | F1's data-protection document (`docs/operations/`), and the DPO's record of processing; the retention landed in `047eaf5`, the ClickHouse grants in `b794f52`. |
-| 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140` | Roadmap §F. |
+| 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140`; `handoff-session-48.md#debts` | A future multi-host deployment, outside the MVP; ADR-0022 §3 retains plain HTTP on the internal single-host app network. S48 delegates alignment to that Accepted decision, not a new risk acceptance. |
 | 98 | Admins set users' passwords and receive their TOTP secret | `handoff-session-39.md:737`; `handoff-session-44.md:337` | Roadmap §F's dashboard SPEC (F3), with the user pages: an invitation the user completes (ADR-0022, Accepted 2026-10-23). |
 | 99 | One process holds the internet-facing listeners and the CA's key | `handoff-session-39.md:741` | An ADR separating the CA, for Manuel's "sí". |
 | 102 | The api's login deletes no prior session | `handoff-session-40.md:1024`; `handoff-session-44.md:337` | Roadmap §F's dashboard SPEC (F3), an api change it makes with its pages: the login deletes the session its cookie names (ADR-0022, Accepted 2026-10-23). |
 | 110 | The development dependencies carry advisories: since S43, braces, katex and tailwindcss 3's postcss-selector-parser | `handoff-session-40.md:1086`; `handoff-session-42.md:610`; `handoff-session-43.md:517` | tailwindcss's next major (postcss-selector-parser; braces through its chokidar and fast-glob); braces and katex in markdownlint-cli2 when a fixed release falls within their parents' ranges. CI audits every dependency for a critical advisory since `0e26dd7`. |
-| 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750` | A later sweep: each action pinned by commit SHA. |
+| 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750`; `handoff-session-48.md#debts` | Pre-release CI-hardening sweep: pin remaining actions to commit SHAs; release/deploy workflows already do so (S48 delegated). |
 | 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:728` | With #32. |
 | 119 | The enrollment contract's texts differ from the code where SPEC-023 does not touch them (ADR-0004, SPEC-002, SPEC-003, SPEC-004) | `handoff-session-43.md:541` | F4, the renewal SPEC of roadmap §F, which rewrites the enrollment contract. |
-| 124 | A compromised ingest can still rewrite the evidence the forensic key signs (its ClickHouse inserts, the newest row kept; its alerts) | `handoff-session-46.md:457` | Manuel's (threat model R7). |
-| 125 | A session that raises `log_parameter_max_length_on_error` for itself logs a passphrase parameter | `handoff-session-46.md:462` | Manuel's (threat model R10). |
-| 127 | #122's remainder: a one-shot's statement queues, up to the 5-min bound, for a running service's table lock, whose writes wait behind it; an owner role can take the other service's key, and the other one-shot fails after the bound | `handoff-session-46.md:467`; `handoff-session-47.md:529` | F1's upgrade document: ingest and the api stopped before the one-shots run. |
+| 124 | A compromised ingest can still rewrite the evidence the forensic key signs (its ClickHouse inserts, the newest row kept; its alerts) | `handoff-session-46.md:457`; `handoff-session-48.md#debts` | F4 pre-release threat-control proposal for evidence rewriting; retain the disclosed limitation until a mitigation is contracted and tested. Any required ADR needs Manuel's yes; no risk acceptance by delegation (S48). |
+| 125 | A session that raises `log_parameter_max_length_on_error` for itself logs a passphrase parameter | `handoff-session-46.md:462`; `handoff-session-48.md#debts` | F4 pre-release database/logging threat-control proposal and regression evidence; do not claim hostile sessions cannot expose parameters. Any required ADR needs Manuel's yes; no risk acceptance by delegation (S48). |
 | 130 | Third-party notices beyond the Node packages: Caddy's Go modules' texts, the agent's crates, the base images' GPL sources, Next's vendored packages | `handoff-session-47.md:542` | Before the first release (F4). |
 | 131 | The agent reports Cargo's version, not the release's | `handoff-session-47.md:553` | F2's SPEC, the installer. |
-| 132 | A locally built image's `documentation` label points to `tree/unknown` | `handoff-session-47.md:557` | A sweep. |
-| 133 | The dashboard image ships `typescript`, carried by Next's output tracing | `handoff-session-47.md:560` | A sweep (`outputFileTracingExcludes`). |
-| 134 | The proxy refuses a handshake for a name its certificate does not cover, or for none, which no SPEC states | `handoff-session-47.md:563` | The next SPEC-023 amendment, with `docs/operations/`. |
-| 135 | Nothing technical keeps a `v*.*.*` tag from publishing before F2 to F4 and Manuel's OK | `handoff-session-47.md:568` | Manuel's: a protected `release` environment or a tag ruleset. |
+| 132 | A locally built image's `documentation` label points to `tree/unknown` | `handoff-session-47.md:557`; `handoff-session-48.md#debts` | Pre-release packaging sweep: decide and test the local-build documentation URL without changing published revision links (S48 delegated). |
+| 133 | The dashboard image ships `typescript`, carried by Next's output tracing | `handoff-session-47.md:560`; `handoff-session-48.md#debts` | Pre-release image-content sweep: exclude traced TypeScript only after proving the standalone runtime still works (S48 delegated). |
+| 136 | The create-user CLI header still says later users are API-only | `handoff-session-48.md#debts` | Next F3 user-management/CLI change, with its workspace gate: align the stale comment with SPEC-023's third amendment (S48 delegated). |
 
 ## Closed
 
@@ -173,3 +170,8 @@ Session N resumes* (at Session 47's close, `docs/handoff-session-47.md:601`);
 | 126 | GHSA-mrhx-c7xc-m3w5 in zod below 4.6.6 (memory exhaustion validating oversized collections) | `aa56b49`, opened and closed in S46 | `handoff-session-46.md:465` |
 | 128 | The proxy image keeps Caddy's title, description, URL and vendor labels beside CyberGuard's four | `2f63baa`, `696329a` | `handoff-session-47.md:523` |
 | 129 | The dashboard image ships sharp's libvips (LGPL-3.0-or-later) and `caniuse-lite` (CC-BY-4.0) without their notices | `6fb5568`, `0386700`, `b70ed79` | `handoff-session-47.md:524` |
+
+| 95 | Personal-data inventory for logon telemetry | `6944ee6`: technical inventory and DPO procedure; the organisation's record remains its responsibility | `handoff-session-48.md#debts` |
+| 127 | Migration ordering while runtime writers hold locks | `34a4f73`: stop writers through both ordered one-shots; both failure paths tested. Owner-role lock capability remains | `handoff-session-48.md#debts` |
+| 134 | Uncontracted proxy TLS refusal | `b04f2e4`, `6944ee6`: requirement plus both-mode stack/image TLS matrix | `handoff-session-48.md#debts` |
+| 135 | No technical pre-release publication guard | GitHub ruleset `25923038`, active with no bypass, read back 2026-10-27; documented in `0e7ab9e` | `handoff-session-48.md#debts` |

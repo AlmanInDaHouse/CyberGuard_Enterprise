@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-47.md](../handoff-session-47.md)).
+([handoff-session-48.md](../handoff-session-48.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -365,7 +365,7 @@ This dependency-ordered document supersedes both for planning.
   Valkey), ADR-0004, ADR-0016, ADR-0019 and ADR-0020, ratified by Manuel on
   2026-10-23, and SPEC-023, Accepted with it. They decide the
   deployment-contract points of Part (b) §2–§4 under Manuel's delegation.
-  F1's code is in progress: its first change, the dev stack and the test
+  F1's server implementation and automated procedures have landed: its first change, the dev stack and the test
   backends on Valkey (deploy_ac_022), landed as `1fb731f`..`27764bf`
   (`docs/handoff-session-44.md`); in S45 the start-up checks, `/health`
   and the commands, the Postgres schemas and roles, the retention's TTL,
@@ -378,8 +378,12 @@ This dependency-ordered document supersedes both for planning.
   lock waits, the `app` addresses and the project name in `.env`, the
   proxy's `421`, no root compose and the release workflow with its dry run,
   `59c2bff`..`e58ca2b` (`docs/handoff-session-47.md`).
-  F1's `docs/operations/` remains. The phase is four SPECs, in
-  this order:
+  In S48 the operations runbooks, executable installation/upgrade procedures,
+  external-certificate and TLS logging checks, and both-mode proxy TLS matrix
+  landed (`b04f2e4`..`6944ee6`, `docs/handoff-session-48.md`). Manual endpoint
+  validation and first-release evidence remain; version tags are frozen by
+  [the release-protection rule](../security/release-protection.md).
+  The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
     images and the release, the forensic anchor, retention);
@@ -404,11 +408,13 @@ This dependency-ordered document supersedes both for planning.
   anchoring, which Manuel delegated on 2026-10-14, are decided in ADR-0022
   and its amendments, which he ratified. (B2 option (2)'s audit-policy dependency no
   longer waits here: ADR-0020 ruled the option out.)
-- Needs: SPEC-023's code (F1), then F2 to F4's SPECs.
+- Needs: F2 to F4's SPECs and implementations, the manual endpoint validation,
+  and first-release provenance/timed-install evidence.
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
   model's Amendment 2026-10-15): the dashboard's TOTP enrollment and user
   management (#83, with #98; its login and logout landed in S40,
-  `1697e60`) and the transport between the dashboard and the api (#97);
+  `1697e60`); dashboard-to-api TLS (#97) is deferred to a multi-host
+  deployment, outside the MVP, as ADR-0022 §3 specifies;
   the agents' certificate renewal (#88; the server certificate's reissue
   landed in S40, `b293500`); a Redis user and a Postgres role per
   service (#85, #86; the api's Redis user needs `@scripting`, since its
@@ -450,10 +456,10 @@ This dependency-ordered document supersedes both for planning.
 
 ## Part (b) — owner-STOP decisions
 
-1. ADR-0002 Go→TS reconciliation. The server side is entirely
-   TypeScript, but ADR-0002 + `services/README.md` + `blueprint.md:393`
-   still name a Go/Python constellation. (Debt #5 in handoff-26 §Debts;
-   ADR-0002/0007 partially amended in S24.)
+1. RESOLVED (S38, 2026-10-14) — ADR-0002's amendment makes TypeScript
+   the server-side default, with the named Go exceptions retained;
+   `services/README.md` agrees. Debt #5 remains for the Blueprint's
+   service/stage tables, which the Accepted ADR supersedes.
 2. RESOLVED (S44, 2026-10-23) — criterion-7 deployment contract: the
    configuration surfaces the client operator sets, the production
    compose's location and the secrets' provisioning are ADR-0022's,
@@ -490,10 +496,11 @@ pendiente de mi decidelo tu en base al beneficio del proyecto"). They are
 decided for an enterprise buyer: a security lead and a data-protection
 officer.
 
-- §1 is an amendment to ADR-0002 that names the server side TypeScript,
-  with the Go firehose kept behind its exit.
-- §2–§4 are decided in phase F's SPEC.
-- The ADR amendments they need (ADR-0002; ADR-0001 for §4; ADR-0016 for
-  §3) still wait for Manuel's explicit "sí" before they are Accepted.
+- §1 is implemented by ADR-0002's Amendment 2026-10-14, ratified that day;
+  its Go firehose stays behind its exit. The Blueprint remainder is #5.
+- §2–§4 are decided by ADR-0022 and the relevant ADR amendments, ratified
+  on 2026-10-23, and SPEC-023, Accepted with them.
+- Those ADR decisions no longer wait for ratification. A new ADR or a new
+  amendment still needs Manuel's explicit "sí" before it is Accepted.
 
 §5–§8 are resolved (above), and §9 is parked.
