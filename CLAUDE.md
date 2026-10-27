@@ -338,7 +338,7 @@ The SPEC-005 polyglot marquee test (`services/ingest/test/spec-005-marquee.test.
 The marquee is therefore validated developer-local, by Manuel in an elevated terminal: Claude Code's terminal is not elevated, so it gives him the commands and reads the output (*Environment facts*). Procedure (the elevated gate):
 
 1. Have Docker Desktop running on the Windows machine.
-2. Open an **elevated** terminal (Run as Administrator) at the repo root. Confirm the elevation with `net session` (an unelevated terminal answers with access denied) and record `git rev-parse --short HEAD` with a clean `git status`: the gate is evidence only for that tree. A skipped `ac-001-marquee` in the vitest summary means the terminal was not elevated (S32).
+2. Open an **elevated** terminal (Run as Administrator) at the repo root. Confirm the elevation with `net session` (an unelevated terminal answers with access denied) and record the full `git rev-parse HEAD` and `git rev-parse 'HEAD^{tree}'` with a clean `git status`. The run directly proves that tree; carrying its evidence to another commit follows *Elevated gate evidence validity* below. A skipped `ac-001-marquee` in the vitest summary means the terminal was not elevated (S32).
 3. Run:
 
    ```sh
@@ -380,15 +380,50 @@ Procedure:
 5. `detect_ac_001` runs the whole rule set over the capture and asserts, for the agent, exactly one Postgres alert with `rule_id = rule.office_spawns_script_host`, and on it `cg_detection_source = rule`, `final_score = 0.9`, `status = new`, a well-formed `dedup_key`, and `source_events` containing the `event_id` of the captured `powershell.exe` child (SPEC-016 §Operational §3). Alerts from other rules on background activity are logged, not asserted. The captured `image_file_name` of the probe and its child is logged and asserted in Win32 form (SPEC-017 capture_ac_012); report those two log lines with the vitest summary. The test runs its cycle as the production driver configures it, after waiting out the 5000 ms settle margin once the agent has exited (SPEC-018 §Operational §2). The probe spawns the `winword.exe` stand-in **after** the agent's ETW session opens, so the parent is captured — a green run does NOT imply production coverage of the already-running-Office case (SPEC-006 §Operational §2 production false-negative).
 6. Standing gate before merging changes to the detection path: `services/ingest/src/detect/`, `rules/windows/`, or the `alerts` / `cges_events` schema.
 
-**A green run stays valid over later commits** only if none of them touches a runtime input of the path it tests — `services/`, `agent/`, `dashboard/` or `rules/` — and the non-elevated suite count is identical before and after; any other change forces a re-run. This is criterion (a) of the *Detection prod-driver branch merge gate* below, extended to `rules/`: a change to a rule alone changes what the marquee evaluates.
+**A green run stays valid over later commits** only under *Elevated gate evidence validity* below. This one rule applies to the capture and detection marquees and the agent's elevated tests.
+
+### Elevated gate evidence validity
+
+The evidence records the tested commit and tree, commands, binary freshness,
+literal suite results and logs. Reuse always requires that the environment,
+commands and binary remain applicable; otherwise Manuel runs a new gate.
+A different commit with the **same complete
+tree** may use that evidence after `git diff --quiet <tested-sha> <candidate-sha>` succeeds; any nonzero exit aborts landing.
+For a different tree, all of these conditions are required:
+
+1. Every intervening change is Markdown documentation only, outside
+   `services/`, `agent/`, `dashboard/` and `rules/`. Comment-only source edits
+   do not qualify. A changed document must not be a runtime or test input
+   (for example, the executable operations runbooks do not qualify).
+2. No dependency, build, workflow, harness, configuration, generated artifact
+   or other input of the tested path changed. Inspect the complete diff,
+   including renames and deletions; an unknown input invalidates reuse.
+3. The full non-elevated ingest suite passes under its documented expected
+   unelevated result both before and after, with identical pass/fail/skip
+   counts. Record both outputs and the two SHAs. An unexplained difference
+   invalidates reuse. These runs do not replace the elevated evidence.
+4. The environment, commands and binary used by the gate remain applicable.
+   Record the reviewed diff and why every condition holds in the handoff.
+   If any condition cannot be proved, Manuel runs a new elevated gate.
+
+This is the conservative reconciliation of debt #46 (Session 49), not a
+retroactive validation of a historical run. The S27 comment-only exception
+recorded below is history and does not authorize a new exception. No runtime
+change may inherit an older gate merely because a suite has the same count.
 
 **Validation status:** VALIDATED developer-local + elevated on 2026-05-31 (Phase 5, post-5e at `44fd345`). Full suite 19 files / 44 tests GREEN with `detect_ac_001` running (not skipped, 40171 ms wall-clock): a real `cg-agent` captured the `winword.exe` stand-in spawning `powershell.exe` via ETW, the events reached ClickHouse `cges_events`, `runDetectionCycle` evaluated the `office_spawns_script_host` rule and persisted exactly one alert to the Postgres `alerts` table. All 6 `detect_ac` green, the SPEC-005 marquee and every other suite without regression. The CI-able detection suite (`detect_ac_002`–`006` + migration / read-model / engine / scorer) is GREEN in `ts-ci`; this marquee is the end-to-end gate, validated here.
 
 ## Detection prod-driver branch merge gate
 
+This subsection records the S27 integration gate. Its present-tense descriptions
+of the unmerged driver (including "true today" below) refer to that historical
+stage, not the current repository: the driver has landed. The Class A/B method
+remains useful; all new elevated-evidence reuse follows the single current rule
+in *Elevated gate evidence validity* above.
+
 `feat/detection-prod-driver` (the ADR-0012 Amendment 2026-06-07 in-process TS scheduler that gives `runDetectionCycle` its first production caller) merges to `main` only when **both** are present:
 
-1. **The elevated `detect_ac_001` marquee is GREEN** — run developer-local + elevated per *Developer-local SPEC-006 marquee validation* above, on the branch tip, by Manuel. **The marquee covers the CODE that merges, not a specific SHA.** A green marquee stays valid over a *later* tip if everything added on top is doc-only or comment-only, verified by: (a) a diff with **no files under `services/`, `agent/`, or `dashboard/`**, and (b) a non-elevated suite with an **identical count before and after**. Any runtime change invalidates it and forces a re-run. Known case: S27, the marquee run over `e761610` stayed valid at tip `6f9d5e3` (the two intervening commits were 9 `.md` clauses + 2 JSDoc comments; non-elevated suite 57/57 identical).
+1. **The elevated `detect_ac_001` marquee is GREEN** — run developer-local + elevated per *Developer-local SPEC-006 marquee validation* above, on the branch tip, by Manuel. Reuse at another tip follows *Elevated gate evidence validity* alone. Historical case (not a current exception): S27 carried the run over `e761610` to `6f9d5e3` across 9 `.md` clauses and 2 JSDoc comments, with non-elevated suite 57/57 identical. That record is retained; comment-only source changes require a new gate under the current rule.
 2. **The Class B documentary-coherence edits are attached** — the *altitude* assertions that state `runDetectionCycle` has *no production caller / test-validated only* (true today, false once the driver lands) are corrected in their **own commit** on the branch, **after** the marquee is green and **before** the merge. When applying these Class B edits, review the **embedded citations** inside the B clauses too, not only the assertion text — a citation can go stale while the assertion stays true. Known case: `ADR-0017:64` cites ADR-0012 §1 as the authority for *"no production caller yet"*; post-Amendment 2026-06-07 that citation is obsolete even though the assertion holds until the driver merges. Classification is **per-clause, not per-site**: a Class A site can carry a Class B clause embedded in the same bullet. Known case: `ADR-0017:88` — the mechanism-A rewrite plus the *"Inherited gap"* Class B altitude clause in one sentence; the B clause must survive the Class A fix. `docs/specs/README.md:50` interleaves the B assertion and the A clause in the same parenthesis: applying the Class B edit there means redoing the whole sentence, not just the assertion, because the parenthesis naming the scheduler becomes redundant once *"has no production caller yet"* stops being true. It is the only one of the eleven sites with this interleaved shape. **Citation preservation (rule b) and its narrow exception:** a stale `path:line` anchor is preserved **verbatim** in the Class B commit — anchor drift is swept by pattern in a dedicated Class-A pass, never corrected piecemeal (a partial fix leaves the pattern sweep incomplete). **Exception:** when inverting a B assertion turns a preserved citation into a *false* claim — the citation now vouches for the opposite of what the sentence says — correct it in place, because leaving it introduces a false statement, not an anchor drift. Known case: `ADR-0017:64`, where `(ADR-0012 §1, :28)` — §1 being the deferred Go extraction the Amendment decoupled from the prod-caller role — is replaced by the Amendment 2026-06-07 reference (`:271`), the real authority. Anchor-only drift (a line that merely moved, e.g. `runDetectionCycle` from `index.ts:24` to `:36`) is NOT this case: a line number vouches for neither polarity, so it stays preserved as Class-A debt (debt #13, `docs/handoff-session-27.md`). **Statement form is preserved:** a Class B edit updates *what a clause asserts*, never its *form* — a `MUST` clause stays a `MUST`, only its object is updated; converting a normative requirement into a description is a structural change to the section, not coherence. Known case: `SPEC-014:96` (§Compliance), where the altitude `MUST` is kept and its object flips from *"not an email running in production"* to *"and firing in a deployed system."* **Scope of rule (a):** the term *"test-validated altitude"* is preserved and marked *resolved* only in **prose that asserts something about the system** (ADRs, SPECs, catalogs). It does NOT apply to a **scorecard status cell**, where the term is a value that expires and whose correct final state is to *remove* it. A scorecard is a status table, not documentary coherence, and is refreshed by whoever owns the scorecard — never by a Class B pass. Known case: `README.md:21` (the criterion-4 row), excluded from the Session 27 Class B commit and deferred to the post-merge scorecard refresh.
 
 The merge gate is exactly `marquee GREEN + Class B edits present`. Class A edits are a separate track: *mechanism* assertions that wrongly say the deferred Go `services/pipeline/` firehose provides the prod caller are already broken on `main` today (superseded by the Amendment 2026-06-07), independent of this branch, and are fixed on their own without waiting for the marquee. Only the Class B altitude edits ride this gate.
