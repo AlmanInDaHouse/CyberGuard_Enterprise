@@ -227,6 +227,28 @@ Each AC maps 1:1 to one Rust integration test under `agent/cg-agent/tests/`. Tes
 
 **Effect on other sections.** None to §Configuration, §Failure modes, §Observability, §NFR (jitter still applies to timer-driven ticks; event-driven flushes have no jitter contract). §AC-001/002/003/004/005/006/007/008/009 unchanged (they assert SPEC-001 standalone behavior; SPEC-005 introduces its own ACs that exercise the multi-POST semantics).
 
+## Amendment 2026-10-27: service operation and product version (SPEC-024)
+
+F2's [SPEC-024](SPEC-024-agent-installer-service.md) adds an installed Windows
+service while preserving the console/test path. For service mode it supersedes
+FR-001's working-directory default with a fixed absolute config path, extends
+FR-008 with SCM STOP/SHUTDOWN and a 60-second total shutdown deadline, and
+replaces FR-009's stdout sink with protected rotated JSON files and Windows
+Application-log lifecycle/fatal diagnostics. Console behavior is unchanged.
+SPEC-017/SPEC-020 still determine capture teardown and the final send; this
+service deadline caps its remaining request budget, without a lossless claim.
+
+The agent version in §Data contracts and lifecycle fields is the build's
+SPEC-024 product version: release `X.Y.Z`, or `<Cargo package version>-dev`
+when the release build input is absent. Examples such as `0.1.0` are shapes,
+not a constant. Envelope/schema versions, sequencing and the first-heartbeat
+budget after entry into heartbeating are unchanged. SPEC-024's 60-second
+installation readiness budget is a separate end-to-end requirement.
+
+These are prospective requirements; the original text is retained and the
+service/version implementation must pass SPEC-024's criteria before it is
+described as delivered.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (`agent/` location, `docs/specs/` path).

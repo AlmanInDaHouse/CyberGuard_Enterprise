@@ -307,6 +307,29 @@ The cost is the step's time, 25 s in the probe's run. A real-ETW test that flake
 - ADR-0010, Amendment 2026-05-29, constraint 2, records the runner's ETW-open privilege as untested in CI; the run above tests it for the agent's own tests. ADR-0010 named the SPEC-005 marquee in CI as the validation point of that assumption (§Decision part 3), and constraint 1, no container runtime, still keeps the marquee out of CI. ADR-0010 is not amended: the evidence is recorded here. Its *Consequences* (`docs/adr/0010-agent-privilege-model-mvp.md:97`) still read the assumption as unvalidated until the marquee's first run in CI, which does not come; correcting that is an amendment to ADR-0010, which waits for Manuel (debt #115).
 - CLAUDE.md, *Environment facts*, the *Windows CI job* of the *Local pre-commit gate*, and *Developer-local SPEC-005 marquee validation*, both its introduction, which says the privilege model "has not been validated on `runneradmin`", and its §4: the tests are `#[ignore]`d and run in the elevated gate, as before, and in CI's Windows job too. The workflow change states it there, and in `.github/workflows/README.md` and the comment on `rust-ci.yml`'s Windows job.
 
+## Amendment 2026-10-27: installed service lifecycle (SPEC-024)
+
+[SPEC-024](SPEC-024-agent-installer-service.md) takes the log-file deferral in
+§Out of scope and adds the Windows service wrapper around the secure runtime.
+Its installed-mode startup validates SYSTEM custody before reading identity,
+and its shared service/console live-instance guard runs before reclaiming the
+fixed ETW session. The old out-of-scope note about two agents sharing a host
+does not permit a second live instance to stop the first one's capture.
+Multiple concurrent capture agents remain unsupported.
+
+The shutdown ordering of §Operational §4 and SPEC-020 remains: stop the
+capture sources, then one best-effort going-offline POST, counting undelivered
+events. In service mode SCM STOP/SHUTDOWN initiates that path and a 60-second
+total deadline bounds teardown and the remaining final-request timeout;
+expiration is a reported failed/incomplete stop, not success. Console Ctrl+C
+semantics are unchanged. File rotation and Windows Application-log diagnostics
+follow SPEC-024; the capture classes, wire, memory ring and normal delivery
+semantics do not change. Its lifecycle and real Windows tests supplement,
+rather than replace, the standing elevated capture/detection gate.
+
+This amendment contracts future implementation. It does not assert that the
+service, instance guard, logs or new tests exist yet.
+
 ## References
 
 - [SPEC-005](SPEC-005-agent-process-telemetry-windows-etw.md) — the capture specification this SPEC realises and amends by scope.

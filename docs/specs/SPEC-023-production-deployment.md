@@ -660,6 +660,33 @@ a release exists. The version floors and the direct IPv4 installation procedure
 narrow the documented supported environment; they do not reject existing
 configuration in code. No public release has yet shipped.
 
+## Amendment 2026-10-27: F2 installer and release-version contract
+
+[SPEC-024](SPEC-024-agent-installer-service.md) is the F2 contract anticipated
+by §Scope. Its service-mode, key-custody, lifecycle and version requirements
+are not yet implementation evidence. Until its implementation and runbook
+tests land, the current manual endpoint instructions remain an explicitly
+temporary development/evaluation route; accepting the text alone does not
+make them a reboot-safe production installation. This clarifies §Out of
+scope's "until that SPEC lands": delivery means its implementation too.
+
+§Operational §12 and the first Amendment 2026-10-26 item 4 gain two release
+assets: `cyberguard-agent-<version>-x64-setup.exe` (offline MSI bootstrapper)
+and `cyberguard-agent-<version>-x64.msi`. The existing versioned raw agent
+executable remains. All three have SHA-256 entries and source-revision
+provenance; their binary payloads and release versions agree as SPEC-024
+§Data contracts §1 requires. `SHA256SUMS` thus covers five payload assets:
+the server bundle, raw agent, setup, MSI and licence report. Release jobs
+reject version mismatches before publication. deploy_ac_019's asset checks
+extend to these additions alongside install_ac_015's Windows package checks.
+
+The server installation contract, image digests and trust distribution stay
+unchanged. Renewal remains F4 and pages/invitations F3. The first publication
+still waits for F2–F4, #130 and Manuel's explicit approval; keep the active
+release-tag freeze. Neither an unsigned local package nor a negative
+unattested fixture proves positive published provenance or the timed
+installation criterion.
+
 ## References
 
 - ADR-0022, the Amendments 2026-10-19 of ADR-0001, ADR-0003, ADR-0004, ADR-0016 and ADR-0019, and the Amendments 2026-10-23 of ADR-0003 and ADR-0020; ADR-0010, ADR-0014, ADR-0015.

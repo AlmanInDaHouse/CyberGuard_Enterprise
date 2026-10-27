@@ -297,6 +297,49 @@ The three decisions originally surfaced for Manuel's call were ratified in the S
 2. **Key rotation — deferred entirely** to a dedicated future SPEC. SPEC-002 issues 90-day certs and does not implement renewal; re-enrollment is the recovery path until the rotation SPEC lands. Listed in §Scope OUT.
 3. **`enrollment_token` storage — plain TOML in `agent.toml`**, with mandatory post-enrollment hygiene: the agent atomically rewrites `agent.toml` to drop the token after a successful first run (FR-014), and ignores a stale token when an identity is already present. The on-disk exposure window is bounded to the time between install and first successful enrollment.
 
+## Amendment 2026-10-27: installed key custody and version (SPEC-024)
+
+Debt #87 exposes the enrolling user's read access to machine-DPAPI identity
+files and the write-before-hardening window. [SPEC-024](SPEC-024-agent-installer-service.md)
+§Data contracts §2 and §Operational §2 supersede FR-007, NFR-003, AC-010 and
+§Default paths for the installed Windows service: SYSTEM owns the identity
+directory and all three files, with a protected SYSTEM-only DACL established
+before sensitive bytes are written, including staging and replacements.
+The enrolling user's individual SID receives no access. Configuration and
+its token-hygiene temporary files are private from creation under SPEC-024's
+separate SYSTEM/Administrators policy. Machine-scope DPAPI and zeroized
+Ed25519 material remain; elevated administrator/SYSTEM compromise is outside
+that boundary. Console/test custom paths remain a development surface, not
+the supported production installation or evidence of SYSTEM custody.
+
+For installed service mode, FR-001's missing-file enrollment branch and
+FR-008/FR-012 are refined: only an absent identity set starts enrollment;
+an incomplete, corrupt, insecure or mutually inconsistent set fails closed,
+without re-enrollment, heartbeat or destruction of valid state. Check the
+certificate's public key and agent identity against key and metadata too.
+FR-014 remains best-effort after persistence, but every replacement preserves
+protection. Legacy adoption is an explicit same-machine migration under
+SPEC-024; narrower ACLs cannot undo an earlier copied key (R1 remains until
+implementation evidence, with legacy-copy limits disclosed).
+
+FR-004, §Data contracts and AC-003 use SPEC-024's build-time product version
+instead of the crate version in every mode. Envelope versions are unchanged.
+The §Configuration paragraph saying `agent.id` becomes optional is also
+superseded: the parser requires a syntactically valid UUIDv7 in every mode,
+as `config.rs` already enforces. In enrollment-backed operation it is only a
+placeholder; the server-issued value replaces it after enrollment/identity
+load. The plain development path instead sends the configured ID directly.
+Setup supplies the installed-mode placeholder; console/test callers supply
+their configured ID themselves.
+This reconciles that portion of #119 without closing its other contract drift.
+FR-011's process exit after exhausted network retries remains the console
+behavior. SPEC-024's service supervisor instead waits at least 60 seconds
+between exhausted enrollment rounds, remaining responsive to stop; permanent
+identity/configuration/trust errors still require operator action.
+These requirements do not change enrollment's wire shape or its TLS contract
+(SPEC-023 §Operational §6), and do not implement F4 renewal/revocation.
+They are not a claim that #87 or #131 is already closed.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (`agent/` location, `docs/specs/` path).
