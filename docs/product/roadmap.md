@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-48.md](../handoff-session-48.md)).
+([handoff-session-49.md](../handoff-session-49.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -383,12 +383,19 @@ This dependency-ordered document supersedes both for planning.
   landed (`b04f2e4`..`6944ee6`, `docs/handoff-session-48.md`). Manual endpoint
   validation and first-release evidence remain; version tags are frozen by
   [the release-protection rule](../security/release-protection.md).
+  S49 accepted F2's SPEC-024 and its SPEC-001/002/017/023 amendments
+  (`765e122`): installer/service lifecycle, SYSTEM key custody (#87) and
+  release version (#131). Implementation and execution evidence remain.
+  The conflicting elevated-evidence rules (#46) were reconciled first
+  (`f07fa39`); no runtime change or elevated-gate reuse occurred in S49.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
     images and the release, the forensic anchor, retention);
-  - F2: the agent's installer and service mode (ADR-0010 §Decision part 2),
-    with its key custody (#87);
+  - F2, SPEC-024 (contract Accepted, implementation pending): the agent's
+    installer and service mode (ADR-0010 §Decision part 2), key custody (#87)
+    and release version (#131). It carries the reopened audit-policy and
+    endpoint-dump questions; ADR changes still require Manuel's yes;
   - F3: the dashboard's missing pages (TOTP enrollment and users, #83 and
     #98; the login deleting the prior session, #102; the agents and the
     enrollment tokens; the alerts; the export and the report; an incident's
@@ -408,8 +415,11 @@ This dependency-ordered document supersedes both for planning.
   anchoring, which Manuel delegated on 2026-10-14, are decided in ADR-0022
   and its amendments, which he ratified. (B2 option (2)'s audit-policy dependency no
   longer waits here: ADR-0020 ruled the option out.)
-- Needs: F2 to F4's SPECs and implementations, the manual endpoint validation,
-  and first-release provenance/timed-install evidence.
+- Needs: F2's implementation and Windows/package evidence under SPEC-024,
+  F3/F4's SPECs and implementations, the manual endpoint validation,
+  and first-release provenance/timed-install evidence. Start F2 implementation
+  with #131's version behavior/tests; complete #4/#37 with the first
+  capture/gate change. Preserve #59/#50's external/isolated-machine limits.
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
   model's Amendment 2026-10-15): the dashboard's TOTP enrollment and user
   management (#83, with #98; its login and logout landed in S40,

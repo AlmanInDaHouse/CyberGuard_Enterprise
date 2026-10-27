@@ -23,10 +23,10 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 49** at Session 48's close, the count `docs/handoff-session-48.md` states.
+**Open: 48** at Session 49's close, the count `docs/handoff-session-49.md` states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 48's close, `docs/handoff-session-48.md#how-session-49-resumes`);
+Session N resumes* (at Session 49's close, `docs/handoff-session-49.md#how-session-50-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -48,7 +48,6 @@ Session N resumes* (at Session 48's close, `docs/handoff-session-48.md#how-sessi
 | 38 | The forensic evidence unit carries no `class_uid` | `handoff-session-34.md:310` | A precondition of any rule that cites an event other than a process event (ADR-0018 §9, SPEC-019 §Out of scope). |
 | 39 | The CGES examples' members differ from the wire's (their `time` aligned in S41) | `handoff-session-34.md:317`; `handoff-session-41.md:758`; `handoff-session-48.md#debts` | Pre-release documentary/schema-example sweep (S48 delegated). |
 | 42 | A POST per batch interval when the server shares the agent's host | `handoff-session-35.md:569`; `handoff-session-48.md#debts` | F4 agent renewal/delivery work: measure and implement connection reuse under its contract (S48 delegated). |
-| 46 | Two rules on the validity of a marquee run clash | `handoff-session-35.md:586`; `handoff-session-48.md#debts` | Before F2's first runtime change: reconcile the living gate rules; until then satisfy the conservative combination, never claim an expired gate valid (S48 delegated). |
 | 50 | A dead subscription that answered 4317 would not be found | `handoff-session-35.md:604`; `handoff-session-48.md#debts` | F2/F4 isolated Windows fault test; Manuel runs the elevated service-restart experiment, not the development host during ordinary work (S48 delegated destination). |
 | 51 | The S4U success measured only on a local account in a workgroup | `handoff-session-35.md:607` | Watch on any other developer machine. |
 | 52 | The process callback writes a `trace` line per record | `handoff-session-36.md:289` | The next change under `agent/cg-agent/src/etw/` (B2's branch, parked). |
@@ -64,7 +63,7 @@ Session N resumes* (at Session 48's close, `docs/handoff-session-48.md#how-sessi
 | 66 | Gate output noise (`logman` text, a stop line with nothing stopped) | `handoff-session-38.md:1070` | The next change to either file. |
 | 73 | ADR-0021 §2 says `ajv-cli` reads JSON | `handoff-session-38.md:1127` | An ADR-0021 amendment, for Manuel's "sí". |
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
-| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-43.md:524`; `handoff-session-44.md:337` | Roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner; ADR-0022, Accepted on 2026-10-23. #111's agent change under gate 1 went without it. |
+| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-49.md#debts` | F2 implementation under Accepted SPEC-024: SYSTEM custody before writes, effective restricted-token access and failure/migration tests (install_ac_004/005/013). Contract `765e122` alone does not close R1; legacy copied-key exposure remains explicit. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694`; `handoff-session-45.md:356` | F4, roadmap §F's renewal SPEC (SPEC-023 §Out of scope); the TLS half landed in `63ea972`. |
 | 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140`; `handoff-session-48.md#debts` | A future multi-host deployment, outside the MVP; ADR-0022 §3 retains plain HTTP on the internal single-host app network. S48 delegates alignment to that Accepted decision, not a new risk acceptance. |
@@ -74,11 +73,11 @@ Session N resumes* (at Session 48's close, `docs/handoff-session-48.md#how-sessi
 | 110 | The development dependencies carry advisories: since S43, braces, katex and tailwindcss 3's postcss-selector-parser | `handoff-session-40.md:1086`; `handoff-session-42.md:610`; `handoff-session-43.md:517` | tailwindcss's next major (postcss-selector-parser; braces through its chokidar and fast-glob); braces and katex in markdownlint-cli2 when a fixed release falls within their parents' ranges. CI audits every dependency for a critical advisory since `0e26dd7`. |
 | 113 | The workflows pin their actions by major tag, not by commit | `handoff-session-41.md:750`; `handoff-session-48.md#debts` | Pre-release CI-hardening sweep: pin remaining actions to commit SHAs; release/deploy workflows already do so (S48 delegated). |
 | 114 | A heartbeat whose own `body.sent_at` cannot be converted, or whose `sequence_number` or `uptime_seconds` is 1e21 or more, is answered `503` and resent without bound | `handoff-session-41.md:728` | With #32. |
-| 119 | The enrollment contract's texts differ from the code where SPEC-023 does not touch them (ADR-0004, SPEC-002, SPEC-003, SPEC-004) | `handoff-session-43.md:541` | F4, the renewal SPEC of roadmap §F, which rewrites the enrollment contract. |
+| 119 | The enrollment contract's texts differ from the code where SPEC-023 does not touch them (ADR-0004, SPEC-002, SPEC-003, SPEC-004) | `handoff-session-43.md:541`; `handoff-session-49.md#debts` | F4, the renewal SPEC, for the remaining drift. S49's SPEC-002 amendment (`765e122`) reconciles only the required syntactic agent.id and its placeholder role before enrollment; the plain path uses the configured ID. Still open. |
 | 124 | A compromised ingest can still rewrite the evidence the forensic key signs (its ClickHouse inserts, the newest row kept; its alerts) | `handoff-session-46.md:457`; `handoff-session-48.md#debts` | F4 pre-release threat-control proposal for evidence rewriting; retain the disclosed limitation until a mitigation is contracted and tested. Any required ADR needs Manuel's yes; no risk acceptance by delegation (S48). |
 | 125 | A session that raises `log_parameter_max_length_on_error` for itself logs a passphrase parameter | `handoff-session-46.md:462`; `handoff-session-48.md#debts` | F4 pre-release database/logging threat-control proposal and regression evidence; do not claim hostile sessions cannot expose parameters. Any required ADR needs Manuel's yes; no risk acceptance by delegation (S48). |
 | 130 | Third-party notices beyond the Node packages: Caddy's Go modules' texts, the agent's crates, the base images' GPL sources, Next's vendored packages | `handoff-session-47.md:542` | Before the first release (F4). |
-| 131 | The agent reports Cargo's version, not the release's | `handoff-session-47.md:553` | F2's SPEC, the installer. |
+| 131 | The agent reports Cargo's version, not the release's | `handoff-session-47.md:553`; `handoff-session-49.md#debts` | F2 implementation under Accepted SPEC-024 (`765e122`), install_ac_014/015: build-time version across CLI/enrollment/heartbeats/lifecycle and matching packaged payloads. No implementation yet. |
 | 132 | A locally built image's `documentation` label points to `tree/unknown` | `handoff-session-47.md:557`; `handoff-session-48.md#debts` | Pre-release packaging sweep: decide and test the local-build documentation URL without changing published revision links (S48 delegated). |
 | 133 | The dashboard image ships `typescript`, carried by Next's output tracing | `handoff-session-47.md:560`; `handoff-session-48.md#debts` | Pre-release image-content sweep: exclude traced TypeScript only after proving the standalone runtime still works (S48 delegated). |
 | 136 | The create-user CLI header still says later users are API-only | `handoff-session-48.md#debts` | Next F3 user-management/CLI change, with its workspace gate: align the stale comment with SPEC-023's third amendment (S48 delegated). |
@@ -87,6 +86,7 @@ Session N resumes* (at Session 48's close, `docs/handoff-session-48.md#how-sessi
 
 | # | Debt | Closed by | Entry |
 |---|---|---|---|
+| 46 | Conflicting elevated-marquee evidence-validity rules | `f07fa39` — one conservative current rule in CLAUDE.md; historical exceptions confer no new permission | `handoff-session-49.md#debts` |
 | 1 | Node 20 in CI | `67c4a7c`, `64ca6f7` (S25) | `handoff-session-26.md:148` |
 | 2 | markdownlint version skew | No skew found (S36) | `handoff-session-36.md:163` |
 | 3 | Hand-numbered agent ids across the ingest tests | `ecd0fd4` | `handoff-session-39.md:585` |
