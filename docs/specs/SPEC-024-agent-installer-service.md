@@ -441,6 +441,37 @@ Decisions taken by Claude Code under Manuel's Session 49 delegation,
 - Implementation follows this contract in separate changes; F3/F4 and the
   publication guard retain their current destinations. No ADR is amended.
 
+## Amendment 2026-10-31: the release version's form
+
+**What surfaced it.** The review of #131's implementation. §Data contracts §1
+takes the tag's exact `X.Y.Z` as the version, and §Scope asks for one release
+version across installer, binary, enrollment and heartbeats, but neither says
+whether a component may carry a leading zero. The tag filter of `release.yml`
+(`v[0-9]+.[0-9]+.[0-9]+`) admits `v01.2.3`: the executable would report
+`01.2.3` while Windows Installer compares the `ProductVersion` as `1.2.3`,
+two spellings of one product version.
+
+**Amendment.** Each of X, Y and Z is a SemVer numeric identifier: `0`, or
+ASCII digits without a leading zero. A build given any other input, an
+empty one included, fails; `<Cargo package version>-dev` is reported only when
+the input is absent. MSI's numeric limits stay with packaging (§1, last
+paragraph; install_ac_015).
+
+**Effect.** It narrows §Data contracts §1's "exact `X.Y.Z`" and "malformed",
+and the §Decision record's version bullet, to that form; install_ac_014 and
+install_ac_015 are unchanged, and the build's refusal of a malformed input is
+to be exercised with install_ac_014's version tests. The release job's supply
+of the tag's version to the agent build lands with the version implementation;
+then a tag such as `v01.2.3` makes that build fail, so no GitHub Release is
+created, while the images and bundle jobs, which do not wait for the agent's,
+can still push and attest the images and attest the bundle under that tag.
+Checking the tag's form before any publication belongs to install_ac_015's
+release-workflow change, and the active release-tag freeze stops every `v*`
+tag meanwhile. No release or version tag exists, so nothing published is
+affected. The narrowed decision is this SPEC's own delegated one, and the
+amendment adds no setting a deployment or an operator chooses. Taken by
+Claude Code under Manuel's delegation (#131). Status stays **Accepted**.
+
 ## References
 
 - [ADR-0010](../adr/0010-agent-privilege-model-mvp.md) — packaging supersession and privilege baseline.

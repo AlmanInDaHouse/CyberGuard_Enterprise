@@ -135,6 +135,11 @@ export interface AgentRunResult {
   stderr: string;
   /** The agent process's PID (SPEC-019 net_ac_010: its own connections are not reported). */
   pid: number | undefined;
+  /**
+   * True when the harness ended the agent after `runMs`; false when the agent
+   * exited on its own first (SPEC-006 Amendment 2026-10-31, debt #4).
+   */
+  endedByHarness: boolean;
 }
 
 export interface MarqueeAgent {
@@ -221,7 +226,11 @@ export function prepareAgent(args: {
         child.stderr.on("data", (d: Buffer) => {
           stderr += d.toString("utf8");
         });
-        const timer = setTimeout(() => child.kill("SIGINT"), runMs);
+        let endedByHarness = false;
+        const timer = setTimeout(() => {
+          endedByHarness = true;
+          child.kill("SIGINT");
+        }, runMs);
         child.on("error", (e) => {
           clearTimeout(timer);
           live.delete(child);
@@ -250,7 +259,7 @@ export function prepareAgent(args: {
             );
             return;
           }
-          resolveRun({ exitCode: code, stdout, stderr, pid: child.pid });
+          resolveRun({ exitCode: code, stdout, stderr, pid: child.pid, endedByHarness });
         });
       });
       // A marquee awaits the run seconds after it starts; a rejection that

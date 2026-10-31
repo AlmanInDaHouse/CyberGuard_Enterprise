@@ -1,8 +1,9 @@
 //! SPEC-002 AC-003 — The enrollment request the mock receives contains a
 //! non-empty `enrollment_token` matching the configured value, a
 //! base64url-decoded `agent_pubkey` of exactly 32 bytes, the configured
-//! `agent_hostname`, the runtime `agent_platform`, and the crate
-//! `agent_version`.
+//! `agent_hostname`, the runtime `agent_platform`, and the product
+//! `agent_version` (SPEC-002 Amendment 2026-10-27: SPEC-024's build-time
+//! version, not the crate's).
 
 mod common;
 
@@ -46,7 +47,7 @@ async fn enroll_ac_003_request_contents() {
     );
     assert_eq!(
         req["agent_version"].as_str(),
-        Some(env!("CARGO_PKG_VERSION")),
-        "agent_version must be the crate version"
+        Some(common::expected_agent_version().as_str()),
+        "agent_version must be the product version"
     );
 }

@@ -42,6 +42,19 @@ VR0TAQH/BAUwAwEB/zAFBgMrZXADQQAKUSegAHf/tARa/pLzs/dhkHaN/B2nnUht\n\
 XuDkz+eLU50kmGJUM68Sim/2RYfgeWxjPTGlJfjFOQTf9HXw0SMP\n\
 -----END CERTIFICATE-----\n";
 
+/// The version the agent must report, by SPEC-024 §Data contracts §1: the
+/// exact `CG_RELEASE_VERSION` the build was given, else `<Cargo package
+/// version>-dev`. Read at run time: the version matrix
+/// (`.github/scripts/agent-version-matrix.mjs`) builds and runs the tests in
+/// one cargo invocation, so the input it sets for the build is the test's
+/// environment too, and an embedded value left stale by a rebuild differs.
+pub fn expected_agent_version() -> String {
+    match std::env::var("CG_RELEASE_VERSION") {
+        Ok(v) => v,
+        Err(_) => format!("{}-dev", env!("CARGO_PKG_VERSION")),
+    }
+}
+
 /// The server-assigned `agent_id` (UUIDv7) the enroll mock returns. The
 /// canonical identity from enrollment onward (SPEC-002 §Data contracts).
 pub const TEST_AGENT_ID: &str = "01934abc-def0-7000-89ab-000000000099";

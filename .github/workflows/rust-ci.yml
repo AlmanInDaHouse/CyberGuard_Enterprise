@@ -9,6 +9,7 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
+      - ".github/scripts/agent-version-matrix.mjs"
   pull_request:
     paths:
       - "agent/**"
@@ -16,6 +17,7 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
+      - ".github/scripts/agent-version-matrix.mjs"
 
 permissions:
   contents: read
@@ -41,6 +43,11 @@ jobs:
 
       - name: cargo test
         run: cargo test --all
+
+      # SPEC-024 install_ac_014 (debt #131): the build-time version, malformed inputs
+      # refused, and a rebuild that sets, changes and removes it in one target directory.
+      - name: agent version matrix
+        run: node .github/scripts/agent-version-matrix.mjs
 
   # SPEC-017 capture_ac_013: the agent's Windows code (ETW session,
   # side-channel helpers, DPAPI, path translation) is compiled, linted and
@@ -71,3 +78,6 @@ jobs:
 
       - name: "cargo test, the #[ignore]d real-ETW and Security-log tests"
         run: cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1
+
+      - name: agent version matrix
+        run: node .github/scripts/agent-version-matrix.mjs
