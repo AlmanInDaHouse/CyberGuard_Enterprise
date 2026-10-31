@@ -10,14 +10,16 @@
 
 use cg_agent::errors::{AgentError, EnrollmentError, TlsError};
 use cg_agent::{
-    config, identity, init_logger_with_writer, log_lifecycle_event, run, run_secure, Capture,
+    config, identity, init_logger_with_writer, log_agent_starting, run, run_secure, Capture,
+    AGENT_VERSION,
 };
 use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser, Debug)]
-#[command(name = "cg-agent", version, about = "CyberGuard endpoint agent")]
+// SPEC-024 §Data contracts §1: the product version, fixed at build time.
+#[command(name = "cg-agent", version = AGENT_VERSION, about = "CyberGuard endpoint agent")]
 struct Cli {
     /// Path to the TOML configuration file. Defaults to `./agent.toml`.
     #[arg(long, value_name = "PATH", default_value = "agent.toml")]
@@ -43,7 +45,7 @@ async fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    log_lifecycle_event("agent starting", "main");
+    log_agent_starting();
 
     let shutdown = cg_agent::shutdown::wait_for_shutdown();
 

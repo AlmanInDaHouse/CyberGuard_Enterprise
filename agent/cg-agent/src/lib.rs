@@ -28,6 +28,9 @@ pub mod signing;
 pub mod startup;
 pub mod tls;
 pub mod transport;
+pub mod version;
+
+pub use version::AGENT_VERSION;
 
 use crate::config::AgentConfig;
 use crate::envelope::{build_envelope, AgentBlock, HeartbeatStatus};
@@ -89,10 +92,20 @@ impl<'a, W: Write + Send + 'static> MakeWriter<'a> for SharedWriter<W> {
 }
 
 /// Emit a lifecycle log entry at INFO level. Used by the integration
-/// harness (AC-009) and by `main.rs` for the "agent starting" /
-/// "agent stopping" milestones documented in SPEC-001 §Observability.
+/// harness (AC-009); `main.rs` emits "agent starting" through
+/// [`log_agent_starting`].
 pub fn log_lifecycle_event(message: &str, component: &str) {
     tracing::info!(component = component, "{message}");
+}
+
+/// The "agent starting" lifecycle line, with the product version
+/// (SPEC-001 §Observability; SPEC-024 §Data contracts §1).
+pub fn log_agent_starting() {
+    tracing::info!(
+        component = "main",
+        agent.version = AGENT_VERSION,
+        "agent starting"
+    );
 }
 
 /// Run the agent heartbeat loop to completion.
@@ -113,7 +126,7 @@ where
     let client = HeartbeatClient::new(config.server.url.clone(), config.heartbeat.clone());
     let agent_block = AgentBlock {
         agent_id: config.agent.id.clone(),
-        agent_version: env!("CARGO_PKG_VERSION").to_string(),
+        agent_version: AGENT_VERSION.to_string(),
         agent_platform: detect_platform().to_string(),
         agent_hostname: config.agent.hostname.clone(),
     };
@@ -240,7 +253,7 @@ where
 
     let agent_block = AgentBlock {
         agent_id: identity.agent_id.clone(),
-        agent_version: env!("CARGO_PKG_VERSION").to_string(),
+        agent_version: AGENT_VERSION.to_string(),
         agent_platform: detect_platform().to_string(),
         agent_hostname: config.agent.hostname.clone(),
     };

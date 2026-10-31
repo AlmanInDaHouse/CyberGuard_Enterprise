@@ -147,16 +147,21 @@ jobs:
           persist-credentials: false
 
       # The toolchain rust-toolchain.toml pins; the asset is named before it is attested, since
-      # the attestation records its subject's name.
+      # the attestation records its subject's name. SPEC-024 §Data contracts §1 (debt #131): the
+      # tag's X.Y.Z is the agent's version, given to the build as CG_RELEASE_VERSION; the build
+      # refuses an empty or malformed one, and the executable must report exactly it.
       - name: Build cg-agent (release)
         shell: bash
         env:
           CARGO_INCREMENTAL: "0"
         run: |
           set -eu
+          V="${GITHUB_REF_NAME#v}"
+          export CG_RELEASE_VERSION="$V"
           rustup toolchain install
           cargo build --release --locked -p cg-agent
-          cp target/release/cg-agent.exe "cg-agent-${GITHUB_REF_NAME#v}-x86_64-pc-windows-msvc.exe"
+          test "$(target/release/cg-agent.exe --version)" = "cg-agent $V"
+          cp target/release/cg-agent.exe "cg-agent-$V-x86_64-pc-windows-msvc.exe"
 
       - name: Attest the executable
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

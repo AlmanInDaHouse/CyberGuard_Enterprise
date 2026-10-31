@@ -82,7 +82,7 @@ pub async fn enroll(config: &AgentConfig) -> Result<EnrolledIdentity, Enrollment
         agent_pubkey: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public_key),
         agent_hostname: config.agent.hostname.clone(),
         agent_platform: crate::detect_platform().to_string(),
-        agent_version: env!("CARGO_PKG_VERSION").to_string(),
+        agent_version: crate::AGENT_VERSION.to_string(),
     };
 
     // FR-005: POST as JSON with the enrollment request timeout.
