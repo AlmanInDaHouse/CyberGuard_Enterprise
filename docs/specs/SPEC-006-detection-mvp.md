@@ -271,6 +271,21 @@ Load-bearing decisions surfaced and ratified in chat (Session 17). Recommended-d
 
 **Effect.** No change to the detection slice, its rules or its tests. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow: it follows an amendment Manuel ratified on 2026-10-11 and decides nothing of its own. Status stays **Accepted**.
 
+## Amendment 2026-10-31: detect_ac_001 proves capture first and drains
+
+**What surfaced it.** Debts #4 and #37. When detect_ac_001 finds no alert it fails first on its alert count, whether the agent captured nothing (a stale binary, an unelevated agent) or the detection read left captured events unread (`docs/handoff-session-26.md:158`, written of the time watermark SPEC-018 replaced by the arrival cursor), so the failure reads like a cursor or detection fault whatever its cause. Since SPEC-017 an unelevated agent exits 9 when its ETW session is refused (SPEC-017 §Operational §1). And it runs one cycle, which reads at most `BATCH_LIMIT` (1000) Process Activity rows of the org `default` in arrival order (SPEC-018 §Operational §1, NFR-018-002). The suite's other files write to that org too, in the order vitest picks for its files, so their rows the cursor has not yet passed can come before the agent's and fill the first batch (`docs/handoff-session-33.md:178`).
+
+**Amendment.** detect_ac_001 asserts, in this order:
+
+1. The agent ran until the harness ended it; an agent that exited on its own fails with its exit code.
+2. Before the settle wait and any detection assertion: the agent's Launch events are in `cges_events`, the probe and its `powershell.exe` child among them, and the probe's and the child's image paths are in Win32 form (SPEC-017 capture_ac_012). The absence of any of them fails as a capture failure, naming capture-side causes (a stale binary, POSTs the ingest refused, a failed ETW capture), not as a detection failure.
+3. The settle margin has passed on ClickHouse's clock, the clock the read applies it with, for the agent's last row; then detection drains the org with the production driver's stop condition: cycles until one returns fewer than `BATCH_LIMIT` rows, each `runDetectionCycle(buildDetectConfig(config, "default"))` with the driver off, no carrier, and the rule set the cycle loads itself (SPEC-016 Amendment 2026-10-16, item 3). A run that has not drained after 20 cycles fails with that cause, as does a margin that has not passed within 15 s, on the test's clock, of the start of the wait.
+4. The alert criteria, unchanged: detect_ac_001 above, with SPEC-016 §Operational §3's count of exactly one alert of the office rule for the agent.
+
+The marquee logs `detect_marquee_elapsed_seconds` on every run from the probe's spawn, a failed one included, as a JSON line with `level` `info`: the time to the alerts read when they were read, else the time to the failure. NFR-006-005 requires the line, and the test did not write it. The marquee asserts that NFR's 60 s bound from the probe's spawn to the alerts read, and logs the cycles and rows it drained. The test's own timeout, which also covers enrollment and the time before the probe, becomes 90 s. Until the commit that implements this amendment lands, the marquee runs as before. The test passes only elevated, so that commit lands with a green elevated gate on its tree (CLAUDE.md *Developer-local SPEC-006 marquee validation*).
+
+**Effect.** detect_ac_001's alert criteria, its gate and NFR-006-005 are unchanged. By scope, SPEC-018 late_ac_008's "detect_ac_001 runs its cycle with the production margin" (`SPEC-018:164`) reads as its cycles, each with that margin and the driver off; the words "detect_ac_001 runs its cycle" in SPEC-018's Amendment 2026-10-14 (`:211`) record that amendment's effect and are not reread. No change to the detection slice. Taken by Claude Code under CLAUDE.md §SPEC amendment workflow (delegated destinations of #4 and #37, `docs/handoff-session-48.md#debts`). Status stays **Accepted**.
+
 ## References
 
 - [ADR-0012](../adr/0012-normalize-before-correlate-pipeline.md) — the contract this SPEC realises (event source, normalize, scoring renorm, dedup, alert storage, the Go-vs-TS seam, the two flagged contradictions). SPEC-006 re-decides none of it.
