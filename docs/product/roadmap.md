@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-49.md](../handoff-session-49.md)).
+([handoff-session-50.md](../handoff-session-50.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -360,7 +360,7 @@ This dependency-ordered document supersedes both for planning.
 
 ### F — Installation / deployment (criterion 7)
 
-- **Status: CONTRACT ACCEPTED** (S44, 2026-10-23). ADR-0022, with
+- **Status: CONTRACT ACCEPTED** (S44, 2026-10-23); F2's implementation in progress since S50. ADR-0022, with
   co-located amendments to ADR-0001, ADR-0003 (two, the second for
   Valkey), ADR-0004, ADR-0016, ADR-0019 and ADR-0020, ratified by Manuel on
   2026-10-23, and SPEC-023, Accepted with it. They decide the
@@ -388,11 +388,16 @@ This dependency-ordered document supersedes both for planning.
   release version (#131). Implementation and execution evidence remain.
   The conflicting elevated-evidence rules (#46) were reconciled first
   (`f07fa39`); no runtime change or elevated-gate reuse occurred in S49.
+  S50 began F2's implementation: the build-time product version in the
+  agent's CLI, enrollment, heartbeats and lifecycle line (#131's
+  install_ac_014, `9e68d56`), and `detect_ac_001`'s capture-first and drain
+  fixes (#4, #37, `7297412`), green in elevated gate s50-gate1
+  (`docs/handoff-session-50.md`).
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
     images and the release, the forensic anchor, retention);
-  - F2, SPEC-024 (contract Accepted, implementation pending): the agent's
+  - F2, SPEC-024 (contract Accepted, implementation in progress since S50): the agent's
     installer and service mode (ADR-0010 §Decision part 2), key custody (#87)
     and release version (#131). It carries the reopened audit-policy and
     endpoint-dump questions; ADR changes still require Manuel's yes;
@@ -410,16 +415,22 @@ This dependency-ordered document supersedes both for planning.
   and the bundle (`deploy/docker/`, S46) exist, and no compose file is at
   the root (ADR-0001 Amendment 2026-10-19; debt #12, S47).
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
-- Blocked by: nothing since 2026-10-23. The deployment-contract decisions
+- Blocked by: F2's packages (install_ac_015) wait for Part (b) §10, the
+  packaging tool; F2's real-SCM test evidence and its endpoint validation
+  wait for the S50 proposals P3 and P4 (`docs/handoff-session-50.md`,
+  *Waiting on Manuel*); the first release waits for F2–F4, #130, the
+  Authenticode decision and Manuel's explicit approval; the rest of F,
+  nothing since 2026-10-23. The deployment-contract decisions
   of Part (b), the compose's location (#12) and the forensic trust
   anchoring, which Manuel delegated on 2026-10-14, are decided in ADR-0022
   and its amendments, which he ratified. (B2 option (2)'s audit-policy dependency no
   longer waits here: ADR-0020 ruled the option out.)
 - Needs: F2's implementation and Windows/package evidence under SPEC-024,
   F3/F4's SPECs and implementations, the manual endpoint validation,
-  and first-release provenance/timed-install evidence. Start F2 implementation
-  with #131's version behavior/tests; complete #4/#37 with the first
-  capture/gate change. Preserve #59/#50's external/isolated-machine limits.
+  and first-release provenance/timed-install evidence. Next in F2: the
+  service mode, the single-instance guard, private rotated logs and SYSTEM
+  custody (#87); the packages and install_ac_015 after the packaging-tool
+  decision. Preserve #59/#50's external/isolated-machine limits.
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
   model's Amendment 2026-10-15): the dashboard's TOTP enrollment and user
   management (#83, with #98; its login and logout landed in S40,
@@ -500,6 +511,9 @@ This dependency-ordered document supersedes both for planning.
    user cover. Owner decision before B3's SPEC is accepted; Claude Code
    proposes the candidates in its draft. Parked with §B3 (S38,
    2026-10-14).
+10. F2's packaging tool (SPEC-024 Open question 3): its version, licence,
+    any fee and its toolchain rows. Owner decision before install_ac_015;
+    proposed in S50 (`docs/handoff-session-50.md`, *Waiting on Manuel*).
 
 Manuel delegated §1–§4 to Claude Code on 2026-10-14 ("lo que este
 pendiente de mi decidelo tu en base al beneficio del proyecto"). They are
@@ -513,4 +527,4 @@ officer.
 - Those ADR decisions no longer wait for ratification. A new ADR or a new
   amendment still needs Manuel's explicit "sí" before it is Accepted.
 
-§5–§8 are resolved (above), and §9 is parked.
+§5–§8 are resolved (above), §9 is parked, and §10 is open.

@@ -23,17 +23,16 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 48** at Session 49's close, the count `docs/handoff-session-49.md` states.
+**Open: 49** at Session 50's close, the count `docs/handoff-session-50.md` states.
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 49's close, `docs/handoff-session-49.md#how-session-50-resumes`);
+Session N resumes* (at Session 50's close, `docs/handoff-session-50.md#how-session-51-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
 
 | # | Debt | Entry | Destination |
 |---|---|---|---|
-| 4 | `detect_ac_001` "0 events" trap: a stale binary and a dirty cursor look the same | `handoff-session-26.md:158`; `handoff-session-48.md#debts` | F2's first capture/gate change: assert positive captured-event evidence before diagnosing a cursor failure (S48 delegated). |
 | 5 | Go named where the server is TypeScript | `handoff-session-26.md:161` | Roadmap Part (b) §1. `services/README.md` follows ADR-0002 Amendment 2026-10-14; `docs/product/blueprint.md:393` still names Go. |
 | 7 | JCS canonicalization duplicated (`canonical.ts`, `jcs.ts`) | `handoff-session-26.md:167`; `handoff-session-48.md#debts` | After F3's user/forensic work: propose shared JCS ownership and a contract before extraction; any new-component ADR still needs Manuel's explicit yes (S48 delegated destination). |
 | 21 | `NotImplementedError` is dead code; the `detect_ac_*` headers still describe the red phase | `handoff-session-30.md:118`; `handoff-session-31.md:143`; `handoff-session-48.md#debts` | Pre-release documentary/code-comment sweep with #136 (S48 delegated). |
@@ -44,7 +43,6 @@ Session N resumes* (at Session 49's close, `docs/handoff-session-49.md#how-sessi
 | 31 | An event's `time` not bounded at ingest; widened to 1007's `event_id` and pids | `handoff-session-33.md:157`; `handoff-session-35.md:565`; `handoff-session-41.md:765`; `handoff-session-42.md:339` | Its shape half done (`90ee7e7`). No bound behind arrival in the MVP (Manuel, SPEC-017 Amendment 2026-10-19, the first); a bound ahead of arrival once a measurement shows what an honest agent's times do across a correction of its host's clock (a host change, which waits for his OK). |
 | 32 | A 500 that is not connectivity is resent without bound | `handoff-session-33.md:160`; `handoff-session-41.md:761`; `handoff-session-48.md#debts` | F4 pre-release delivery hardening with #114: contract first for permanent rejection versus retry, preserving evidence of dropped batches (S48 delegated). |
 | 35 | The driver's drain ceiling | `handoff-session-33.md:172`; `handoff-session-48.md#debts` | F4 pre-release load measurements with #25/#61; measure backlog/drain behavior before changing the contracted ceiling (S48 delegated). |
-| 37 | `detect_ac_001` runs a single cycle | `handoff-session-33.md:178`; `handoff-session-48.md#debts` | F2's first capture/gate change with #4: drain the fixture until a cycle returns fewer rows than the limit (S48 delegated). |
 | 38 | The forensic evidence unit carries no `class_uid` | `handoff-session-34.md:310` | A precondition of any rule that cites an event other than a process event (ADR-0018 §9, SPEC-019 §Out of scope). |
 | 39 | The CGES examples' members differ from the wire's (their `time` aligned in S41) | `handoff-session-34.md:317`; `handoff-session-41.md:758`; `handoff-session-48.md#debts` | Pre-release documentary/schema-example sweep (S48 delegated). |
 | 42 | A POST per batch interval when the server shares the agent's host | `handoff-session-35.md:569`; `handoff-session-48.md#debts` | F4 agent renewal/delivery work: measure and implement connection reuse under its contract (S48 delegated). |
@@ -77,15 +75,20 @@ Session N resumes* (at Session 49's close, `docs/handoff-session-49.md#how-sessi
 | 124 | A compromised ingest can still rewrite the evidence the forensic key signs (its ClickHouse inserts, the newest row kept; its alerts) | `handoff-session-46.md:457`; `handoff-session-48.md#debts` | F4 pre-release threat-control proposal for evidence rewriting; retain the disclosed limitation until a mitigation is contracted and tested. Any required ADR needs Manuel's yes; no risk acceptance by delegation (S48). |
 | 125 | A session that raises `log_parameter_max_length_on_error` for itself logs a passphrase parameter | `handoff-session-46.md:462`; `handoff-session-48.md#debts` | F4 pre-release database/logging threat-control proposal and regression evidence; do not claim hostile sessions cannot expose parameters. Any required ADR needs Manuel's yes; no risk acceptance by delegation (S48). |
 | 130 | Third-party notices beyond the Node packages: Caddy's Go modules' texts, the agent's crates, the base images' GPL sources, Next's vendored packages | `handoff-session-47.md:542` | Before the first release (F4). |
-| 131 | The agent reports Cargo's version, not the release's | `handoff-session-47.md:553`; `handoff-session-49.md#debts` | F2 implementation under Accepted SPEC-024 (`765e122`), install_ac_014/015: build-time version across CLI/enrollment/heartbeats/lifecycle and matching packaged payloads. No implementation yet. |
+| 131 | The agent reports Cargo's version, not the release's | `handoff-session-47.md:553`; `handoff-session-49.md#debts`; `handoff-session-50.md#debts` | Narrowed by `9e68d56` (install_ac_014: one build-time version in CLI, enrollment, both heartbeats and the lifecycle line; release job passes the tag's version and checks `--version`). Remains install_ac_015 with the F2 packaging change: PE version resource, MSI limits, setup/MSI/raw payload agreement, asset checksums and provenance; it waits for the packaging-tool decision (SPEC-024 Open question 3). |
 | 132 | A locally built image's `documentation` label points to `tree/unknown` | `handoff-session-47.md:557`; `handoff-session-48.md#debts` | Pre-release packaging sweep: decide and test the local-build documentation URL without changing published revision links (S48 delegated). |
 | 133 | The dashboard image ships `typescript`, carried by Next's output tracing | `handoff-session-47.md:560`; `handoff-session-48.md#debts` | Pre-release image-content sweep: exclude traced TypeScript only after proving the standalone runtime still works (S48 delegated). |
 | 136 | The create-user CLI header still says later users are API-only | `handoff-session-48.md#debts` | Next F3 user-management/CLI change, with its workspace gate: align the stale comment with SPEC-023's third amendment (S48 delegated). |
+| 137 | The "agent starting" line carries `agent.version` but none of SPEC-001 §Observability's other required fields (`agent.id`, `agent.platform`, `agent.hostname`, `server.url`, `heartbeat.interval_seconds`) | `handoff-session-50.md#debts` | F2's service logging change (install_ac_010), which reworks the lifecycle log, for the console line as well; before enrollment `agent.id` is the placeholder SPEC-024 §Data contracts §2 names, not an enrolled identity. |
+| 138 | `detect_ac_001` residuals after #4/#37: a step back of ClickHouse's clock after the settle wait can end the drain early, so a later failure reads as a detection one; the probe is found by PID alone; no elapsed line on a vitest timeout or a failure before the probe (against SPEC-006's "on every run"); the test's header comment still says the other marquees wrote earlier | `handoff-session-50.md#debts` | The next change to the marquee or to the elevated gate: assert the cursor passed the child's `(arrived_at, event_id)` before the alert criteria, and check the probe's image. |
+| 139 | install_ac_015 requires release packaging to reject invalid and out-of-range versions, but no criterion places that rejection before publication: the images and bundle jobs do not wait for the agent's, so they push and attest even when the agent build refuses a malformed tag, and an in-form tag beyond MSI's limits (`v300.0.0`) passes every job today, so the GitHub Release would be created | `handoff-session-50.md#debts` | install_ac_015's release-workflow change (F2 packaging), after the SPEC-024/SPEC-023 amendment that orders the check before any publication; the release-tag freeze holds meanwhile. |
 
 ## Closed
 
 | # | Debt | Closed by | Entry |
 |---|---|---|---|
+| 4 | `detect_ac_001` "0 events" trap: a stale binary and a dirty cursor look the same | `7297412` (contract `de3bf0c`): the agent ran its window and its Launches are in `cges_events` before any detection assertion; elevated gate s50-gate1 green on its tree | `handoff-session-50.md#debts` |
+| 37 | `detect_ac_001` runs a single cycle | `7297412` (contract `de3bf0c`): drains until a cycle returns fewer than `BATCH_LIMIT` rows, margin on ClickHouse's clock; elevated gate s50-gate1 green | `handoff-session-50.md#debts` |
 | 46 | Conflicting elevated-marquee evidence-validity rules | `f07fa39` — one conservative current rule in CLAUDE.md; historical exceptions confer no new permission | `handoff-session-49.md#debts` |
 | 1 | Node 20 in CI | `67c4a7c`, `64ca6f7` (S25) | `handoff-session-26.md:148` |
 | 2 | markdownlint version skew | No skew found (S36) | `handoff-session-36.md:163` |

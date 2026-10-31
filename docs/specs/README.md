@@ -43,7 +43,7 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-020](SPEC-020-agent-logon-telemetry-windows-security-log.md) | Agent logon telemetry — Windows Security log | Accepted |
 | [SPEC-022](SPEC-022-soar-mvp-playbooks.md) | SOAR for the MVP — playbooks, their execution record, and one playbook | Accepted |
 | [SPEC-023](SPEC-023-production-deployment.md) | Production deployment — the bundle, the operator's configuration and secrets, TLS, published images | Accepted |
-| [SPEC-024](SPEC-024-agent-installer-service.md) | Windows agent installer, service lifecycle and key custody — F2 contract; implementation pending | Accepted |
+| [SPEC-024](SPEC-024-agent-installer-service.md) | Windows agent installer, service lifecycle and key custody — F2 contract; implementation in progress (S50: build-time version) | Accepted |
 
 SPEC-021 is reserved for the contract of roadmap §B2, which is parked (`docs/product/roadmap.md` §B2).
 
