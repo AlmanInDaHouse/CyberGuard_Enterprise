@@ -38,6 +38,7 @@ on:
       - ".github/scripts/licence-texts/**"
       - ".github/scripts/release-images.mjs"
       - ".github/scripts/release-bundle.mjs"
+      - ".github/scripts/release-version.mjs"
       - ".github/workflows/release.yml"
       - ".github/workflows/deploy-ci.yml"
   schedule:

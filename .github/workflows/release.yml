@@ -1,7 +1,9 @@
 name: release
 
 # SPEC-023 §Operational §12 and its Amendment 2026-10-26, item 4: a tag v<major>.<minor>.<patch>
-# cuts a release. The licence check runs first; then the four images are built for
+# cuts a release. The tag's version is checked first (SPEC-024 Amendment 2026-11-01, point 3,
+# debt #139): its form and MSI's limits, before any job pushes, attests or publishes. Then
+# the licence check; then the four images are built for
 # linux/amd64 with BuildKit's SBOM and provenance attestations, pushed to GHCR with the tags
 # <version> and sha-<commit>, and attested; the agent's executable is built on Windows and
 # attested; the bundle names each image by its digest and is attested; and the GitHub
@@ -22,8 +24,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # SPEC-024 Amendment 2026-11-01, point 3 (#139): every other job waits for this one, so a
+  # tag out of form or beyond MSI's limits (v01.2.3, v300.0.0) pushes, attests and publishes
+  # nothing.
+  version:
+    name: The tag's release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      # The script's printed version must be the tag's, so a check that did not run fails too.
+      - name: Check the tag
+        shell: bash
+        run: |
+          set -eu
+          test "$(node .github/scripts/release-version.mjs "$GITHUB_REF_NAME")" = "${GITHUB_REF_NAME#v}"
+
   licences:
     name: The licence check and its report
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
