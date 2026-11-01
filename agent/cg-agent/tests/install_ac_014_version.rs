@@ -276,3 +276,93 @@ async fn install_ac_014_secure_heartbeat() {
         "secure heartbeat agent.agent_version"
     );
 }
+
+/// SPEC-024 Amendment 2026-11-01, point 2: the executable's version
+/// resource carries the build's version. Its numeric file and product
+/// versions are `X.Y.Z.0`, Cargo's numbers in a development build; its
+/// `FileVersion` and `ProductVersion` strings are the version `--version`
+/// prints after the program's name.
+#[cfg(windows)]
+#[test]
+fn install_ac_014_pe_version_resource() {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO,
+    };
+
+    fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+        s.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    let expected = common::expected_agent_version();
+    let numbers: Vec<u32> = expected
+        .split(['-', '+'])
+        .next()
+        .expect("a version")
+        .split('.')
+        .map(|n| n.parse().expect("a numeric component"))
+        .collect();
+    assert_eq!(numbers.len(), 3, "X.Y.Z in {expected}");
+
+    let path = wide(std::ffi::OsStr::new(env!("CARGO_BIN_EXE_cg-agent")));
+    let mut handle = 0u32;
+    // SAFETY: `path` is NUL-terminated.
+    let size = unsafe { GetFileVersionInfoSizeW(path.as_ptr(), &mut handle) };
+    assert!(
+        size > 0,
+        "cg-agent.exe has a version resource: {}",
+        std::io::Error::last_os_error()
+    );
+    let mut data = vec![0u8; size as usize];
+    // SAFETY: `data` holds `size` bytes, the size passed.
+    let ok = unsafe { GetFileVersionInfoW(path.as_ptr(), 0, size, data.as_mut_ptr().cast()) };
+    assert_ne!(
+        ok,
+        0,
+        "read the version resource: {}",
+        std::io::Error::last_os_error()
+    );
+
+    // Each query returns a pointer into `data` and a length.
+    let query = |name: &str| -> Option<(*const u8, u32)> {
+        let name = wide(std::ffi::OsStr::new(name));
+        let mut value: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut len = 0u32;
+        // SAFETY: `data` is the block GetFileVersionInfoW filled; `name` is
+        // NUL-terminated.
+        let ok =
+            unsafe { VerQueryValueW(data.as_ptr().cast(), name.as_ptr(), &mut value, &mut len) };
+        (ok != 0 && !value.is_null()).then_some((value as *const u8, len))
+    };
+
+    let (fixed, len) = query("\\").expect("the fixed file info");
+    assert_eq!(len as usize, std::mem::size_of::<VS_FIXEDFILEINFO>());
+    // SAFETY: VerQueryValueW returned a VS_FIXEDFILEINFO of that length.
+    let fixed = unsafe { std::ptr::read_unaligned(fixed as *const VS_FIXEDFILEINFO) };
+    assert_eq!(fixed.dwSignature, 0xFEEF_04BD);
+    let ms = (numbers[0] << 16) | numbers[1];
+    let ls = numbers[2] << 16;
+    assert_eq!(
+        (fixed.dwFileVersionMS, fixed.dwFileVersionLS),
+        (ms, ls),
+        "file version X.Y.Z.0"
+    );
+    assert_eq!(
+        (fixed.dwProductVersionMS, fixed.dwProductVersionLS),
+        (ms, ls),
+        "product version X.Y.Z.0"
+    );
+
+    for key in ["FileVersion", "ProductVersion"] {
+        let (text, chars) = query(&format!(r"\StringFileInfo\040904B0\{key}"))
+            .unwrap_or_else(|| panic!("the {key} string"));
+        // SAFETY: a NUL-terminated UTF-16 string of `chars` WCHARs, the NUL
+        // included, inside `data`; read unit by unit, without assuming its
+        // alignment.
+        let units: Vec<u16> = (0..chars as usize)
+            .map(|i| unsafe { std::ptr::read_unaligned((text as *const u16).add(i)) })
+            .collect();
+        let value = String::from_utf16_lossy(&units);
+        assert_eq!(value.trim_end_matches('\0'), expected, "{key}");
+    }
+}

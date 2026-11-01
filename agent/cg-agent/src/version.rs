@@ -6,8 +6,12 @@
 //! `<Cargo package version>-dev`. The input is read when the crate is
 //! compiled (`option_env!`), so cargo rebuilds it when the input is set,
 //! changed or removed, and the running agent reads no environment variable
-//! for its version. A malformed or empty input fails the build. MSI's
-//! numeric limits are checked by packaging (install_ac_015), not here.
+//! for its version. A malformed or empty input fails the build. On a
+//! Windows MSVC target `build.rs` writes the same version into the executable's version resource,
+//! and refuses a component above 65535, which a PE version field cannot hold
+//! (SPEC-024 Amendment 2026-11-01, point 2). MSI's tighter limits are checked
+//! by the release's version check (`.github/scripts/release-version.mjs`)
+//! and, with the package, by packaging (install_ac_015).
 //! The envelope and CGES schema versions are independent of this one.
 
 /// The build input, as the build was given it.

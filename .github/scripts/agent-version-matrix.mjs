@@ -1,9 +1,11 @@
 // SPEC-024 install_ac_014 (debt #131): the agent's version is fixed at build time by the
 // build-only input CG_RELEASE_VERSION. This runs, in one target directory: a build given a
-// malformed or empty input, which must fail; then the version tests without the input, with
-// a fixture version unlike Cargo's, with that fixture changed, and without the input again,
-// so a value a rebuild left stale fails them. Each step is one cargo invocation: the input it
-// sets reaches the build and, at run time, the tests' expected value
+// malformed or empty input, which must fail; on Windows, a binary build given a component
+// above 65535, which the version resource cannot hold and so must fail; then the version
+// tests without the input, with a fixture version unlike Cargo's, with that fixture
+// changed, and without the input again, so a value a rebuild left stale fails them. Each
+// step is one cargo invocation: the input it sets reaches the build and, at run time, the
+// tests' expected value
 // (agent/cg-agent/tests/common/mod.rs, expected_agent_version). rust-ci runs it on Linux and
 // on Windows. From the repository root:
 //   node .github/scripts/agent-version-matrix.mjs
@@ -14,6 +16,7 @@ const TESTS = ["--test", "install_ac_014_version", "--test", "enroll_ac_003_requ
 const MALFORMED = ["", "v7.8.9", "7.8", "07.8.9"];
 const FIXTURES = ["7.8.9", "7.8.10"];
 const BUILD_ERROR = "CG_RELEASE_VERSION must be X.Y.Z";
+const PE_ERROR = "above 65535, which a PE version field cannot hold";
 
 const manifest = readFileSync("agent/cg-agent/Cargo.toml", "utf8");
 const cargoVersion = /^\[package\][^[]*?^version = "([^"]+)"/ms.exec(manifest)?.[1];
@@ -52,6 +55,31 @@ for (const value of MALFORMED) {
     `${refused ? "PASS" : "FAIL"} build with CG_RELEASE_VERSION=${JSON.stringify(value)} ${refused ? "refused" : `exit ${r.status}`}`,
   );
   if (!refused) {
+    failed += 1;
+    process.stderr.write(r.stderr);
+  }
+}
+
+// SPEC-024 Amendment 2026-11-01, point 2: on Windows the executable's version resource holds
+// each component in 16 bits, so a well-formed input with one above 65535 fails the binary's
+// build there (build.rs), while elsewhere, with no resource, it builds.
+if (process.platform === "win32") {
+  for (const value of ["70000.0.0", "0.70000.0", "0.0.70000"]) {
+    const r = cargo(["build", "--locked", "-p", "cg-agent", "--bin", "cg-agent"], value, true);
+    const refused = r.status !== 0 && r.stderr.includes(PE_ERROR);
+    console.log(
+      `${refused ? "PASS" : "FAIL"} binary build with CG_RELEASE_VERSION=${value} ${refused ? "refused" : `exit ${r.status}`}`,
+    );
+    if (!refused) {
+      failed += 1;
+      process.stderr.write(r.stderr);
+    }
+  }
+  // The largest components a PE version field holds still build.
+  const edge = "65535.65535.65535";
+  const r = cargo(["build", "--locked", "-p", "cg-agent", "--bin", "cg-agent"], edge, true);
+  console.log(`${r.status === 0 ? "PASS" : "FAIL"} binary build with CG_RELEASE_VERSION=${edge} exit ${r.status}`);
+  if (r.status !== 0) {
     failed += 1;
     process.stderr.write(r.stderr);
   }
