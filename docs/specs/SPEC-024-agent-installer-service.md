@@ -472,6 +472,344 @@ affected. The narrowed decision is this SPEC's own delegated one, and the
 amendment adds no setting a deployment or an operator chooses. Taken by
 Claude Code under Manuel's delegation (#131). Status stays **Accepted**.
 
+## Amendment 2026-11-01: packaging tool, test venue and coverage inventory
+
+**What surfaced it.** Session 50 left three points for Manuel: Open question
+3 with the way the executable's version resource is written; the place of
+the tests that need the real service control manager (SCM) or SYSTEM; and
+the disposition of Open questions 4 and 5, which bears on what the product
+tells an operator about its own coverage. On 2026-11-01 he delegated the
+three in chat: "esas opciones la decida claude code en beneficio del
+proyecto". ADR changes, Authenticode, the approval of a publication, any
+payment or recurring cost and accepting a EULA in his name stay his.
+Debt #139 showed that no criterion places the release's version check
+before the images' push.
+
+**Amendment.**
+
+1. **Packaging tool (Open question 3).** WiX Toolset v7 builds the MSI and
+   the setup bootstrapper. Its `wix` tool and every extension the package
+   uses are pinned in the repository at one exact release, and the .NET
+   SDK that tool needs is pinned too. WiX v7's binaries are licensed under
+   the Open Source Maintenance Fee EULA v1.1 (EULA ID `wix7`): a fee to the
+   WiX maintainers above US$10,000 of annual revenue, as that EULA defines
+   it, and none below. As Open question 3 requires of a choice that can
+   bring a fee, Manuel approved it: on 2026-11-01, asked in chat whether he
+   accepted that EULA and its fee for the project, he chose "Acepto EULA y
+   cuota futura". WiX is installed from nuget.org under that approval; the
+   SDK by winget, whose change to the system `PATH` is confirmed in chat
+   when it happens. The EULA is
+   accepted in the repository's build files and
+   workflows only by the packaging change, which carries the pins. This
+   amendment's commit adds both tools to CLAUDE.md's *Approved local
+   toolchain*, as that table asks of the SPEC that introduces a dependency.
+   The WiX binaries that the setup or the MSI carries (Burn's engine, an
+   extension's custom action) run elevated on the buyer's endpoints and
+   join the release's third-party notices (#130). Rejected: WiX v5.0.2
+   (MS-RL and no fee, but past its consumer security fixes' end date,
+   2026-02-05, while its Burn engine would run inside the setup); WiX v6
+   (its consumer security fixes end on 2027-02-05, and it carries an
+   earlier maintenance-fee EULA, OSMF v1.0); NSIS and Inno Setup (no MSI); an
+   MSI written through `msi.dll` by the project's own code (more installer
+   code to audit, no bootstrapper).
+2. **The executable's version resource.** The agent's own build writes the
+   version resource of `cg-agent.exe` from the input of §Data contracts §1,
+   with no new crate, build dependency or external tool, and refreshes it
+   when that input changes or is removed. Its numeric file and product
+   versions are `X.Y.Z.0`. Its `FileVersion` and `ProductVersion` strings
+   are the version that `cg-agent --version` prints after the program's
+   name: `X.Y.Z` in a release build, and `<Cargo package version>-dev` in a
+   development build, whose numeric versions are Cargo's `X.Y.Z.0`. A
+   component above
+   65535, which a PE version field cannot hold, fails the Windows build;
+   as for the other refusals of the build (Amendment 2026-10-31),
+   install_ac_014's version tests exercise it and the resource's values in
+   both builds, on Windows. Rejected: a
+   resource crate (a new build dependency of the elevated agent, Manuel's
+   decision); the Windows SDK's `rc.exe` called by the build (a Windows
+   SDK tool the build would have to find, while the linker the MSVC target
+   already uses takes a compiled resource file, which the build can write
+   itself); stamping the file after the
+   build (a new tool).
+3. **The release's version check (#139).** One release job checks the tag
+   before every other release job: the form of the Amendment 2026-10-31 and
+   MSI's limits of §Data contracts §1, with `contents: read` alone. Every
+   job that pushes, attests or
+   publishes depends on it, directly or through another job; a tag that
+   fails it ends the workflow with nothing pushed, attested or published.
+   install_ac_015's rejection of invalid and out-of-range versions includes
+   that order. SPEC-023's Amendment 2026-10-27 already requires that release
+   jobs "reject version mismatches before publication"; this point makes
+   the images' push and every attestation wait for the check too, and so
+   publishes less. By scope it amends SPEC-023 §Operational §12 and its
+   first Amendment 2026-10-26, item 4: the release runs the check ahead of
+   the licence check, and §12's list of jobs and their permissions gains
+   it. SPEC-023 classes that ordering as packaging, on Manuel's list; he
+   approved this point in chat on 2026-11-01 ("OK, compruébalo antes").
+4. **Where `cg-agent`'s service and SYSTEM tests run.** A Cargo test of
+   `cg-agent` that creates, starts, stops or deletes a Windows service, runs
+   code as SYSTEM or creates a local account runs only in rust-ci's Windows
+   job, whose hosted runner runs its steps as the built-in Administrator and
+   is discarded after the job. Each such test creates its own uniquely named
+   service or account and removes it on every exit path. It fails without
+   acting when a service named `CyberGuardAgent` exists, and never stops or
+   changes a service it did not create. Only test targets require the
+   test-only Cargo feature they need, and that feature changes no code of
+   the executable. On Windows, rust-ci's clippy step, which enables every
+   feature, compiles them; `cargo test --all` and the elevated gate's
+   `--ignored` run neither build nor run them. The gate's commands stay as
+   they are, and no service or account is created on the development host.
+   On the runner, which is discarded, a test may use the fixed paths of
+   §Data contracts §2.
+   - **Evidence.** Their run in that job is their evidence. Compensating
+     control §1 of CLAUDE.md asks to see them fail locally against the tree
+     without the implementation, which this venue rules out. Manuel
+     approved, in chat on 2026-11-01 ("Sí, PR sonda en CI"), a run in the
+     same job instead: a step that cannot fail the job, on a probe pull
+     request closed without landing, the probe pattern of SPEC-017's second
+     Amendment 2026-10-19. That step's log is the red evidence. On the branch
+     that lands, the step fails the job when a test fails. This is an
+     exception to control §1 and to §Test scenarios' "observe the
+     missing-behavior failures locally". No such test lands before
+     CLAUDE.md's control §1 states the exception, through Manuel's owner
+     review (*Integration path* §4).
+   - **What the job does not give.** The job runs the real SCM and SYSTEM
+     against the test's own enrollment and heartbeat server. It gives no
+     real ingest (that runner offered no container runtime for the
+     backends' Linux images, ADR-0010's Amendments 2026-05-29 and
+     2026-10-19), no reboot and
+     no OS shutdown. The service against a real ingest (install_ac_003, and
+     §Test scenarios' "Real Windows plus ingest/Docker" line for the
+     service) and the "Disposable Windows VM" experiments run on the
+     isolated Windows machine where Manuel runs those experiments, once he
+     provides it (Open question 2; #50, #59), never as a service on the
+     development host; F2's completion therefore waits for that machine. On
+     the development host the elevated gate keeps running the console
+     agent.
+   - **The package's tests**, which install the MSI and its fixed-name
+     service, keep §Test scenarios' "Packaging CI" line.
+
+   Rejected: `#[ignore]`d tests left out of the gate by a name filter (a
+   change to the gate's command that a misnamed test would pass); Manuel's
+   machine (a service on the development host); a mocked SCM (insufficient
+   by §Test scenarios).
+5. **Open questions 4 and 5.** Neither changes an ADR. The agent does not
+   read, manage or report its host's audit policy (ADR-0019 §Out of scope
+   excludes managing and reporting it). The product writes, collects and
+   sends no crash or memory dump, which no ADR adds (ADR-0020 Open question
+   4 leaves the matter open). The endpoint runbook of install_ac_016 reads,
+   with administrator rights and without changing anything, and records
+   with the installation evidence:
+   - the effective success and failure auditing of the Logon subcategory
+     and of the Account Lockout subcategory, which logs the failures of
+     locked-out accounts, queried by their GUIDs
+     `{0CCE9215-69AE-11D9-BED3-505054503030}` and
+     `{0CCE9217-69AE-11D9-BED3-505054503030}`, since their names are
+     localized; the effective policy includes one that Group Policy
+     applied;
+   - whether any account has a per-user audit policy, which can exclude
+     its logons from auditing, and how many do, without their names;
+   - the kernel dump settings under
+     `HKLM\SYSTEM\CurrentControlSet\Control\CrashControl`, and the page
+     file's and hibernation's settings, since those files can also hold
+     the agent's memory;
+   - Windows Error Reporting's `LocalDumps` settings, global and for
+     `cg-agent.exe`, and its consent and upload policy, which decides
+     whether reports and their dumps leave the host.
+
+   It records each subcategory's success and failure auditing apart: one
+   not enabled is that coverage absent (Logon's success, 4624; Logon's and
+   Account Lockout's failure, 4625), and one it could not read is unknown. It states that a dump of the agent's
+   process can hold its decrypted private key and the events it holds, and
+   a kernel dump any memory of the host, and that who reads such files and
+   how long they are kept follow the host's own policy, which it records.
+   This SPEC's Open questions 4 and 5 are resolved for F2 by this
+   disposition, which supersedes §Operational §5's "remain explicitly
+   reopened below". The agent's reporting of its host's audit coverage
+   reopens with F3's agents page or a buyer's requirement, and the dump
+   policy when a buyer asks the product to collect dumps; any change to either
+   ADR's boundary needs Manuel's explicit yes. Rejected: a startup
+   audit-policy check in the agent (it would change ADR-0019's boundary);
+   turning dumps off from the product (a change to host policy, which
+   §Operational §5 excludes).
+
+**Effect.** Open question 3 is resolved but for the pin's value: WiX v7,
+with its EULA and fee accepted by Manuel. The packaging change names the
+exact WiX release, its extensions' and the .NET SDK's versions, records
+them in its handoff before it builds a package, and checks that the pinned
+release's EULA ID is `wix7`, the EULA Manuel accepted; for the pin's value
+alone, this supersedes Open question 3's "decide and record before the
+package build change". Open questions 4 and 5 are resolved for F2, and
+ADR-0019 Open question 1 and ADR-0020 Open question 4 stay open in their
+ADRs. §Test scenarios' local red run gains point 4's exception, which
+CLAUDE.md's control §1 is to state, through owner review, before the first
+such test lands. install_ac_015 gains the order of
+point 3, install_ac_014's version
+tests gain the refusal of point 2, and install_ac_016's inspection is named.
+When the test-only feature lands, CLAUDE.md's *Environment facts* gain
+these tests, which only rust-ci's Windows job runs; a change to its *Local
+pre-commit gate* goes through Manuel's review. No ADR is changed, and no dependency of `cg-agent` or setting a
+deployment or an operator chooses is added; Burn's engine is an elevated
+third-party component of the setup, chosen under the delegation. Points 1,
+2, 4 and 5 are taken by Claude Code under Manuel's delegation of
+2026-11-01, with his approvals quoted above; point 3 is his. Status stays
+**Accepted**.
+
+## Amendment 2026-11-01 (second): the service's outcomes
+
+**What surfaced it.** Implementing §Operational §3 (install_ac_007,
+install_ac_009 and install_ac_010) needs outcomes it names without fixing:
+the exit codes of a second live instance, of `--service` without the SCM,
+of an incomplete stop and of a failed service log; the states the SCM
+reports; the entries of the Application log.
+
+**Amendment.**
+
+1. **The instance lock.** On the secure path, before the identity step and
+   so before the capture start reclaims the agent's fixed ETW session
+   (ADR-0008 §Decision part 2; SPEC-017 Amendment 2026-10-27), the console
+   and the service take one lock per host; the service takes it before it
+   opens its file log, and so before it reports `RUNNING`. It lasts only as long as the process that took it,
+   and only an elevated administrator's token or SYSTEM, the principals of
+   ADR-0010 §Decision part 1, can create it, so an ordinary user can
+   neither take nor hold it. Only a start that holds the lock reclaims. A
+   platform without capture takes no lock.
+   - **Held.** When another live process holds it, the agent exits with
+     code **10** and
+     `cg-agent: another CyberGuard agent instance is running on this host`
+     on stderr and in its log, before it enrolls and without stopping any
+     ETW session.
+   - **Without the lock, for privilege.** When its token is an ordinary
+     user's or an administrator's unelevated one, and cannot control trace
+     sessions (the next bullet is checked first), the agent goes on
+     without the lock, through the identity step, to an ETW start without
+     the reclaim. That start fails for privilege, or because a session of
+     the agent's name already exists, which such a token may not reclaim.
+     Both are ADR-0010's insufficient privilege, detected at startup
+     through the first ETW open (§Decision part 1, §Compliance): code 9
+     with SPEC-005 AC-002's line. After a failed start it stops the
+     session of its name only when the start failed for privilege, the
+     case where its own start left that session (SPEC-017 Amendment
+     2026-10-13). It stops no session it did not start, so it never stops
+     a live instance's capture.
+   - **ETW control outside ADR-0010's model.** A token that cannot create
+     the lock but can control trace sessions (a member of Performance Log
+     Users, LocalService, NetworkService, or a holder of
+     `SeSystemProfilePrivilege`) could stop or keep a live instance's
+     session. The agent does not start with it: code 1 and
+     `cg-agent: instance lock failed: this token controls ETW sessions but is not an elevated administrator's or SYSTEM's`,
+     before the identity step. ADR-0010 names those memberships as enough
+     to open the provider (§Context) and requires an elevated local
+     administrator (§Decision part 1), whose detection it places at the
+     first ETW open (§Compliance). For these tokens this amendment
+     explicitly amends §Decision part 1, as ADR-0010 lets the packaging
+     SPEC do (§Compliance): they are refused before the ETW open, with
+     code 1 and that line. A principal that a host administrator grants
+     trace-session control through ETW's own security descriptors is not
+     detected, and is outside that model.
+   - **Any other failure** to take the lock ends the start with code 1 and
+     `cg-agent: instance lock failed: <step>: Win32 error <code>`, since the
+     agent cannot establish that no live instance holds the lock.
+
+   After a crash the lock is free again, and the next elevated start takes
+   it and reclaims the orphaned session of the agent's name; no session of
+   another name is stopped. A session of the agent's name left behind for
+   any other reason waits for that start too. The plain development path,
+   which has no capture, takes no lock. Rejected: the lock where the
+   capture starts (a second elevated instance would enroll first, using up
+   its token and leaving an agent on the server); the reclaim without the
+   lock (a token Windows let stop sessions could stop a live instance's).
+2. **`--service`.** It runs only when the SCM started the process.
+   Otherwise, and on a platform without an SCM, the agent exits with code
+   **11** and
+   `cg-agent: --service requires a start by the Windows service control manager`,
+   without running the console path; this is checked before the
+   configuration. In service mode a `--config` that is
+   not an absolute path is a configuration error, code 2, with the line
+   `cg-agent: invalid config: --config must be an absolute path in service mode`.
+3. **The SCM states.**
+   - `START_PENDING` lasts until the configuration is loaded and valid,
+     the lock is taken and logging has started: for `RUNNING`, that is the
+     local initialization of §Operational §1. Then `RUNNING`, accepting
+     `STOP` and `SHUTDOWN` and no other control, before the identity step,
+     enrollment and capture, which may wait.
+   - After `STOP` or `SHUTDOWN`, `STOP_PENDING` lasts until the stop ends
+     within the 60-second deadline of §Operational §3. A `STOP` or
+     `SHUTDOWN` during enrollment, its retries or the wait between
+     enrollment rounds (SPEC-002 Amendment 2026-10-27) ends it promptly as
+     a clean stop; a token whose enrollment request was in flight may
+     already be consumed (§Operational §2).
+   - In both pending states the checkpoint advances at least every 10
+     seconds, with a wait hint of at most 30 seconds.
+   - `STOPPED` carries `dwWin32ExitCode` 0 after a clean stop. Otherwise it
+     carries `ERROR_SERVICE_SPECIFIC_ERROR` (1066), and
+     `dwServiceSpecificExitCode` is the code of the cause: the console's
+     exit code for a cause the console shares (1 to 10); **12** when the
+     stop deadline expired; **13** when the service's file log cannot be
+     opened at startup or keeps failing to write (§Operational §3), with
+     the line `cg-agent: the service log cannot be written: <reason>`.
+   - Whether the SCM restarts a service that reported `STOPPED` with a
+     failure code is the installer's setting, decided with the package
+     (install_ac_008); it must not restart a deliberate stop, code 12
+     included (§Operational §3). Until it restarts or an operator acts, the endpoint
+     is not covered; entry 1002 below is what monitoring watches for.
+4. **The Application log.** In service mode the agent writes these entries
+   under the source `CyberGuardAgent`, before and after file logging works:
+   - 1000, information: it reports `RUNNING`, with its version;
+   - 1001, information: it stopped cleanly;
+   - 1002, error: it stopped on a failure other than the expired deadline,
+     with its code and the cause's line, as below;
+   - 1003, error: the stop deadline expired, with the work still pending
+     and the number of events not delivered.
+
+   The cause's line is the one the console path writes to stderr, or the
+   service's own line above, except that no entry carries a secret (a
+   token, a key) or a line of the configuration file. A configuration
+   error's line can quote the file, so for it entry 1002 names the file,
+   and the line and column of the error when the parser gives them; the
+   operator reads the parser's message with the file in hand. The Application log is readable by the host's
+   interactive users, and any of them can write entries under any source:
+   these entries are diagnostics, not evidence. Until the installer
+   registers the source, Windows records them and their strings without
+   message text. The console path writes none. Console Ctrl+C keeps its
+   semantics (SPEC-017 Amendment 2026-10-27), so codes 12 and 13 are the
+   service's alone.
+
+**Effect.** Codes 10, 11, 12 and 13 are new, and every existing code keeps
+its meaning. Code 9 gains one cause (an unlocked ETW start refused because
+a session of the agent's name exists), code 1 two (the refusal of a token
+that controls trace sessions outside ADR-0010's model, and any other
+failure to take the lock), and code 2 one (a `--config` that is not an
+absolute path, in service mode). By scope:
+
+- SPEC-005 §Failure modes, SPEC-017 §Operational §1 (code 9 for Win32
+  errors 5 and 1314 alone, code 1 for any other start failure) and SPEC-017
+  capture_ac_001: for a token without the lock, an ETW start refused
+  because a session of the agent's name exists is code 9 with AC-002's
+  line, where it was code 1, or code 9 when the token could reclaim a
+  session it had left itself; such a session now stays for the next start
+  that holds the lock. A token that holds the lock keeps code 1 for that
+  refusal.
+- SPEC-017's Amendment 2026-10-13: without the lock, the stop after a
+  failed start follows only a privilege failure.
+- ADR-0010 §Decision part 1: its detection is unchanged for its principals
+  and for ordinary or unelevated tokens that cannot control trace sessions.
+  For a token that controls trace sessions outside that model, part 1 is
+  amended explicitly, as item 1 states: it no longer reaches the ETW open,
+  and ends with code 1 before the identity step.
+- §Operational §1's "local initialization" is, for `RUNNING`, the
+  configuration and logging.
+
+The exit-code table of the installation runbook
+(`docs/operations/install.md`) gains the new codes with the code that
+introduces them. install_ac_007, install_ac_009 and the Application-log
+half of install_ac_010 are tested against these outcomes. No setting a
+deployment or an operator chooses is added. ADR-0010 calls the service's
+lifecycle and its Event Log integration packaging, on Manuel's list:
+Manuel approved this amendment in chat on 2026-11-01 ("OK a la segunda
+enmienda"), and the refusal of tokens that control trace sessions outside
+ADR-0010's model ("Rechazarlos al arrancar"). Status stays **Accepted**.
+
 ## References
 
 - [ADR-0010](../adr/0010-agent-privilege-model-mvp.md) — packaging supersession and privilege baseline.
@@ -480,6 +818,9 @@ Claude Code under Manuel's delegation (#131). Status stays **Accepted**.
 - [SPEC-017](SPEC-017-agent-capture-normal-run-path.md) — existing secure runtime and shutdown ordering.
 - [SPEC-023](SPEC-023-production-deployment.md) — server TLS, trust distribution and release.
 - [Release protection](../security/release-protection.md) — active version-tag freeze.
+- [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session (§Decision part 2).
+- [FireGiant: About the WiX Toolset](https://docs.firegiant.com/wix/) — the lifecycle table: consumer security fixes for v5 end on 2026-02-05 and for v6 on 2027-02-05.
+- [FireGiant: Open Source Maintenance Fee](https://docs.firegiant.com/wix/osmf/) — OSMF EULA v1.1, EULA ID `wix7`, the US$10,000 threshold and how acceptance is given.
 - [Microsoft: ProductVersion](https://learn.microsoft.com/en-us/windows/win32/msi/productversion) — three fields and numeric limits.
 - [Microsoft: service state transitions](https://learn.microsoft.com/en-us/windows/win32/services/service-status-transitions) — SCM status protocol.
 - [Microsoft: machine-scope DPAPI](https://learn.microsoft.com/en-us/windows/win32/seccrypto/example-c-program-using-cryptprotectdata) — a readable blob is decryptable by other local users.
