@@ -399,8 +399,10 @@ This dependency-ordered document supersedes both for planning.
     images and the release, the forensic anchor, retention);
   - F2, SPEC-024 (contract Accepted, implementation in progress since S50): the agent's
     installer and service mode (ADR-0010 §Decision part 2), key custody (#87)
-    and release version (#131). It carries the reopened audit-policy and
-    endpoint-dump questions; ADR changes still require Manuel's yes;
+    and release version (#131). Its Amendment 2026-11-01 decides the
+    packaging tool (WiX v7), the place of the real SCM/SYSTEM tests and,
+    for F2, the audit-policy and endpoint-dump questions; ADR changes still
+    require Manuel's yes;
   - F3: the dashboard's missing pages (TOTP enrollment and users, #83 and
     #98; the login deleting the prior session, #102; the agents and the
     enrollment tokens; the alerts; the export and the report; an incident's
@@ -415,10 +417,10 @@ This dependency-ordered document supersedes both for planning.
   and the bundle (`deploy/docker/`, S46) exist, and no compose file is at
   the root (ADR-0001 Amendment 2026-10-19; debt #12, S47).
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
-- Blocked by: F2's packages (install_ac_015) wait for Part (b) §10, the
-  packaging tool; F2's real-SCM test evidence and its endpoint validation
-  wait for the S50 proposals P3 and P4 (`docs/handoff-session-50.md`,
-  *Waiting on Manuel*); the first release waits for F2–F4, #130, the
+- Blocked by: F2's real-SCM tests wait for the owner review of CLAUDE.md
+  that SPEC-024's Amendment 2026-11-01 asks for (point 4); F2's service
+  against a real ingest and its endpoint validation wait for the isolated
+  Windows machine (SPEC-024 Open question 2); the first release waits for F2–F4, #130, the
   Authenticode decision and Manuel's explicit approval; the rest of F,
   nothing since 2026-10-23. The deployment-contract decisions
   of Part (b), the compose's location (#12) and the forensic trust
@@ -429,8 +431,8 @@ This dependency-ordered document supersedes both for planning.
   F3/F4's SPECs and implementations, the manual endpoint validation,
   and first-release provenance/timed-install evidence. Next in F2: the
   service mode, the single-instance guard, private rotated logs and SYSTEM
-  custody (#87); the packages and install_ac_015 after the packaging-tool
-  decision. Preserve #59/#50's external/isolated-machine limits.
+  custody (#87); the packages and install_ac_015 with WiX v7 (SPEC-024
+  Amendment 2026-11-01). Preserve #59/#50's external/isolated-machine limits.
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
   model's Amendment 2026-10-15): the dashboard's TOTP enrollment and user
   management (#83, with #98; its login and logout landed in S40,
@@ -511,9 +513,11 @@ This dependency-ordered document supersedes both for planning.
    user cover. Owner decision before B3's SPEC is accepted; Claude Code
    proposes the candidates in its draft. Parked with §B3 (S38,
    2026-10-14).
-10. F2's packaging tool (SPEC-024 Open question 3): its version, licence,
-    any fee and its toolchain rows. Owner decision before install_ac_015;
-    proposed in S50 (`docs/handoff-session-50.md`, *Waiting on Manuel*).
+10. RESOLVED (S51, 2026-11-01) — F2's packaging tool (SPEC-024 Open
+    question 3): WiX v7, under Manuel's delegation, with his acceptance of
+    its EULA and fee, and its toolchain rows (SPEC-024 Amendment 2026-11-01,
+    point 1). Only the pin's exact value remains, named by the packaging
+    change before WiX is used.
 
 Manuel delegated §1–§4 to Claude Code on 2026-10-14 ("lo que este
 pendiente de mi decidelo tu en base al beneficio del proyecto"). They are
@@ -527,4 +531,4 @@ officer.
 - Those ADR decisions no longer wait for ratification. A new ADR or a new
   amendment still needs Manuel's explicit "sí" before it is Accepted.
 
-§5–§8 are resolved (above), §9 is parked, and §10 is open.
+§5–§8 and §10 are resolved (above), and §9 is parked.

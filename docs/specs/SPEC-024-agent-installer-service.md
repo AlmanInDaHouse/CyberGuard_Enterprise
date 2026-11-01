@@ -472,6 +472,228 @@ affected. The narrowed decision is this SPEC's own delegated one, and the
 amendment adds no setting a deployment or an operator chooses. Taken by
 Claude Code under Manuel's delegation (#131). Status stays **Accepted**.
 
+## Amendment 2026-11-01: packaging tool, version resource, release check, test venue and coverage inventory
+
+**What surfaced it.** Session 50 left three points for Manuel: Open question
+3 with the way the executable's version resource is written; the place of
+the tests that need the real service control manager (SCM) or SYSTEM; and
+the disposition of Open questions 4 and 5, which bears on what the product
+tells an operator about its own coverage. On 2026-11-01 he delegated the
+three in chat: "esas opciones la decida claude code en beneficio del
+proyecto". ADR changes, Authenticode, the approval of a publication, any
+payment or recurring cost and accepting a EULA in his name stay his.
+Debt #139 showed that no criterion places the release's version check
+before the images' push.
+
+**Amendment.**
+
+1. **Packaging tool (Open question 3).** WiX Toolset v7 builds the MSI and
+   the setup bootstrapper. Its `wix` tool and every extension the package
+   uses are pinned in the repository at one exact release, and the .NET
+   SDK that tool needs is pinned too; the .NET CLI runs with its telemetry
+   off, locally and in CI. WiX's source is MS-RL (Microsoft Reciprocal
+   License). Its binary releases are licensed to their user, the project,
+   under the Open Source Maintenance Fee EULA v1.1 (EULA ID `wix7`), which
+   sets the fee for their use: a fee to the WiX maintainers, under a heading that
+   calls it monthly, for revenue-generating use by a user with annual gross
+   revenue of US$10,000 or more, and none below (its §1 and §2). The same
+   EULA lets the binaries be redistributed as MS-RL allows (its §4), so the
+   buyer receives the WiX binaries the setup carries under MS-RL. The choice of the tool is taken under the
+   delegation; as Open question 3 requires of a choice that can bring a
+   fee, Manuel approved the fee: on 2026-11-01, asked in chat whether he
+   accepted that EULA and its fee for the project, he chose "Acepto EULA y
+   cuota futura". WiX and its extensions come from nuget.org, a channel
+   outside CLAUDE.md's *Package manager preference*, and the SDK by
+   winget, a machine-wide install that changes the system `PATH`; the
+   first use of each is confirmed in chat. The EULA is accepted in the
+   repository's build files and workflows only by the packaging change,
+   which carries the pins. This
+   amendment's commit adds both tools to CLAUDE.md's *Approved local
+   toolchain*, as that table asks of the SPEC that introduces a dependency.
+   The WiX binaries that the setup or the MSI carries (Burn's engine, an
+   extension's custom action) run elevated on the buyer's endpoints. They
+   ship unmodified, under MS-RL, whose reciprocity reaches each distributed
+   file of WiX's own and not the agent: for each, the release carries
+   MS-RL's text in its third-party notices (#130) and, as one release
+   asset, an archive of those files' source from the pinned release's tag,
+   in `SHA256SUMS` and attested like the setup, the MSI and the raw
+   executable. By scope this amends SPEC-023's Amendment 2026-10-27, whose
+   `SHA256SUMS` then covers six payload assets. The licence allowlist
+   (`.github/scripts/licences-allowed.json`, under the policy of
+   `docs/security/dependency-review.md`), which admits permissive licences
+   and a few reviewed packages by name, gains those binaries by name under
+   MS-RL, the licence of their source and of their redistribution, as a
+   reviewed change with the packaging change. The licence check reads the
+   nuget pins of what the setup or the MSI carries and admits them by name,
+   since a nuget package declares its licence as
+   a file, the EULA, not as an SPDX expression. Each nuget package is
+   restored by its pinned version and checked against its recorded content
+   hash before use, by a mechanism the packaging change provides, and an
+   advisory check of those pins joins `dependency-audit` with it. Rejected: WiX v5.0.2 (no maintenance fee, but past its consumer security fixes' end date,
+   2026-02-05, while its Burn engine would run inside the setup); WiX v6
+   (its consumer security fixes end on 2027-02-05, and it carries an
+   earlier maintenance-fee EULA, OSMF v1.0); NSIS and Inno Setup (no MSI); an
+   MSI written through `msi.dll` by the project's own code (more installer
+   code to audit, no bootstrapper).
+2. **The executable's version resource.** The agent's own build writes the
+   version resource of `cg-agent.exe` from the input of §Data contracts §1,
+   with no new crate, build dependency or external tool, and refreshes it
+   when that input changes or is removed. Its numeric file and product
+   versions are `X.Y.Z.0`. Its `FileVersion` and `ProductVersion` strings
+   are the version that `cg-agent --version` prints after the program's
+   name: `X.Y.Z` in a release build, and `<Cargo package version>-dev` in a
+   development build, whose numeric versions are Cargo's `X.Y.Z.0`. A
+   component above
+   65535, which a PE version field cannot hold, fails the Windows build;
+   as for the other refusals of the build (Amendment 2026-10-31),
+   install_ac_014's version tests exercise it and the resource's values in
+   both builds, on Windows. Rejected: a
+   resource crate (a new build dependency of the elevated agent, Manuel's
+   decision); the Windows SDK's `rc.exe` called by the build (a Windows
+   SDK tool the build would have to find, while the linker the MSVC target
+   already uses takes a compiled resource file, which the build can write
+   itself); stamping the file after the
+   build (a new tool).
+3. **The release's version check (#139).** One release job checks the tag
+   before every other release job: the form of the Amendment 2026-10-31 and
+   MSI's limits of §Data contracts §1, with `contents: read` alone. Every
+   job that pushes, attests or
+   publishes depends on it, directly or through another job; a tag that
+   fails it ends the workflow with nothing pushed, attested or published.
+   install_ac_015's rejection of invalid and out-of-range versions includes
+   that order. SPEC-023's Amendment 2026-10-27 already requires that release
+   jobs "reject version mismatches before publication"; this point makes
+   the images' push and every attestation wait for the check too, and so
+   publishes less. By scope it amends SPEC-023 §Operational §12 and its
+   first Amendment 2026-10-26, item 4: the release runs the check ahead of
+   the licence check, and §12's list of jobs and their permissions gains
+   it. Its Amendment 2026-10-27's check of the payloads' agreement stays
+   before publication; this tag check comes before any push or attestation.
+   SPEC-023 classes that ordering as packaging, on Manuel's list; he
+   approved this point in chat on 2026-11-01 ("OK, compruébalo antes").
+4. **Where `cg-agent`'s service and SYSTEM tests run.** A Cargo test of
+   `cg-agent` that creates, starts, stops or deletes a Windows service, runs
+   code as SYSTEM or creates a local account runs only in rust-ci's Windows
+   job, whose hosted runner runs its steps as the built-in Administrator and
+   is discarded after the job. Each such test creates its own uniquely named
+   service or account and removes it on every exit path. It fails without
+   acting when a service named `CyberGuardAgent` exists, or outside a
+   GitHub-hosted runner (`GITHUB_ACTIONS` and `RUNNER_ENVIRONMENT` say
+   so), and never stops or changes a service it did not create. Only test targets require the
+   test-only Cargo feature they need, and that feature changes no code of
+   the executable. rust-ci's clippy steps, which enable every feature,
+   compile these targets in both jobs (on Linux as empty files, the tests
+   being Windows-only); `cargo test --all` and the elevated gate's
+   `--ignored` run neither build nor run them. They run one at a time. The gate's commands stay as
+   they are, and no service or account is created on the development host.
+   On the runner, which is discarded, a test may use the fixed paths of
+   §Data contracts §2.
+   - **Evidence.** Their run in that job is their evidence. Compensating
+     control §1 of CLAUDE.md asks to see them fail locally against the tree
+     without the implementation, which this venue rules out. Manuel
+     approved, in chat on 2026-11-01 ("Sí, PR sonda en CI"), a run in the
+     same job instead: a step that cannot fail the job, on a probe pull
+     request closed without landing, the probe pattern of SPEC-017's second
+     Amendment 2026-10-19. That step's log is the red evidence. On the branch
+     that lands, the step fails the job when a test fails. This is an
+     exception to control §1 and to §Test scenarios' "observe the
+     missing-behavior failures locally". Before the probe and before any
+     such test lands, CLAUDE.md's control §1 states the exception and its
+     *Local pre-commit gate* names these tests among those only CI runs,
+     through Manuel's owner review (*Integration path* §4).
+   - **What the job does not give.** The job runs the real SCM and SYSTEM
+     against the test's own enrollment and heartbeat server. It gives no
+     real ingest (that runner offered no container runtime for the
+     backends' Linux images, ADR-0010's Amendments 2026-05-29 and
+     2026-10-19), no reboot and
+     no OS shutdown, so no real `SHUTDOWN` control. The service against a
+     real ingest (install_ac_003, and
+     §Test scenarios' "Real Windows plus ingest/Docker" line for the
+     service) and the "Disposable Windows VM" experiments run on the
+     isolated Windows machine where Manuel runs those experiments, once he
+     provides it (like the Windows 10 and Server 2019 environments of Open
+     question 2; #50, #59), never as a service on the
+     development host; F2's completion therefore waits for that machine. On
+     the development host the elevated gate keeps running the console
+     agent. By scope this amends SPEC-023 deploy_ac_021: once
+     `docs/operations/install.md`'s endpoint steps are the setup and the
+     service, they run on that isolated machine with install_ac_016, not in
+     the elevated gate; until then they stay the gate's console steps.
+   - **The package's tests**, which install the MSI and its fixed-name
+     service, keep §Test scenarios' "Packaging CI" line.
+
+   Rejected: `#[ignore]`d tests left out of the gate by a name filter (a
+   change to the gate's command that a misnamed test would pass); Manuel's
+   machine (a service on the development host); a mocked SCM (insufficient
+   by §Test scenarios).
+5. **Open questions 4 and 5.** Neither changes an ADR. The agent does not
+   read, manage or report its host's audit policy (ADR-0019 §Out of scope
+   excludes managing and reporting it). The product writes, collects and
+   sends no crash or memory dump, which no ADR adds (ADR-0020 Open question
+   4 leaves the matter open). The endpoint runbook of install_ac_016 reads,
+   with administrator rights and without changing anything, and records
+   with the installation evidence:
+   - the effective success and failure auditing of the Logon subcategory
+     and of the Account Lockout subcategory, which logs the failures of
+     locked-out accounts, queried by their GUIDs
+     `{0CCE9215-69AE-11D9-BED3-505054503030}` and
+     `{0CCE9217-69AE-11D9-BED3-505054503030}`, since their names are
+     localized; the effective policy includes one that Group Policy
+     applied;
+   - whether any account has a per-user audit policy, which can exclude
+     its logons from auditing, and how many do, without their names;
+   - the kernel dump settings under
+     `HKLM\SYSTEM\CurrentControlSet\Control\CrashControl`, and the page
+     file's and hibernation's settings, since those files can also hold
+     the agent's memory;
+   - Windows Error Reporting's `LocalDumps` settings, global and for
+     `cg-agent.exe`, and its consent and upload policy, which decides
+     whether reports and their dumps leave the host.
+
+   It records each subcategory's success and failure auditing apart: one
+   not enabled is that coverage absent (Logon's success, 4624; Logon's and
+   Account Lockout's failure, 4625), and one it could not read is unknown. It states that a dump of the agent's
+   process can hold its decrypted private key and the events it holds, and
+   a kernel dump any memory of the host, and that who reads such files and
+   how long they are kept follow the host's own policy, which it records.
+   This SPEC's Open questions 4 and 5 are resolved for F2 by this
+   disposition, which supersedes §Operational §5's "remain explicitly
+   reopened below". The agent's reporting of its host's audit coverage
+   reopens with F3's agents page or a buyer's requirement, and the dump
+   policy when a buyer asks the product to collect dumps; any change to either
+   ADR's boundary needs Manuel's explicit yes. Rejected: a startup
+   audit-policy check in the agent (it would change ADR-0019's boundary);
+   turning dumps off from the product (a change to host policy, which
+   §Operational §5 excludes).
+
+**Effect.** Open question 3 is resolved but for the pin's value: WiX v7,
+with its EULA and fee accepted by Manuel. For WiX v7 alone, his approval of
+its fee takes the place of §Operational §5's "does not authorize a paid
+tool". The packaging change names the
+exact WiX release, its extensions' and the .NET SDK's versions in the
+change itself, before WiX is restored or run, and checks that the pinned
+release's EULA ID is `wix7`, the EULA Manuel accepted; for the pin's value
+alone, this supersedes Open question 3's "decide and record before the
+package build change". Open questions 4 and 5 are resolved for F2, and
+ADR-0019 Open question 1 and ADR-0020 Open question 4 stay open in their
+ADRs. §Test scenarios' local red run gains point 4's exception, which
+CLAUDE.md's control §1 and its *Local pre-commit gate* are to state,
+through owner review, before the probe and before the first such test
+lands. install_ac_015 gains the order of point 3; install_ac_014's version
+tests gain point 2's refusal and the resource's values; install_ac_016's
+inspection is named.
+When the test-only feature lands, CLAUDE.md's *Environment facts* gain
+these tests, which only rust-ci's Windows job runs. No ADR is changed, and no
+dependency of `cg-agent` or setting a deployment or an operator chooses is
+added. Third-party pieces enter under the delegation and are listed for
+Manuel's audit: at build time the .NET SDK, a runtime, and WiX's tool, its
+MSBuild SDK and its extensions; on the buyer's endpoints, where they run
+elevated, the WiX binaries the setup or the MSI carries (Burn's engine, an
+extension's custom action). Points 1,
+2, 4 and 5 are taken by Claude Code under Manuel's delegation of
+2026-11-01, with his approvals quoted above; point 3 is his. Status stays
+**Accepted**.
+
 ## References
 
 - [ADR-0010](../adr/0010-agent-privilege-model-mvp.md) — packaging supersession and privilege baseline.
@@ -480,6 +702,9 @@ Claude Code under Manuel's delegation (#131). Status stays **Accepted**.
 - [SPEC-017](SPEC-017-agent-capture-normal-run-path.md) — existing secure runtime and shutdown ordering.
 - [SPEC-023](SPEC-023-production-deployment.md) — server TLS, trust distribution and release.
 - [Release protection](../security/release-protection.md) — active version-tag freeze.
+- [FireGiant: About the WiX Toolset](https://docs.firegiant.com/wix/) — the lifecycle table: consumer security fixes for v5 end on 2026-02-05 and for v6 on 2027-02-05.
+- [FireGiant: Open Source Maintenance Fee](https://docs.firegiant.com/wix/osmf/) — OSMF EULA v1.1, EULA ID `wix7`, the US$10,000 threshold and how acceptance is given.
+- [nuget.org: the `wix` 7.0.1 package's licence](https://www.nuget.org/packages/wix/7.0.1/License) — the OSMF EULA v1.1's text: §1 the fee, §2 its payment, §3 the source under MS-RL, §4 the Binary Release and its redistribution under MS-RL.
 - [Microsoft: ProductVersion](https://learn.microsoft.com/en-us/windows/win32/msi/productversion) — three fields and numeric limits.
 - [Microsoft: service state transitions](https://learn.microsoft.com/en-us/windows/win32/services/service-status-transitions) — SCM status protocol.
 - [Microsoft: machine-scope DPAPI](https://learn.microsoft.com/en-us/windows/win32/seccrypto/example-c-program-using-cryptprotectdata) — a readable blob is decryptable by other local users.
