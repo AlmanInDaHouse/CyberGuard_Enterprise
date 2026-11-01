@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-50.md](../handoff-session-50.md)).
+([handoff-session-51.md](../handoff-session-51.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -392,7 +392,11 @@ This dependency-ordered document supersedes both for planning.
   agent's CLI, enrollment, heartbeats and lifecycle line (#131's
   install_ac_014, `9e68d56`), and `detect_ac_001`'s capture-first and drain
   fixes (#4, #37, `7297412`), green in elevated gate s50-gate1
-  (`docs/handoff-session-50.md`).
+  (`docs/handoff-session-50.md`). S51 landed SPEC-024's Amendment
+  2026-11-01 (WiX v7, the test venue, Open questions 4 and 5), the
+  release's tag check (#139, `d9932a6`) and the executable's version
+  resource (`cf59c12`); the service's outcomes wait for ADR-0008 and
+  ADR-0010 amendments (`docs/handoff-session-51.md`).
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
@@ -417,12 +421,16 @@ This dependency-ordered document supersedes both for planning.
   and the bundle (`deploy/docker/`, S46) exist, and no compose file is at
   the root (ADR-0001 Amendment 2026-10-19; debt #12, S47).
 - Unblocks: criterion 7 (the "<30-min self-deploy" promise).
-- Blocked by: F2's real-SCM tests wait for the owner review of CLAUDE.md
-  that SPEC-024's Amendment 2026-11-01 asks for (point 4); F2's service
+- Blocked by: F2's service outcomes (the instance lock, the SCM states,
+  the Application log) wait for ADR-0008 and ADR-0010 amendments, for
+  Manuel's sí (`docs/handoff-session-51.md`); F2's service and SYSTEM
+  tests wait for the owner review of CLAUDE.md that SPEC-024's Amendment
+  2026-11-01 asks for (point 4); F2's packages wait for Manuel's
+  confirmation of the first use of the .NET SDK and WiX; F2's service
   against a real ingest and its endpoint validation wait for the isolated
-  Windows machine (SPEC-024 Open question 2); the first release waits for F2–F4, #130, the
-  Authenticode decision and Manuel's explicit approval; the rest of F,
-  nothing since 2026-10-23. The deployment-contract decisions
+  Windows machine (SPEC-024 Open question 2); the first release waits for
+  F2–F4, #130, the Authenticode decision and Manuel's explicit approval;
+  the rest of F, nothing since 2026-10-23. The deployment-contract decisions
   of Part (b), the compose's location (#12) and the forensic trust
   anchoring, which Manuel delegated on 2026-10-14, are decided in ADR-0022
   and its amendments, which he ratified. (B2 option (2)'s audit-policy dependency no
@@ -430,8 +438,8 @@ This dependency-ordered document supersedes both for planning.
 - Needs: F2's implementation and Windows/package evidence under SPEC-024,
   F3/F4's SPECs and implementations, the manual endpoint validation,
   and first-release provenance/timed-install evidence. Next in F2: the
-  service mode, the single-instance guard, private rotated logs and SYSTEM
-  custody (#87); the packages and install_ac_015 with WiX v7 (SPEC-024
+  ADR-0008 and ADR-0010 amendments, then the single-instance guard, the
+  service mode, private rotated logs and SYSTEM custody (#87); the packages and install_ac_015 with WiX v7 (SPEC-024
   Amendment 2026-11-01). Preserve #59/#50's external/isolated-machine limits.
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
   model's Amendment 2026-10-15): the dashboard's TOTP enrollment and user
