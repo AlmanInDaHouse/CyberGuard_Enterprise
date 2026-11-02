@@ -14,10 +14,14 @@
 //! session of the name is left. It runs from a host where no session of
 //! the agent's name is running: unelevated, one an elevated agent left
 //! cannot be stopped (debt #63).
+//!
+//! The locked case (SPEC-024 §1): the reclaim runs only for a start that
+//! holds the instance lock, so the open here passes [`StartMode::Locked`].
+//! A start without the lock never reclaims (`install_ac_009`).
 
 #![cfg(windows)]
 
-use cg_agent::etw::{EtwSession, SESSION_NAME};
+use cg_agent::etw::{EtwSession, StartMode, SESSION_NAME};
 use std::process::Command;
 
 /// Whether a session of the agent's name runs, asked of `logman`, not of
@@ -45,7 +49,7 @@ fn open_reclaims_a_leftover_session_of_the_agents_name() {
         "the leftover session must be running before the open"
     );
 
-    match EtwSession::open(16) {
+    match EtwSession::open(16, StartMode::Locked) {
         Ok(mut session) => session.stop(),
         Err(e) => assert!(
             e.is_privilege(),

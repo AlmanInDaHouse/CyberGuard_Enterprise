@@ -28,7 +28,13 @@ const ATTEMPT_BACKOFF: Duration = Duration::from_millis(500);
 async fn ac_007_parent_pid_only_when_parent_dead_at_child_launch() {
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     let mock = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
-    let agent = common::start_secure_agent(&pki, &mock.base_url, 1, cg_agent::Capture::Platform);
+    // Elevated: the agent holds the instance lock (SPEC-024 §1).
+    let agent = common::start_secure_agent(
+        &pki,
+        &mock.base_url,
+        1,
+        cg_agent::Capture::Platform { holds_lock: true },
+    );
     assert!(
         common::wait_until(Duration::from_secs(10), || mock.received_count() >= 1).await,
         "AC-007: the agent must open its ETW session and heartbeat (elevated?)"

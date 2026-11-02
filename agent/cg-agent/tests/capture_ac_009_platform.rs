@@ -56,7 +56,14 @@ async fn capture_ac_009_no_backend_sends_heartbeats_and_logs_once() {
 
     let pki = common::generate_test_pki(AGENT_ID);
     let mock = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
-    let agent = common::start_secure_agent(&pki, &mock.base_url, 1, Capture::Platform);
+    // Non-Windows: no capture backend and no lock (SPEC-024 §1); the flag
+    // is immaterial here.
+    let agent = common::start_secure_agent(
+        &pki,
+        &mock.base_url,
+        1,
+        Capture::Platform { holds_lock: false },
+    );
 
     assert!(
         common::wait_until(Duration::from_secs(5), || mock.received_count() >= 2).await,

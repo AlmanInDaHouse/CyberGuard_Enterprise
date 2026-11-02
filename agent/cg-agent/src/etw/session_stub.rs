@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use super::cache::CreatedTimeCache;
 use super::ring::EventRing;
-use super::types::OpenError;
+use super::types::{OpenError, StartMode};
 
 /// Non-Windows stub for EtwSession.
 ///
@@ -36,12 +36,16 @@ pub struct EtwSession {
 }
 
 impl EtwSession {
-    pub fn open(_ring_capacity: usize) -> Result<Self, OpenError> {
+    pub fn open(_ring_capacity: usize, _mode: StartMode) -> Result<Self, OpenError> {
         Err(OpenError::Unsupported)
     }
 
     /// Same shape as the Windows session's: no capture backend here.
-    pub fn open_excluding(_ring_capacity: usize, _excluded_pid: u32) -> Result<Self, OpenError> {
+    pub fn open_excluding(
+        _ring_capacity: usize,
+        _excluded_pid: u32,
+        _mode: StartMode,
+    ) -> Result<Self, OpenError> {
         Err(OpenError::Unsupported)
     }
 

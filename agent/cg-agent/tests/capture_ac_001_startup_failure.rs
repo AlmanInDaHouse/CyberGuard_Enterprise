@@ -18,7 +18,7 @@
 mod common;
 
 use cg_agent::errors::{AgentError, EtwError, STDERR_INSUFFICIENT_PRIVILEGE};
-use cg_agent::etw::{win32_from_os_error, EtwSession, OpenError};
+use cg_agent::etw::{win32_from_os_error, EtwSession, OpenError, StartMode};
 use cg_agent::startup::handle_etw_open_result;
 
 const AC_002_LINE: &str = "cg-agent: insufficient privilege to open \
@@ -88,12 +88,13 @@ fn capture_ac_001_no_backend_continues_startup() {
 /// Real ETW, either way: unelevated, `open` reports the privilege failure
 /// (it no longer returns `Ok` before the start runs) and leaves no session
 /// of the agent's name; elevated, the session opens and `stop` leaves
-/// none.
+/// none. The unlocked case (SPEC-024 §1): an unelevated token runs without
+/// the lock, so its start does not reclaim.
 #[cfg(windows)]
 #[test]
 fn capture_ac_001_open_returns_the_start_result() {
     let _etw = ETW_LOCK.blocking_lock();
-    match EtwSession::open(16) {
+    match EtwSession::open(16, StartMode::Unlocked) {
         Ok(mut session) => {
             session.stop();
             assert_no_session("elevated: stop must leave no session behind");
@@ -111,7 +112,10 @@ fn capture_ac_001_open_returns_the_start_result() {
 #[cfg(not(windows))]
 #[test]
 fn capture_ac_001_open_reports_no_backend() {
-    assert!(matches!(EtwSession::open(16), Err(OpenError::Unsupported)));
+    assert!(matches!(
+        EtwSession::open(16, StartMode::Unlocked),
+        Err(OpenError::Unsupported)
+    ));
 }
 
 /// Serializes the tests of this binary that may open the agent's ETW
@@ -136,7 +140,7 @@ fn assert_no_session(context: &str) {
 /// the session is then stopped at once. The caller holds `ETW_LOCK`.
 #[cfg(windows)]
 fn elevated() -> bool {
-    match EtwSession::open(16) {
+    match EtwSession::open(16, StartMode::Unlocked) {
         Ok(mut session) => {
             session.stop();
             true
@@ -158,7 +162,13 @@ async fn capture_ac_001_unelevated_secure_path_fails_before_any_post() {
     }
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     let mock = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
-    let agent = common::start_secure_agent(&pki, &mock.base_url, 1, cg_agent::Capture::Platform);
+    // Unelevated: the agent runs without the lock (SPEC-024 §1).
+    let agent = common::start_secure_agent(
+        &pki,
+        &mock.base_url,
+        1,
+        cg_agent::Capture::Platform { holds_lock: false },
+    );
 
     let outcome = agent.stop().await;
     let err = outcome.expect_err("the start failure must end run_secure");
@@ -167,17 +177,29 @@ async fn capture_ac_001_unelevated_secure_path_fails_before_any_post() {
     assert_no_session("the failed secure path must leave no session behind");
 }
 
-/// The real binary, unelevated: it enrolls, then exits 9 with the AC-002
-/// line on stderr and in its log, and never POSTs a heartbeat.
+/// The real binary, unelevated with an ordinary token: it enrolls, then
+/// exits 9 with the AC-002 line on stderr and in its log, and never POSTs
+/// a heartbeat.
+///
+/// The binary now goes through the instance lock before enrolling
+/// (SPEC-024 §1). This exercises the ordinary unprivileged path, which
+/// takes no lock and goes on; an elevated token opens ETW instead, and a
+/// token that controls trace sessions is refused with code 1 before
+/// enrolling (install_ac_009). The test runs only for an ordinary token,
+/// gated by `acquire` itself, so it never holds the lock when it launches
+/// the binary.
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn capture_ac_001_unelevated_binary_exits_9() {
     use std::io::Write as _;
 
     let _etw = ETW_LOCK.lock().await;
-    if elevated() {
-        eprintln!("skipped: elevated (the ETW session opens)");
-        return;
+    match cg_agent::instance_lock::acquire() {
+        cg_agent::instance_lock::LockOutcome::Unprivileged => {}
+        other => {
+            eprintln!("skipped: not an ordinary unprivileged token ({other:?})");
+            return;
+        }
     }
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     // Enrollment over TLS, trusting the same anchor (SPEC-023 §Operational §6).

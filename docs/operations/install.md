@@ -435,7 +435,7 @@ Before it exits with a code other than 0, the agent writes to standard error a m
 | Code | Cause | The message begins |
 |---|---|---|
 | 0 | Stopped with Ctrl+C. It writes nothing to standard error. | |
-| 1 | Another runtime error, for instance an ETW session or the Security log's subscription that fails to open for a reason other than privilege. | `cg-agent:` |
+| 1 | Another runtime error, for instance an ETW session or the Security log's subscription that fails to open for a reason other than privilege; a token that can control trace sessions but is not an elevated administrator's or SYSTEM's (it is refused before enrollment); or any other failure to take the per-host instance lock. | `cg-agent:` or `cg-agent: instance lock failed:` |
 | 2 | The configuration is refused, for instance: the file is missing or is not valid TOML; a required key is missing; `agent.id` is not a lowercase UUIDv7; `agent.hostname` or `trust_anchor_path` is empty; `server.url` is not `https://` beside `[enrollment]`, or `server.heartbeat_url` is not `https://`; `interval_seconds`, `request_timeout_seconds`, `backoff_initial_ms` or `backoff_max_ms` of `[heartbeat]` is 0, or its `backoff_factor` is below 1; `tls.minimum_version` or `envelope.canonical_form` has another value; there is no token at the first start. | `cg-agent: invalid config:` |
 | 3 | Enrollment is refused: the token is rejected, already used or expired, or the server's answer is malformed. | `cg-agent: enrollment failed:` |
 | 4 | The server is unreachable after the retries, or it offers TLS 1.2 alone. | `cg-agent: enrollment failed: server unreachable after` |
@@ -443,7 +443,8 @@ Before it exits with a code other than 0, the agent writes to standard error a m
 | 6 | The server's certificate is not one the trust anchor issued, has expired, or does not name the URL's host (a name outside `CG_AGENT_SERVER_NAMES`); or the trust anchor file is missing or holds no usable certificate. Enrollment ends at once, without retries. | `cg-agent: tls: server certificate verification failed:` or `cg-agent: tls: client configuration failed:` |
 | 7 | The server refuses the agent's certificate, for instance once it has expired. | `cg-agent: tls: server rejected client certificate` |
 | 8 | Signing a heartbeat fails. | `cg-agent: signing failed:` |
-| 9 | The agent is not elevated. | `cg-agent: insufficient privilege to open Microsoft-Windows-Kernel-Process ETW session; run as elevated user or LocalSystem`, or `cg-agent: insufficient privilege to read the Security log; run as elevated user` |
+| 9 | The agent is not elevated, or, running without the instance lock, its ETW start was refused because a session of the agent's name already exists (which it may not reclaim). | `cg-agent: insufficient privilege to open Microsoft-Windows-Kernel-Process ETW session; run as elevated user or LocalSystem`, or `cg-agent: insufficient privilege to read the Security log; run as elevated user` |
+| 10 | Another CyberGuard agent is already running on this host; this instance exits before enrolling and stops no ETW session. | `cg-agent: another CyberGuard agent instance is running on this host` |
 
 ## Later users
 

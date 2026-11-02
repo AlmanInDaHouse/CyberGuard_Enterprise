@@ -33,7 +33,13 @@ async fn net_ac_008_a_real_connection_is_reported_with_its_probe() {
 
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     let mock = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
-    let agent = common::start_secure_agent(&pki, &mock.base_url, 1, cg_agent::Capture::Platform);
+    // Elevated: the agent holds the instance lock (SPEC-024 §1).
+    let agent = common::start_secure_agent(
+        &pki,
+        &mock.base_url,
+        1,
+        cg_agent::Capture::Platform { holds_lock: true },
+    );
     // The first heartbeat goes out once the ETW session is open.
     assert!(
         common::wait_until(Duration::from_secs(10), || mock.received_count() >= 1).await,

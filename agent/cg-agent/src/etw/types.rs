@@ -185,6 +185,25 @@ impl From<crate::logon::LogonEvent> for RingEvent {
     }
 }
 
+/// Whether the ETW start holds the per-host instance lock (SPEC-024
+/// second Amendment 2026-11-01 §1; ADR-0008 and ADR-0010 Amendments
+/// 2026-11-02). It governs the zombie reclaim, the stop after a failed
+/// start, and how `ERROR_ALREADY_EXISTS` is classified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartMode {
+    /// The start holds the lock: it reclaims a zombie session of the
+    /// agent's name (ADR-0008 §Decision part 2), and an
+    /// `ERROR_ALREADY_EXISTS` keeps code 1 — it is the start that reclaims.
+    Locked,
+    /// The start does not hold the lock: it never reclaims; an
+    /// `ERROR_ALREADY_EXISTS` is a privilege failure (the session is
+    /// another start's, which this token may not reclaim — code 9,
+    /// ADR-0010 Amendment 2026-11-02 item 2); and the stop after a failed
+    /// start follows only a privilege failure (SPEC-017 Amendment
+    /// 2026-10-13, narrowed by ADR-0008 Amendment 2026-11-02).
+    Unlocked,
+}
+
 /// Why an ETW session did not start (SPEC-017 §Operational §1, ADR-0010
 /// §Decision part 1).
 ///
@@ -223,6 +242,38 @@ impl OpenError {
     /// True for the two privilege failures (exit code 9).
     pub fn is_privilege(&self) -> bool {
         matches!(self, OpenError::PrivilegeNotHeld | OpenError::AccessDenied)
+    }
+
+    /// Apply the instance-lock mode to a raw start failure. Without the
+    /// lock, `ERROR_ALREADY_EXISTS` (183) becomes a privilege failure: the
+    /// start may not reclaim the session that already holds the name
+    /// (ADR-0010 Amendment 2026-11-02 item 2; code 9, the part-1 line).
+    /// With the lock, 183 keeps its code (ADR-0008 Amendment 2026-11-02),
+    /// since that start is the one that reclaims. `from_win32` still maps
+    /// only 5 and 1314 to privilege; this is where 183 gains its case.
+    /// Every other failure is unchanged.
+    pub fn with_lock_mode(self, mode: StartMode) -> Self {
+        match (mode, &self) {
+            (StartMode::Unlocked, OpenError::Failed { code: 183, .. }) => {
+                OpenError::PrivilegeNotHeld
+            }
+            _ => self,
+        }
+    }
+
+    /// Whether a start that failed with this *raw* error (before
+    /// [`with_lock_mode`](Self::with_lock_mode)) must stop the session its
+    /// own start may have left. With the lock, always — the reclaiming
+    /// start owns the name. Without it, only a privilege failure, where
+    /// `StartTraceW` created the session and `EnableTraceEx2` was refused;
+    /// never an `ERROR_ALREADY_EXISTS`, whose session is another start's
+    /// (ADR-0008 Amendment 2026-11-02 narrows SPEC-017 Amendment
+    /// 2026-10-13).
+    pub fn must_stop_after_failed_start(&self, mode: StartMode) -> bool {
+        match mode {
+            StartMode::Locked => true,
+            StartMode::Unlocked => self.is_privilege(),
+        }
     }
 }
 

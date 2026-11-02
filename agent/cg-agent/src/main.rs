@@ -9,6 +9,7 @@
 //! `[enrollment]`), and graceful shutdown on `Ctrl+C`.
 
 use cg_agent::errors::{AgentError, EnrollmentError, TlsError};
+use cg_agent::instance_lock::{self, LockOutcome};
 use cg_agent::{
     config, identity, init_logger_with_writer, log_agent_starting, run, run_secure, Capture,
     AGENT_VERSION,
@@ -54,6 +55,28 @@ async fn main() -> ExitCode {
     // identity is loaded or enrolled first, then run_secure opens the ETW
     // session. Requires enrollment to have produced an identity.
     if cfg.server.trust_anchor_path.is_some() {
+        // SPEC-024 §1: take the per-host instance lock before the identity
+        // step, so before the capture start reclaims the agent's fixed ETW
+        // session. The guard `_instance_lock` lives to the end of this
+        // branch — across the whole secure run — and frees the lock when it
+        // drops at the return. A token that controls trace sessions outside
+        // ADR-0010's model is refused here (code 1); a second live instance
+        // exits code 10 before enrolling; an ordinary/unelevated token goes
+        // on without the lock (and so without the reclaim).
+        let _instance_lock;
+        let holds_lock;
+        match instance_lock::acquire() {
+            LockOutcome::Acquired(lock) => {
+                _instance_lock = Some(lock);
+                holds_lock = true;
+            }
+            LockOutcome::Unprivileged => {
+                _instance_lock = None;
+                holds_lock = false;
+            }
+            outcome => return report_lock_outcome(&outcome),
+        }
+
         let id = match identity::ensure_identity(&cfg, &cli.config).await {
             Ok(id) => id,
             Err(e) => {
@@ -62,7 +85,7 @@ async fn main() -> ExitCode {
             }
         };
         cfg.agent.id = id.agent_id.clone();
-        return match run_secure(cfg, id, Capture::Platform, shutdown).await {
+        return match run_secure(cfg, id, Capture::Platform { holds_lock }, shutdown).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 report_agent_error(&e);
@@ -81,6 +104,23 @@ async fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// SPEC-024 §1: report an instance-lock outcome that ends the start
+/// (`Held`, `ControlsEtwOutsideModel` or `Failed`) and return its exit
+/// code. The line goes to stderr and, for the service's later file/Event
+/// log, to the tracing log too (as SPEC-017 does for ETW errors). Never
+/// called for `Acquired`/`Unprivileged`, which go on.
+fn report_lock_outcome(outcome: &LockOutcome) -> ExitCode {
+    let code = outcome
+        .exit_code()
+        .expect("report_lock_outcome is only called for an outcome that ends the start");
+    let line = outcome
+        .stderr_line()
+        .expect("an outcome that ends the start has a line");
+    tracing::error!(exit_code = code, "{line}");
+    eprintln!("{line}");
+    ExitCode::from(code)
 }
 
 /// SPEC-002 §Failure-modes stderr line for an enrollment error.

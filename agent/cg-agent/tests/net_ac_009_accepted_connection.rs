@@ -21,13 +21,15 @@ mod net_probe;
 #[ignore = "real ETW, elevated gate: cargo test -p cg-agent -- --ignored --test-threads=1"]
 #[test]
 fn net_ac_009_an_accepted_connection_and_the_filter() {
-    use cg_agent::etw::EtwSession;
+    use cg_agent::etw::{EtwSession, StartMode};
     use net_probe::{curl, report, Listener, Seen};
     use std::net::SocketAddr;
     use std::time::{Duration, Instant};
 
-    let mut session =
-        EtwSession::open(65536).expect("net_ac_009: open the capture session (elevated?)");
+    // Elevated: this test owns the host's session name, so it opens with
+    // the lock held (SPEC-024 §1), reclaiming any leftover of the name.
+    let mut session = EtwSession::open(65536, StartMode::Locked)
+        .expect("net_ac_009: open the capture session (elevated?)");
     let test_pid = std::process::id();
 
     let v4 = Listener::start("127.0.0.1:0", 1 << 20);

@@ -164,6 +164,14 @@ async fn install_ac_014_binary_secure_path() {
         eprintln!("skipped: elevated (the agent would open its ETW session)");
         return;
     }
+    // The binary takes the instance lock before enrollment (SPEC-024 §1). A
+    // token that controls ETW is refused there (code 1), before it enrolls,
+    // so the version read observed here is unreachable then (install_ac_009).
+    #[cfg(windows)]
+    if common::token_controls_etw() {
+        eprintln!("skipped: this token controls ETW; the instance lock refuses the binary before enrollment (install_ac_009)");
+        return;
+    }
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
     // The mock verifies each envelope under the PKI's key, not the key the

@@ -60,5 +60,6 @@ pub use ring::{EventRing, OverflowWarning};
 pub(crate) use types::win32_message;
 pub use types::{
     win32_from_os_error, ActivityId, CapturedEvent, Direction, NetworkEvent, OpenError, RingEvent,
+    StartMode,
 };
 pub use uid::format_process_uid;

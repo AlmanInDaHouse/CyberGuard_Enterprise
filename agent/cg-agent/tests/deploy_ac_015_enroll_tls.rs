@@ -159,6 +159,17 @@ async fn deploy_ac_015_another_ca_ends_enrollment_with_exit_6_without_retries() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deploy_ac_015_the_binary_exits_6_against_another_ca() {
+    // The binary takes the instance lock before enrollment (SPEC-024 §1). A
+    // token that controls ETW is refused there (code 1) before the TLS
+    // handshake, so this test's exit-6 contract is unreachable then; its
+    // in-process twin above (`..another_ca_ends_enrollment_with_exit_6..`)
+    // still covers it without the lock. An ordinary or elevated token
+    // reaches the handshake and exits 6.
+    #[cfg(windows)]
+    if common::token_controls_etw() {
+        eprintln!("skipped: this token controls ETW; the instance lock refuses the binary before the TLS handshake (install_ac_009)");
+        return;
+    }
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     let mock = common::TlsEnrollMock::start(&pki, TlsMockMode::UntrustedServerCert).await;
     let fixture = common::enrollment_fixture(&mock.base_url, "tok-deploy-015", &pki);
