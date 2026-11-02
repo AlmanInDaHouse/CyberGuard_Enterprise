@@ -3,7 +3,7 @@
 - **ID:** SPEC-024
 - **Title:** Windows agent installer, service lifecycle and key custody
 - **Status:** Accepted
-- **Depends on:** ADR-0010 (the packaging SPEC expressly supersedes its installation posture), ADR-0022 (F2, key custody and release protection), SPEC-001, SPEC-002, SPEC-003, SPEC-017, SPEC-019, SPEC-020 and SPEC-023.
+- **Depends on:** ADR-0008 (the startup reclaim of the ETW session), ADR-0010 (the packaging SPEC expressly supersedes its installation posture), ADR-0022 (F2, key custody and release protection), SPEC-001, SPEC-002, SPEC-003, SPEC-017, SPEC-019, SPEC-020 and SPEC-023.
 - **Authors:** Manuel (project owner), Claude Code (design and implementation)
 
 ## Context
@@ -694,9 +694,172 @@ extension's custom action). Points 1,
 2026-11-01, with his approvals quoted above; point 3 is his. Status stays
 **Accepted**.
 
+## Amendment 2026-11-01 (second): the service's outcomes
+
+**What surfaced it.** Implementing §Operational §3 (install_ac_007,
+install_ac_009 and install_ac_010) needs outcomes it names without fixing:
+the exit codes of a second live instance, of `--service` without the SCM,
+of an incomplete stop and of a failed service log; the states the SCM
+reports; the entries of the Application log.
+
+**Amendment.**
+
+1. **The instance lock.** On the secure path, before the identity step and
+   so before the capture start reclaims the agent's fixed ETW session
+   (ADR-0008 §Decision part 2; SPEC-017 Amendment 2026-10-27), the console
+   and the service take one lock per host; the service takes it before it
+   opens its file log, and so before it reports `RUNNING`. It lasts only as long as the process that took it,
+   and only an elevated administrator's token or SYSTEM, the principals of
+   ADR-0010 §Decision part 1, can create it, so an ordinary user can
+   neither take nor hold it. Only a start that holds the lock reclaims
+   (ADR-0008 Amendment 2026-11-02). A platform without capture takes no lock.
+   - **Held.** When another live process holds it, the agent exits with
+     code **10** and
+     `cg-agent: another CyberGuard agent instance is running on this host`
+     on stderr, and in its log for the console; the service has no file log
+     when it takes the lock, so it reports the cause through `STOPPED` with
+     that code and entry 1002 (item 4). It exits before it enrolls and
+     without stopping any ETW session.
+   - **Without the lock, for privilege.** When its token is an ordinary
+     user's or an administrator's unelevated one, and cannot control trace
+     sessions (the next bullet is checked first), the agent goes on
+     without the lock, through the identity step, to an ETW start without
+     the reclaim. That start fails for privilege, or because a session of
+     the agent's name already exists, which such a token may not reclaim.
+     Both are ADR-0010's insufficient privilege (§Decision part 1,
+     §Compliance; its Amendment 2026-11-02, item 2): code 9
+     with SPEC-005 AC-002's line. After a failed start it stops the
+     session of its name only when the start failed for privilege, the
+     case where its own start left that session (SPEC-017 Amendment
+     2026-10-13). It stops no session it did not start, so it never stops
+     a live instance's capture (ADR-0008 Amendment 2026-11-02).
+   - **ETW control outside ADR-0010's model.** A token that cannot create
+     the lock but can control trace sessions (a member of Performance Log
+     Users, LocalService, NetworkService, or a holder of
+     `SeSystemProfilePrivilege`) could stop or keep a live instance's
+     session. The agent does not start with it: code 1 and
+     `cg-agent: instance lock failed: this token controls ETW sessions but is not an elevated administrator's or SYSTEM's`,
+     before the identity step. ADR-0010 names those memberships as enough
+     to open the provider (§Context) and requires an elevated local
+     administrator (§Decision part 1), whose detection it places at the
+     first ETW open (§Compliance). For these tokens §Decision part 1
+     is amended by ADR-0010's Amendment 2026-11-02, item 1: they are refused
+     before the ETW open, with code 1 and that line. A principal that a host administrator grants
+     trace-session control through ETW's own security descriptors is not
+     detected, and is outside that model.
+   - **Any other failure** to take the lock ends the start with code 1 and
+     `cg-agent: instance lock failed: <step>: Win32 error <code>`, since the
+     agent cannot establish that no live instance holds the lock.
+
+   After a crash the lock is free again, and the next elevated start takes
+   it and reclaims the orphaned session of the agent's name; no session of
+   another name is stopped. A session of the agent's name left behind for
+   any other reason waits for that start too. The plain development path,
+   which has no capture, takes no lock. Rejected: the lock where the
+   capture starts (a second elevated instance would enroll first, using up
+   its token and leaving an agent on the server); the reclaim without the
+   lock (a token Windows let stop sessions could stop a live instance's).
+2. **`--service`.** It runs only when the SCM started the process.
+   Otherwise, and on a platform without an SCM, the agent exits with code
+   **11** and
+   `cg-agent: --service requires a start by the Windows service control manager`,
+   without running the console path; this is checked before the
+   configuration. In service mode a `--config` that is
+   not an absolute path is a configuration error, code 2, with the line
+   `cg-agent: invalid config: --config must be an absolute path in service mode`.
+3. **The SCM states.**
+   - `START_PENDING` lasts until the configuration is loaded and valid,
+     the lock is taken and logging has started: for `RUNNING`, that is the
+     local initialization of §Operational §1. Then `RUNNING`, accepting
+     `STOP` and `SHUTDOWN` and no other control, before the identity step,
+     enrollment and capture, which may wait.
+   - After `STOP` or `SHUTDOWN`, `STOP_PENDING` lasts until the stop ends
+     within the 60-second deadline of §Operational §3. A `STOP` or
+     `SHUTDOWN` during enrollment, its retries or the wait between
+     enrollment rounds (SPEC-002 Amendment 2026-10-27) ends it promptly as
+     a clean stop; a token whose enrollment request was in flight may
+     already be consumed (§Operational §2).
+   - In both pending states the checkpoint advances at least every 10
+     seconds, with a wait hint of at most 30 seconds.
+   - `STOPPED` carries `dwWin32ExitCode` 0 after a clean stop. Otherwise it
+     carries `ERROR_SERVICE_SPECIFIC_ERROR` (1066), and
+     `dwServiceSpecificExitCode` is the code of the cause: the console's
+     exit code for a cause the console shares (1 to 10); **12** when the
+     stop deadline expired; **13** when the service's file log cannot be
+     opened at startup or keeps failing to write (§Operational §3), with
+     the line `cg-agent: the service log cannot be written: <reason>`.
+   - Whether the SCM restarts a service that reported `STOPPED` with a
+     failure code is the installer's setting, decided with the package
+     (install_ac_008); it must not restart a deliberate stop, code 12
+     included, nor a failure that §Operational §3 says requires operator
+     action (invalid config, rejected tokens, corrupted identity, failed
+     custody or trust, missing capture privilege) (§Operational §3). Until it restarts or an operator acts, the endpoint
+     is not covered; entry 1002 below is what monitoring watches for.
+4. **The Application log.** In service mode the agent writes these entries
+   under the source `CyberGuardAgent`, before and after file logging works:
+   - 1000, information: it reports `RUNNING`, with its version;
+   - 1001, information: it stopped cleanly;
+   - 1002, error: it stopped on a failure other than the expired deadline,
+     with its code and the cause's line, as below;
+   - 1003, error: the stop deadline expired, with the work still pending
+     and the number of events not delivered.
+
+   The cause's line is the one the console path writes to stderr, or the
+   service's own line above, except that no entry carries a secret (a
+   token, a key) or a line of the configuration file. A configuration
+   error's line can quote the file, so for it entry 1002 names the file,
+   and the line and column of the error when the parser gives them; the
+   operator reads the parser's message with the file in hand. The Application log is readable by the host's
+   interactive users, and any of them can write entries under any source:
+   these entries are diagnostics, not evidence. Until the installer
+   registers the source, Windows records them and their strings without
+   message text. The console path writes none. Console Ctrl+C keeps its
+   semantics (SPEC-017 Amendment 2026-10-27), so codes 12 and 13 are the
+   service's alone.
+
+**Effect.** Codes 10, 11, 12 and 13 are new, and every existing code keeps
+its meaning. Code 9 gains one cause (an unlocked ETW start refused because
+a session of the agent's name exists), code 1 two (the refusal of a token
+that controls trace sessions outside ADR-0010's model, and any other
+failure to take the lock), and code 2 one (a `--config` that is not an
+absolute path, in service mode). By scope:
+
+- SPEC-005 §Failure modes, SPEC-017 §Operational §1 (code 9 for Win32
+  errors 5 and 1314 alone, code 1 for any other start failure) and SPEC-017
+  capture_ac_001: for a token without the lock, an ETW start refused
+  because a session of the agent's name exists is code 9 with AC-002's
+  line, where it was code 1, or code 9 when the token could reclaim a
+  session it had left itself; such a session now stays for the next start
+  that holds the lock. A token that holds the lock keeps code 1 for that
+  refusal.
+- SPEC-017's Amendment 2026-10-13: without the lock, the stop after a
+  failed start follows only a privilege failure.
+- ADR-0010 §Decision part 1: its detection is unchanged for its principals
+  and for ordinary or unelevated tokens that cannot control trace sessions.
+  For a token that controls trace sessions outside that model, part 1 is
+  amended by ADR-0010's Amendment 2026-11-02, item 1: it no longer reaches
+  the ETW open, and ends with code 1 before the identity step.
+- §Operational §1's "local initialization" is, for `RUNNING`, the
+  configuration, the lock and logging.
+
+The exit-code table of the installation runbook
+(`docs/operations/install.md`) gains the new codes with the code that
+introduces them. install_ac_007, install_ac_009 and the Application-log
+half of install_ac_010 are tested against these outcomes. No setting a
+deployment or an operator chooses is added. ADR-0010 calls the service's
+lifecycle and its Event Log integration packaging, on Manuel's list:
+Manuel approved this amendment in chat on 2026-11-01 ("OK a la segunda
+enmienda"), and the refusal of tokens that control trace sessions outside
+ADR-0010's model ("Rechazarlos al arrancar"). The two ADR changes it needs
+landed first, ratified by him on 2026-11-02 ("sí a las dos enmiendas,
+aterrízalas"): ADR-0008 Amendment 2026-11-02 (the reclaim, and the stop after
+a failed start) and ADR-0010 Amendment 2026-11-02 (items 1 and 2 above).
+Status stays **Accepted**.
+
 ## References
 
-- [ADR-0010](../adr/0010-agent-privilege-model-mvp.md) — packaging supersession and privilege baseline.
+- [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
+- [ADR-0010](../adr/0010-agent-privilege-model-mvp.md) — packaging supersession and privilege baseline; its Amendment 2026-11-02 refuses tokens that control ETW outside its model.
 - [ADR-0022](../adr/0022-single-node-production-deployment.md) — deployment, F2 and release limits.
 - [SPEC-002](SPEC-002-agent-enrollment.md) — identity and accompanying custody amendment.
 - [SPEC-017](SPEC-017-agent-capture-normal-run-path.md) — existing secure runtime and shutdown ordering.
