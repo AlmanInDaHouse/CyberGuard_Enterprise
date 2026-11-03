@@ -7,14 +7,24 @@
 //! access; the opener gives a new active file its final security at
 //! creation.
 //!
-//! A record is one line. A record longer than [`MAX_RECORD_BYTES`] is not
-//! split: a bounded diagnostic line, valid JSON, takes its place. A failed
-//! write is retried once on a reopened file; if that fails too the log
-//! stops writing and reports the failure once, through `on_failure`, so the
-//! service can stop with code 13.
+//! The active file is renamed first, to `agent.rotating.jsonl`: if another
+//! process holds it open (an administrator reading the log), nothing has
+//! moved, the log goes on in the same file and rotation is tried again at
+//! later records. The archives then shift into the first free place, so a
+//! retry after a partial shift loses no archive. A rotation that keeps
+//! failing for [`ROTATION_RETRY_LIMIT`] is a persistent failure.
+//!
+//! A record is one line. A record of [`MAX_RECORD_BYTES`] or more, its
+//! newline included, is not split: a bounded diagnostic line, valid JSON,
+//! takes its place. A failed write is retried once on a reopened file,
+//! after a newline that ends whatever part of the record the failed write
+//! left; if the retry fails too the log stops writing and reports the
+//! failure once, through `on_failure`, so the service can stop with code
+//! 13.
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// The bound of the active file and of each archive.
 pub const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
@@ -25,6 +35,14 @@ pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 
 /// The active file's name.
 pub const ACTIVE: &str = "agent.jsonl";
+/// The active file's name while it rotates.
+pub const ROTATING: &str = "agent.rotating.jsonl";
+
+/// How long rotation may keep failing before the log counts it as a
+/// persistent failure; meanwhile the active file grows past its bound.
+pub const ROTATION_RETRY_LIMIT: Duration = Duration::from_secs(60);
+/// While rotation fails, how often it is tried again.
+const ROTATION_RETRY_EVERY: Duration = Duration::from_secs(1);
 
 /// The name of archive `n` (1 is the newest).
 pub fn archive_name(n: usize) -> String {
@@ -52,6 +70,11 @@ pub struct RotatingLog {
     line_len: usize,
     failed: bool,
     on_failure: Option<OnFailure>,
+    /// Since when rotation has been failing, and when it was last tried.
+    rotation_failing: Option<(Instant, Instant)>,
+    rotation_retry_limit: Duration,
+    /// `ROTATING` exists: a rotation to finish.
+    unfinished: bool,
 }
 
 impl RotatingLog {
@@ -68,12 +91,21 @@ impl RotatingLog {
             line_len: 0,
             failed: false,
             on_failure: None,
+            rotation_failing: None,
+            rotation_retry_limit: ROTATION_RETRY_LIMIT,
+            unfinished: dir.join(ROTATING).exists(),
         };
         log.reopen()?;
-        if log.size >= MAX_FILE_BYTES {
+        if log.size >= MAX_FILE_BYTES || log.unfinished {
             log.rotate()?;
         }
         Ok(log)
+    }
+
+    /// Shorten [`ROTATION_RETRY_LIMIT`] (for tests).
+    #[doc(hidden)]
+    pub fn set_rotation_retry_limit(&mut self, limit: Duration) {
+        self.rotation_retry_limit = limit;
     }
 
     /// Report a write failure that persists through `on_failure`.
@@ -89,28 +121,73 @@ impl RotatingLog {
         Ok(())
     }
 
-    /// Shift the archives and open a new active file.
+    /// Rotate: the active file to `ROTATING` (nothing moves if that
+    /// fails), a new active file, the archives shifted into the first free
+    /// place, `ROTATING` to archive 1. Each step that is already done is
+    /// skipped, so a retry finishes an interrupted rotation.
     fn rotate(&mut self) -> io::Result<()> {
-        if let Some(mut active) = self.active.take() {
-            let _ = active.flush();
+        let rotating = self.dir.join(ROTATING);
+        if !rotating.exists() {
+            if let Some(mut active) = self.active.take() {
+                let _ = active.flush();
+            }
+            let renamed = std::fs::rename(self.dir.join(ACTIVE), &rotating);
+            // Whether or not it moved, write on in the active file.
+            self.reopen()?;
+            renamed?;
+            self.unfinished = true;
         }
-        let oldest = self.dir.join(archive_name(ARCHIVES));
-        match std::fs::remove_file(&oldest) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
+        // The first free archive place, making one if all five are taken.
+        let free = (1..=ARCHIVES)
+            .find(|&n| !self.dir.join(archive_name(n)).exists())
+            .map_or_else(
+                || std::fs::remove_file(self.dir.join(archive_name(ARCHIVES))).map(|()| ARCHIVES),
+                Ok,
+            )?;
+        for n in (1..free).rev() {
+            std::fs::rename(
+                self.dir.join(archive_name(n)),
+                self.dir.join(archive_name(n + 1)),
+            )?;
         }
-        for n in (1..ARCHIVES).rev() {
-            let from = self.dir.join(archive_name(n));
-            if from.exists() {
-                std::fs::rename(&from, self.dir.join(archive_name(n + 1)))?;
+        std::fs::rename(&rotating, self.dir.join(archive_name(1)))?;
+        self.unfinished = false;
+        Ok(())
+    }
+
+    /// Rotate if due, tolerating a failure for the retry limit.
+    fn rotate_if_due(&mut self, len: u64) -> Result<(), String> {
+        let full = self.size > 0 && self.size + len > MAX_FILE_BYTES;
+        if !self.unfinished && !full {
+            return Ok(());
+        }
+        let now = Instant::now();
+        if let Some((_, tried)) = self.rotation_failing {
+            if now.duration_since(tried) < ROTATION_RETRY_EVERY {
+                return Ok(());
             }
         }
-        let active = self.dir.join(ACTIVE);
-        if active.exists() {
-            std::fs::rename(&active, self.dir.join(archive_name(1)))?;
+        match self.rotate() {
+            Ok(()) => {
+                self.rotation_failing = None;
+                Ok(())
+            }
+            Err(e) => {
+                let since = self.rotation_failing.map_or(now, |(since, _)| since);
+                self.rotation_failing = Some((since, now));
+                if now.duration_since(since) >= self.rotation_retry_limit {
+                    return Err(format!(
+                        "rotate: {e} (failing for {} s)",
+                        now.duration_since(since).as_secs()
+                    ));
+                }
+                if self.active.is_none() {
+                    self.reopen()
+                        .map_err(|e| format!("reopen after a failed rotation: {e}"))?;
+                }
+                Ok(())
+            }
         }
-        self.reopen()
     }
 
     /// Write one record (without its newline), within the bounds.
@@ -126,16 +203,22 @@ impl RotatingLog {
             record
         };
         let len = record.len() as u64 + 1;
-        if self.size > 0 && self.size + len > MAX_FILE_BYTES {
-            if let Err(e) = self.rotate() {
-                self.fail(format!("rotate: {e}"));
-                return;
-            }
+        if let Err(reason) = self.rotate_if_due(len) {
+            self.fail(reason);
+            return;
         }
         if let Err(first) = self.append(record) {
-            // One retry on a reopened file; a failure that persists stops
-            // the log.
-            let retried = self.reopen().and_then(|()| self.append(record));
+            // One retry on a reopened file, after a newline that ends any
+            // part of the record the failed write left; a failure that
+            // persists stops the log.
+            let before = self.size;
+            let retried = self.reopen().and_then(|()| {
+                if self.size > before {
+                    self.append_raw(b"\n")?;
+                    self.size += 1;
+                }
+                self.append(record)
+            });
             if let Err(second) = retried {
                 self.fail(format!("write: {first}; after reopening: {second}"));
                 return;
@@ -145,14 +228,18 @@ impl RotatingLog {
     }
 
     fn append(&mut self, record: &[u8]) -> io::Result<()> {
+        let mut line = Vec::with_capacity(record.len() + 1);
+        line.extend_from_slice(record);
+        line.push(b'\n');
+        self.append_raw(&line)
+    }
+
+    fn append_raw(&mut self, bytes: &[u8]) -> io::Result<()> {
         let active = self
             .active
             .as_mut()
             .ok_or_else(|| io::Error::other("no active log file"))?;
-        let mut line = Vec::with_capacity(record.len() + 1);
-        line.extend_from_slice(record);
-        line.push(b'\n');
-        active.write_all(&line)?;
+        active.write_all(bytes)?;
         active.flush()
     }
 

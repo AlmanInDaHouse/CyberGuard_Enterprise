@@ -135,13 +135,25 @@ impl ServiceExit {
                 id: EVENT_DEADLINE,
                 error: true,
                 text: format!(
-                    "cg-agent: the service stop deadline of {} s expired with {pending} pending; \
-                     events not delivered: {}",
+                    "cg-agent: the service stop could not end within its {} s deadline, with \
+                     {pending} pending; events not delivered: {}",
                     STOP_DEADLINE.as_secs(),
                     undelivered.map_or_else(|| "unknown".to_string(), |n| n.to_string())
                 ),
             },
         }
+    }
+}
+
+/// A file log that stopped writing turns a clean stop into code 13 with
+/// its line (item 3); any other end keeps its own code.
+pub fn with_log_failure(exit: ServiceExit, log_failure: Option<&str>) -> ServiceExit {
+    match (log_failure, exit) {
+        (Some(reason), ServiceExit::Clean { .. }) => ServiceExit::Failed {
+            code: EXIT_SERVICE_LOG,
+            line: stderr_service_log(reason),
+        },
+        (_, exit) => exit,
     }
 }
 

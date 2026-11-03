@@ -107,6 +107,7 @@ async fn console(cli: Cli) -> ExitCode {
                 return ExitCode::from(e.exit_code());
             }
         };
+        cg_agent::log_identity_ready(&id.agent_id);
         cfg.agent.id = id.agent_id.clone();
         return match run_secure(cfg, id, Capture::Platform { holds_lock }, shutdown).await {
             Ok(()) => ExitCode::SUCCESS,
