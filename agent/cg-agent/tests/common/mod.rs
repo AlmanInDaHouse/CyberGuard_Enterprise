@@ -6,6 +6,32 @@
 
 #![allow(dead_code)]
 
+/// Whether this process's token controls ETW sessions outside ADR-0010's
+/// model (install_ac_009, SPEC-024 §1): the agent's instance lock refuses
+/// such a token with exit code 1 *before* enrollment, so a secure-path
+/// binary launched from here never reaches enrollment, TLS or capture.
+/// Tests of those paths that launch the real binary skip when it is true.
+/// Read-only: it never takes the lock, so it does not block the binary it
+/// gates.
+#[cfg(windows)]
+pub fn token_controls_etw() -> bool {
+    use cg_agent::instance_lock::{classify_token, TokenClass};
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::TOKEN_QUERY;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    let mut token: HANDLE = std::ptr::null_mut();
+    // SAFETY: the current-process pseudo-handle needs no close; `token` is
+    // closed below.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return false;
+    }
+    let class = classify_token(token);
+    // SAFETY: opened just above.
+    unsafe { CloseHandle(token) };
+    class == TokenClass::ControlsEtw
+}
+
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use base64::Engine as _;
 use cg_agent::config::{

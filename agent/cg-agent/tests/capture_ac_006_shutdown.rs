@@ -96,7 +96,13 @@ async fn capture_ac_006_elevated_shutdown_leaves_no_session() {
 
     let pki = common::generate_test_pki(AGENT_ID);
     let mock = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
-    let agent = common::start_secure_agent(&pki, &mock.base_url, 1, Capture::Platform);
+    // Elevated: the agent holds the instance lock (SPEC-024 §1).
+    let agent = common::start_secure_agent(
+        &pki,
+        &mock.base_url,
+        1,
+        Capture::Platform { holds_lock: true },
+    );
     assert!(
         common::wait_until(Duration::from_secs(10), || mock.received_count() >= 1).await,
         "the agent must open its ETW session and heartbeat (elevated?)"

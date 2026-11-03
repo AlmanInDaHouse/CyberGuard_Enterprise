@@ -51,7 +51,7 @@ use super::dispatch::{
 use super::hygiene::HygieneThread;
 use super::network::{connection_direction, CONNECTION_EVENT_IDS};
 use super::ring::EventRing;
-use super::types::{win32_from_os_error, ActivityId, OpenError};
+use super::types::{win32_from_os_error, ActivityId, OpenError, StartMode};
 use super::SESSION_NAME;
 
 const KERNEL_PROCESS_GUID: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
@@ -94,18 +94,27 @@ impl EtwSession {
     /// Open the capture session, reporting the connections of every
     /// process (no PID excluded).
     ///
+    /// `mode` says whether the caller holds the per-host instance lock
+    /// (SPEC-024 §1): with it the start reclaims a zombie session of the
+    /// agent's name; without it the start never reclaims (ADR-0008
+    /// Amendment 2026-11-02).
+    ///
     /// Returns only when the session has started (`Ok`) or its start has
     /// failed (`Err`, with the Win32 code). On success the pump thread
     /// delivers events to the dispatch callbacks until `stop`.
-    pub fn open(ring_capacity: usize) -> Result<Self, OpenError> {
-        Self::start(ring_capacity, None)
+    pub fn open(ring_capacity: usize, mode: StartMode) -> Result<Self, OpenError> {
+        Self::start(ring_capacity, None, mode)
     }
 
     /// Open the capture session, discarding the network records of
     /// `excluded_pid` — the agent passes its own process id (SPEC-019
-    /// §Operational §4, ADR-0018 §8).
-    pub fn open_excluding(ring_capacity: usize, excluded_pid: u32) -> Result<Self, OpenError> {
-        Self::start(ring_capacity, Some(excluded_pid))
+    /// §Operational §4, ADR-0018 §8). `mode` as in [`open`](Self::open).
+    pub fn open_excluding(
+        ring_capacity: usize,
+        excluded_pid: u32,
+        mode: StartMode,
+    ) -> Result<Self, OpenError> {
+        Self::start(ring_capacity, Some(excluded_pid), mode)
     }
 
     /// The number of network records discarded so far: an event id
@@ -121,34 +130,43 @@ impl EtwSession {
         self.discards.first()
     }
 
-    fn start(ring_capacity: usize, excluded_pid: Option<u32>) -> Result<Self, OpenError> {
-        tracing::info!(target: "cg_agent::etw", "EtwSession::open invoked");
+    fn start(
+        ring_capacity: usize,
+        excluded_pid: Option<u32>,
+        mode: StartMode,
+    ) -> Result<Self, OpenError> {
+        tracing::info!(target: "cg_agent::etw", ?mode, "EtwSession::open invoked");
 
         // Reclaim any zombie ETW session with our name left by a prior
-        // crash or force-kill. ferrisetw 1.2 lacks stop_if_exist; same
-        // side-channel pattern as events_lost (Phase 0 spike validated).
-        match super::reclaim_zombie(SESSION_NAME) {
-            Ok(true) => {
-                tracing::warn!(
-                    target: "cg_agent::etw",
-                    session_name = SESSION_NAME,
-                    "reclaimed zombie ETW session (pre-existing session stopped)",
-                );
-            }
-            Ok(false) => {
-                tracing::debug!(
-                    target: "cg_agent::etw",
-                    session_name = SESSION_NAME,
-                    "no pre-existing ETW session (clean state)",
-                );
-            }
-            Err(rc) => {
-                tracing::warn!(
-                    target: "cg_agent::etw",
-                    session_name = SESSION_NAME,
-                    win32_status = rc,
-                    "zombie reclaim ControlTraceW(STOP) failed; continuing (session open may fail with AlreadyExist)",
-                );
+        // crash or force-kill — only a start that holds the instance lock
+        // does so (ADR-0008 Amendment 2026-11-02). A start without the lock
+        // never stops a session it did not create. ferrisetw 1.2 lacks
+        // stop_if_exist; same side-channel pattern as events_lost (Phase 0
+        // spike validated).
+        if mode == StartMode::Locked {
+            match super::reclaim_zombie(SESSION_NAME) {
+                Ok(true) => {
+                    tracing::warn!(
+                        target: "cg_agent::etw",
+                        session_name = SESSION_NAME,
+                        "reclaimed zombie ETW session (pre-existing session stopped)",
+                    );
+                }
+                Ok(false) => {
+                    tracing::debug!(
+                        target: "cg_agent::etw",
+                        session_name = SESSION_NAME,
+                        "no pre-existing ETW session (clean state)",
+                    );
+                }
+                Err(rc) => {
+                    tracing::warn!(
+                        target: "cg_agent::etw",
+                        session_name = SESSION_NAME,
+                        win32_status = rc,
+                        "zombie reclaim ControlTraceW(STOP) failed; continuing (session open may fail with AlreadyExist)",
+                    );
+                }
             }
         }
 
@@ -274,19 +292,27 @@ impl EtwSession {
                     hygiene,
                 })
             }
-            Ok(Err(e)) => {
+            Ok(Err(raw)) => {
                 let _ = pump.join();
-                stop_after_failed_start();
-                Err(e)
+                // The raw error decides the stop; the lock mode then
+                // finalizes its classification (ADR-0008 / ADR-0010
+                // Amendments 2026-11-02).
+                if raw.must_stop_after_failed_start(mode) {
+                    stop_after_failed_start();
+                }
+                Err(raw.with_lock_mode(mode))
             }
             Err(_) => {
                 let _ = pump.join();
-                stop_after_failed_start();
-                Err(OpenError::Failed {
+                let raw = OpenError::Failed {
                     code: 0,
                     message: "the ETW pump thread ended before reporting the session start"
                         .to_string(),
-                })
+                };
+                if raw.must_stop_after_failed_start(mode) {
+                    stop_after_failed_start();
+                }
+                Err(raw.with_lock_mode(mode))
             }
         }
     }

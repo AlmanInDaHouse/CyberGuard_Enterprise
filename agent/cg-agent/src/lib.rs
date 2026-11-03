@@ -20,6 +20,7 @@ pub mod envelope;
 pub mod errors;
 pub mod etw;
 pub mod identity;
+pub mod instance_lock;
 pub mod logon;
 pub mod paths;
 pub mod secure_storage;
@@ -193,7 +194,13 @@ pub enum Capture {
     /// after the identity is loaded; a failed start of either ends the
     /// agent (exit code 9 for privilege, 1 otherwise). Elsewhere there is
     /// no backend: heartbeats only, and one `info` line.
-    Platform,
+    ///
+    /// `holds_lock` says whether the process holds the per-host instance
+    /// lock (SPEC-024 §1): with it the ETW start reclaims a zombie session
+    /// of the agent's name; without it the start does not reclaim and an
+    /// `ERROR_ALREADY_EXISTS` is a privilege failure (ADR-0008 / ADR-0010
+    /// Amendments 2026-11-02). `main` sets it from `instance_lock::acquire`.
+    Platform { holds_lock: bool },
     /// Events fed into this ring by the caller (the harness); no ETW.
     Ring(Arc<crate::etw::EventRing>),
     /// No events: heartbeats only.
@@ -232,7 +239,7 @@ where
         mut logons,
         paths,
     } = match capture {
-        Capture::Platform => open_platform_capture()?,
+        Capture::Platform { holds_lock } => open_platform_capture(holds_lock)?,
         Capture::Ring(ring) => PlatformCapture::events_only(Some(ring)),
         Capture::Off => PlatformCapture::events_only(None),
     };
@@ -328,12 +335,19 @@ impl PlatformCapture {
 /// Security-log subscription into the same ring (SPEC-020 §Operational
 /// §6), with the device-path map; on a build without a backend, nothing
 /// (one `info`).
-fn open_platform_capture() -> Result<PlatformCapture, AgentError> {
-    use crate::etw::{EtwSession, OpenError};
+fn open_platform_capture(holds_lock: bool) -> Result<PlatformCapture, AgentError> {
+    use crate::etw::{EtwSession, OpenError, StartMode};
 
+    // Only a start that holds the instance lock reclaims a zombie session
+    // of the agent's name (ADR-0008 Amendment 2026-11-02).
+    let mode = if holds_lock {
+        StartMode::Locked
+    } else {
+        StartMode::Unlocked
+    };
     // The agent's own connections are not reported (SPEC-019
     // §Operational §4): the capture excludes this process's id.
-    match EtwSession::open_excluding(RING_CAPACITY, std::process::id()) {
+    match EtwSession::open_excluding(RING_CAPACITY, std::process::id(), mode) {
         Ok(session) => {
             let ring = Arc::clone(&session.ring);
             let logons = open_logons(&ring, session)?;
