@@ -60,6 +60,8 @@ const STOP_PENDING_CAP: Duration = Duration::from_secs(75);
 static CONFIG: OnceLock<PathBuf> = OnceLock::new();
 /// The status and the stop signal the control handler reaches.
 static SHARED: OnceLock<Shared> = OnceLock::new();
+/// Why the file log stopped writing, once it has (install_ac_010).
+static LOG_FAILURE: OnceLock<String> = OnceLock::new();
 
 struct Shared {
     status: Status,
@@ -202,7 +204,9 @@ unsafe extern "system" fn control_handler(
 
 /// Run the service as a task of its own, beside a watchdog that ends it 60
 /// seconds after a stop, whatever the run is doing; a run that panics is a
-/// failure with code 1.
+/// failure with code 1. A file log that keeps failing stops the service
+/// like STOP, and a stop that then ends cleanly is code 13 (item 3; a
+/// failure of its own keeps its code).
 async fn supervise(
     config_path: PathBuf,
     stop: watch::Receiver<bool>,
@@ -213,7 +217,7 @@ async fn supervise(
         stopped(stop).await;
         tokio::time::sleep(STOP_DEADLINE).await;
     };
-    tokio::select! {
+    let exit = tokio::select! {
         biased;
         joined = &mut run => joined.unwrap_or_else(|e| ServiceExit::Failed {
             code: 1,
@@ -229,6 +233,13 @@ async fn supervise(
                 undelivered: None,
             }
         }
+    };
+    match (LOG_FAILURE.get(), &exit) {
+        (Some(reason), ServiceExit::Clean { .. }) => ServiceExit::Failed {
+            code: EXIT_SERVICE_LOG,
+            line: stderr_service_log(reason),
+        },
+        _ => exit,
     }
 }
 
@@ -269,14 +280,22 @@ async fn serve(
         }
     }
 
-    let file = match log_file::open() {
-        Ok(file) => file,
+    let mut log = match log_file::open() {
+        Ok(log) => log,
         Err(reason) => return failed(EXIT_SERVICE_LOG, stderr_service_log(&reason)),
     };
-    if let Err(e) = crate::init_logger_with_writer(&config.log.level, file) {
+    // A write failure that persists stops the service like STOP; nothing
+    // here logs, since it runs inside the log's own write.
+    log.on_failure(Box::new(|reason| {
+        let _ = LOG_FAILURE.set(reason);
+        if let Some(shared) = SHARED.get() {
+            shared.request_stop();
+        }
+    }));
+    if let Err(e) = crate::init_logger_with_writer(&config.log.level, log) {
         return failed(EXIT_SERVICE_LOG, stderr_service_log(&e.to_string()));
     }
-    crate::log_agent_starting();
+    crate::log_agent_starting(&config);
     tracing::info!(component = "service", "running as the Windows service");
 
     status.running();

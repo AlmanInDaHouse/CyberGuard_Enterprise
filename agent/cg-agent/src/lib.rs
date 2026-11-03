@@ -100,12 +100,19 @@ pub fn log_lifecycle_event(message: &str, component: &str) {
     tracing::info!(component = component, "{message}");
 }
 
-/// The "agent starting" lifecycle line, with the product version
-/// (SPEC-001 §Observability; SPEC-024 §Data contracts §1).
-pub fn log_agent_starting() {
+/// The "agent starting" lifecycle line (SPEC-001 §Observability), with the
+/// product version (SPEC-024 §Data contracts §1). Before enrollment
+/// `agent.id` is the configured placeholder, not an enrolled identity
+/// (SPEC-024 §Data contracts §2).
+pub fn log_agent_starting(config: &AgentConfig) {
     tracing::info!(
         component = "main",
         agent.version = AGENT_VERSION,
+        agent.id = %config.agent.id,
+        agent.platform = detect_platform(),
+        agent.hostname = %config.agent.hostname,
+        server.url = %config.server.url,
+        heartbeat.interval_seconds = config.heartbeat.interval_seconds,
         "agent starting"
     );
 }
