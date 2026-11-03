@@ -14,15 +14,17 @@ is this handoff and the pointers that cite it.
   SPECs. `main`'s tip CI was green (`markdown-lint → success`). Repo and
   `docs/handoff-session-52.md` agreed; no discrepancy.
 - Work done, on a branch, **not landed**:
-  - `feat/s53-install-ac-009` @ `bc293ff` (one commit), PR **#79** open.
-    CI on `bc293ff` is **ALL GREEN**: `rust-ci`, `ts-ci`, `markdown-lint`,
+  - `feat/s53-install-ac-009` @ `a168cf1` (one commit), PR **#79** open.
+    CI on `a168cf1` is **ALL GREEN**: `rust-ci`, `ts-ci`, `markdown-lint`,
     `deploy-ci` all `success`. The push was `ffa8058`, amended to `d17ae29`
-    (a Linux-clippy fix, below) and to `bc293ff` (the review fixes, below);
-    the force-pushes are the branch's own, pre-landing (*Integration path*
-    §3).
+    (a Linux-clippy fix, below), to `bc293ff` (the review fixes, below), and
+    to `a168cf1` (the `classify_token` test fix the elevated gate surfaced,
+    *Elevated gate 1* below); the force-pushes are the branch's own,
+    pre-landing (*Integration path* §3).
 - Resulting `main`: unchanged but for this handoff's docs commit. The
-  feature branch stays open, named here with its reason: the elevated gate
-  (Manuel's) has not run, and the change does not land without it.
+  feature branch stays open, named here with its reason: the elevated gate's
+  capture-marquee half (Manuel's) has not passed yet, and the change does
+  not land without it (*Elevated gate 1*, *Waiting on Manuel*).
 - Catalogs unchanged: 22 ADRs / 23 SPECs (no new document; the contract
   was the SPEC-024/ADR-0008/ADR-0010 amendments already Accepted on `main`).
 
@@ -144,38 +146,64 @@ Contract: SPEC-024 §1 (install_ac_009) + the two ADR amendments.
 
 ## Gates and CI
 
-- **Local gate** (unelevated dev host), on `bc293ff`: `cargo fmt --all --
+- **Local gate** (unelevated dev host), on `a168cf1`: `cargo fmt --all --
   check`; `cargo clippy --all-targets --all-features -D warnings`;
   `cargo test --all` all green (the real-Win32 install_ac_009 cases
   `#[ignore]`d; the three real-binary secure-path tests skipped — this
   host's token controls ETW); `node .github/scripts/agent-version-matrix.mjs`
-  passed; `markdownlint` on `docs/operations/install.md` 0 issues.
+  passed; `markdownlint` 0 issues.
 - The no-reclaim behaviour was observed red first (a temporary unconditional
   reclaim made `unlocked_start_does_not_reclaim_a_leftover` fail at the
   "must not open over an existing session" assertion), then green after
   reverting the probe (*Compensating controls* §1).
-- **CI**, full SHA `bc293ff`: `rust-ci → success` (its Windows job ran
-  `cargo test --all` and the `#[ignore]`d real-ETW/Win32 step, the new
-  install_ac_009 real cases among them), `ts-ci → success`,
-  `markdown-lint → success`, `deploy-ci → success`. Verdict **ALL GREEN**.
-  GitHub Actions was capacity-constrained: runs queued and re-queued for a
-  long time before running; each attempt, once on a runner, progressed and
-  passed.
-- **Elevated gate: NOT run.** It is mandatory for this change (the capture
-  path: `session.rs`, `lib.rs`, `main.rs`). Claude Code wrote
-  `C:\tmp\s53-gate1.ps1` and left Manuel the one line to run it; the change
-  does not land until its output is read green.
+- **CI**, full SHA `a168cf1`: `rust-ci → success` (its Windows job ran
+  `cargo test --all` and the `#[ignore]`d real-ETW/Win32 step as the
+  built-in Administrator — the new install_ac_009 real cases among them,
+  `classify_token` included, so the token distinction is validated on an
+  elevated runner), `ts-ci → success`, `markdown-lint → success`,
+  `deploy-ci → success`. Verdict **ALL GREEN**. GitHub Actions was
+  capacity-constrained all day: runs queued, re-queued and sometimes froze
+  mid-step for tens of minutes; each attempt, once on a runner, passed.
+
+## Elevated gate 1 (run by Manuel) and the fix
+
+Manuel ran `C:\tmp\s53-gate1.ps1` on `bc293ff`. It surfaced two problems,
+neither a defect in the production lock:
+
+1. **`classify_token_tells_the_three_token_kinds_apart` failed** (the other
+   three install_ac_009 real cases passed). Its "Ordinary" token was
+   synthesised with `DISABLE_MAX_PRIVILEGE`, which *disables* but does not
+   *delete* privileges, so `SeSystemProfilePrivilege` — held by every
+   elevated administrator — stayed present, and `classify_token` correctly
+   ranked the token `ControlsEtw` (a holder can re-enable it). A **test**
+   assumption bug, not a `classify_token` bug. Fixed in `a168cf1`: the
+   Ordinary token now *deletes* `SeSystemProfilePrivilege` and makes the
+   present ETW-relevant groups deny-only; verified unelevated on this host
+   (whose token controls ETW) by the new `restricted_ordinary_token_is_ordinary`
+   test, and re-validated by `rust-ci`'s elevated `--ignored` step on
+   `a168cf1`.
+2. **The vitest marquees did not run:** Docker Desktop was not running, so
+   testcontainers failed at setup (`Could not find a working container
+   runtime strategy`). The `cargo --ignored` half (no Docker) ran fully and
+   passed but for point 1. `C:\tmp\s53-gate2.ps1` now starts Docker Desktop
+   and waits before the vitest step.
+
+- **Elevated gate 2: PENDING.** The capture marquees (SPEC-005/006) are the
+  one part CI cannot run; the production capture path is unchanged since
+  `bc293ff` (the `a168cf1` delta is test-only), and `rust-ci` validated the
+  agent `--ignored` tests on an elevated runner, so gate 2's load-bearing
+  job is the marquees. The change does not land until gate 2 is read green.
 
 ## Test baselines at close
 
-- Non-elevated (`cargo test --all`) on `bc293ff`: all green.
-  `tests/install_ac_009_instance_lock.rs` runs 6 pure units + 1 ControlsEtw
-  end-to-end (which runs on this host, whose token controls ETW); its 4
-  real-Win32 cases are `#[ignore]`d.
-- Elevated: PENDING the gate (`C:\tmp\s53-gate1.ps1`). Expected: the agent's
-  `#[ignore]`d real-ETW/Win32 tests pass (the prior seven plus
-  install_ac_009's four), and the ingest vitest suite with the SPEC-005/006
-  marquees passes (the lock does not break the marquees: the vitest config
+- Non-elevated (`cargo test --all`) on `a168cf1`: all green.
+  `tests/install_ac_009_instance_lock.rs` runs 6 pure units + 2 Windows
+  conditional tests that run where the host's token controls ETW (the
+  ControlsEtw-binary end-to-end and `restricted_ordinary_token_is_ordinary`);
+  its 4 real-Win32 cases are `#[ignore]`d.
+- Elevated: the agent `--ignored` tests are GREEN via `rust-ci` on
+  `a168cf1`. The ingest vitest marquees are PENDING gate 2
+  (`C:\tmp\s53-gate2.ps1`); the lock does not break them (the vitest config
   runs one file at a time, so one agent holds the lock at a time, and an
   elevated marquee agent is the sole instance).
 
@@ -192,18 +220,19 @@ Contract: SPEC-024 §1 (install_ac_009) + the two ADR amendments.
 
 ## Waiting on Manuel
 
-1. **The elevated gate for install_ac_009.** Run, from an elevated Windows
-   PowerShell with Docker Desktop up, with the working tree on
-   `feat/s53-install-ac-009` @ `bc293ff` (it is left there):
+1. **Elevated gate 2 for install_ac_009** (gate 1's re-run; *Elevated gate
+   1* above). From an elevated Windows PowerShell, with the working tree on
+   `feat/s53-install-ac-009` @ `a168cf1` (it is left there):
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File C:\tmp\s53-gate1.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File C:\tmp\s53-gate2.ps1
    ```
 
-   It builds the release binary, runs `cargo test -p cg-agent --ignored
-   --test-threads=1` (the install_ac_009 real cases included) and the ingest
-   `pnpm test` (the capture marquees); logs land in `C:\tmp\s53-gate1-*.log`
-   (UTF-16). Claude Code reads them; a green run lets the branch land.
+   It starts Docker Desktop if the engine is down (waits up to 180 s),
+   builds the release binary, runs `cargo test -p cg-agent --ignored
+   --test-threads=1` and the ingest `pnpm test` (the capture marquees);
+   logs land in `C:\tmp\s53-gate2-*.log` (UTF-16). Claude Code reads them; a
+   green run — above all the marquees — lets the branch land.
 2. **#141's texts** and **the probe pull request** (SPEC-024 Amendment
    2026-11-01 point 4) remain, as `docs/handoff-session-52.md#waiting-on-manuel`
    had them.
@@ -211,11 +240,11 @@ Contract: SPEC-024 §1 (install_ac_009) + the two ADR amendments.
 ## How Session 54 resumes
 
 1. Start protocol (CLAUDE.md). `main` should be this handoff's close commit;
-   the feature is on `feat/s53-install-ac-009` @ `bc293ff` with PR #79 and
+   the feature is on `feat/s53-install-ac-009` @ `a168cf1` with PR #79 and
    CI ALL GREEN. Recheck C:, memory and Docker before builds.
-2. **If the elevated gate has not run, it is the first thing** (*Waiting on
-   Manuel* 1). Read its logs; diagnose any failure from them
-   (*Compensating controls* §2).
+2. **If elevated gate 2 has not passed, it is the first thing** (*Waiting on
+   Manuel* 1; `C:\tmp\s53-gate2.ps1`). Read its logs — above all the vitest
+   marquees; diagnose any failure from them (*Compensating controls* §2).
 3. **Land install_ac_009** once the gate is green (*Integration path* §3):
    if `main` moved, rebase the branch and force-with-lease; then land by
    `git merge --squash` (one-commit branch) with `git diff --cached --quiet
