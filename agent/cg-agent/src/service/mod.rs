@@ -28,6 +28,7 @@ use crate::identity::Identity;
 
 #[cfg(windows)]
 mod log_file;
+pub mod rotation;
 #[cfg(windows)]
 mod windows;
 

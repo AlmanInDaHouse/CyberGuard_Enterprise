@@ -1275,3 +1275,113 @@ async fn install_ac_007_an_untrusted_data_directory_stops_the_service_with_code_
         "1002 carries the cause's line: {failed:?}"
     );
 }
+
+/// The owner and DACL of `path`, as SDDL.
+fn owner_and_dacl(path: &Path) -> String {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW,
+        SDDL_REVISION_1, SE_FILE_OBJECT,
+    };
+    use windows_sys::Win32::Security::{
+        DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+    };
+    let name = wide(&path.display().to_string());
+    let info = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: the descriptor is allocated by the call and freed below.
+    let error = unsafe {
+        GetNamedSecurityInfoW(
+            name.as_ptr(),
+            SE_FILE_OBJECT,
+            info,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    assert_eq!(error, 0, "read the security of {}", path.display());
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the descriptor above; the string is freed below.
+    let ok = unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            info,
+            &mut text,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_ne!(ok, 0, "to SDDL");
+    // SAFETY: a NUL-terminated string the call allocated; both freed once.
+    unsafe {
+        let len = (0..).take_while(|&i| *text.add(i) != 0).count();
+        let sddl = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+        LocalFree(text.cast());
+        LocalFree(descriptor);
+        sddl
+    }
+}
+
+/// install_ac_010 under the SCM: the service's file log is
+/// `%ProgramData%\CyberGuard\agent\logs\agent.jsonl`, owned by SYSTEM with
+/// a protected DACL that only SYSTEM writes and Administrators read, every
+/// line of it valid JSON, and its "agent starting" line carries SPEC-001's
+/// fields (debt #137).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn install_ac_010_the_service_log_is_protected_json_lines() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
+    let heartbeat = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = write_config(
+        dir.path(),
+        &enroll.base_url,
+        &heartbeat.base_url,
+        &pki.trust_anchor_pem,
+        &Knobs::default(),
+    );
+    provision_identity(&config, &pki);
+    let service = TestService::create(&service_args(&config));
+    service.start().expect("start");
+    service.wait_for(SERVICE_RUNNING, Duration::from_secs(60));
+    assert!(
+        common::wait_until(Duration::from_secs(60), || online_count(&heartbeat) >= 1).await,
+        "the service delivers heartbeats"
+    );
+    service.control_stop().expect("STOP");
+    let stopped = service.wait_for(SERVICE_STOPPED, STOP_DEADLINE + Duration::from_secs(15));
+    assert_eq!(stopped.status.dwWin32ExitCode, 0, "a clean stop");
+
+    let logs = PathBuf::from(std::env::var("ProgramData").expect("ProgramData"))
+        .join("CyberGuard")
+        .join("agent")
+        .join("logs");
+    let active = logs.join("agent.jsonl");
+    assert_eq!(
+        owner_and_dacl(&active),
+        "O:SYD:P(A;;FA;;;SY)(A;;FR;;;BA)",
+        "SYSTEM owns the log; only SYSTEM writes it and Administrators read it"
+    );
+    let text = std::fs::read_to_string(&active).expect("Administrators read the log");
+    let lines: Vec<serde_json::Value> = text
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("not a JSON line ({e}): {line}"))
+        })
+        .collect();
+    let starting = lines
+        .iter()
+        .rev()
+        .find(|v| v["fields"]["message"] == "agent starting")
+        .unwrap_or_else(|| panic!("an \"agent starting\" line: {text:.2000}"));
+    let fields = &starting["fields"];
+    assert_eq!(fields["agent.version"], cg_agent::AGENT_VERSION);
+    assert_eq!(fields["agent.id"], "01934abc-def0-7000-89ab-000000000007");
+    assert_eq!(fields["agent.hostname"], "TEST-PC");
+    assert_eq!(fields["agent.platform"], "windows");
+    assert_eq!(fields["server.url"], enroll.base_url.as_str());
+    assert_eq!(fields["heartbeat.interval_seconds"], 1);
+}

@@ -10,9 +10,11 @@
 //! file is opened without following a reparse point, refused when it is
 //! hard-linked, and, when it exists, checked the same way. A service
 //! running as SYSTEM never writes where an ordinary user could redirect
-//! it (SPEC-024 §Operational §1 and §2). Rotation is install_ac_010's.
+//! it (SPEC-024 §Operational §1 and §2). The file rotates within the
+//! bounds of `rotation`; each new active file is opened the same way.
 
 use std::fs::File;
+use std::io::Write;
 use std::os::windows::io::{FromRawHandle, RawHandle};
 use std::path::{Path, PathBuf};
 
@@ -50,14 +52,21 @@ const LOG_FILE: &str = "O:SYD:P(A;;FA;;;SY)(A;;FR;;;BA)";
 const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
 const ACCESS_DENIED_ACE_TYPE: u8 = 1;
 
-/// Open (creating as needed) the service's log file for appending.
-pub(super) fn open() -> Result<File, String> {
+/// Open (creating as needed) the service's rotating log.
+pub(super) fn open() -> Result<super::rotation::RotatingLog, String> {
     let agent = program_data()?.join("CyberGuard").join("agent");
     ensure_private_directory(agent.parent().expect("CyberGuard"), PRIVATE_DIRECTORY)?;
     ensure_private_directory(&agent, PRIVATE_DIRECTORY)?;
     let logs = agent.join("logs");
     ensure_private_directory(&logs, LOG_DIRECTORY)?;
-    open_log_file(&logs.join("agent.jsonl"))
+    super::rotation::RotatingLog::open(
+        &logs,
+        Box::new(|path| {
+            let (file, size) = open_log_file(path).map_err(std::io::Error::other)?;
+            Ok((Box::new(file) as Box<dyn Write + Send>, size))
+        }),
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn wide(path: &Path) -> Vec<u16> {
@@ -194,8 +203,9 @@ fn ensure_private_directory(path: &Path, sddl: &str) -> Result<(), String> {
     check_custody(&handle, path)
 }
 
-/// Open the log file for appending, created with its final security.
-fn open_log_file(path: &Path) -> Result<File, String> {
+/// Open a log file for appending, created with its final security; return
+/// it with its size.
+fn open_log_file(path: &Path) -> Result<(File, u64), String> {
     let descriptor = Descriptor::from_sddl(LOG_FILE)?;
     let attributes = descriptor.attributes();
     let name = wide(path);
@@ -231,10 +241,11 @@ fn open_log_file(path: &Path) -> Result<File, String> {
     if existed {
         check_custody(&handle, path)?;
     }
+    let size = (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow);
     let raw = handle.0;
     std::mem::forget(handle);
     // SAFETY: a file handle this function owns, handed to the File.
-    Ok(unsafe { File::from_raw_handle(raw as RawHandle) })
+    Ok((unsafe { File::from_raw_handle(raw as RawHandle) }, size))
 }
 
 fn file_information(handle: &Handle, path: &Path) -> Result<BY_HANDLE_FILE_INFORMATION, String> {

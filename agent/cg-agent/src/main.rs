@@ -69,7 +69,7 @@ async fn console(cli: Cli) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    log_agent_starting();
+    log_agent_starting(&cfg);
 
     let shutdown = cg_agent::shutdown::wait_for_shutdown();
 
