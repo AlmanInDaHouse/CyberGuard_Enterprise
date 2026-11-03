@@ -1,0 +1,216 @@
+//! The agent as a Windows service (SPEC-024 §Data contracts §3,
+//! §Operational §3 and its second Amendment 2026-11-01, items 2 to 4).
+//!
+//! `--service` runs only when the service control manager (SCM) started
+//! the process; otherwise, and on a platform without an SCM, the agent
+//! exits with code 11 before it reads its configuration. Under the SCM the
+//! service runs the console's secure runtime: `START_PENDING` until the
+//! configuration is valid, the instance lock is taken and the file log is
+//! open; then `RUNNING`, accepting `STOP` and `SHUTDOWN` alone, before the
+//! identity step, enrollment and capture. A stop has 60 seconds in all;
+//! `STOPPED` carries code 0 after a clean stop, else
+//! `ERROR_SERVICE_SPECIFIC_ERROR` and the cause's code. The Application log
+//! gets entries 1000 to 1003 under the source `CyberGuardAgent`.
+//!
+//! This module holds what is portable: the codes, the lines, the outcome
+//! and its entry, and the enrollment rounds. The SCM, the Application log
+//! and the file log are in `windows`.
+
+use std::future::Future;
+use std::path::Path;
+use std::pin::Pin;
+use std::process::ExitCode;
+use std::time::Duration;
+
+use crate::config::AgentConfig;
+use crate::errors::{ConfigError, EnrollmentError};
+use crate::identity::Identity;
+
+#[cfg(windows)]
+mod log_file;
+#[cfg(windows)]
+mod windows;
+
+/// `--service` without a start by the SCM (item 2).
+pub const EXIT_NOT_STARTED_BY_SCM: u8 = 11;
+/// The stop deadline expired (item 3).
+pub const EXIT_STOP_DEADLINE: u8 = 12;
+/// The service's file log cannot be written (item 3).
+pub const EXIT_SERVICE_LOG: u8 = 13;
+
+/// Item 2's line for `--service` without a start by the SCM.
+pub const STDERR_NOT_STARTED_BY_SCM: &str =
+    "cg-agent: --service requires a start by the Windows service control manager";
+/// Item 2's line for a `--config` that is not absolute in service mode.
+pub const STDERR_RELATIVE_CONFIG: &str =
+    "cg-agent: invalid config: --config must be an absolute path in service mode";
+
+/// Item 3's line for a file log that cannot be written.
+pub fn stderr_service_log(reason: &str) -> String {
+    format!("cg-agent: the service log cannot be written: {reason}")
+}
+
+/// The service's stop deadline: teardown and the final request together
+/// (SPEC-024 §Operational §3).
+pub const STOP_DEADLINE: Duration = Duration::from_secs(60);
+
+/// The wait between two exhausted enrollment rounds in service mode
+/// (SPEC-002 Amendment 2026-10-27: at least 60 seconds).
+pub const ENROLLMENT_ROUND_WAIT: Duration = Duration::from_secs(60);
+
+/// The Application-log source (item 4).
+pub const EVENT_SOURCE: &str = "CyberGuardAgent";
+/// Information: the service reports `RUNNING`, with its version.
+pub const EVENT_RUNNING: u32 = 1000;
+/// Information: the service stopped cleanly.
+pub const EVENT_STOPPED: u32 = 1001;
+/// Error: the service stopped on a failure other than the deadline.
+pub const EVENT_FAILED: u32 = 1002;
+/// Error: the stop deadline expired.
+pub const EVENT_DEADLINE: u32 = 1003;
+
+/// How the service ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceExit {
+    /// A clean stop; `undelivered` events were lost on the way out.
+    Clean { undelivered: usize },
+    /// A failure, with the code the console would exit with (or 13) and
+    /// the cause's line.
+    Failed { code: u8, line: String },
+    /// The stop deadline expired with `pending` still to do.
+    DeadlineExpired {
+        pending: &'static str,
+        undelivered: usize,
+    },
+}
+
+/// One Application-log entry: its id, whether it is an error, its text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    pub id: u32,
+    pub error: bool,
+    pub text: String,
+}
+
+impl ServiceExit {
+    /// The service-specific exit code `STOPPED` carries, or `None` for a
+    /// clean stop (`dwWin32ExitCode` 0).
+    pub fn specific_code(&self) -> Option<u8> {
+        match self {
+            ServiceExit::Clean { .. } => None,
+            ServiceExit::Failed { code, .. } => Some(*code),
+            ServiceExit::DeadlineExpired { .. } => Some(EXIT_STOP_DEADLINE),
+        }
+    }
+
+    /// The Application-log entry that records this end (item 4).
+    pub fn entry(&self) -> Entry {
+        match self {
+            ServiceExit::Clean { undelivered } => Entry {
+                id: EVENT_STOPPED,
+                error: false,
+                text: format!(
+                    "cg-agent: the service stopped cleanly; events not delivered: {undelivered}"
+                ),
+            },
+            ServiceExit::Failed { code, line } => Entry {
+                id: EVENT_FAILED,
+                error: true,
+                text: format!("cg-agent: the service stopped with code {code}: {line}"),
+            },
+            ServiceExit::DeadlineExpired {
+                pending,
+                undelivered,
+            } => Entry {
+                id: EVENT_DEADLINE,
+                error: true,
+                text: format!(
+                    "cg-agent: the service stop deadline of {} s expired with {pending} pending; \
+                     events not delivered: {undelivered}",
+                    STOP_DEADLINE.as_secs()
+                ),
+            },
+        }
+    }
+}
+
+/// The entry 1000 text: the service runs, with its version.
+pub fn running_entry() -> Entry {
+    Entry {
+        id: EVENT_RUNNING,
+        error: false,
+        text: format!("cg-agent {}: the service is running", crate::AGENT_VERSION),
+    }
+}
+
+/// A configuration error's line for the service (item 4): it names the
+/// file and, for a parse error, the parser's line and column, and quotes
+/// no line of the file, which can carry a token. The other errors' texts
+/// carry no value of the file.
+pub fn config_error_line(path: &Path, error: &ConfigError) -> String {
+    let detail = match error {
+        ConfigError::Parse {
+            position: Some((line, column)),
+            ..
+        } => format!("TOML parse error at line {line}, column {column}"),
+        ConfigError::Parse { position: None, .. } => "TOML parse error".to_string(),
+        other => other.to_string(),
+    };
+    format!("cg-agent: invalid config {}: {detail}", path.display())
+}
+
+/// Load or enroll the identity in service mode (SPEC-002 Amendment
+/// 2026-10-27): an exhausted enrollment round (the console's code 4) is
+/// followed by another after `round_wait`, not by an exit; any other error
+/// ends it. `stop` resolving at any point — a request in flight, a retry's
+/// backoff or the wait between rounds — ends it at once with `None`.
+pub async fn ensure_identity_until_stopped<S>(
+    config: &AgentConfig,
+    config_path: &Path,
+    round_wait: Duration,
+    mut stop: Pin<&mut S>,
+) -> Option<Result<Identity, EnrollmentError>>
+where
+    S: Future<Output = ()>,
+{
+    loop {
+        let result = tokio::select! {
+            result = crate::identity::ensure_identity(config, config_path) => result,
+            _ = stop.as_mut() => return None,
+        };
+        match result {
+            Err(EnrollmentError::Unreachable {
+                attempts,
+                last_error,
+            }) => {
+                tracing::warn!(
+                    attempts,
+                    last_error = %last_error,
+                    wait_seconds = round_wait.as_secs(),
+                    "enrollment round exhausted; the next round waits"
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(round_wait) => {}
+                    _ = stop.as_mut() => return None,
+                }
+            }
+            other => return Some(other),
+        }
+    }
+}
+
+/// Run as the Windows service: hand the process to the SCM's dispatcher.
+/// Without a start by the SCM, exit 11 with item 2's line, before the
+/// configuration is read.
+pub fn run(config_path: std::path::PathBuf) -> ExitCode {
+    #[cfg(windows)]
+    {
+        windows::run(config_path)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = config_path;
+        eprintln!("{STDERR_NOT_STARTED_BY_SCM}");
+        ExitCode::from(EXIT_NOT_STARTED_BY_SCM)
+    }
+}

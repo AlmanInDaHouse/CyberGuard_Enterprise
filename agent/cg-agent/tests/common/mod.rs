@@ -492,6 +492,11 @@ pub struct TlsMockServer {
     _task: JoinHandle<()>,
 }
 
+/// A status a [`Responder`] returns to hold the request open and never
+/// answer it: the attempt is recorded with this status (SPEC-024
+/// install_ac_007, a stalled final request).
+pub const STALL: u16 = 0;
+
 /// Sees each parsed envelope before verification; `Some(status)` answers
 /// it with that status instead.
 pub type Responder = Arc<dyn Fn(&Value) -> Option<u16> + Send + Sync>;
@@ -715,6 +720,9 @@ async fn handle_tls_conn(
             let body_start = hdr_end + 4;
             if data.len() >= body_start + content_length {
                 let status = process_body(&data[body_start..body_start + content_length], &state);
+                if status == STALL {
+                    std::future::pending::<()>().await;
+                }
                 let resp = format!(
                     "HTTP/1.1 {status} {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
                     status_text(status)
