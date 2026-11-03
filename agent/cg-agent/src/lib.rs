@@ -101,19 +101,32 @@ pub fn log_lifecycle_event(message: &str, component: &str) {
 }
 
 /// The "agent starting" lifecycle line (SPEC-001 §Observability), with the
-/// product version (SPEC-024 §Data contracts §1). Before enrollment
-/// `agent.id` is the configured placeholder, not an enrolled identity
-/// (SPEC-024 §Data contracts §2).
+/// product version (SPEC-024 §Data contracts §1). It comes before the
+/// identity step, so its `agent.id` is the configured one, which
+/// `agent.id_source` says: with `[enrollment]` that is a placeholder, never
+/// a claimed enrolled identity (SPEC-024 §Data contracts §2); the
+/// server-issued id follows in [`log_identity_ready`].
 pub fn log_agent_starting(config: &AgentConfig) {
     tracing::info!(
         component = "main",
         agent.version = AGENT_VERSION,
         agent.id = %config.agent.id,
+        agent.id_source = "configuration",
         agent.platform = detect_platform(),
         agent.hostname = %config.agent.hostname,
         server.url = %config.server.url,
         heartbeat.interval_seconds = config.heartbeat.interval_seconds,
         "agent starting"
+    );
+}
+
+/// The identity is loaded or enrolled: the server-issued `agent.id`.
+pub fn log_identity_ready(agent_id: &str) {
+    tracing::info!(
+        component = "main",
+        agent.id = %agent_id,
+        agent.id_source = "identity",
+        "agent identity ready"
     );
 }
 

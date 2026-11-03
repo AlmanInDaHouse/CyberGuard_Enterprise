@@ -1132,6 +1132,8 @@ async fn install_ac_009_a_held_lock_stops_the_service_with_code_10() {
         &pki.trust_anchor_pem,
         &Knobs::default(),
     );
+    // The live instance this lock stands for has the agent's own fixed-name
+    // session: a refused instance must neither reclaim it nor stop another.
     const OTHER: &str = "CGAgent-UnrelatedSession-install-ac-007";
     let logman = |args: &[&str]| {
         std::process::Command::new("logman")
@@ -1140,11 +1142,10 @@ async fn install_ac_009_a_held_lock_stops_the_service_with_code_10() {
             .map(|o| o.status.success())
             .unwrap_or(false)
     };
-    let _ = logman(&["stop", OTHER, "-ets"]);
-    assert!(
-        logman(&["start", OTHER, "-ets", "-rt"]),
-        "start an unrelated session"
-    );
+    for name in [OTHER, SESSION_NAME] {
+        let _ = logman(&["stop", name, "-ets"]);
+        assert!(logman(&["start", name, "-ets", "-rt"]), "start {name}");
+    }
     let baseline = application_baseline();
     let service = TestService::create(&service_args(&config));
     let held = match instance_lock::acquire() {
@@ -1153,9 +1154,18 @@ async fn install_ac_009_a_held_lock_stops_the_service_with_code_10() {
     };
     let stopped = service.start_expecting_stop(Duration::from_secs(60));
     drop(held);
-    let survived = logman(&["query", OTHER, "-ets"]);
-    let _ = logman(&["stop", OTHER, "-ets"]);
-    assert!(survived, "a refused instance stops no ETW session");
+    let survived: Vec<bool> = [OTHER, SESSION_NAME]
+        .iter()
+        .map(|name| logman(&["query", name, "-ets"]))
+        .collect();
+    for name in [OTHER, SESSION_NAME] {
+        let _ = logman(&["stop", name, "-ets"]);
+    }
+    assert_eq!(
+        survived,
+        vec![true, true],
+        "a refused instance stops no ETW session, the agent's own name included"
+    );
     assert_stopped_with(&stopped, 10);
     assert_eq!(
         enroll.enroll_received_count(),
@@ -1384,4 +1394,15 @@ async fn install_ac_010_the_service_log_is_protected_json_lines() {
     assert_eq!(fields["agent.platform"], "windows");
     assert_eq!(fields["server.url"], enroll.base_url.as_str());
     assert_eq!(fields["heartbeat.interval_seconds"], 1);
+    assert_eq!(fields["agent.id_source"], "configuration");
+    let ready = lines
+        .iter()
+        .rev()
+        .find(|v| v["fields"]["message"] == "agent identity ready")
+        .unwrap_or_else(|| panic!("an \"agent identity ready\" line: {text:.2000}"));
+    assert_eq!(
+        ready["fields"]["agent.id"],
+        common::TEST_AGENT_ID,
+        "the identity's id, the server-issued one"
+    );
 }

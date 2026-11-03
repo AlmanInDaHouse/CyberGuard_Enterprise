@@ -418,4 +418,200 @@ async fn install_ac_010_the_starting_line_carries_spec_001_fields() {
     assert_eq!(fields["server.url"], mock.base_url.as_str());
     assert_eq!(fields["heartbeat.interval_seconds"], 1);
     assert_eq!(fields["agent.version"], cg_agent::AGENT_VERSION);
+    assert_eq!(
+        fields["agent.id_source"], "configuration",
+        "before the identity step the id is the configured one"
+    );
+}
+
+/// Hold `path` open the way a reader that does not share deletion does
+/// (Notepad, a tail): the file cannot be renamed while it is held.
+#[cfg(windows)]
+fn hold_without_delete_sharing(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ_WRITE)
+        .open(path)
+        .expect("hold the file")
+}
+
+/// A rotation that a reader blocks is not a failure: nothing moves, the
+/// log goes on in the same file, and the rotation completes once the
+/// reader lets go, with every line valid JSON and no archive lost.
+#[cfg(windows)]
+#[test]
+fn install_ac_010_a_rotation_a_reader_blocks_is_retried_not_failed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut log = RotatingLog::open(dir.path(), plain_opener()).expect("open the log");
+    let reported = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&reported);
+    log.on_failure(Box::new(move |reason| sink.lock().unwrap().push(reason)));
+    // Just below the bound: ~1.1 KB records, 8500 of them.
+    let per_file = 8500;
+    assert!(per_file as u64 * 1200 < MAX_FILE_BYTES);
+    for n in 0..per_file {
+        writeln!(log, "{}", record(n, 1000)).expect("write");
+    }
+    let reader = hold_without_delete_sharing(&dir.path().join(ACTIVE));
+    for n in per_file..per_file + 1000 {
+        writeln!(log, "{}", record(n, 1000)).expect("write");
+    }
+    assert!(
+        reported.lock().unwrap().is_empty(),
+        "a blocked rotation is not a failure"
+    );
+    assert_eq!(names(dir.path()), vec![ACTIVE.to_string()], "nothing moved");
+    drop(reader);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let last = per_file + 1000;
+    writeln!(log, "{}", record(last, 10)).expect("write");
+    drop(log);
+    assert!(reported.lock().unwrap().is_empty());
+    assert_eq!(
+        names(dir.path()),
+        vec![archive_name(1), ACTIVE.to_string()],
+        "the rotation completed"
+    );
+    let archived = lines(&dir.path().join(archive_name(1)));
+    let active = lines(&dir.path().join(ACTIVE));
+    assert_eq!(archived.len() + active.len(), last + 1, "no record lost");
+    assert_eq!(active.last().expect("a record")["fields"]["n"], last);
+}
+
+/// A rotation that keeps failing past the retry limit is a persistent
+/// failure, reported once.
+#[cfg(windows)]
+#[test]
+fn install_ac_010_a_rotation_that_keeps_failing_is_reported() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut log = RotatingLog::open(dir.path(), plain_opener()).expect("open the log");
+    log.set_rotation_retry_limit(std::time::Duration::ZERO);
+    let reported = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&reported);
+    log.on_failure(Box::new(move |reason| sink.lock().unwrap().push(reason)));
+    // Just below the bound: ~1.1 KB records, 8500 of them.
+    let per_file = 8500;
+    assert!(per_file as u64 * 1200 < MAX_FILE_BYTES);
+    for n in 0..per_file {
+        writeln!(log, "{}", record(n, 1000)).expect("write");
+    }
+    let _reader = hold_without_delete_sharing(&dir.path().join(ACTIVE));
+    for n in per_file..per_file + 1000 {
+        writeln!(log, "{}", record(n, 1000)).expect("write");
+    }
+    let reported = reported.lock().unwrap();
+    assert_eq!(reported.len(), 1, "reported once: {reported:?}");
+    assert!(reported[0].starts_with("rotate:"), "{}", reported[0]);
+}
+
+/// A writer that writes part of its first record to the file, then fails.
+struct PartlyFailing {
+    file: std::fs::File,
+    failed: bool,
+}
+
+impl Write for PartlyFailing {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if !self.failed {
+            self.failed = true;
+            self.file.write_all(&buf[..buf.len() / 2])?;
+            return Err(io::Error::other("disk full"));
+        }
+        self.file.write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
+/// A write that leaves part of a record before failing: the retry starts
+/// the record on a line of its own, so it is whole and valid JSON (the
+/// broken part stays as one line of its own).
+#[test]
+fn install_ac_010_a_partial_write_does_not_join_the_retried_record() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let opened = Arc::new(Mutex::new(0usize));
+    let count = Arc::clone(&opened);
+    let opener: Opener = Box::new(move |path: &Path| {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        let size = file.metadata()?.len();
+        let mut opened = count.lock().unwrap();
+        *opened += 1;
+        let writer: Box<dyn Write + Send> = if *opened == 1 {
+            Box::new(PartlyFailing {
+                file,
+                failed: false,
+            })
+        } else {
+            Box::new(file)
+        };
+        Ok((writer, size))
+    });
+    let mut log = RotatingLog::open(dir.path(), opener).expect("open the log");
+    writeln!(log, "{}", record(1, 100)).expect("write");
+    writeln!(log, "{}", record(2, 100)).expect("write");
+    drop(log);
+    let raw = std::fs::read_to_string(dir.path().join(ACTIVE)).expect("read");
+    let parsed: Vec<Value> = raw
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    assert_eq!(
+        parsed
+            .iter()
+            .map(|v| v["fields"]["n"].as_u64())
+            .collect::<Vec<_>>(),
+        vec![Some(1), Some(2)],
+        "both records whole, each on its own line: {raw:.300}"
+    );
+    assert_eq!(raw.lines().count(), 3, "one broken line, of the part");
+}
+
+/// Item 3: a file log that stopped writing turns a clean stop into code 13
+/// with its line; any other end keeps its code.
+#[test]
+fn install_ac_010_a_log_failure_turns_a_clean_stop_into_code_13() {
+    use cg_agent::service::{with_log_failure, ServiceExit};
+    let exit = with_log_failure(
+        ServiceExit::Clean { undelivered: 0 },
+        Some("write: disk full"),
+    );
+    assert_eq!(exit.specific_code(), Some(13));
+    let entry = exit.entry();
+    assert!(
+        entry
+            .text
+            .contains("cg-agent: the service log cannot be written: write: disk full"),
+        "{}",
+        entry.text
+    );
+    let failed = ServiceExit::Failed {
+        code: 9,
+        line: "cg-agent: insufficient privilege".to_string(),
+    };
+    assert_eq!(
+        with_log_failure(failed.clone(), Some("x")),
+        failed,
+        "a failure keeps its code"
+    );
+    assert_eq!(
+        with_log_failure(ServiceExit::Clean { undelivered: 1 }, None),
+        ServiceExit::Clean { undelivered: 1 }
+    );
+}
+
+/// SPEC-024 §Operational §3: no token at any log level — the config's
+/// `Debug` writes none.
+#[test]
+fn install_ac_010_the_configs_debug_writes_no_token() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let fixture = common::enrollment_fixture("https://127.0.0.1:9", "s54-debug-token-value", &pki);
+    let debug = format!("{:?}", fixture.config);
+    assert!(!debug.contains("s54-debug-token-value"), "{debug}");
+    assert!(debug.contains("<redacted>"), "{debug}");
 }

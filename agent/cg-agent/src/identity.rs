@@ -103,11 +103,20 @@ pub fn check_identity_set(config: &AgentConfig) -> Result<(), EnrollmentError> {
         ("the key", &enr.key_path),
         ("identity.json", &enr.identity_path),
     ];
-    let missing: Vec<&str> = files
-        .iter()
-        .filter(|(_, path)| !Path::new(path).exists())
-        .map(|(name, _)| *name)
-        .collect();
+    let mut missing = Vec::new();
+    for (name, path) in &files {
+        // A file that cannot be inspected is not taken as absent: that
+        // would enroll over it.
+        match Path::new(path).try_exists() {
+            Ok(true) => {}
+            Ok(false) => missing.push(*name),
+            Err(e) => {
+                return Err(EnrollmentError::Persistence(format!(
+                    "cannot inspect {name} at {path}: {e}"
+                )))
+            }
+        }
+    }
     if missing.is_empty() || missing.len() == files.len() {
         return Ok(());
     }

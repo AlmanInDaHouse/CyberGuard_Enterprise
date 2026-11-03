@@ -48,6 +48,8 @@ use crate::{Capture, StopOutcome};
 
 /// How often a pending state's checkpoint advances.
 const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(5);
+/// How often the status thread looks for a stop the handler recorded.
+const STOP_POLL: Duration = Duration::from_millis(250);
 /// The wait hint of a pending state, in milliseconds.
 const WAIT_HINT_MS: u32 = 15_000;
 /// How long `START_PENDING` may advance its checkpoint: past it the SCM
@@ -234,13 +236,7 @@ async fn supervise(
             }
         }
     };
-    match (LOG_FAILURE.get(), &exit) {
-        (Some(reason), ServiceExit::Clean { .. }) => ServiceExit::Failed {
-            code: EXIT_SERVICE_LOG,
-            line: stderr_service_log(reason),
-        },
-        _ => exit,
-    }
+    super::with_log_failure(exit, LOG_FAILURE.get().map(String::as_str))
 }
 
 /// The console's secure runtime under the states of item 3.
@@ -298,8 +294,9 @@ async fn serve(
     crate::log_agent_starting(&config);
     tracing::info!(component = "service", "running as the Windows service");
 
-    status.running();
-    events.write(&running_entry());
+    if status.running() {
+        events.write(&running_entry());
+    }
 
     // SPEC-002 Amendment 2026-10-27: only an absent identity set starts
     // enrollment; an incomplete one fails closed.
@@ -325,6 +322,7 @@ async fn serve(
         // The stop arrived as the identity step ended: no capture starts.
         return ServiceExit::Clean { undelivered: 0 };
     }
+    crate::log_identity_ready(&identity.agent_id);
     config.agent.id = identity.agent_id.clone();
     let outcome = crate::run_secure_within(
         config,
@@ -364,10 +362,12 @@ struct Status {
     stop_requested: AtomicBool,
 }
 
-/// The reported status and when its state began.
+/// The reported status, when its state began and when its checkpoint
+/// last advanced.
 struct Current {
     status: SERVICE_STATUS,
     since: Instant,
+    ticked: Instant,
 }
 
 /// The SCM's status handle, which any thread of the service may use.
@@ -393,6 +393,7 @@ impl Status {
                     dwWaitHint: 0,
                 },
                 since: Instant::now(),
+                ticked: Instant::now(),
             }),
             changed: Condvar::new(),
             stop_requested: AtomicBool::new(false),
@@ -416,6 +417,7 @@ impl Status {
         current.status.dwCheckPoint = u32::from(pending);
         current.status.dwWaitHint = if pending { WAIT_HINT_MS } else { 0 };
         current.since = Instant::now();
+        current.ticked = current.since;
         self.report(&current.status);
         self.changed.notify_all();
     }
@@ -426,7 +428,8 @@ impl Status {
     }
 
     /// `RUNNING`, accepting STOP and SHUTDOWN alone; never after a stop.
-    fn running(&self) {
+    /// Whether it was reported.
+    fn running(&self) -> bool {
         let mut current = self.lock();
         if current.status.dwCurrentState == SERVICE_START_PENDING
             && !self.stop_requested.load(Ordering::SeqCst)
@@ -436,7 +439,9 @@ impl Status {
                 SERVICE_RUNNING,
                 SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN,
             );
+            return true;
         }
+        false
     }
 
     /// Called by the control handler: set the flag and wake the status
@@ -471,9 +476,11 @@ impl Status {
                 self.enter(&mut current, SERVICE_STOP_PENDING, 0);
                 continue;
             }
-            let (guard, timeout) = self
+            // The handler sets its flag without the lock, so a wake-up can
+            // be missed: the thread also looks every STOP_POLL.
+            let (guard, _) = self
                 .changed
-                .wait_timeout(current, CHECKPOINT_INTERVAL)
+                .wait_timeout(current, STOP_POLL)
                 .unwrap_or_else(|e| e.into_inner());
             current = guard;
             let cap = match current.status.dwCurrentState {
@@ -481,8 +488,9 @@ impl Status {
                 SERVICE_STOP_PENDING => STOP_PENDING_CAP,
                 _ => continue,
             };
-            if timeout.timed_out() && current.since.elapsed() < cap {
+            if current.ticked.elapsed() >= CHECKPOINT_INTERVAL && current.since.elapsed() < cap {
                 current.status.dwCheckPoint += 1;
+                current.ticked = Instant::now();
                 self.report(&current.status);
             }
         }
