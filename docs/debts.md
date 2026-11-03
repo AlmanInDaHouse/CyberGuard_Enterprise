@@ -23,10 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 50** at Session 52's close, the count `docs/handoff-session-52.md` states.
+**Open: 50** at Session 53's close, the count `docs/handoff-session-53.md` states
+(Session 53 opened and closed none: install_ac_009 is roadmap F2 work, not a debt).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 52's close, `docs/handoff-session-52.md#how-session-53-resumes`);
+Session N resumes* (at Session 53's close, `docs/handoff-session-53.md#how-session-54-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts

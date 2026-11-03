@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-52.md](../handoff-session-52.md)).
+([handoff-session-53.md](../handoff-session-53.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -397,8 +397,11 @@ This dependency-ordered document supersedes both for planning.
   release's tag check (#139, `d9932a6`) and the executable's version
   resource (`cf59c12`). S52 landed the CLAUDE.md change for the SCM/SYSTEM
   tests (`3c0ffa7`), the ADR-0008 and ADR-0010 amendments (`9d91b7c`) and
-  SPEC-024's second amendment, the service's outcomes (`19fdee2`); the
-  instance lock (install_ac_009) is next (`docs/handoff-session-52.md`).
+  SPEC-024's second amendment, the service's outcomes (`19fdee2`). S53
+  implemented the instance lock (install_ac_009) on
+  `feat/s53-install-ac-009` (PR #79, CI ALL GREEN); it waits for the
+  elevated gate before landing (`docs/handoff-session-53.md`). The service
+  (install_ac_007), the logs (install_ac_010) and packaging follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
