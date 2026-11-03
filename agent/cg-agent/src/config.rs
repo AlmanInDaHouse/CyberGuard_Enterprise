@@ -87,7 +87,9 @@ pub struct LogConfig {
 /// table in `agent.toml`. Paths are required and explicit — the installer
 /// template points them at the `%ProgramData%\CyberGuard\agent\` defaults
 /// documented in SPEC-002 §Default paths; tests point them at a temp dir.
-#[derive(Debug, Deserialize, Clone)]
+/// Its `Debug` writes no token value: the token is a secret at every log
+/// level (SPEC-024 §Operational §3).
+#[derive(Deserialize, Clone)]
 pub struct EnrollmentConfig {
     /// Single-use, server-issued enrollment token. Required on first run
     /// only (FR-002); `None` once identity is persisted, and dropped from
@@ -108,6 +110,21 @@ pub struct EnrollmentConfig {
     pub backoff_initial_ms: u64,
     #[serde(default = "default_enrollment_backoff_factor")]
     pub backoff_factor: f64,
+}
+
+impl std::fmt::Debug for EnrollmentConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnrollmentConfig")
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("cert_path", &self.cert_path)
+            .field("key_path", &self.key_path)
+            .field("identity_path", &self.identity_path)
+            .field("timeout_seconds", &self.timeout_seconds)
+            .field("max_retries", &self.max_retries)
+            .field("backoff_initial_ms", &self.backoff_initial_ms)
+            .field("backoff_factor", &self.backoff_factor)
+            .finish()
+    }
 }
 
 impl Default for HeartbeatConfig {

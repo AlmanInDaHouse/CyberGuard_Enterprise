@@ -89,6 +89,35 @@ pub fn is_enrolled(config: &AgentConfig) -> bool {
     }
 }
 
+/// The installed service's identity check (SPEC-002 Amendment 2026-10-27):
+/// only an absent identity set starts enrollment, and a set with some of
+/// its three files but not all fails closed — no enrollment, no heartbeat,
+/// nothing overwritten — with the repair action. Exit code 5. The console
+/// keeps FR-001's check.
+pub fn check_identity_set(config: &AgentConfig) -> Result<(), EnrollmentError> {
+    let Some(enr) = config.enrollment.as_ref() else {
+        return Ok(());
+    };
+    let files = [
+        ("the certificate", &enr.cert_path),
+        ("the key", &enr.key_path),
+        ("identity.json", &enr.identity_path),
+    ];
+    let missing: Vec<&str> = files
+        .iter()
+        .filter(|(_, path)| !Path::new(path).exists())
+        .map(|(name, _)| *name)
+        .collect();
+    if missing.is_empty() || missing.len() == files.len() {
+        return Ok(());
+    }
+    Err(EnrollmentError::Persistence(format!(
+        "incomplete identity: {} missing; restore the identity, or remove all three files \
+         and enroll with a new token",
+        missing.join(" and ")
+    )))
+}
+
 /// LoadIdentity (FR-008): read cert + decrypt key + cross-check the
 /// pubkey fingerprint against `identity.json`. Any failure is exit code
 /// `5` (carried by `EnrollmentError::Persistence`).

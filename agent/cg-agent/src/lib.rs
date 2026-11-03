@@ -323,18 +323,22 @@ where
     // Stop the logon thread (it closes its subscription), then the session,
     // and wait for both before the final POST, so the events they flushed
     // on the way out ride in it (SPEC-020 §Operational §6).
-    let teardown = async {
-        if let Some(mut logons) = logons.take() {
-            let _ = tokio::task::spawn_blocking(move || logons.stop()).await;
+    // Both sources move into one blocking task: if the deadline cuts it
+    // short, it goes on detached, and nothing is dropped (so stopped)
+    // synchronously here.
+    let (logons, session) = (logons.take(), session.take());
+    let teardown = tokio::task::spawn_blocking(move || {
+        if let Some(mut logons) = logons {
+            logons.stop();
         }
-        if let Some(mut session) = session.take() {
-            let _ = tokio::task::spawn_blocking(move || session.stop()).await;
+        if let Some(mut session) = session {
+            session.stop();
         }
-    };
+    });
     let torn_down = match deadline {
         Some(deadline) => tokio::time::timeout_at(deadline, teardown).await.is_ok(),
         None => {
-            teardown.await;
+            let _ = teardown.await;
             true
         }
     };

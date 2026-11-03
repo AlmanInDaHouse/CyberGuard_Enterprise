@@ -380,7 +380,7 @@ fn install_ac_007_outcomes_carry_their_codes_and_entries() {
 
     let expired = ServiceExit::DeadlineExpired {
         pending: PENDING_FINAL_REQUEST,
-        undelivered: 7,
+        undelivered: Some(7),
     };
     assert_eq!(expired.specific_code(), Some(12));
     let entry = expired.entry();
@@ -388,7 +388,74 @@ fn install_ac_007_outcomes_carry_their_codes_and_entries() {
     assert!(entry.text.contains(PENDING_FINAL_REQUEST), "{}", entry.text);
     assert!(entry.text.contains("not delivered: 7"), "{}", entry.text);
 
+    let unknown = ServiceExit::DeadlineExpired {
+        pending: service::PENDING_UNKNOWN,
+        undelivered: None,
+    }
+    .entry();
+    assert!(
+        unknown.text.contains("not delivered: unknown"),
+        "a count the run did not report is not invented: {}",
+        unknown.text
+    );
+    assert!(
+        service::STOP_BUDGET < STOP_DEADLINE,
+        "the run reports before the watchdog"
+    );
+
     let running = service::running_entry();
     assert_eq!((running.id, running.error), (EVENT_RUNNING, false));
     assert!(running.text.contains(cg_agent::AGENT_VERSION));
+}
+
+/// SPEC-024 §Data contracts §2 and §Operational §3: the installed service
+/// runs the secure path alone; a configuration without `[enrollment]` is a
+/// configuration error naming the file.
+#[test]
+fn install_ac_007_the_service_refuses_the_plain_path() {
+    let plain = common::write_temp_config(
+        "[server]
+         url = \"http://127.0.0.1:9\"
+         [agent]
+         id = \"01934abc-def0-7000-89ab-000000000007\"
+         hostname = \"TEST-PC\"
+",
+    );
+    let config = cg_agent::config::load_from_path(plain.path()).expect("a valid plain config");
+    let line = service::check_service_config(plain.path(), &config).expect_err("refused");
+    assert!(line.contains(&plain.path().display().to_string()), "{line}");
+    assert!(line.contains("requires [enrollment]"), "{line}");
+
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let fixture = common::enrollment_fixture("https://127.0.0.1:9", "tok", &pki);
+    service::check_service_config(&fixture.config_path, &fixture.config).expect("secure");
+}
+
+/// SPEC-002 Amendment 2026-10-27: in service mode an incomplete identity
+/// set fails closed (code 5, naming what is missing and the repair); an
+/// absent or complete set goes on.
+#[test]
+fn install_ac_007_an_incomplete_identity_set_fails_closed() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let fixture = common::enrollment_fixture("https://127.0.0.1:9", "tok", &pki);
+    cg_agent::identity::check_identity_set(&fixture.config).expect("absent: enroll");
+
+    std::fs::write(&fixture.cert_path, "partial").expect("write the certificate alone");
+    let error = cg_agent::identity::check_identity_set(&fixture.config).expect_err("incomplete");
+    assert_eq!(error.exit_code(), 5);
+    let line = error.stderr_line();
+    assert!(
+        line.starts_with("cg-agent: identity error: incomplete identity"),
+        "{line}"
+    );
+    assert!(line.contains("the key and identity.json missing"), "{line}");
+    assert_eq!(
+        std::fs::read_to_string(&fixture.cert_path).expect("kept"),
+        "partial",
+        "nothing is overwritten"
+    );
+
+    std::fs::write(&fixture.key_path, "k").expect("key");
+    std::fs::write(&fixture.identity_path, "{}").expect("identity");
+    cg_agent::identity::check_identity_set(&fixture.config).expect("complete: load");
 }

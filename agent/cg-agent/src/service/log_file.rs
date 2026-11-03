@@ -89,8 +89,9 @@ fn program_data() -> Result<PathBuf, String> {
     }
     // SAFETY: a NUL-terminated wide string from the call.
     let path = unsafe {
+        use std::os::windows::ffi::OsStringExt;
         let len = (0..).take_while(|&i| *raw.add(i) != 0).count();
-        String::from_utf16_lossy(std::slice::from_raw_parts(raw, len))
+        std::ffi::OsString::from_wide(std::slice::from_raw_parts(raw, len))
     };
     // SAFETY: the string the call allocated, freed once.
     unsafe { CoTaskMemFree(raw.cast()) };

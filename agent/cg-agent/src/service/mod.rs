@@ -50,9 +50,17 @@ pub fn stderr_service_log(reason: &str) -> String {
     format!("cg-agent: the service log cannot be written: {reason}")
 }
 
-/// The service's stop deadline: teardown and the final request together
-/// (SPEC-024 §Operational §3).
+/// The service's stop deadline, from the STOP control: teardown and the
+/// final request together (SPEC-024 §Operational §3).
 pub const STOP_DEADLINE: Duration = Duration::from_secs(60);
+
+/// The run's own budget from the moment it sees the stop: inside the
+/// deadline, so that the run reports what was pending and how many events
+/// it lost before the watchdog has to end it without knowing.
+pub const STOP_BUDGET: Duration = Duration::from_secs(58);
+
+/// What was pending when the watchdog, not the run, ended the stop.
+pub const PENDING_UNKNOWN: &str = "the agent's stop, at a point the run did not report";
 
 /// The wait between two exhausted enrollment rounds in service mode
 /// (SPEC-002 Amendment 2026-10-27: at least 60 seconds).
@@ -77,10 +85,11 @@ pub enum ServiceExit {
     /// A failure, with the code the console would exit with (or 13) and
     /// the cause's line.
     Failed { code: u8, line: String },
-    /// The stop deadline expired with `pending` still to do.
+    /// The stop deadline expired with `pending` still to do; `undelivered`
+    /// is `None` when the run could not count the events it lost.
     DeadlineExpired {
         pending: &'static str,
-        undelivered: usize,
+        undelivered: Option<usize>,
     },
 }
 
@@ -126,8 +135,9 @@ impl ServiceExit {
                 error: true,
                 text: format!(
                     "cg-agent: the service stop deadline of {} s expired with {pending} pending; \
-                     events not delivered: {undelivered}",
-                    STOP_DEADLINE.as_secs()
+                     events not delivered: {}",
+                    STOP_DEADLINE.as_secs(),
+                    undelivered.map_or_else(|| "unknown".to_string(), |n| n.to_string())
                 ),
             },
         }
@@ -159,6 +169,20 @@ pub fn config_error_line(path: &Path, error: &ConfigError) -> String {
     format!("cg-agent: invalid config {}: {detail}", path.display())
 }
 
+/// The installed service runs the secure path alone (SPEC-024 §Data
+/// contracts §2 and §Operational §3: no silent plain HTTP): its
+/// configuration has `[enrollment]` and a trust anchor, which the loader
+/// already ties to `https://` URLs. The error is the cause's line.
+pub fn check_service_config(path: &Path, config: &AgentConfig) -> Result<(), String> {
+    if config.enrollment.is_none() || config.server.trust_anchor_path.is_none() {
+        return Err(format!(
+            "cg-agent: invalid config {}: the service requires [enrollment] and server.trust_anchor_path",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 /// Load or enroll the identity in service mode (SPEC-002 Amendment
 /// 2026-10-27): an exhausted enrollment round (the console's code 4) is
 /// followed by another after `round_wait`, not by an exit; any other error
@@ -175,8 +199,9 @@ where
 {
     loop {
         let result = tokio::select! {
-            result = crate::identity::ensure_identity(config, config_path) => result,
+            biased;
             _ = stop.as_mut() => return None,
+            result = crate::identity::ensure_identity(config, config_path) => result,
         };
         match result {
             Err(EnrollmentError::Unreachable {
@@ -190,8 +215,9 @@ where
                     "enrollment round exhausted; the next round waits"
                 );
                 tokio::select! {
-                    _ = tokio::time::sleep(round_wait) => {}
+                    biased;
                     _ = stop.as_mut() => return None,
+                    _ = tokio::time::sleep(round_wait) => {}
                 }
             }
             other => return Some(other),
