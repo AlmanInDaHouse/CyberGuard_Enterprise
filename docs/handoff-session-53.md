@@ -1,11 +1,11 @@
 # Handoff — Session 53
 
-Session 53, 2026-11-03, continues F2 under SPEC-024: it implements
-`install_ac_009`, the agent's per-host instance lock. The code is complete
-and green on a branch with a PR; it is **not on `main`**, because the
-change touches the capture path and so waits for the elevated gate before
-landing (*Compensating controls* §4). This session's only change to `main`
-is this handoff and the pointers that cite it.
+Session 53, 2026-11-03, continues F2 under SPEC-024: it implements and
+**lands** `install_ac_009`, the agent's per-host instance lock, on `main`
+as `aacc5e1`, CI ALL GREEN, with the elevated gate (the capture path,
+*Compensating controls* §4) green including the SPEC-005/006 marquees. The
+elevated gate ran twice — gate 1 surfaced a test bug and a Docker-down
+(both fixed), gate 2 passed (*Elevated gate 1*, *Elevated gate 2*).
 
 ## Start and resulting state
 
@@ -13,18 +13,21 @@ is this handoff and the pointers that cite it.
   no PR open. Open debts 50; Known CI debt none; catalogs 22 ADRs / 23
   SPECs. `main`'s tip CI was green (`markdown-lint → success`). Repo and
   `docs/handoff-session-52.md` agreed; no discrepancy.
-- Work done, on a branch, **not landed**:
-  - `feat/s53-install-ac-009` @ `a168cf1` (one commit), PR **#79** open.
-    CI on `a168cf1` is **ALL GREEN**: `rust-ci`, `ts-ci`, `markdown-lint`,
-    `deploy-ci` all `success`. The push was `ffa8058`, amended to `d17ae29`
-    (a Linux-clippy fix, below), to `bc293ff` (the review fixes, below), and
-    to `a168cf1` (the `classify_token` test fix the elevated gate surfaced,
-    *Elevated gate 1* below); the force-pushes are the branch's own,
-    pre-landing (*Integration path* §3).
-- Resulting `main`: unchanged but for this handoff's docs commit. The
-  feature branch stays open, named here with its reason: the elevated gate's
-  capture-marquee half (Manuel's) has not passed yet, and the change does
-  not land without it (*Elevated gate 1*, *Waiting on Manuel*).
+- Work **landed on `main`** as `aacc5e1`, `feat(agent): the per-host
+  instance lock (install_ac_009)`, CI ALL GREEN (`rust-ci`, `ts-ci`,
+  `markdown-lint` `success`; `deploy-ci` is PR-only and does not run on a
+  push to `main`, which is why it is absent here — it was green on the PR).
+  - The feature lived on `feat/s53-install-ac-009`: pushed `ffa8058`,
+    amended to `d17ae29` (a Linux-clippy fix, below), `bc293ff` (the review
+    fixes, below), `a168cf1` (the `classify_token` test fix the elevated
+    gate surfaced, *Elevated gate 1* below), then rebased onto `main` as
+    `f278ebb` (CI ALL GREEN) and landed by `git merge --squash` with the
+    `git diff --cached --quiet` guard holding against `f278ebb`'s tree
+    (*Integration path* §3). PR **#79** closed; the branch is deleted, local
+    and origin.
+- Resulting `main`: `aacc5e1`, clean, CI ALL GREEN; no branches, no open
+  PRs. Besides the feature it carries this session's three docs commits
+  (the S52→S53 close, the gate-1 update, and this landed update).
 - Catalogs unchanged: 22 ADRs / 23 SPECs (no new document; the contract
   was the SPEC-024/ADR-0008/ADR-0010 amendments already Accepted on `main`).
 
@@ -188,11 +191,18 @@ neither a defect in the production lock:
    passed but for point 1. `C:\tmp\s53-gate2.ps1` now starts Docker Desktop
    and waits before the vitest step.
 
-- **Elevated gate 2: PENDING.** The capture marquees (SPEC-005/006) are the
-  one part CI cannot run; the production capture path is unchanged since
-  `bc293ff` (the `a168cf1` delta is test-only), and `rust-ci` validated the
-  agent `--ignored` tests on an elevated runner, so gate 2's load-bearing
-  job is the marquees. The change does not land until gate 2 is read green.
+**Elevated gate 2 (run by Manuel) GREEN.** `C:\tmp\s53-gate2.ps1` on
+`a168cf1`, elevated, Docker up (29.1.2): `cargo build --release` ok; the
+`--ignored` run passed (`classify_token` ok, install_ac_009's four real
+cases ok, no FAILED); and vitest **85 files / 503 passed, 2 skipped**, the
+capture marquees among them — `spec-005-marquee` (real cg-agent → 2
+ClickHouse rows), `detect_ac_001` (winword→powershell → exactly 1
+`office_spawns_script_host` alert), `ac-001`/net/auth/late. The lock does
+not break the marquees. This cleared the capture-path gate (*Compensating
+controls* §4). The landing SHA `f278ebb`/`aacc5e1` carries `a168cf1`'s
+runtime tree byte-for-byte (the rebase only re-based onto `main`'s docs
+commits), so the gate-2 evidence holds for it (*Elevated gate evidence
+validity*).
 
 ## Test baselines at close
 
@@ -201,11 +211,9 @@ neither a defect in the production lock:
   conditional tests that run where the host's token controls ETW (the
   ControlsEtw-binary end-to-end and `restricted_ordinary_token_is_ordinary`);
   its 4 real-Win32 cases are `#[ignore]`d.
-- Elevated: the agent `--ignored` tests are GREEN via `rust-ci` on
-  `a168cf1`. The ingest vitest marquees are PENDING gate 2
-  (`C:\tmp\s53-gate2.ps1`); the lock does not break them (the vitest config
-  runs one file at a time, so one agent holds the lock at a time, and an
-  elevated marquee agent is the sole instance).
+- Elevated: the agent `--ignored` tests are GREEN via `rust-ci` (and the
+  elevated gate); the ingest vitest marquees are GREEN via elevated gate 2
+  (85 files / 503 passed, 2 skipped).
 
 ## Debts
 
@@ -220,43 +228,29 @@ neither a defect in the production lock:
 
 ## Waiting on Manuel
 
-1. **Elevated gate 2 for install_ac_009** (gate 1's re-run; *Elevated gate
-   1* above). From an elevated Windows PowerShell, with the working tree on
-   `feat/s53-install-ac-009` @ `a168cf1` (it is left there):
+install_ac_009 is landed and its gates are green; nothing on it waits.
+Carried forward (unchanged from `docs/handoff-session-52.md#waiting-on-manuel`):
 
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File C:\tmp\s53-gate2.ps1
-   ```
-
-   It starts Docker Desktop if the engine is down (waits up to 180 s),
-   builds the release binary, runs `cargo test -p cg-agent --ignored
-   --test-threads=1` and the ingest `pnpm test` (the capture marquees);
-   logs land in `C:\tmp\s53-gate2-*.log` (UTF-16). Claude Code reads them; a
-   green run — above all the marquees — lets the branch land.
-2. **#141's texts** and **the probe pull request** (SPEC-024 Amendment
-   2026-11-01 point 4) remain, as `docs/handoff-session-52.md#waiting-on-manuel`
-   had them.
+1. **#141's texts** and **the probe pull request** (SPEC-024 Amendment
+   2026-11-01 point 4) — due with or right after the first SCM/SYSTEM test
+   (install_ac_007, a later session).
 
 ## How Session 54 resumes
 
-1. Start protocol (CLAUDE.md). `main` should be this handoff's close commit;
-   the feature is on `feat/s53-install-ac-009` @ `a168cf1` with PR #79 and
-   CI ALL GREEN. Recheck C:, memory and Docker before builds.
-2. **If elevated gate 2 has not passed, it is the first thing** (*Waiting on
-   Manuel* 1; `C:\tmp\s53-gate2.ps1`). Read its logs — above all the vitest
-   marquees; diagnose any failure from them (*Compensating controls* §2).
-3. **Land install_ac_009** once the gate is green (*Integration path* §3):
-   if `main` moved, rebase the branch and force-with-lease; then land by
-   `git merge --squash` (one-commit branch) with `git diff --cached --quiet
-   feat/s53-install-ac-009` as the guard, CI green on the push; close PR #79
-   and delete the branch, local and origin. Update this handoff's state and
-   the roadmap's install_ac_009 status to landed in that same session.
-4. **Then**, with margin: the probe pull request for the SCM/SYSTEM tests
-   and #141's texts on an owner-review branch (both as
-   `docs/handoff-session-52.md#how-session-53-resumes` set out).
-5. Later: install_ac_007 (the service), install_ac_010 with #137 (logs),
-   #87 (custody), then packaging. Keep #50/#59 explicit and the release
-   freeze active.
+1. Start protocol (CLAUDE.md). `main` is this handoff's close commit, with
+   install_ac_009 landed at `aacc5e1` (CI ALL GREEN); no branches, no open
+   PRs; 50 open debts; 22 ADR / 23 SPEC. Recheck C:, memory and Docker
+   before builds.
+2. **The probe pull request** for the SCM/SYSTEM tests (SPEC-024 Amendment
+   2026-11-01 point 4; CLAUDE.md control §1): a step of rust-ci's Windows
+   job that cannot fail, on a PR closed without landing, its log the red
+   evidence. Only before the first such test (install_ac_007).
+3. **#141's texts** on an owner-review branch, with the probe or right after
+   (as `docs/handoff-session-52.md#how-session-53-resumes` set them out).
+4. Later, in order: install_ac_007 (the service), install_ac_010 with #137
+   (logs), #87 (custody), then packaging (install_ac_015, #131, #140; the
+   .NET SDK and WiX first use, reported before it runs). Keep #50/#59
+   explicit and the release freeze active.
 
 ## Environment and memory
 

@@ -398,10 +398,10 @@ This dependency-ordered document supersedes both for planning.
   resource (`cf59c12`). S52 landed the CLAUDE.md change for the SCM/SYSTEM
   tests (`3c0ffa7`), the ADR-0008 and ADR-0010 amendments (`9d91b7c`) and
   SPEC-024's second amendment, the service's outcomes (`19fdee2`). S53
-  implemented the instance lock (install_ac_009) on
-  `feat/s53-install-ac-009` (PR #79, CI ALL GREEN); it waits for the
-  elevated gate before landing (`docs/handoff-session-53.md`). The service
-  (install_ac_007), the logs (install_ac_010) and packaging follow.
+  landed the instance lock (install_ac_009) on `main` as `aacc5e1` (CI ALL
+  GREEN; elevated gate green incl. the SPEC-005/006 marquees;
+  `docs/handoff-session-53.md`). The service (install_ac_007), the logs
+  (install_ac_010), custody (#87) and packaging follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
