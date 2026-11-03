@@ -129,6 +129,8 @@ struct Observed {
     longest_checkpoint_gap: Duration,
     /// The largest wait hint a pending state reported, in milliseconds.
     largest_wait_hint: u32,
+    /// How many times a pending state's checkpoint was seen to advance.
+    checkpoint_advances: u32,
 }
 
 /// A service this test created, LocalSystem and own-process, running the
@@ -234,12 +236,19 @@ impl TestService {
         let mut last_change = started;
         let mut longest_checkpoint_gap = Duration::ZERO;
         let mut largest_wait_hint = 0u32;
+        let mut checkpoint_advances = 0u32;
         loop {
             let status = self.status();
             let now = Instant::now();
             let seen = (status.dwCurrentState, status.dwCheckPoint);
             if last_seen != Some(seen) {
-                if let Some((previous_state, _)) = last_seen {
+                if let Some((previous_state, previous_checkpoint)) = last_seen {
+                    if previous_state == status.dwCurrentState
+                        && is_pending(previous_state)
+                        && status.dwCheckPoint > previous_checkpoint
+                    {
+                        checkpoint_advances += 1;
+                    }
                     if previous_state == status.dwCurrentState || is_pending(previous_state) {
                         longest_checkpoint_gap =
                             longest_checkpoint_gap.max(now.duration_since(last_change));
@@ -256,6 +265,7 @@ impl TestService {
                     status,
                     longest_checkpoint_gap,
                     largest_wait_hint,
+                    checkpoint_advances,
                 };
             }
             assert!(
@@ -495,6 +505,30 @@ fn agent_entries_after(baseline: u64) -> Vec<Entry> {
     entries
 }
 
+/// The entries after `baseline` once every id of `expected` is among them,
+/// waiting up to 10 s for the event log to commit them.
+fn wait_entries(baseline: u64, expected: &[u32]) -> Vec<Entry> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let entries = agent_entries_after(baseline);
+        let complete = expected
+            .iter()
+            .all(|id| entries.iter().any(|entry| entry.event_id == *id));
+        if complete || Instant::now() >= deadline {
+            return entries;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Item 3: a start that fails before `RUNNING` writes no entry 1000.
+fn assert_never_ran(entries: &[Entry]) {
+    assert!(
+        !entries.iter().any(|entry| entry.event_id == 1000),
+        "the service never reported RUNNING: {entries:#?}"
+    );
+}
+
 fn entry(entries: &[Entry], event_id: u32) -> &Entry {
     entries
         .iter()
@@ -649,7 +683,17 @@ impl SilentListener {
 async fn install_ac_007_stop_during_delivery_is_clean_and_permits_restart() {
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
-    let heartbeat = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
+    // When each final going_offline request arrives, whether the agent's
+    // ETW session still runs: the capture stops before the final send.
+    let at_final_send = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = Arc::clone(&at_final_send);
+    let responder: common::Responder = Arc::new(move |envelope| {
+        if common::envelope_status(envelope) == "going_offline" {
+            seen.lock().unwrap().push(events_lost(SESSION_NAME));
+        }
+        None
+    });
+    let heartbeat = common::TlsMockServer::start_with_responder(&pki, responder).await;
     let dir = tempfile::tempdir().expect("tempdir");
     let config = write_config(
         dir.path(),
@@ -713,6 +757,11 @@ async fn install_ac_007_stop_during_delivery_is_clean_and_permits_restart() {
             Err(4201),
             "start {round}: a normal stop leaves no agent ETW session"
         );
+        assert_eq!(
+            at_final_send.lock().unwrap().last().copied(),
+            Some(Err(4201)),
+            "start {round}: the session was stopped when the final request arrived"
+        );
     }
     assert_eq!(
         enroll.enroll_received_count(),
@@ -720,7 +769,7 @@ async fn install_ac_007_stop_during_delivery_is_clean_and_permits_restart() {
         "the persisted identity is loaded, never re-enrolled"
     );
 
-    let entries = agent_entries_after(baseline);
+    let entries = wait_entries(baseline, &[1000, 1001]);
     let running = entry(&entries, 1000);
     assert_eq!(running.level, LEVEL_INFORMATION, "1000 is information");
     assert!(
@@ -802,7 +851,7 @@ async fn install_ac_007_stop_during_an_enrollment_retry_wait_is_prompt() {
         0,
         "no heartbeat without identity"
     );
-    let entries = agent_entries_after(baseline);
+    let entries = wait_entries(baseline, &[1001]);
     entry(&entries, 1001);
 }
 
@@ -962,6 +1011,11 @@ async fn install_ac_007_a_stalled_final_request_expires_the_deadline_with_code_1
         "the stop ends at its 60 s deadline, took {took:?}"
     );
     assert_pending_progress(&stopped, "STOP_PENDING");
+    assert!(
+        stopped.checkpoint_advances >= 5,
+        "a 60 s STOP_PENDING advanced its checkpoint {} times",
+        stopped.checkpoint_advances
+    );
     assert_stopped_with(&stopped.status, 12);
     assert!(
         heartbeat
@@ -976,11 +1030,25 @@ async fn install_ac_007_a_stalled_final_request_expires_the_deadline_with_code_1
         Err(4201),
         "the capture stopped before the final request"
     );
-    let entries = agent_entries_after(baseline);
+    let entries = wait_entries(baseline, &[1003]);
     let expired = entry(&entries, 1003);
     assert_eq!(expired.level, LEVEL_ERROR, "1003 is an error");
     assert!(
-        expired.data.contains("not delivered"),
+        expired.data.contains(cg_agent::PENDING_FINAL_REQUEST),
+        "1003 names the work still pending: {expired:?}"
+    );
+    let count = expired
+        .data
+        .split("not delivered: ")
+        .nth(1)
+        .map(|rest| {
+            rest.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .unwrap_or_default();
+    assert!(
+        !count.is_empty(),
         "1003 counts the events not delivered: {expired:?}"
     );
     assert!(
@@ -997,7 +1065,8 @@ fn install_ac_007_a_relative_config_in_service_mode_is_code_2() {
     let service = TestService::create("--service --config agent.toml");
     let stopped = service.start_expecting_stop(Duration::from_secs(60));
     assert_stopped_with(&stopped, 2);
-    let entries = agent_entries_after(baseline);
+    let entries = wait_entries(baseline, &[1002]);
+    assert_never_ran(&entries);
     let failed = entry(&entries, 1002);
     assert_eq!(failed.level, LEVEL_ERROR, "1002 is an error");
     assert!(
@@ -1030,7 +1099,8 @@ fn install_ac_007_an_invalid_config_names_the_file_and_quotes_no_line() {
     let service = TestService::create(&service_args(&config_path));
     let stopped = service.start_expecting_stop(Duration::from_secs(60));
     assert_stopped_with(&stopped, 2);
-    let entries = agent_entries_after(baseline);
+    let entries = wait_entries(baseline, &[1002]);
+    assert_never_ran(&entries);
     let failed = entry(&entries, 1002);
     assert!(
         failed.data.contains(&config_path.display().to_string()),
@@ -1062,6 +1132,19 @@ async fn install_ac_009_a_held_lock_stops_the_service_with_code_10() {
         &pki.trust_anchor_pem,
         &Knobs::default(),
     );
+    const OTHER: &str = "CGAgent-UnrelatedSession-install-ac-007";
+    let logman = |args: &[&str]| {
+        std::process::Command::new("logman")
+            .args(args)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    let _ = logman(&["stop", OTHER, "-ets"]);
+    assert!(
+        logman(&["start", OTHER, "-ets", "-rt"]),
+        "start an unrelated session"
+    );
     let baseline = application_baseline();
     let service = TestService::create(&service_args(&config));
     let held = match instance_lock::acquire() {
@@ -1070,16 +1153,125 @@ async fn install_ac_009_a_held_lock_stops_the_service_with_code_10() {
     };
     let stopped = service.start_expecting_stop(Duration::from_secs(60));
     drop(held);
+    let survived = logman(&["query", OTHER, "-ets"]);
+    let _ = logman(&["stop", OTHER, "-ets"]);
+    assert!(survived, "a refused instance stops no ETW session");
     assert_stopped_with(&stopped, 10);
     assert_eq!(
         enroll.enroll_received_count(),
         0,
         "it stops before enrolling"
     );
-    let entries = agent_entries_after(baseline);
+    let entries = wait_entries(baseline, &[1002]);
+    assert_never_ran(&entries);
     let failed = entry(&entries, 1002);
     assert!(
         failed.data.contains(STDERR_ANOTHER_INSTANCE),
+        "1002 carries the cause's line: {failed:?}"
+    );
+}
+
+/// SPEC-024 §Data contracts §2 and §Operational §3: the installed service
+/// runs the secure path alone; a configuration without `[enrollment]` (the
+/// plain HTTP development path) stops it with code 2 before `RUNNING`.
+#[test]
+fn install_ac_007_the_service_refuses_the_plain_path_with_code_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config_path = dir.path().join("agent.toml");
+    std::fs::write(
+        &config_path,
+        "[server]\n\
+         url = \"http://127.0.0.1:9\"\n\
+         \n\
+         [agent]\n\
+         id = \"01934abc-def0-7000-89ab-000000000007\"\n\
+         hostname = \"TEST-PC\"\n",
+    )
+    .expect("write agent.toml");
+    let baseline = application_baseline();
+    let service = TestService::create(&service_args(&config_path));
+    let stopped = service.start_expecting_stop(Duration::from_secs(60));
+    assert_stopped_with(&stopped, 2);
+    let entries = wait_entries(baseline, &[1002]);
+    assert_never_ran(&entries);
+    let failed = entry(&entries, 1002);
+    assert!(
+        failed.data.contains("requires [enrollment]"),
+        "1002 carries the cause's line: {failed:?}"
+    );
+}
+
+/// `%ProgramData%\CyberGuard` replaced by a directory that inherits
+/// `%ProgramData%`'s permissions, as one an ordinary user created would;
+/// the existing one is moved aside and restored on every exit path. On
+/// this disposable runner a test may use the fixed paths (SPEC-024
+/// Amendment 2026-11-01, point 4).
+struct PlantedDataRoot {
+    root: PathBuf,
+    moved: Option<PathBuf>,
+}
+
+impl PlantedDataRoot {
+    fn plant() -> Self {
+        let program_data = PathBuf::from(std::env::var("ProgramData").expect("ProgramData"));
+        let root = program_data.join("CyberGuard");
+        let moved = root.exists().then(|| {
+            let aside =
+                program_data.join(format!("CyberGuard.install-ac-007-{}", std::process::id()));
+            std::fs::rename(&root, &aside).expect("move the existing directory aside");
+            aside
+        });
+        std::fs::create_dir(&root).expect("plant the directory");
+        PlantedDataRoot { root, moved }
+    }
+}
+
+impl Drop for PlantedDataRoot {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_dir_all(&self.root) {
+            eprintln!("remove {}: {e}", self.root.display());
+        }
+        if let Some(aside) = &self.moved {
+            if let Err(e) = std::fs::rename(aside, &self.root) {
+                eprintln!("restore {}: {e}", self.root.display());
+            }
+        }
+    }
+}
+
+/// Items 3 and 4, and §Operational §1: a data directory that another user
+/// could write in is refused before the service writes into it: the file
+/// log cannot be opened, `STOPPED` carries code 13 and entry 1002 its line,
+/// and `RUNNING` is never reported.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn install_ac_007_an_untrusted_data_directory_stops_the_service_with_code_13() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
+    let heartbeat = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = write_config(
+        dir.path(),
+        &enroll.base_url,
+        &heartbeat.base_url,
+        &pki.trust_anchor_pem,
+        &Knobs::default(),
+    );
+    let baseline = application_baseline();
+    let service = TestService::create(&service_args(&config));
+    let planted = PlantedDataRoot::plant();
+    let stopped = service.start_expecting_stop(Duration::from_secs(60));
+    drop(planted);
+    assert_stopped_with(&stopped, 13);
+    assert_eq!(
+        enroll.enroll_received_count(),
+        0,
+        "it stops before enrolling"
+    );
+    let entries = wait_entries(baseline, &[1002]);
+    assert_never_ran(&entries);
+    let failed = entry(&entries, 1002);
+    assert!(
+        failed.data.contains("the service log cannot be written"),
         "1002 carries the cause's line: {failed:?}"
     );
 }
