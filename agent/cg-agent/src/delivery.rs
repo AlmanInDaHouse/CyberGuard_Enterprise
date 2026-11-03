@@ -67,6 +67,15 @@ pub(crate) struct Pending {
     backoff_ms: u64,
 }
 
+/// How the final POST ended.
+pub(crate) struct Finished {
+    /// Events not delivered: those left in the ring, and the final
+    /// batch's if it was not delivered.
+    pub(crate) undelivered: usize,
+    /// The stop's deadline cut the final attempt short.
+    pub(crate) expired: bool,
+}
+
 /// The result of one attempt at a POST.
 enum Attempt {
     Delivered,
@@ -247,15 +256,36 @@ impl<'a> Delivery<'a> {
     /// The final `going_offline` POST, one attempt (SPEC-017
     /// §Operational §4): the batch in flight, or else the next batch, or
     /// no events. Events left undelivered are counted at `warn`.
-    pub(crate) async fn finish(&mut self, in_flight: Option<Pending>) {
+    ///
+    /// With a `deadline` (the service's stop, SPEC-024 §Operational §3)
+    /// the attempt's timeout is the request timeout or the time left,
+    /// whichever is shorter; an attempt cut short by the deadline is
+    /// reported as `expired`.
+    pub(crate) async fn finish(
+        &mut self,
+        in_flight: Option<Pending>,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Finished {
         let batch = match in_flight {
             Some(pending) => pending.batch,
             None => self.form_batch(),
         };
+        let request_timeout = Duration::from_secs(self.heartbeat.request_timeout_seconds);
+        let (timeout, bounded) = match deadline {
+            Some(deadline) => {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                (left.min(request_timeout), left < request_timeout)
+            }
+            None => (request_timeout, false),
+        };
         let delivered = matches!(
-            self.attempt(&batch, HeartbeatStatus::GoingOffline).await,
+            self.attempt_within(&batch, HeartbeatStatus::GoingOffline, timeout)
+                .await,
             Ok(Attempt::Delivered)
         );
+        let expired = !delivered
+            && bounded
+            && deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline);
         let left_in_ring = self.ring.as_ref().map_or(0, |ring| ring.len());
         let undelivered = left_in_ring + if delivered { 0 } else { batch.events.len() };
         if undelivered > 0 {
@@ -264,6 +294,17 @@ impl<'a> Delivery<'a> {
                 "events not delivered before shutdown are lost"
             );
         }
+        Finished {
+            undelivered,
+            expired,
+        }
+    }
+
+    /// The events not delivered when a stop gives up before the final
+    /// POST: those buffered, and those of the batch in flight.
+    pub(crate) fn undelivered(&self, in_flight: Option<&Pending>) -> usize {
+        self.ring.as_ref().map_or(0, |ring| ring.len())
+            + in_flight.map_or(0, |pending| pending.batch.events.len())
     }
 
     /// A batch trigger holds: 1024 events buffered, or the oldest is
@@ -314,6 +355,17 @@ impl<'a> Delivery<'a> {
     /// envelope (`sent_at`, `uptime_seconds`), nonce and signature around
     /// the same events.
     async fn attempt(&self, batch: &Batch, status: HeartbeatStatus) -> Result<Attempt, AgentError> {
+        let timeout = Duration::from_secs(self.heartbeat.request_timeout_seconds);
+        self.attempt_within(batch, status, timeout).await
+    }
+
+    /// [`Self::attempt`], timed out after `timeout`.
+    async fn attempt_within(
+        &self,
+        batch: &Batch,
+        status: HeartbeatStatus,
+        timeout: Duration,
+    ) -> Result<Attempt, AgentError> {
         let mut inner = build_envelope(
             &self.agent_block,
             batch.sequence,
@@ -327,7 +379,6 @@ impl<'a> Delivery<'a> {
         let bytes = serde_json::to_vec(&outer)
             .map_err(|e| SigningError::Canonical(format!("serialize outer envelope: {e}")))?;
 
-        let timeout = Duration::from_secs(self.heartbeat.request_timeout_seconds);
         let result =
             match tokio::time::timeout(timeout, self.sender.send(HEARTBEAT_PATH, &bytes)).await {
                 Ok(result) => result,
