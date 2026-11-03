@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-53.md](../handoff-session-53.md)).
+([handoff-session-54.md](../handoff-session-54.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -400,8 +400,12 @@ This dependency-ordered document supersedes both for planning.
   SPEC-024's second amendment, the service's outcomes (`19fdee2`). S53
   landed the instance lock (install_ac_009) on `main` as `aacc5e1` (CI ALL
   GREEN; elevated gate green incl. the SPEC-005/006 marquees;
-  `docs/handoff-session-53.md`). The service (install_ac_007), the logs
-  (install_ac_010), custody (#87) and packaging follow.
+  `docs/handoff-session-53.md`). S54 implemented the service
+  (install_ac_007) and its rotating log (install_ac_010, with #137) on PRs
+  #81 and #83, CI ALL GREEN, the SCM/SYSTEM tests running in rust-ci's
+  Windows job; they wait for the elevated gate before landing
+  (`docs/handoff-session-54.md`). Custody (#87, with #142) and packaging
+  follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the

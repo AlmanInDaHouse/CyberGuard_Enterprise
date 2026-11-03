@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 50** at Session 53's close, the count `docs/handoff-session-53.md` states
-(Session 53 opened and closed none: install_ac_009 is roadmap F2 work, not a debt).
+**Open: 54** at Session 54's close, the count `docs/handoff-session-54.md` states
+(Session 54 opened #142 to #145 and closed none; #137 closes when PR #83 lands).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 53's close, `docs/handoff-session-53.md#how-session-54-resumes`);
+Session N resumes* (at Session 54's close, `docs/handoff-session-54.md#how-session-55-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -80,10 +80,14 @@ Session N resumes* (at Session 53's close, `docs/handoff-session-53.md#how-sessi
 | 132 | A locally built image's `documentation` label points to `tree/unknown` | `handoff-session-47.md:557`; `handoff-session-48.md#debts` | Pre-release packaging sweep: decide and test the local-build documentation URL without changing published revision links (S48 delegated). |
 | 133 | The dashboard image ships `typescript`, carried by Next's output tracing | `handoff-session-47.md:560`; `handoff-session-48.md#debts` | Pre-release image-content sweep: exclude traced TypeScript only after proving the standalone runtime still works (S48 delegated). |
 | 136 | The create-user CLI header still says later users are API-only | `handoff-session-48.md#debts` | Next F3 user-management/CLI change, with its workspace gate: align the stale comment with SPEC-023's third amendment (S48 delegated). |
-| 137 | The "agent starting" line carries `agent.version` but none of SPEC-001 §Observability's other required fields (`agent.id`, `agent.platform`, `agent.hostname`, `server.url`, `heartbeat.interval_seconds`) | `handoff-session-50.md#debts` | F2's service logging change (install_ac_010), which reworks the lifecycle log, for the console line as well; before enrollment `agent.id` is the placeholder SPEC-024 §Data contracts §2 names, not an enrolled identity. |
+| 137 | The "agent starting" line carries `agent.version` but none of SPEC-001 §Observability's other required fields (`agent.id`, `agent.platform`, `agent.hostname`, `server.url`, `heartbeat.interval_seconds`) | `handoff-session-50.md#debts`; `handoff-session-54.md#debts` | PR #83 (`feat/s54-install-ac-010`, `73a7d92`), install_ac_010's change: closes when it lands on `main`. |
 | 138 | `detect_ac_001` residuals after #4/#37: a step back of ClickHouse's clock after the settle wait can end the drain early, so a later failure reads as a detection one; the probe is found by PID alone; no elapsed line on a vitest timeout or a failure before the probe (against SPEC-006's "on every run"); the test's header comment still says the other marquees wrote earlier | `handoff-session-50.md#debts` | The next change to the marquee or to the elevated gate: assert the cursor passed the child's `(arrived_at, event_id)` before the alert criteria, and check the probe's image. |
 | 140 | A development build's version resource carries Cargo's numbers `X.Y.Z.0` and no prerelease flag, so a reader of the numbers alone cannot tell it from the same-numbered release (SPEC-024 Amendment 2026-11-01, point 2) | `handoff-session-51.md#debts` | The packaging amendment for install_ac_015: propose `VS_FF_PRERELEASE` on development builds. |
-| 141 | Texts behind F2's decisions: `docs/security/threat-model.md:294` ("There is no installer"; no entry for the installer's third-party code, Burn and custom actions, which runs elevated), its `:234` (dumps deferred to the deployment contract), ADR-0010's "LocalSystem … is not run in CI" (false once the SCM/SYSTEM tests land), ADR-0019 Open question 1 and ADR-0020 Open question 4 ("Reopen: the deployment contract", met for F2 by SPEC-024) | `handoff-session-51.md#debts` | Manuel's review, with S52's ADR-0008 and ADR-0010 amendments; the threat model and the ADRs are his. |
+| 141 | Texts behind F2's decisions: `docs/security/threat-model.md:294` ("There is no installer"; no entry for the installer's third-party code, Burn and custom actions, which runs elevated), its `:234` (dumps deferred to the deployment contract), ADR-0010's "LocalSystem … is not run in CI" (false once the SCM/SYSTEM tests land), ADR-0019 Open question 1 and ADR-0020 Open question 4 ("Reopen: the deployment contract", met for F2 by SPEC-024) | `handoff-session-51.md#debts`; `handoff-session-54.md#debts` | Drafted on `review/s54-141-texts` (`b482cd5`, four `NOT YET RATIFIED` amendments: threat model, ADR-0010, ADR-0019, ADR-0020): its fresh-context review once #81 is on `main`, then Manuel's sí on the text. |
+| 142 | The service accepts any identity and trust-anchor paths (relative ones resolve against `System32`), without SPEC-024 §Data contracts §2's installed-mode validation, and reads the identity with no custody check (SPEC-017 Amendment 2026-10-27); an identity directory under `CyberGuard\agent` would inherit Administrators' full control | `handoff-session-54.md#debts` | install_ac_002/004/005 with #87. |
+| 143 | Service log residuals: a write that fails after writing part of a record leaves that part as one invalid line; an active file already above 10 MiB (from a build before rotation) is archived whole | `handoff-session-54.md#debts` | install_ac_010's next change, or accepted at F2's close. |
+| 144 | An ordinary user who creates `%ProgramData%\CyberGuard` before installation keeps the service from starting (fails closed, code 13); threat model R17 in #141's draft | `handoff-session-54.md#debts` | SPEC-024's package (install_ac_011/015). |
+| 145 | Service paths no hosted runner exercises: a real `SHUTDOWN`, the stop deadline expiring in the capture teardown or at the watchdog, a persistent log failure under the SCM, a rotated production archive | `handoff-session-54.md#debts` | The isolated Windows machine's experiments (install_ac_008, install_ac_016; #50/#59). |
 
 ## Closed
 
