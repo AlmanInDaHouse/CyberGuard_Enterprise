@@ -27,6 +27,10 @@ scm-tests = []
 name = "install_ac_007_service"
 required-features = ["scm-tests"]
 
+[[test]]
+name = "install_ac_004_custody_service"
+required-features = ["scm-tests"]
+
 # --- Runtime dependencies ---
 #
 # Pinned to minor versions, with rationale below. Patch updates are
@@ -224,13 +228,15 @@ testcontainers = "0.27"
 # cross-checks must not attempt to fetch or compile it.
 [target.'cfg(windows)'.dev-dependencies]
 ferrisetw = "1.2"
-# The SCM bindings of the service tests (SPEC-024 install_ac_007), which
-# build only with the `scm-tests` feature.
+# The SCM bindings of the service tests (SPEC-024 install_ac_007), and the
+# local-account bindings of their effective-access probe (install_ac_004:
+# NetUserAdd / NetUserDel), which build only with the `scm-tests` feature.
 # The LSA bindings for auth_ac_012's S4U logon (SPEC-020 Amendment
 # 2026-10-11, Decision record 11). The same crate as the agent's
 # dependency; declared here, the feature is enabled only when test
 # targets are built, and `cargo build --release` does not see it.
 windows-sys = { version = "0.59", features = [
+    "Win32_NetworkManagement_NetManagement",
     "Win32_Security_Authentication_Identity",
     "Win32_System_Services",
 ] }

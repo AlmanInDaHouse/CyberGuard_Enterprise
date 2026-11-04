@@ -624,6 +624,16 @@ impl TlsMockServer {
         Self::start_keyed(pki, TlsMockMode::Normal, None, None, 0, agent_pubkey).await
     }
 
+    /// As [`Self::start_for_key`], on a given local `port`: a test that must name the
+    /// heartbeat URL before the agent's key exists reserves the port first.
+    pub async fn start_for_key_on_port(
+        pki: &TlsTestPki,
+        port: u16,
+        agent_pubkey: [u8; 32],
+    ) -> Self {
+        Self::start_keyed(pki, TlsMockMode::Normal, None, None, port, agent_pubkey).await
+    }
+
     async fn start_inner(
         pki: &TlsTestPki,
         mode: TlsMockMode,
@@ -748,6 +758,7 @@ pub struct TlsEnrollMock {
     enroll_received: Arc<Mutex<Vec<Value>>>,
     enroll_plan: Arc<Mutex<Vec<u16>>>,
     enroll_default_status: Arc<Mutex<u16>>,
+    certificate_override: Arc<Mutex<Option<String>>>,
     connections: Arc<AtomicUsize>,
     _task: JoinHandle<()>,
 }
@@ -756,6 +767,7 @@ struct EnrollState {
     enroll_received: Arc<Mutex<Vec<Value>>>,
     enroll_plan: Arc<Mutex<Vec<u16>>>,
     enroll_default_status: Arc<Mutex<u16>>,
+    certificate_override: Arc<Mutex<Option<String>>>,
     issuer: Arc<Issuer>,
 }
 
@@ -777,11 +789,13 @@ impl TlsEnrollMock {
         let enroll_received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let enroll_plan: Arc<Mutex<Vec<u16>>> = Arc::new(Mutex::new(Vec::new()));
         let enroll_default_status: Arc<Mutex<u16>> = Arc::new(Mutex::new(200));
+        let certificate_override: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let connections = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(EnrollState {
             enroll_received: enroll_received.clone(),
             enroll_plan: enroll_plan.clone(),
             enroll_default_status: enroll_default_status.clone(),
+            certificate_override: certificate_override.clone(),
             issuer: pki.issuer.clone(),
         });
 
@@ -809,6 +823,7 @@ impl TlsEnrollMock {
             enroll_received,
             enroll_plan,
             enroll_default_status,
+            certificate_override,
             connections,
             _task: task,
         }
@@ -845,6 +860,17 @@ impl TlsEnrollMock {
             .enroll_default_status
             .lock()
             .expect("enroll_default lock") = code;
+    }
+
+    /// Answer every successful enrollment with `certificate_pem` instead of a
+    /// certificate issued for the request's key: a server's answer whose
+    /// certificate is not the agent's (SPEC-024 Amendment 2026-11-04, item 5).
+    /// Off by default.
+    pub fn set_certificate_override(&self, certificate_pem: &str) {
+        *self
+            .certificate_override
+            .lock()
+            .expect("certificate_override lock") = Some(certificate_pem.to_string());
     }
 
     /// The TCP connections accepted so far, a failed handshake's included.
@@ -926,12 +952,18 @@ fn answer_enroll(body: &[u8], state: &EnrollState) -> (u16, Value) {
             .ok()
             .and_then(|b| b.try_into().ok())
     });
-    match pubkey {
-        Some(key) => (
+    let certificate_override = state
+        .certificate_override
+        .lock()
+        .expect("certificate_override lock")
+        .clone();
+    match (pubkey, certificate_override) {
+        (Some(_), Some(certificate)) => (code, enroll_response(&certificate)),
+        (Some(key), None) => (
             code,
             enroll_response(&state.issuer.client_cert_pem(TEST_AGENT_ID, key)),
         ),
-        None => (400, json!({ "error": "malformed agent_pubkey" })),
+        (None, _) => (400, json!({ "error": "malformed agent_pubkey" })),
     }
 }
 

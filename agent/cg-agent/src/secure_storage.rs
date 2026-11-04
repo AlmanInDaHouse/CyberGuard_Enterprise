@@ -146,8 +146,19 @@ impl SecureStore for DpapiSecureStore {
             )));
         }
 
-        let plain = unsafe {
-            std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec()
+        // The decrypted bytes are zeroed before DPAPI's buffer is freed
+        // (SPEC-024 Amendment 2026-11-04, item 7); the copy returned is the
+        // caller's to zeroize.
+        let plain = if out_blob.pbData.is_null() || out_blob.cbData == 0 {
+            Vec::new()
+        } else {
+            unsafe {
+                let bytes =
+                    std::slice::from_raw_parts_mut(out_blob.pbData, out_blob.cbData as usize);
+                let plain = bytes.to_vec();
+                zeroize::Zeroize::zeroize(bytes);
+                plain
+            }
         };
         unsafe {
             LocalFree(out_blob.pbData as *mut core::ffi::c_void);

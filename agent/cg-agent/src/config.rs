@@ -247,10 +247,16 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
         return Err(ConfigError::NotFound(path.display().to_string()));
     }
     let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Io(e.to_string()))?;
+    load_from_str(&content)
+}
 
+/// Validate a configuration already read, as `load_from_path` does once it
+/// has read the file: the service reads it from a checked handle (SPEC-024
+/// Amendment 2026-11-04, item 3).
+pub fn load_from_str(content: &str) -> Result<AgentConfig, ConfigError> {
     // Parse the TOML to a Value first so we can produce field-level
     // error messages that match SPEC-001 §Validation exactly.
-    let raw: toml::Value = toml::from_str(&content).map_err(|e| parse_error(&content, &e))?;
+    let raw: toml::Value = toml::from_str(content).map_err(|e| parse_error(content, &e))?;
 
     // Required: server.url. Treat a missing [server] table and a
     // missing url field within an existing [server] table as the same
@@ -292,7 +298,7 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
     // Deserialize the whole document now that the required keys have
     // been validated. serde fills in defaults for the heartbeat / log
     // sections via the `#[serde(default)]` attribute.
-    let config: AgentConfig = toml::from_str(&content).map_err(|e| parse_error(&content, &e))?;
+    let config: AgentConfig = toml::from_str(content).map_err(|e| parse_error(content, &e))?;
 
     // Per SPEC-001 §Validation: numeric heartbeat fields must be > 0
     // and backoff_factor must be >= 1.0.
