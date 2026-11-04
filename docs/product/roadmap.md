@@ -400,10 +400,10 @@ This dependency-ordered document supersedes both for planning.
   SPEC-024's second amendment, the service's outcomes (`19fdee2`). S53
   landed the instance lock (install_ac_009) on `main` as `aacc5e1` (CI ALL
   GREEN; elevated gate green incl. the SPEC-005/006 marquees;
-  `docs/handoff-session-53.md`). S54 implemented the service
-  (install_ac_007) and its rotating log (install_ac_010, with #137) on PRs
-  #81 and #83, CI ALL GREEN, the SCM/SYSTEM tests running in rust-ci's
-  Windows job; they wait for the elevated gate before landing
+  `docs/handoff-session-53.md`). S54 landed the service (install_ac_007,
+  `cc24b99`) and its rotating log (install_ac_010, with #137, `f4c6f28` and
+  `61b2f67`), CI ALL GREEN, the SCM/SYSTEM tests running in rust-ci's
+  Windows job, elevated gate s54-gate1 green
   (`docs/handoff-session-54.md`). Custody (#87, with #142) and packaging
   follow.
   The phase is four SPECs, in this order:
