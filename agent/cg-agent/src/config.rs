@@ -87,7 +87,9 @@ pub struct LogConfig {
 /// table in `agent.toml`. Paths are required and explicit — the installer
 /// template points them at the `%ProgramData%\CyberGuard\agent\` defaults
 /// documented in SPEC-002 §Default paths; tests point them at a temp dir.
-#[derive(Debug, Deserialize, Clone)]
+/// Its `Debug` writes no token value: the token is a secret at every log
+/// level (SPEC-024 §Operational §3).
+#[derive(Deserialize, Clone)]
 pub struct EnrollmentConfig {
     /// Single-use, server-issued enrollment token. Required on first run
     /// only (FR-002); `None` once identity is persisted, and dropped from
@@ -108,6 +110,21 @@ pub struct EnrollmentConfig {
     pub backoff_initial_ms: u64,
     #[serde(default = "default_enrollment_backoff_factor")]
     pub backoff_factor: f64,
+}
+
+impl std::fmt::Debug for EnrollmentConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnrollmentConfig")
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("cert_path", &self.cert_path)
+            .field("key_path", &self.key_path)
+            .field("identity_path", &self.identity_path)
+            .field("timeout_seconds", &self.timeout_seconds)
+            .field("max_retries", &self.max_retries)
+            .field("backoff_initial_ms", &self.backoff_initial_ms)
+            .field("backoff_factor", &self.backoff_factor)
+            .finish()
+    }
 }
 
 impl Default for HeartbeatConfig {
@@ -204,6 +221,21 @@ fn default_enrollment_backoff_factor() -> f64 {
     2.0
 }
 
+/// A TOML error, with the parser's 1-based line and column when it gives
+/// a span.
+fn parse_error(content: &str, error: &toml::de::Error) -> ConfigError {
+    let position = error.span().map(|span| {
+        let before = content.get(..span.start).unwrap_or(content);
+        let line = before.matches('\n').count() + 1;
+        let column = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+        (line, column)
+    });
+    ConfigError::Parse {
+        message: error.to_string(),
+        position,
+    }
+}
+
 /// Load and validate the agent configuration from a TOML file at `path`.
 ///
 /// Returns `ConfigError` on missing or unreadable file
@@ -218,8 +250,7 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
 
     // Parse the TOML to a Value first so we can produce field-level
     // error messages that match SPEC-001 §Validation exactly.
-    let raw: toml::Value =
-        toml::from_str(&content).map_err(|e| ConfigError::Parse(e.to_string()))?;
+    let raw: toml::Value = toml::from_str(&content).map_err(|e| parse_error(&content, &e))?;
 
     // Required: server.url. Treat a missing [server] table and a
     // missing url field within an existing [server] table as the same
@@ -261,8 +292,7 @@ pub fn load_from_path(path: &Path) -> Result<AgentConfig, ConfigError> {
     // Deserialize the whole document now that the required keys have
     // been validated. serde fills in defaults for the heartbeat / log
     // sections via the `#[serde(default)]` attribute.
-    let config: AgentConfig =
-        toml::from_str(&content).map_err(|e| ConfigError::Parse(e.to_string()))?;
+    let config: AgentConfig = toml::from_str(&content).map_err(|e| parse_error(&content, &e))?;
 
     // Per SPEC-001 §Validation: numeric heartbeat fields must be > 0
     // and backoff_factor must be >= 1.0.

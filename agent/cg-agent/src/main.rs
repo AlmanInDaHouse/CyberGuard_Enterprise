@@ -6,9 +6,10 @@
 //! initialisation, the load-or-enroll identity step (SPEC-002, over TLS
 //! since SPEC-023), the secure path (SPEC-003 + SPEC-017, when
 //! `server.trust_anchor_path` is set, as it always is with
-//! `[enrollment]`), and graceful shutdown on `Ctrl+C`.
+//! `[enrollment]`), and graceful shutdown on `Ctrl+C`. With `--service` it
+//! runs as the Windows service instead (SPEC-024, `cg_agent::service`).
 
-use cg_agent::errors::{AgentError, EnrollmentError, TlsError};
+use cg_agent::errors::AgentError;
 use cg_agent::instance_lock::{self, LockOutcome};
 use cg_agent::{
     config, identity, init_logger_with_writer, log_agent_starting, run, run_secure, Capture,
@@ -25,12 +26,34 @@ struct Cli {
     /// Path to the TOML configuration file. Defaults to `./agent.toml`.
     #[arg(long, value_name = "PATH", default_value = "agent.toml")]
     config: PathBuf,
+
+    /// Run as the Windows service; only the service control manager starts
+    /// it (SPEC-024 §Data contracts §3).
+    #[arg(long)]
+    service: bool,
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let cli = Cli::parse();
+    // SPEC-024 second Amendment 2026-11-01, item 2: `--service` runs only
+    // under the SCM, which is checked before the configuration.
+    if cli.service {
+        return cg_agent::service::run(cli.config);
+    }
+    match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime.block_on(console(cli)),
+        Err(e) => {
+            eprintln!("cg-agent: runtime failed: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
 
+/// The console agent (SPEC-001/002/003/017).
+async fn console(cli: Cli) -> ExitCode {
     let mut cfg = match config::load_from_path(&cli.config) {
         Ok(c) => c,
         Err(e) => {
@@ -80,7 +103,7 @@ async fn main() -> ExitCode {
         let id = match identity::ensure_identity(&cfg, &cli.config).await {
             Ok(id) => id,
             Err(e) => {
-                report_enrollment_error(&e);
+                eprintln!("{}", e.stderr_line());
                 return ExitCode::from(e.exit_code());
             }
         };
@@ -123,50 +146,13 @@ fn report_lock_outcome(outcome: &LockOutcome) -> ExitCode {
     ExitCode::from(code)
 }
 
-/// SPEC-002 §Failure-modes stderr line for an enrollment error.
-fn report_enrollment_error(err: &EnrollmentError) {
-    match err {
-        EnrollmentError::MissingToken => eprintln!("cg-agent: {err}"),
-        EnrollmentError::Refused(msg) => eprintln!("cg-agent: enrollment failed: {msg}"),
-        EnrollmentError::Unreachable { attempts, .. } => {
-            eprintln!("cg-agent: enrollment failed: server unreachable after {attempts} attempts")
-        }
-        EnrollmentError::Persistence(msg) => eprintln!("cg-agent: identity error: {msg}"),
-        EnrollmentError::Tls(tls) => report_tls_error(tls),
-    }
-}
-
-/// SPEC-003 §Failure-modes stderr line for a TLS error, on enrollment's
-/// client or the heartbeat's.
-fn report_tls_error(err: &TlsError) {
-    match err {
-        TlsError::ServerCertUntrusted(m) => {
-            eprintln!("cg-agent: tls: server certificate verification failed: {m}")
-        }
-        TlsError::ClientConfig(m) => eprintln!("cg-agent: tls: client configuration failed: {m}"),
-        TlsError::ClientCertRejected(_) => {
-            eprintln!("cg-agent: tls: server rejected client certificate")
-        }
-    }
-}
-
 /// SPEC-003 / SPEC-017 §Failure-modes stderr line for a secure-path error.
+/// ETW and logon errors go to the log too (SPEC-017 §Operational §1,
+/// SPEC-020 §Operational §6).
 fn report_agent_error(err: &AgentError) {
-    match err {
-        AgentError::Tls(tls) => report_tls_error(tls),
-        AgentError::Signing(s) => eprintln!("cg-agent: signing failed: {s}"),
-        // SPEC-017 §Operational §1: the line goes to stderr and to the log.
-        AgentError::Etw(etw) => {
-            let line = etw.stderr_line();
-            tracing::error!(exit_code = etw.exit_code(), "{line}");
-            eprintln!("{line}");
-        }
-        // SPEC-020 §Operational §6: the same, for the logon subscription.
-        AgentError::Logon(logon) => {
-            let line = logon.stderr_line();
-            tracing::error!(exit_code = logon.exit_code(), "{line}");
-            eprintln!("{line}");
-        }
-        other => eprintln!("cg-agent: {other}"),
+    let line = err.stderr_line();
+    if matches!(err, AgentError::Etw(_) | AgentError::Logon(_)) {
+        tracing::error!(exit_code = err.exit_code(), "{line}");
     }
+    eprintln!("{line}");
 }

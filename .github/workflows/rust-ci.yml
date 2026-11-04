@@ -79,5 +79,13 @@ jobs:
       - name: "cargo test, the #[ignore]d real-ETW and Security-log tests"
         run: cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1
 
+      # SPEC-024 Amendment 2026-11-01, point 4: the tests that create, start,
+      # stop and delete Windows services and run the agent as SYSTEM, built only
+      # with the test-only `scm-tests` feature, run here alone, on this
+      # disposable runner, one at a time. Their red evidence was the probe pull
+      # request #80, closed without landing (CLAUDE.md compensating control 1).
+      - name: "cargo test, the SCM and SYSTEM tests (scm-tests)"
+        run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_007_service -- --test-threads=1
+
       - name: agent version matrix
         run: node .github/scripts/agent-version-matrix.mjs

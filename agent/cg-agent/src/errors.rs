@@ -10,8 +10,16 @@ pub enum ConfigError {
     #[error("failed to read config file: {0}")]
     Io(String),
 
-    #[error("failed to parse config TOML: {0}")]
-    Parse(String),
+    /// The file is not valid TOML, or not of the config's shape. `position`
+    /// is the parser's 1-based line and column, when it gives them; the
+    /// service's Application-log entry carries those and not `message`,
+    /// which can quote a line of the file (SPEC-024 second Amendment
+    /// 2026-11-01, item 4).
+    #[error("failed to parse config TOML: {message}")]
+    Parse {
+        message: String,
+        position: Option<(usize, usize)>,
+    },
 
     #[error("invalid config: missing key '{0}'")]
     MissingKey(String),
@@ -88,6 +96,19 @@ impl EnrollmentError {
             EnrollmentError::Tls(tls) => tls.exit_code(),
         }
     }
+
+    /// The SPEC-002 §Failure-modes line the agent writes to stderr.
+    pub fn stderr_line(&self) -> String {
+        match self {
+            EnrollmentError::MissingToken => format!("cg-agent: {self}"),
+            EnrollmentError::Refused(msg) => format!("cg-agent: enrollment failed: {msg}"),
+            EnrollmentError::Unreachable { attempts, .. } => {
+                format!("cg-agent: enrollment failed: server unreachable after {attempts} attempts")
+            }
+            EnrollmentError::Persistence(msg) => format!("cg-agent: identity error: {msg}"),
+            EnrollmentError::Tls(tls) => tls.stderr_line(),
+        }
+    }
 }
 
 /// TLS / mutual-auth handshake errors on the secure heartbeat path
@@ -119,6 +140,20 @@ impl TlsError {
         match self {
             TlsError::ServerCertUntrusted(_) | TlsError::ClientConfig(_) => 6,
             TlsError::ClientCertRejected(_) => 7,
+        }
+    }
+
+    /// The SPEC-003 §Failure-modes line the agent writes to stderr, on
+    /// enrollment's client or the heartbeat's.
+    pub fn stderr_line(&self) -> String {
+        match self {
+            TlsError::ServerCertUntrusted(m) => {
+                format!("cg-agent: tls: server certificate verification failed: {m}")
+            }
+            TlsError::ClientConfig(m) => format!("cg-agent: tls: client configuration failed: {m}"),
+            TlsError::ClientCertRejected(_) => {
+                "cg-agent: tls: server rejected client certificate".to_string()
+            }
         }
     }
 }
@@ -282,6 +317,18 @@ impl AgentError {
             AgentError::Etw(e) => e.exit_code(),
             AgentError::Logon(e) => e.exit_code(),
             _ => 1,
+        }
+    }
+
+    /// The SPEC-003 / SPEC-017 / SPEC-020 §Failure-modes line the agent
+    /// writes to stderr for a secure-path error.
+    pub fn stderr_line(&self) -> String {
+        match self {
+            AgentError::Tls(tls) => tls.stderr_line(),
+            AgentError::Signing(s) => format!("cg-agent: signing failed: {s}"),
+            AgentError::Etw(etw) => etw.stderr_line(),
+            AgentError::Logon(logon) => logon.stderr_line(),
+            other => format!("cg-agent: {other}"),
         }
     }
 }

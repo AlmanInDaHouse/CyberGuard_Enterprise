@@ -24,6 +24,7 @@ pub mod instance_lock;
 pub mod logon;
 pub mod paths;
 pub mod secure_storage;
+pub mod service;
 pub mod shutdown;
 pub mod signing;
 pub mod startup;
@@ -227,6 +228,45 @@ pub async fn run_secure<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    run_secure_within(config, identity, capture, shutdown_signal, None)
+        .await
+        .map(|_| ())
+}
+
+/// How a secure run's stop ended (SPEC-024 §Operational §3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StopOutcome {
+    /// The capture stopped and the final POST was attempted within the
+    /// budget; `undelivered` events were lost (logged at `warn`).
+    Completed { undelivered: usize },
+    /// The budget ran out with `pending` still to do, never a clean stop.
+    DeadlineExpired {
+        pending: &'static str,
+        undelivered: usize,
+    },
+}
+
+/// What a stop left undone when its deadline expired.
+pub const PENDING_TEARDOWN: &str = "the capture teardown and the final going_offline request";
+/// The final request was still in flight when the deadline expired.
+pub const PENDING_FINAL_REQUEST: &str = "the final going_offline request";
+
+/// [`run_secure`], with a `stop_budget`: the total time from the shutdown
+/// signal for the capture teardown and the final POST (the service's
+/// 60-second deadline, SPEC-024 §Operational §3). The final request's
+/// timeout is bounded by what is left of it; when it runs out the outcome
+/// is [`StopOutcome::DeadlineExpired`]. Without a budget (the console) the
+/// stop is unbounded, as before.
+pub async fn run_secure_within<F>(
+    config: AgentConfig,
+    identity: crate::identity::Identity,
+    capture: Capture,
+    shutdown_signal: F,
+    stop_budget: Option<Duration>,
+) -> Result<StopOutcome, AgentError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
     use crate::errors::TlsError;
 
     let start_time = Instant::now();
@@ -279,21 +319,60 @@ where
     let in_flight = delivery.run_until(shutdown_signal.as_mut()).await?;
 
     tracing::info!(signal = "shutdown", "shutdown signal received");
+    let deadline = stop_budget.map(|budget| tokio::time::Instant::now() + budget);
     // Stop the logon thread (it closes its subscription), then the session,
     // and wait for both before the final POST, so the events they flushed
     // on the way out ride in it (SPEC-020 §Operational §6).
-    if let Some(mut logons) = logons.take() {
-        let _ = tokio::task::spawn_blocking(move || logons.stop()).await;
+    // Both sources move into one blocking task: if the deadline cuts it
+    // short, it goes on detached, and nothing is dropped (so stopped)
+    // synchronously here.
+    let (logons, session) = (logons.take(), session.take());
+    let teardown = tokio::task::spawn_blocking(move || {
+        if let Some(mut logons) = logons {
+            logons.stop();
+        }
+        if let Some(mut session) = session {
+            session.stop();
+        }
+    });
+    let torn_down = match deadline {
+        Some(deadline) => tokio::time::timeout_at(deadline, teardown).await.is_ok(),
+        None => {
+            let _ = teardown.await;
+            true
+        }
+    };
+    if !torn_down {
+        let undelivered = delivery.undelivered(in_flight.as_ref());
+        tracing::error!(
+            events_undelivered = undelivered,
+            pending = PENDING_TEARDOWN,
+            "the stop deadline expired"
+        );
+        return Ok(StopOutcome::DeadlineExpired {
+            pending: PENDING_TEARDOWN,
+            undelivered,
+        });
     }
-    if let Some(mut session) = session.take() {
-        let _ = tokio::task::spawn_blocking(move || session.stop()).await;
+    let finished = delivery.finish(in_flight, deadline).await;
+    if finished.expired {
+        tracing::error!(
+            events_undelivered = finished.undelivered,
+            pending = PENDING_FINAL_REQUEST,
+            "the stop deadline expired"
+        );
+        return Ok(StopOutcome::DeadlineExpired {
+            pending: PENDING_FINAL_REQUEST,
+            undelivered: finished.undelivered,
+        });
     }
-    delivery.finish(in_flight).await;
     tracing::info!(
         uptime_seconds = start_time.elapsed().as_secs(),
         "agent stopping"
     );
-    Ok(())
+    Ok(StopOutcome::Completed {
+        undelivered: finished.undelivered,
+    })
 }
 
 /// What the secure path captures from: the ring, and the sources that

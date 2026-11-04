@@ -15,6 +15,18 @@ path = "src/main.rs"
 name = "cg_agent"
 path = "src/lib.rs"
 
+# Test-only (SPEC-024 Amendment 2026-11-01, point 4): enables the test
+# targets that create, start, stop and delete Windows services and run the
+# agent as SYSTEM. They run only in rust-ci's Windows job, on a disposable
+# GitHub-hosted runner; `cargo test --all` and the elevated gate do not build
+# them. No code of the library or the executable reads this feature.
+[features]
+scm-tests = []
+
+[[test]]
+name = "install_ac_007_service"
+required-features = ["scm-tests"]
+
 # --- Runtime dependencies ---
 #
 # Pinned to minor versions, with rationale below. Patch updates are
@@ -133,7 +145,10 @@ serde_jcs = "0.1"
 # translation (SPEC-017 §Operational §5). Win32_System_Threading:
 # OpenProcess for the cache sweep (SPEC-005 NFR-005-006), and
 # OpenProcessToken with Win32_Security_Authorization for the owner-only
-# DACL of the identity artifacts (SPEC-002 NFR-003).
+# DACL of the identity artifacts (SPEC-002 NFR-003). Win32_System_Services:
+# the service control manager (SPEC-024 §Operational §3); Win32_UI_Shell and
+# Win32_System_Com: %ProgramData% from the OS for the service's file log
+# (SPEC-024 §Data contracts §2).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
@@ -142,8 +157,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_Etw",
+    "Win32_System_Com",
     "Win32_System_EventLog",
+    "Win32_System_Services",
     "Win32_System_Threading",
+    "Win32_UI_Shell",
 ] }
 # ETW runtime dep (Windows-only). Promoted from dev-dependency to runtime
 # dependency in Phase 3.5.C β3: cg_agent::etw::session consumes
@@ -206,11 +224,16 @@ testcontainers = "0.27"
 # cross-checks must not attempt to fetch or compile it.
 [target.'cfg(windows)'.dev-dependencies]
 ferrisetw = "1.2"
+# The SCM bindings of the service tests (SPEC-024 install_ac_007), which
+# build only with the `scm-tests` feature.
 # The LSA bindings for auth_ac_012's S4U logon (SPEC-020 Amendment
 # 2026-10-11, Decision record 11). The same crate as the agent's
 # dependency; declared here, the feature is enabled only when test
 # targets are built, and `cargo build --release` does not see it.
-windows-sys = { version = "0.59", features = ["Win32_Security_Authentication_Identity"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Security_Authentication_Identity",
+    "Win32_System_Services",
+] }
 
 # --- Lint configuration ---
 #
