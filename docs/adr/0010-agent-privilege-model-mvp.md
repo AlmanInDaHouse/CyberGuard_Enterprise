@@ -134,6 +134,28 @@ Any other failure to take the lock ends the start with code 1 and `cg-agent: ins
 
 **Effect.** §Decision part 1: its principals (an elevated administrator, LocalSystem), its clean-fail line and its detection at the first ETW open are unchanged for ordinary and unelevated tokens that cannot control trace sessions. For the tokens of item 1 the detection no longer reaches the ETW open. Parts 2 (superseded by the packaging SPEC) and 3: none. §Compliance: the line that the open path works identically for an elevated user and LocalSystem holds, both taking the lock; the line on no elevation at runtime holds, the lock being a check and not a change of the security context. The lock is also an availability surface: any elevated administrator's process that holds it makes another start exit with code 10. That is within the administrator trust boundary, not an escalation, and the threat model entry for the installer's elevated code (debt #141) carries it. Item 1 narrows who may run the agent: a Performance Log Users member that opened the provider would have run it before, though part 1 asked for an administrator. Codes 10 to 13 are SPEC-024's and have no ADR-level meaning here. Proposed by Claude Code on 2026-11-02; item 1 is Manuel's decision quoted above, and Manuel ratified this text on 2026-11-02, in chat: "sí a las dos enmiendas, aterrízalas", his answer to the proposal that put both amendments to him. Status stays `Accepted`.
 
+## Amendment 2026-11-03: LocalSystem runs in CI, in the agent's own service tests
+
+**What surfaced it.** Debt #141 (`docs/debts.md:86`). The *Effect* of the Amendment 2026-10-19 says: "LocalSystem, which part 1 permits, is not run in CI" (`:122`). SPEC-024's Amendment 2026-11-01, point 4, places every Cargo test of `cg-agent` that creates, starts, stops or deletes a Windows service, or runs code as SYSTEM, in `rust-ci`'s Windows job, on a hosted runner discarded after the job (`docs/specs/SPEC-024-agent-installer-service.md:574-590`). The first of them, install_ac_007's, run the agent as a LocalSystem service there. That *Effect* is the record of the Amendment 2026-10-19 and is not edited; this amendment supersedes the one sentence.
+
+**The amendment.**
+
+1. **LocalSystem runs in CI from the commit that adds the first of those tests to `rust-ci`'s Windows job.** Each test creates its own uniquely named own-process service, whose account is LocalSystem, running the agent with `--service`; it deletes the service on every exit path, and fails without acting outside a GitHub-hosted runner or when a service named `CyberGuardAgent` exists (SPEC-024:578-582). Only the agent's own service tests run it so; the elevated gate runs no code as SYSTEM.
+2. **What that run validates:** the agent's service lifecycle as SYSTEM under the real service control manager: the SCM states and their pending progress (SPEC-024:770-797), the 60-second stop deadline (SPEC-024:236-239), the Application-log entries (SPEC-024:798-818), and the custody of the service's file log under `%ProgramData%\CyberGuard\agent\logs\` (SPEC-024:99-107). The service runs the agent's secure path as LocalSystem, and its ETW session runs while the service does.
+3. **What it does not validate.** The SPEC-005 marquee stays out of CI, for the reason of the Amendment 2026-10-19, item 2. The runner gives no OS shutdown and no reboot, so no real `SHUTDOWN` control, and the tests run against their own enrollment and heartbeat server, not a real ingest (SPEC-024:604-609). The package's fixed-name service is not these tests' (SPEC-024:622-623). Nor do they reach the service's other paths that no hosted runner exercises: the stop deadline expiring in the capture teardown or at its watchdog, a persistent log failure under the service control manager, a rotated production archive (debt #145, `docs/debts.md`).
+4. **Scope.** This supersedes only the first clause of that sentence of the Amendment 2026-10-19's *Effect*, "LocalSystem, which part 1 permits, is not run in CI". Its second clause, that the second session of ADR-0020 is not run in CI either, stands.
+
+**Effect.** The other statements of this ADR on LocalSystem or CI:
+
+- §Decision part 1 (`:24`): unchanged. LocalSystem stays permitted, not required; the service runs as LocalSystem by SPEC-024 §Data contracts §3 (SPEC-024:144-145).
+- §Decision part 3, Fallback path 1 (`:44`): unchanged. These services run the agent's own tests, not AC-001 as SYSTEM; that fallback still has no trigger (Amendment 2026-10-19, *Effect*).
+- The Amendment 2026-05-29's "This constraint remains untested in CI" (`:54`) and §References' line on SPEC-005 (`:166`): already superseded by the Amendment 2026-10-19; not changed here.
+- §Alternatives considered, A3 (`:78`), "CI can run `cg-agent` as a child of the test harness without any service plumbing": the reason for the choice at the time, a record; not changed.
+- §Compliance (`:108`): the line that the ETW open path works identically as an elevated user and as LocalSystem holds; LocalSystem's half now runs in CI through the service. The line that changing posture is the launcher's, the service control manager's in the packaging SPEC (`:110`), holds.
+- §Decision parts 1 and 2 otherwise, §Consequences and the Amendment 2026-11-02: none.
+
+Proposed by Claude Code on 2026-11-03 (debt #141), and ratified by Manuel on 2026-11-04, in chat: "doy mi si a los textos 141". Status stays `Accepted`.
+
 ## References
 
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout. The agent lives at `agent/cg-agent/`; the privilege model attaches to its process.
