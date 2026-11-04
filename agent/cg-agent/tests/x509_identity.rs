@@ -1,0 +1,108 @@
+//! SPEC-024 Amendment 2026-11-04, item 5: the agent reads its client
+//! certificate's Ed25519 public key and subject common name with a DER
+//! reader of its own, and `check_consistency` compares them with the key
+//! and the `agent_id`. Any other certificate shape is an error, never a
+//! panic. Portable.
+
+mod common;
+
+use cg_agent::identity::check_consistency;
+use cg_agent::x509::{certificate_identity, certificate_identity_der};
+
+#[test]
+fn install_ac_005_the_certificate_names_its_key_and_agent() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let identity = certificate_identity(&pki.client_cert_pem).expect("read");
+    assert_eq!(identity.common_name, common::TEST_AGENT_ID);
+    assert_eq!(identity.ed25519_public_key, pki.agent_pubkey);
+
+    check_consistency(
+        &pki.client_cert_pem,
+        &pki.agent_pubkey,
+        common::TEST_AGENT_ID,
+    )
+    .expect("consistent");
+    let other = common::generate_test_pki(common::TEST_AGENT_ID);
+    let error = check_consistency(
+        &pki.client_cert_pem,
+        &other.agent_pubkey,
+        common::TEST_AGENT_ID,
+    )
+    .expect_err("another key");
+    assert_eq!(error, "the certificate's public key is not the agent's key");
+    let error = check_consistency(
+        &pki.client_cert_pem,
+        &pki.agent_pubkey,
+        "01934abc-def0-7000-89ab-0000000000aa",
+    )
+    .expect_err("another id");
+    assert_eq!(error, "the certificate's common name is not the agent's id");
+}
+
+/// A certificate for another algorithm, a PEM without a certificate and
+/// every truncation of a valid DER are errors.
+#[test]
+fn install_ac_005_other_shapes_are_errors() {
+    let key = rcgen::KeyPair::generate().expect("an ECDSA key");
+    let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("params");
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, common::TEST_AGENT_ID);
+    let ecdsa = params.self_signed(&key).expect("self-signed");
+    let error = certificate_identity(&ecdsa.pem()).expect_err("not Ed25519");
+    assert_eq!(error, "the public key is not Ed25519");
+
+    let ed25519 = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).expect("an Ed25519 key");
+    let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("params");
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    let no_cn = params.self_signed(&ed25519).expect("self-signed");
+    assert_eq!(
+        certificate_identity(&no_cn.pem()).expect_err("no CN"),
+        "no common name"
+    );
+
+    // Two common names: neither is taken as the agent's.
+    let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("params");
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, common::TEST_AGENT_ID);
+    params.distinguished_name.push(
+        rcgen::DnType::CustomDnType(vec![2, 5, 4, 3]),
+        "01934abc-def0-7000-89ab-0000000000aa",
+    );
+    let two = params.self_signed(&ed25519).expect("self-signed");
+    assert_eq!(
+        certificate_identity(&two.pem()).expect_err("two CNs"),
+        "more than one common name"
+    );
+
+    assert!(certificate_identity("not a PEM").is_err());
+    let key_only = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n";
+    assert_eq!(
+        certificate_identity(key_only).expect_err("no certificate"),
+        "no CERTIFICATE block"
+    );
+
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let der = pem::parse(&pki.client_cert_pem)
+        .expect("pem")
+        .into_contents();
+    certificate_identity_der(&der).expect("the whole DER");
+    for length in 0..der.len() {
+        assert!(
+            certificate_identity_der(&der[..length]).is_err(),
+            "a DER cut at {length} bytes"
+        );
+    }
+    // DER lengths in their shortest form only.
+    let error = certificate_identity_der(&[0x30, 0x81, 0x03, 0x02, 0x01, 0x00])
+        .expect_err("a long form for 3");
+    assert!(error.contains("shortest form"), "{error}");
+    let error = certificate_identity_der(&[0x30, 0x82, 0x00, 0x83]).expect_err("a leading zero");
+    assert!(error.contains("shortest form"), "{error}");
+
+    let mut longer = der.clone();
+    longer.push(0);
+    assert!(certificate_identity_der(&longer).is_err(), "bytes after it");
+}

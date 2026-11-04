@@ -12,7 +12,7 @@
 //! whatever the run is doing. `STOPPED` is reported last, after the
 //! Application-log entry: the process can end as soon as it is.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,11 +38,15 @@ use windows_sys::Win32::System::Services::{
 };
 
 use super::{
-    check_service_config, config_error_line, ensure_identity_until_stopped, log_file,
-    running_entry, stderr_service_log, Entry, ServiceExit, ENROLLMENT_ROUND_WAIT, EVENT_SOURCE,
-    EXIT_NOT_STARTED_BY_SCM, EXIT_SERVICE_LOG, PENDING_UNKNOWN, STDERR_NOT_STARTED_BY_SCM,
-    STDERR_RELATIVE_CONFIG, STOP_BUDGET, STOP_DEADLINE,
+    check_config_path, check_installed_config, config_error_line, identity_rounds_until_stopped,
+    log_file, running_entry, stderr_service_log, Entry, InstalledPaths, ServiceExit,
+    ENROLLMENT_ROUND_WAIT, EVENT_SOURCE, EXIT_NOT_STARTED_BY_SCM, EXIT_SERVICE_LOG,
+    PENDING_UNKNOWN, STDERR_NOT_STARTED_BY_SCM, STDERR_RELATIVE_CONFIG, STOP_BUDGET, STOP_DEADLINE,
 };
+use crate::config::AgentConfig;
+use crate::custody::{self, Kind, Policy};
+use crate::errors::{ConfigError, TlsError};
+use crate::identity::installed::{self as installed_identity, InstalledCustody};
 use crate::instance_lock::{self, LockOutcome};
 use crate::{Capture, StopOutcome};
 
@@ -249,15 +253,36 @@ async fn serve(
     if !config_path.is_absolute() {
         return failed(2, STDERR_RELATIVE_CONFIG.to_string());
     }
-    let mut config = match crate::config::load_from_path(&config_path) {
-        Ok(config) => config,
-        Err(e) => return failed(2, config_error_line(&config_path, &e)),
+    // SPEC-024 Amendment 2026-11-04, items 1 to 3: the fixed paths, and
+    // the custody of each before it is read.
+    let paths = match custody::program_data() {
+        Ok(program_data) => InstalledPaths::under(&program_data),
+        Err(reason) => return failed(1, format!("cg-agent: {reason}")),
     };
-    // The installed service runs the secure path alone (SPEC-024 §Data
-    // contracts §2): no plain HTTP.
-    if let Err(line) = check_service_config(&config_path, &config) {
+    if let Err(line) = check_config_path(&paths, &config_path) {
         return failed(2, line);
     }
+    // Item 3: the data root and its parent first, as the file log checks
+    // them (code 13); absent, `agent.toml` is absent too.
+    for directory in [&paths.product_root, &paths.data_root] {
+        if let Err(reason) = custody::check_if_exists(directory, Kind::Directory, &Policy::shared())
+        {
+            return failed(EXIT_SERVICE_LOG, stderr_service_log(&reason));
+        }
+    }
+    let mut config = match read_installed_config(&paths.config, &config_path) {
+        Ok(config) => config,
+        Err(line) => return failed(2, line),
+    };
+    // The installed service runs the secure path alone, at the fixed paths
+    // (SPEC-024 §Data contracts §2): no plain HTTP.
+    if let Err(line) = check_installed_config(&paths, &config_path, &config) {
+        return failed(2, line);
+    }
+    // The configured spellings equal the fixed paths but for ASCII case;
+    // from here on the service uses the fixed ones alone.
+    canonicalize(&mut config, &paths);
+    let config_path = paths.config.clone();
 
     // Item 1: the lock before the file log, so before RUNNING.
     let mut _instance_lock = None;
@@ -298,16 +323,22 @@ async fn serve(
         events.write(&running_entry());
     }
 
-    // SPEC-002 Amendment 2026-10-27: only an absent identity set starts
-    // enrollment; an incomplete one fails closed.
-    if let Err(e) = crate::identity::check_identity_set(&config) {
+    // SPEC-024 Amendment 2026-11-04, item 3: once per start, after RUNNING
+    // and before the first round, the trust anchor's custody (code 6); then
+    // the identity's, and (SPEC-002 Amendment 2026-10-27) only an absent
+    // identity set starts enrollment; an incomplete or insecure one fails
+    // closed.
+    if let Err(reason) = custody::check(&paths.trust_anchor, Kind::File, &Policy::configuration()) {
+        return failed(6, TlsError::ClientConfig(reason).stderr_line());
+    }
+    let identity_custody = InstalledCustody::system(&paths);
+    if let Err(e) = installed_identity::check(&config, &identity_custody) {
         return failed(e.exit_code(), e.stderr_line());
     }
     let identity = {
         let stop_signal = pin!(stopped(stop.clone()));
-        match ensure_identity_until_stopped(
-            &config,
-            &config_path,
+        match identity_rounds_until_stopped(
+            || installed_identity::ensure_identity(&config, &config_path, &identity_custody),
             ENROLLMENT_ROUND_WAIT,
             stop_signal,
         )
@@ -342,6 +373,43 @@ async fn serve(
             undelivered: Some(undelivered),
         },
         Err(e) => failed(e.exit_code(), e.stderr_line()),
+    }
+}
+
+/// Item 3 for the configuration: `agent.toml` is read from a handle its
+/// custody check passed. Its parents are checked when the file log opens.
+/// The error is code 2's line, naming the file and no line of it.
+fn read_installed_config(fixed: &Path, config_path: &Path) -> Result<AgentConfig, String> {
+    let not_found = || {
+        config_error_line(
+            config_path,
+            &ConfigError::NotFound(config_path.display().to_string()),
+        )
+    };
+    let refused = |reason: String| {
+        format!(
+            "cg-agent: invalid config {}: {reason}",
+            config_path.display()
+        )
+    };
+    let bytes = match custody::read_checked(fixed, &Policy::configuration()) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return Err(not_found()),
+        Err(reason) => return Err(refused(reason)),
+    };
+    let text =
+        String::from_utf8(bytes).map_err(|_| refused("the file is not UTF-8".to_string()))?;
+    crate::config::load_from_str(&text).map_err(|e| config_error_line(config_path, &e))
+}
+
+/// Put the fixed paths in place of their configured spellings.
+fn canonicalize(config: &mut AgentConfig, paths: &InstalledPaths) {
+    let text = |path: &Path| path.display().to_string();
+    config.server.trust_anchor_path = Some(text(&paths.trust_anchor));
+    if let Some(enrollment) = config.enrollment.as_mut() {
+        enrollment.cert_path = text(&paths.cert);
+        enrollment.key_path = text(&paths.key);
+        enrollment.identity_path = text(&paths.identity);
     }
 }
 

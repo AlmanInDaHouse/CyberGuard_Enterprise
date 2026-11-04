@@ -14,6 +14,8 @@ pub mod canonical;
 pub mod cges;
 pub mod config;
 pub mod crypto;
+#[cfg(windows)]
+pub mod custody;
 pub mod delivery;
 pub mod enrollment;
 pub mod envelope;
@@ -31,6 +33,7 @@ pub mod startup;
 pub mod tls;
 pub mod transport;
 pub mod version;
+pub mod x509;
 
 pub use version::AGENT_VERSION;
 

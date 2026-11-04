@@ -89,11 +89,12 @@ pub fn is_enrolled(config: &AgentConfig) -> bool {
     }
 }
 
-/// The installed service's identity check (SPEC-002 Amendment 2026-10-27):
-/// only an absent identity set starts enrollment, and a set with some of
-/// its three files but not all fails closed — no enrollment, no heartbeat,
-/// nothing overwritten — with the repair action. Exit code 5. The console
-/// keeps FR-001's check.
+/// SPEC-002 Amendment 2026-10-27's identity-set check: only an absent
+/// identity set starts enrollment, and a set with some of its three files
+/// but not all fails closed — no enrollment, no heartbeat, nothing
+/// overwritten — with the repair action. Exit code 5. The service runs
+/// `installed::check`, which refines it (SPEC-024 Amendment 2026-11-04,
+/// items 3 and 4); the console keeps FR-001's check.
 pub fn check_identity_set(config: &AgentConfig) -> Result<(), EnrollmentError> {
     let Some(enr) = config.enrollment.as_ref() else {
         return Ok(());
@@ -252,15 +253,7 @@ pub fn hygienize_token(config_path: &Path) {
 /// volume).
 fn rewrite_without_token(config_path: &Path) -> Result<(), String> {
     let content = std::fs::read_to_string(config_path).map_err(|e| e.to_string())?;
-    let mut doc: toml::Value = content
-        .parse()
-        .map_err(|e: toml::de::Error| e.to_string())?;
-
-    if let Some(enr) = doc.get_mut("enrollment").and_then(|v| v.as_table_mut()) {
-        enr.remove("token");
-    }
-
-    let rewritten = toml::to_string(&doc).map_err(|e| e.to_string())?;
+    let rewritten = without_token(&content)?;
 
     let mut tmp = config_path.to_path_buf();
     let file_name = config_path
@@ -271,6 +264,39 @@ fn rewrite_without_token(config_path: &Path) -> Result<(), String> {
 
     std::fs::write(&tmp, rewritten).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, config_path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// `agent.toml`'s text with `enrollment.token` removed.
+fn without_token(content: &str) -> Result<String, String> {
+    let mut doc: toml::Value = content
+        .parse()
+        .map_err(|e: toml::de::Error| e.to_string())?;
+
+    if let Some(enr) = doc.get_mut("enrollment").and_then(|v| v.as_table_mut()) {
+        enr.remove("token");
+    }
+
+    toml::to_string(&doc).map_err(|e| e.to_string())
+}
+
+/// Installed mode's mutual consistency (SPEC-024 §Operational §2 and its
+/// Amendment 2026-11-04, item 5): `cert_pem`'s Ed25519 key is
+/// `public_key` and its subject common name is `agent_id`. The error
+/// names the field that differs, never a value.
+pub fn check_consistency(
+    cert_pem: &str,
+    public_key: &[u8; KEY_LEN],
+    agent_id: &str,
+) -> Result<(), String> {
+    let certificate = crate::x509::certificate_identity(cert_pem)
+        .map_err(|e| format!("the certificate cannot be read: {e}"))?;
+    if &certificate.ed25519_public_key != public_key {
+        return Err("the certificate's public key is not the agent's key".to_string());
+    }
+    if certificate.common_name != agent_id {
+        return Err("the certificate's common name is not the agent's id".to_string());
+    }
     Ok(())
 }
 
@@ -436,4 +462,229 @@ fn harden(path: &Path) -> Result<(), EnrollmentError> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
         EnrollmentError::Persistence(format!("cannot set 0600 on {}: {e}", path.display()))
     })
+}
+
+/// The installed service's identity (SPEC-024 §Data contracts §2,
+/// §Operational §2 and its Amendment 2026-11-04, items 3 to 6). The console
+/// keeps the functions above.
+#[cfg(windows)]
+pub mod installed {
+    use super::{check_consistency, is_enrolled, load_identity, without_token, Identity};
+    use super::{Path, PersistedIdentity};
+    use crate::config::AgentConfig;
+    use crate::crypto::{pubkey_fingerprint, AgentKeypair};
+    use crate::custody::{self, Kind, Policy};
+    use crate::errors::EnrollmentError;
+    use crate::secure_storage::default_store;
+    use crate::service::InstalledPaths;
+    use std::path::PathBuf;
+
+    /// `identity\`: owner SYSTEM, SYSTEM alone, inherited by its files.
+    pub const DIRECTORY_SDDL: &str = "O:SYD:P(A;OICI;FA;;;SY)";
+    /// Each identity file: owner SYSTEM, SYSTEM alone.
+    pub const FILE_SDDL: &str = "O:SYD:P(A;;FA;;;SY)";
+
+    /// Where the identity lives, what its custody check accepts and the
+    /// security what is written gets, and what `agent.toml`'s check
+    /// accepts. Tests point it at a temporary root.
+    #[derive(Debug, Clone)]
+    pub struct InstalledCustody {
+        pub identity_dir: PathBuf,
+        pub hygiene_temporary: PathBuf,
+        pub policy: Policy,
+        pub config_policy: Policy,
+        pub directory_sddl: String,
+        pub file_sddl: String,
+    }
+
+    impl InstalledCustody {
+        /// The service's: SYSTEM alone, at the fixed paths.
+        pub fn system(paths: &InstalledPaths) -> Self {
+            InstalledCustody {
+                identity_dir: paths.identity_dir.clone(),
+                hygiene_temporary: paths.hygiene_temporary(),
+                policy: Policy::system_only(),
+                config_policy: Policy::configuration(),
+                directory_sddl: DIRECTORY_SDDL.to_string(),
+                file_sddl: FILE_SDDL.to_string(),
+            }
+        }
+    }
+
+    /// Item 4's repair: `identity\` holds the set, so removing it is what
+    /// lets the service enroll again.
+    const REPAIR: &str =
+        "restore the identity, or remove the identity directory and enroll with a new token";
+
+    fn persistence(reason: String) -> EnrollmentError {
+        EnrollmentError::Persistence(reason)
+    }
+
+    /// The identity step's check (item 3), before any identity file is read
+    /// and before enrollment: `identity\` and each of its files that exists
+    /// pass the custody check, then the set is complete or absent (SPEC-002
+    /// Amendment 2026-10-27), absent only when `identity\` is (item 4): an
+    /// `identity\` without all three files, none included, is incomplete.
+    /// Code 5.
+    pub fn check(config: &AgentConfig, custody: &InstalledCustody) -> Result<(), EnrollmentError> {
+        let enr = config
+            .enrollment
+            .as_ref()
+            .ok_or(EnrollmentError::MissingToken)?;
+        // Item 4: the set is absent only when `identity\` is.
+        if !custody::check_if_exists(&custody.identity_dir, Kind::Directory, &custody.policy)
+            .map_err(persistence)?
+        {
+            return Ok(());
+        }
+        let mut missing = Vec::new();
+        for (name, file) in [
+            ("the certificate", &enr.cert_path),
+            ("the key", &enr.key_path),
+            ("identity.json", &enr.identity_path),
+        ] {
+            if !custody::check_if_exists(Path::new(file), Kind::File, &custody.policy)
+                .map_err(persistence)?
+            {
+                missing.push(name);
+            }
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
+        Err(persistence(format!(
+            "incomplete identity: {} missing; {REPAIR}",
+            missing.join(" and ")
+        )))
+    }
+
+    /// The dispatcher of `super::ensure_identity`, in installed mode: the
+    /// loaded set is checked for consistency, an issued certificate before
+    /// it is written, and the identity and the token's rewrite keep their
+    /// custody. `check` runs first.
+    pub async fn ensure_identity(
+        config: &AgentConfig,
+        config_path: &Path,
+        custody: &InstalledCustody,
+    ) -> Result<Identity, EnrollmentError> {
+        let enr = config
+            .enrollment
+            .as_ref()
+            .ok_or(EnrollmentError::MissingToken)?;
+        if is_enrolled(config) {
+            if enr.token.as_deref().is_some_and(|t| !t.is_empty()) {
+                tracing::warn!("stale enrollment token present in config, ignoring");
+            }
+            let identity = load(config)?;
+            tracing::info!(agent_id = %identity.agent_id, "identity loaded from disk");
+            return Ok(identity);
+        }
+        let enrolled = crate::enrollment::enroll(config).await?;
+        check_issued(&enrolled)?;
+        persist(config, &enrolled, custody)?;
+        tracing::info!(
+            cert_path = %enr.cert_path,
+            key_path = %enr.key_path,
+            identity_path = %enr.identity_path,
+            "identity persisted"
+        );
+        hygienize_token(config_path, custody);
+        let keypair = AgentKeypair::from_secret_bytes(&enrolled.secret_seed);
+        Ok(Identity {
+            agent_id: enrolled.agent_id,
+            keypair,
+            client_certificate_pem: enrolled.client_certificate_pem,
+        })
+    }
+
+    /// The server's answer names a certificate for this agent's key and id;
+    /// otherwise it is malformed, code 3, and nothing is written (item 5).
+    pub fn check_issued(
+        enrolled: &crate::enrollment::EnrolledIdentity,
+    ) -> Result<(), EnrollmentError> {
+        check_consistency(
+            &enrolled.client_certificate_pem,
+            &enrolled.public_key,
+            &enrolled.agent_id,
+        )
+        .map_err(|e| EnrollmentError::Refused(format!("malformed response: {e}")))
+    }
+
+    /// FR-008's load, then item 5's consistency. Code 5, naming the repair.
+    pub fn load(config: &AgentConfig) -> Result<Identity, EnrollmentError> {
+        let identity = load_identity(config).map_err(|e| match e {
+            EnrollmentError::Persistence(reason) => persistence(format!("{reason}; {REPAIR}")),
+            other => other,
+        })?;
+        check_consistency(
+            &identity.client_certificate_pem,
+            &identity.keypair.public_key_bytes(),
+            &identity.agent_id,
+        )
+        .map_err(|e| persistence(format!("inconsistent identity: {e}; {REPAIR}")))?;
+        Ok(identity)
+    }
+
+    /// Item 4: `identity\` with its final security when absent, then
+    /// `cert.pem`, `key.dat` and `identity.json`, each created new with its
+    /// final security and flushed; `identity.json` last.
+    pub fn persist(
+        config: &AgentConfig,
+        enrolled: &crate::enrollment::EnrolledIdentity,
+        custody: &InstalledCustody,
+    ) -> Result<(), EnrollmentError> {
+        let enr = config
+            .enrollment
+            .as_ref()
+            .ok_or(EnrollmentError::MissingToken)?;
+        custody::ensure_directory(
+            &custody.identity_dir,
+            &custody.directory_sddl,
+            &custody.policy,
+        )
+        .map_err(persistence)?;
+        let sealed = default_store()
+            .seal(&enrolled.secret_seed[..])
+            .map_err(|e| persistence(format!("cannot seal private key: {e}")))?;
+        let persisted = PersistedIdentity {
+            agent_id: enrolled.agent_id.clone(),
+            agent_pubkey_fingerprint: pubkey_fingerprint(&enrolled.public_key),
+            issued_at: enrolled.issued_at.clone(),
+            expires_at: enrolled.expires_at.clone(),
+        };
+        let identity_json = serde_json::to_string_pretty(&persisted)
+            .map_err(|e| persistence(format!("cannot serialize identity.json: {e}")))?;
+        for (path, bytes) in [
+            (&enr.cert_path, enrolled.client_certificate_pem.as_bytes()),
+            (&enr.key_path, sealed.as_slice()),
+            (&enr.identity_path, identity_json.as_bytes()),
+        ] {
+            custody::create_new_file(Path::new(path), &custody.file_sddl, bytes)
+                .map_err(persistence)?;
+        }
+        Ok(())
+    }
+
+    /// FR-014 in installed mode (item 6): the rewrite keeps the original's
+    /// owner and DACL. Best-effort, as the console's.
+    pub fn hygienize_token(config_path: &Path, custody: &InstalledCustody) {
+        // A TOML error can quote a line of the file, which holds the token:
+        // the warning names the failure, not the parser's message.
+        let rewritten = std::fs::read_to_string(config_path)
+            .map_err(|e| e.to_string())
+            .and_then(|content| {
+                without_token(&content).map_err(|_| "agent.toml is not valid TOML".to_string())
+            })
+            .and_then(|text| {
+                custody::replace_keeping_security(
+                    config_path,
+                    &custody.hygiene_temporary,
+                    text.as_bytes(),
+                    &custody.config_policy,
+                )
+            });
+        if let Err(e) = rewritten {
+            tracing::warn!(error = %e, "could not hygienize enrollment token from config");
+        }
+    }
 }

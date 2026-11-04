@@ -17,7 +17,7 @@
 //! and the file log are in `windows`.
 
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -196,6 +196,112 @@ pub fn check_service_config(path: &Path, config: &AgentConfig) -> Result<(), Str
     Ok(())
 }
 
+/// The installed paths (SPEC-024 §Data contracts §2 and its Amendment
+/// 2026-11-04, item 1), under the `%ProgramData%` the OS reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledPaths {
+    /// `<ProgramData>\CyberGuard`.
+    pub product_root: PathBuf,
+    /// `<ProgramData>\CyberGuard\agent`.
+    pub data_root: PathBuf,
+    pub config: PathBuf,
+    pub trust_anchor: PathBuf,
+    /// `<ProgramData>\CyberGuard\agent\identity`.
+    pub identity_dir: PathBuf,
+    pub cert: PathBuf,
+    pub key: PathBuf,
+    pub identity: PathBuf,
+}
+
+impl InstalledPaths {
+    pub fn under(program_data: &Path) -> Self {
+        let product_root = program_data.join("CyberGuard");
+        let data_root = product_root.join("agent");
+        let identity_dir = data_root.join("identity");
+        InstalledPaths {
+            config: data_root.join("agent.toml"),
+            trust_anchor: data_root.join("server-ca.pem"),
+            cert: identity_dir.join("cert.pem"),
+            key: identity_dir.join("key.dat"),
+            identity: identity_dir.join("identity.json"),
+            product_root,
+            data_root,
+            identity_dir,
+        }
+    }
+
+    /// FR-014's temporary file in the data root.
+    pub fn hygiene_temporary(&self) -> PathBuf {
+        self.data_root.join("agent.toml.hygiene-tmp")
+    }
+}
+
+/// A configured path is its fixed path when the two strings are equal but
+/// for ASCII case; no other spelling is resolved (Amendment 2026-11-04,
+/// item 2).
+pub fn is_fixed_path(configured: &str, fixed: &Path) -> bool {
+    fixed
+        .to_str()
+        .is_some_and(|fixed| fixed.eq_ignore_ascii_case(configured))
+}
+
+/// Item 2's line for a path other than its fixed one.
+fn not_fixed(config_path: &Path, key: &str, fixed: &Path) -> String {
+    format!(
+        "cg-agent: invalid config {}: {key} must be {} in service mode",
+        config_path.display(),
+        fixed.display()
+    )
+}
+
+/// Before the configuration is read: `--config` is the fixed one.
+pub fn check_config_path(paths: &InstalledPaths, config_path: &Path) -> Result<(), String> {
+    match config_path.to_str() {
+        Some(text) if is_fixed_path(text, &paths.config) => Ok(()),
+        _ => Err(not_fixed(config_path, "--config", &paths.config)),
+    }
+}
+
+/// After parsing: the trust anchor and the identity at their fixed paths,
+/// and an explicit heartbeat URL (Amendment 2026-11-04, item 2). The plain
+/// path is refused first, by `check_service_config`.
+pub fn check_installed_config(
+    paths: &InstalledPaths,
+    config_path: &Path,
+    config: &AgentConfig,
+) -> Result<(), String> {
+    check_service_config(config_path, config)?;
+    let anchor = config.server.trust_anchor_path.as_deref().unwrap_or("");
+    if !is_fixed_path(anchor, &paths.trust_anchor) {
+        return Err(not_fixed(
+            config_path,
+            "server.trust_anchor_path",
+            &paths.trust_anchor,
+        ));
+    }
+    let enrollment = config.enrollment.as_ref().expect("checked above");
+    for (key, configured, fixed) in [
+        ("enrollment.cert_path", &enrollment.cert_path, &paths.cert),
+        ("enrollment.key_path", &enrollment.key_path, &paths.key),
+        (
+            "enrollment.identity_path",
+            &enrollment.identity_path,
+            &paths.identity,
+        ),
+    ] {
+        if !is_fixed_path(configured, fixed) {
+            return Err(not_fixed(config_path, key, fixed));
+        }
+    }
+    if config.server.heartbeat_url.is_none() {
+        return Err(format!(
+            "cg-agent: invalid config {}: the service requires server.heartbeat_url",
+            config_path.display()
+        ));
+    }
+    Ok(())
+}
+
 /// Load or enroll the identity in service mode (SPEC-002 Amendment
 /// 2026-10-27): an exhausted enrollment round (the console's code 4) is
 /// followed by another after `round_wait`, not by an exit; any other error
@@ -205,16 +311,36 @@ pub async fn ensure_identity_until_stopped<S>(
     config: &AgentConfig,
     config_path: &Path,
     round_wait: Duration,
+    stop: Pin<&mut S>,
+) -> Option<Result<Identity, EnrollmentError>>
+where
+    S: Future<Output = ()>,
+{
+    identity_rounds_until_stopped(
+        || crate::identity::ensure_identity(config, config_path),
+        round_wait,
+        stop,
+    )
+    .await
+}
+
+/// The rounds of `ensure_identity_until_stopped`, each one `round()`: the
+/// service's rounds run installed mode's dispatcher.
+pub async fn identity_rounds_until_stopped<S, R, F>(
+    mut round: R,
+    round_wait: Duration,
     mut stop: Pin<&mut S>,
 ) -> Option<Result<Identity, EnrollmentError>>
 where
     S: Future<Output = ()>,
+    R: FnMut() -> F,
+    F: Future<Output = Result<Identity, EnrollmentError>>,
 {
     loop {
         let result = tokio::select! {
             biased;
             _ = stop.as_mut() => return None,
-            result = crate::identity::ensure_identity(config, config_path) => result,
+            result = round() => result,
         };
         match result {
             Err(EnrollmentError::Unreachable {

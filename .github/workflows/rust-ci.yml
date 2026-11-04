@@ -83,9 +83,11 @@ jobs:
       # stop and delete Windows services and run the agent as SYSTEM, built only
       # with the test-only `scm-tests` feature, run here alone, on this
       # disposable runner, one at a time. Their red evidence was the probe pull
-      # request #80, closed without landing (CLAUDE.md compensating control 1).
+      # requests #80 and #82 (install_ac_007, install_ac_010) and #84
+      # (install_ac_002/004/005), closed without landing (CLAUDE.md compensating
+      # control 1).
       - name: "cargo test, the SCM and SYSTEM tests (scm-tests)"
-        run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_007_service -- --test-threads=1
+        run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_007_service --test install_ac_004_custody_service -- --test-threads=1
 
       - name: agent version matrix
         run: node .github/scripts/agent-version-matrix.mjs
