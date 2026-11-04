@@ -856,6 +856,185 @@ aterrízalas"): ADR-0008 Amendment 2026-11-02 (the reclaim, and the stop after
 a failed start) and ADR-0010 Amendment 2026-11-02 (items 1 and 2 above).
 Status stays **Accepted**.
 
+## Amendment 2026-11-04: the service's paths, custody checks and identity writes
+
+**What surfaced it.** Debt #142: the service accepts any identity and
+trust-anchor paths (a relative one resolves against `System32`) and checks
+no custody before it reads the configuration, the trust anchor or the
+identity. It writes the identity with `std::fs::write` into a directory
+that `create_dir_all` made under the data root, so each file holds the data
+root's inherited Administrators entry until it is hardened after the write
+(#87's write-before-hardening window). And the buffer that machine-scope
+DPAPI returns is freed without being zeroed. Implementing §Data contracts
+§2 and §Operational §2 for the service (install_ac_002, install_ac_004 and
+install_ac_005) needs what those sections name without fixing: when the
+agent is in installed mode, how it compares a configured path with a fixed
+one, what a custody check accepts, the order and exit code of each refusal,
+and the order in which an identity is written.
+
+**Amendment.**
+
+1. **Installed mode is the service.** `--service` (the second Amendment
+   2026-11-01, item 2) is installed mode; the console keeps its paths and
+   checks (SPEC-002 Amendment 2026-10-27: console and test paths are a
+   development surface), and items 2 to 6 do not apply to it. In installed
+   mode the agent derives its paths from `%ProgramData%` as the OS reports
+   it (`SHGetKnownFolderPath`, after item 2's check of a relative
+   `--config`; a failure is code 1, before the configuration is read): `<ProgramData>\CyberGuard`, the data root
+   `<ProgramData>\CyberGuard\agent`, and in the data root `agent.toml`,
+   `server-ca.pem` and `identity\` with `cert.pem`, `key.dat` and
+   `identity.json`. §Data contracts §2 gives these as default locations
+   and §Data contracts §3 has setup supply them without an override; in
+   installed mode they are the only ones accepted, a narrowing of §2's
+   "default". Setup does not create `identity\`; the service does (item 4).
+2. **The configured paths are the fixed ones.** The service refuses a
+   `--config` other than the fixed `agent.toml`, before any other check of
+   item 3. After parsing the configuration, it refuses one without
+   `[enrollment]` or `server.trust_anchor_path` (the plain path, as
+   before), then one whose `server.trust_anchor_path`,
+   `enrollment.cert_path`, `enrollment.key_path` or
+   `enrollment.identity_path` is not its fixed path, then one without
+   `server.heartbeat_url` (§Data contracts §2's "explicit HTTPS enrollment
+   and heartbeat URLs"; the fallback to `server.url` of SPEC-003's
+   Amendment 2026-05-22, "separate enroll and heartbeat URLs", stays the
+   console's). A path is its fixed path when the two strings are equal but
+   for ASCII case; any other spelling (forward slashes, `..`, a `\\?\` or
+   UNC prefix, a short name, a case variant outside ASCII) is refused, not
+   resolved. Each refusal is code 2, before `RUNNING`: a path other than
+   its fixed one with the line
+   `cg-agent: invalid config <file>: <key> must be <fixed path> in service mode`
+   (`<key>` is `--config` for the first), the missing heartbeat URL with
+   `cg-agent: invalid config <file>: the service requires server.heartbeat_url`.
+   Where the second Amendment 2026-11-01 refused only a `--config` that is
+   not absolute, the service now refuses every `--config` but the fixed
+   one; that amendment's line stays for a relative one, which is checked
+   first.
+3. **The custody check.** The service opens each object it checks without
+   following a reparse point and checks it through that handle: a
+   directory where one is expected, otherwise a regular file with one
+   link; not a reparse point; and a DACL, not null, with allow entries for
+   the object's principals and no one else (an object need not have an
+   entry for each). Deny entries may name anyone; an entry of another type
+   is refused. Per object:
+   - `<ProgramData>\CyberGuard` and the data root: owned by SYSTEM or
+     Administrators; allow entries for SYSTEM and Administrators only. This
+     is the check the service's file log has made of its directories since
+     it landed, which this item states; a refusal is code 13, the code of a
+     file log that cannot be opened (the second Amendment 2026-11-01, item
+     3), with its line, `cg-agent: the service log cannot be written: <reason>`.
+   - `agent.toml` and `server-ca.pem`: owned by SYSTEM; a protected DACL;
+     allow entries for SYSTEM and Administrators only.
+   - `identity\` and its three files: owned by SYSTEM; a protected DACL;
+     allow entries for SYSTEM only (§Data contracts §2). Another file in
+     `identity\` is neither checked nor read. These checks run before item
+     4's check that the set is complete.
+
+   Once an object and its parents pass, an ordinary user can neither
+   replace nor change them, so the service may read them again by path.
+   The order and the codes:
+   - Before the configuration is read, after item 2's check of `--config`:
+     `<ProgramData>\CyberGuard`, then the data root, each when it exists
+     (code 13 as above; when either is absent, so is `agent.toml`, code 2);
+     then `agent.toml`, which the service reads from the checked handle:
+     code 2, `cg-agent: invalid config <file>: <reason>`. Then item 2's
+     checks after parsing, the instance lock, and the file log, which checks
+     its directories again as it opens them.
+   - After `RUNNING`, at each start's identity step, whether or not it
+     enrolls, once per start and before the first enrollment round:
+     `server-ca.pem`, code 6,
+     `cg-agent: tls: client configuration failed: <reason>`; then
+     `identity\` when it exists and each of its three files that exists,
+     code 5, `cg-agent: identity error: <reason>`.
+
+   The reasons name the path and the failed condition, never a file's
+   content.
+4. **Writing the identity.** After enrollment the service creates
+   `identity\` with its final security: owner SYSTEM and a protected DACL
+   whose only entry, inherited by its files, is SYSTEM's. Then it seals the
+   key and writes `cert.pem`, then `key.dat`, then `identity.json`, each
+   created new (never over an existing file) with its final security, owner
+   SYSTEM and a protected DACL for SYSTEM alone, and flushed before the
+   next. In installed mode the identity set is absent only when `identity\`
+   is: an `identity\` with some of the three files but not all, none
+   included, is incomplete, and an `identity.json` that does not parse is
+   corrupt. Either is code 5 at the next start, without enrollment,
+   heartbeat or change to what is there, and the line names the repair
+   (restore the identity, or remove `identity\` and enroll with a new
+   token). So any write that stops after `identity\` is created leaves a
+   detectable state. The one that leaves nothing, a failure to create
+   `identity\`, is §Operational §2's consumed token with its enrollment
+   response lost: nothing was persisted, and the next start enrolls again
+   with that token (code 3). No byte of the identity is written under
+   another security, and no file is restricted after it is written.
+5. **Mutual consistency.** In installed mode an identity is consistent
+   when its certificate's Ed25519 public key is the key's, its certificate's
+   subject has one common name, `identity.json`'s `agent_id`, and the
+   fingerprint in `identity.json` is that key's. The agent reads those two
+   fields of the certificate with a DER reader of its own, with no new
+   dependency, and validates nothing else of it there (its signature and
+   validity stay with TLS, SPEC-003). At enrollment, a certificate in the
+   server's answer that fails either of the first two is a malformed
+   answer, code 3, and nothing is written. At the identity step, a loaded set that fails
+   them is code 5, with item 4's repair. The console keeps FR-008's
+   fingerprint check alone.
+6. **Token hygiene.** In installed mode FR-014's rewrite of `agent.toml`
+   creates its temporary file, `agent.toml.hygiene-tmp` in the data root,
+   new, with the owner and DACL read from the original through its handle,
+   as a protected DACL, and replaces the original with it; a leftover file
+   of that name is deleted first, which deletes no reparse point's target.
+   A failure stays FR-014's best-effort warning. The console's rewrite is
+   unchanged.
+7. **Decrypted key bytes.** In every mode, the buffer that machine-scope
+   DPAPI returns is zeroed before it is freed.
+
+**Effect.** install_ac_002 is met for the service's refusals: plain HTTP,
+paths other than the fixed ones, and a configuration or trust anchor that
+others can reach or change. Its "no token in logs" holds for the service
+as for the console (the redacted configuration, and entry 1002 quoting no
+line of the file). Its setup half (the two routes, the anchor's
+fingerprints, the bootstrap file and its ACLs, no token in argv,
+environment, MSI properties or MSI logs) stays with the package's setup and
+MSI. install_ac_004 and install_ac_005 are tested against
+items 3 to 6 for a fresh service installation: by unelevated tests of the
+checks, the order of writes and the consistency, and by the service and
+SYSTEM tests in rust-ci's Windows job (Amendment 2026-11-01, point 4),
+which on the runner use the fixed paths and probe effective access under a
+standard user created for the test and a filtered administrator's token.
+That runner runs as the built-in Administrator, which has no linked
+filtered token, so the test builds one with `CreateRestrictedToken`
+(Administrators for deny only, `DISABLE_MAX_PRIVILEGE`, which disables
+every privilege but `SeChangeNotifyPrivilege` without deleting them). It
+differs from a UAC filtered token of an enrolling administrator: its user
+is the built-in Administrator, its integrity level stays high, and it
+enables fewer privileges; the evidence says so. The
+service tests that landed with install_ac_007, install_ac_009 and
+install_ac_010 move to the fixed paths too; §Test scenarios' isolated
+temporary roots stay for every other test. Item 7 has no test: a freed
+buffer cannot be observed, and the change is read in review. Debt #142 is
+closed by the implementation. #87 is not: its legacy migration
+(install_ac_013), the package, and §Operational §2's disclosure of earlier
+copies remain; the console runbook's layout, with the identity files
+directly in the data root and forward-slash paths, is not installed mode's,
+and moving a host from it is that migration's. A host the console runbook
+set up keeps the threat model's R17 outcome, code 13, since its data
+directories fail the check before its configuration is read. By scope:
+§Operational §2's "a detectable incomplete state" and install_ac_005's
+"does not re-enroll" for the failure to create `identity\` (item 4), the
+default locations of §Data contracts §2 (item 1), SPEC-003's Amendment
+2026-05-22 "separate enroll and heartbeat URLs" (its fallback is the
+console's), SPEC-002 FR-001, FR-007, FR-008 and FR-014 for installed mode
+(as its Amendment 2026-10-27 already announces), and the second Amendment
+2026-11-01, item 2. Codes 1, 2, 3, 5 and 6 gain the causes above and keep
+their meanings; code 13 keeps its causes and is reached earlier for the
+data directories; no code is added. The installation runbook's exit-code
+table gains these causes, and the note that an editor that replaces
+`agent.toml` instead of rewriting it gives it a new owner and DACL that the
+next start refuses, with the change that implements them. No setting a
+deployment or an operator chooses is added, no dependency of `cg-agent`
+and no privilege. Like the second Amendment 2026-11-01, whose outcomes it
+extends, this amendment is Manuel's to approve: he approved it in chat on
+2026-11-04 ("Sí, apruebo"). Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
