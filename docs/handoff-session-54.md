@@ -4,7 +4,7 @@ Session 54, 2026-11-03, continues F2 under SPEC-024. It runs the probe pull
 request for the SCM/SYSTEM tests, implements **install_ac_007** (the agent
 as a Windows service) and **install_ac_010** (its rotating JSON log, with
 debt #137), each through a fresh-context review in two rounds, and drafts
-**#141**'s texts for Manuel. The code went through two stacked pull
+**#141**'s texts for Manuel, who ratified them. The code went through two stacked pull
 requests, both CI ALL GREEN. The first close (`266599f`) left them waiting
 for the elevated gate; Manuel ran it on 2026-11-04, green on both trees, and
 the session then **landed** them on `main` (*Landing after the elevated
@@ -20,8 +20,9 @@ and `61b2f67`.
   1.1 GB of RAM free, Docker Desktop down (not needed: no local marquee).
 - Resulting `main`: the first close commit `266599f`, the three landed
   commits `cc24b99`, `f4c6f28`, `61b2f67`, and the final close commit on
-  them. PRs #81 and #83 closed, their branches deleted; `review/s54-141-texts`
-  is the one branch left open (*Waiting on Manuel*).
+  them, then #141's four ratified amendments (`157354d`, `fdc8965`,
+  `439af6e`, `cb28ea4`) and the final close commit. PRs #81 and #83 closed;
+  every branch deleted, `main` alone on origin (*#141's texts*).
 - Open branches at the first close (`266599f`), each named with its reason:
   - `feat/s54-install-ac-007`, PR **#81**, tip `fca6303`: install_ac_007.
     CI ALL GREEN on `3e301d6` and `fca6303`. Waits for the elevated gate.
@@ -372,14 +373,26 @@ fixed prompt; extra lenses in round 1). Their lists and dispositions:
     persistent log failure under the SCM, a rotated production archive.
     Destination: the isolated Windows machine's experiments (install_ac_008,
     install_ac_016; #50/#59).
-- Changed: **#141**'s destination → `review/s54-141-texts`, rebased on the
-  landed service and reviewed with a fresh context (*#141's texts*): Manuel's
-  sí on the text.
-- Open at close: **53**.
+- Closed also: **#141**, by `157354d`, `fdc8965`, `439af6e` and `cb28ea4`
+  (*#141's texts*).
+- Open at close: **52**.
 
 ## #141's texts
 
-`review/s54-141-texts` rebased onto `61b2f67` (`990837a`, `6854a1c`,
+Manuel ratified the four amendments on 2026-11-04, in chat: "doy mi si a los
+textos 141". They landed on `main` as four docs commits, one push each, with
+`markdownlint` green locally and in CI on each SHA: ADR-0010 `157354d`, the
+threat model `fdc8965`, ADR-0019 `439af6e`, ADR-0020 `cb28ea4`. Each commit
+folds in the review fixes of `8b5a338`, so every SHA is true on its own, its
+"awaiting Manuel's ratification" replaced by his ratification (the wording
+of ADR-0010's Amendment 2026-11-02), the marker stripped from the subject, and
+`Last updated` of ADR-0019 and ADR-0020 set to 2026-11-04. The tree differs
+from `8b5a338`'s only by those lines. The review branch was deleted. His sí
+was one phrase for all four texts; the three points the proposal flagged as
+his (ADR-0020 §2 amended, the accepted WiX threat, LocalSystem in CI) were
+in the texts he read.
+
+Before that: `review/s54-141-texts` rebased onto `61b2f67` (`990837a`, `6854a1c`,
 `aedc83e`, `ac78df3`), then the fixed SPEC/ADR-text reviewer (fresh context,
 isolated worktree) at `ac78df3`; the fixes are `8b5a338`, pushed (no PR, so
 no workflow ran; `markdownlint` 0 issues locally). Claude Code's own pass:
@@ -424,30 +437,20 @@ the citations it checked held but the two the reviewer found.
 
 ## Waiting on Manuel
 
-1. **#141's texts**: the compare
-   `https://github.com/AlmanInDaHouse/CyberGuard_Enterprise/compare/main...review/s54-141-texts`,
-   five commits, each `NOT YET RATIFIED`. Three points to decide in it, all
-   his: ADR-0020 §2's clause on dumps is amended (SPEC-024 had said no ADR
-   changes); the threat model accepts an upstream-compromised WiX release
-   (the first threat accepted since 2026-10-15); ADR-0010 states LocalSystem
-   runs in CI. A sí on the text, or the changes he wants.
+Nothing from this session. The gates he owed (the elevated gate) and the
+ratification of #141's texts are both done; the next elevated gate comes
+with #87 and #142 (*How Session 55 resumes*).
 
 ## How Session 55 resumes
 
-1. Start protocol (CLAUDE.md). `main` is this handoff's final close commit
-   on `61b2f67`; no PR open; one branch, `review/s54-141-texts` (`8b5a338`,
-   no PR); 53 open debts; 22 ADR / 23 SPEC. Check C:, RAM and Docker before
-   builds.
-2. If Manuel has given his sí on #141: rebase the branch onto `main`, strip
-   `NOT YET RATIFIED` from each subject, re-date `Last updated` if needed,
-   land the commits by cherry-pick with the tree guard (docs, so straight
-   to `main` once `markdownlint` passes), close #141 in the register, delete
-   the branch. If he asked for changes, make them on the branch first.
-3. Then #87 custody with #142 (install_ac_002/004/005): contract check,
+1. Start protocol (CLAUDE.md). `main` is this handoff's final close commit;
+   no PR, no branch but `main`; 52 open debts; 22 ADR / 23 SPEC. Check C:,
+   RAM and Docker before builds.
+2. #87 custody with #142 (install_ac_002/004/005): contract check,
    tests seen red, branch and PR, one commit per push, the probe PR for any
    new SCM/SYSTEM test, the fresh-context review, and the elevated gate,
    since it touches the identity on the capture path.
-4. Then packaging (install_ac_015): the .NET SDK and WiX first use reported
+3. Then packaging (install_ac_015): the .NET SDK and WiX first use reported
    with exact version and command before it runs. Keep the release freeze.
 
 ## Environment and memory

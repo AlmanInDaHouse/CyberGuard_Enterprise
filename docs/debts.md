@@ -23,8 +23,8 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 53** at Session 54's close, the count `docs/handoff-session-54.md` states
-(Session 54 opened #142 to #145 and closed #137 with PR #83's landing).
+**Open: 52** at Session 54's close, the count `docs/handoff-session-54.md` states
+(Session 54 opened #142 to #145 and closed #137 with PR #83's landing and #141 with Manuel's ratification of its texts).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
 Session N resumes* (at Session 54's close, `docs/handoff-session-54.md#how-session-55-resumes`);
@@ -82,7 +82,6 @@ Session N resumes* (at Session 54's close, `docs/handoff-session-54.md#how-sessi
 | 136 | The create-user CLI header still says later users are API-only | `handoff-session-48.md#debts` | Next F3 user-management/CLI change, with its workspace gate: align the stale comment with SPEC-023's third amendment (S48 delegated). |
 | 138 | `detect_ac_001` residuals after #4/#37: a step back of ClickHouse's clock after the settle wait can end the drain early, so a later failure reads as a detection one; the probe is found by PID alone; no elapsed line on a vitest timeout or a failure before the probe (against SPEC-006's "on every run"); the test's header comment still says the other marquees wrote earlier | `handoff-session-50.md#debts` | The next change to the marquee or to the elevated gate: assert the cursor passed the child's `(arrived_at, event_id)` before the alert criteria, and check the probe's image. |
 | 140 | A development build's version resource carries Cargo's numbers `X.Y.Z.0` and no prerelease flag, so a reader of the numbers alone cannot tell it from the same-numbered release (SPEC-024 Amendment 2026-11-01, point 2) | `handoff-session-51.md#debts` | The packaging amendment for install_ac_015: propose `VS_FF_PRERELEASE` on development builds. |
-| 141 | Texts behind F2's decisions: `docs/security/threat-model.md:294` ("There is no installer"; no entry for the installer's third-party code, Burn and custom actions, which runs elevated), its `:234` (dumps deferred to the deployment contract), ADR-0010's "LocalSystem … is not run in CI" (false once the SCM/SYSTEM tests land), ADR-0019 Open question 1 and ADR-0020 Open question 4 ("Reopen: the deployment contract", met for F2 by SPEC-024) | `handoff-session-51.md#debts`; `handoff-session-54.md#debts` | Drafted on `review/s54-141-texts` (four `NOT YET RATIFIED` amendments: threat model, ADR-0010, ADR-0019, ADR-0020), rebased on the landed service and reviewed with a fresh context (`docs/handoff-session-54.md`): Manuel's sí on the text. |
 | 142 | The service accepts any identity and trust-anchor paths (relative ones resolve against `System32`), without SPEC-024 §Data contracts §2's installed-mode validation, and reads the identity with no custody check (SPEC-017 Amendment 2026-10-27); an identity directory under `CyberGuard\agent` would inherit Administrators' full control | `handoff-session-54.md#debts` | install_ac_002/004/005 with #87. |
 | 143 | Service log residuals: a write that fails after writing part of a record leaves that part as one invalid line; an active file already above 10 MiB (from a build before rotation) is archived whole | `handoff-session-54.md#debts` | install_ac_010's next change, or accepted at F2's close. |
 | 144 | An ordinary user who creates `%ProgramData%\CyberGuard` before installation keeps the service from starting (fails closed, code 13); threat model R17 in #141's draft | `handoff-session-54.md#debts` | SPEC-024's package (install_ac_011/015). |
@@ -92,6 +91,7 @@ Session N resumes* (at Session 54's close, `docs/handoff-session-54.md#how-sessi
 
 | # | Debt | Closed by | Entry |
 |---|---|---|---|
+| 141 | Texts behind F2's decisions: the threat model's "There is no installer" line and its dumps clause, ADR-0010's "LocalSystem … is not run in CI", ADR-0019 Open question 1 and ADR-0020 Open question 4 | `157354d` (ADR-0010), `fdc8965` (threat model), `439af6e` (ADR-0019), `cb28ea4` (ADR-0020): four amendments, fresh-context reviewed, ratified by Manuel on 2026-11-04 ("doy mi si a los textos 141") | `handoff-session-51.md#debts`; `handoff-session-54.md#debts` |
 | 137 | The "agent starting" line carried `agent.version` but none of SPEC-001 §Observability's other required fields | `f4c6f28` and `61b2f67` (PR #83, install_ac_010): "agent starting" carries `agent.version`, `agent.id` (`agent.id_source`), `agent.platform`, `agent.hostname`, `server.url`, `heartbeat.interval_seconds`, and "agent identity ready" the server-issued id; elevated gate s54-gate1 green | `handoff-session-50.md#debts`; `handoff-session-54.md#debts` |
 | 139 | No criterion ordered the release's version check before publication | `d9932a6` (contract `46c6cb5`, with Manuel's OK): the release's first job checks the tag's form and MSI's limits, and every other job waits for it | `handoff-session-51.md#debts` |
 | 4 | `detect_ac_001` "0 events" trap: a stale binary and a dirty cursor look the same | `7297412` (contract `de3bf0c`): the agent ran its window and its Launches are in `cges_events` before any detection assertion; elevated gate s50-gate1 green on its tree | `handoff-session-50.md#debts` |
