@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-10
-- Last updated: 2026-10-23
+- Last updated: 2026-11-04
 - Deciders: Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -230,6 +230,17 @@ Rejected for v0.1: the agent would hold state across records and choose between 
 3. **The arrival time stays the basis**, not the event's `time`, for §9's reason (debt #31).
 
 **Effect.** §9: its period is the default of a setting; its *Why* stands for that default. §Consequences, *Negative*: "the other classes keep no limit at all" no longer holds; a logon is deleted after the set period, whatever an investigation still needs. Open question 2: resolved. §Compliance: unchanged. ADR-0020's 365 days on two columns of class 1007, which are not built (`process_command_line` exists without them, `process_user_uid` does not exist; roadmap §B2, parked), are unchanged. Proposed by Claude Code on 2026-10-19 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
+
+## Amendment 2026-11-03 (SPEC-024): Open question 1 for F2
+
+**What surfaced it.** Debt #141 (`docs/debts.md:86`). Open question 1 reads: "Whether the agent should read the audit policy at startup and say so. Reopen: the deployment contract (roadmap §F)." (`:189`). SPEC-024, roadmap §F's agent installation (F2), carried that question as its Open question 4 (`docs/specs/SPEC-024-agent-installer-service.md:407-412`), and its Amendment 2026-11-01, point 5, disposes of it for F2 and leaves this ADR's question open (SPEC-024:629-667, :677-679).
+
+**The amendment.**
+
+1. **For F2, the agent does not read, manage or report its host's audit policy** (SPEC-024:629-631); §Out of scope's "Managing or reporting the audit policy" (`:182`) stands. The endpoint runbook of install_ac_016, not yet written, is to read, with administrator rights and without changing anything, and to record with the installation evidence: the effective success and failure auditing of the Logon and Account Lockout subcategories, queried by their GUIDs, Group Policy's settings included; and whether any account has a per-user audit policy, and how many do, without their names (SPEC-024:633-644). A subcategory's success or failure auditing that is not enabled is recorded as that coverage absent (Logon's success, 4624; Logon's and Account Lockout's failure, 4625), and one the runbook could not read as unknown (SPEC-024:653-655).
+2. **Open question 1 stays open, with a new reopen condition:** F3's agents page (`docs/product/roadmap.md:419-421`), or a buyer's requirement (SPEC-024:661-662). A change to this ADR's boundary needs Manuel's explicit yes (SPEC-024:663-664).
+
+**Effect.** §Decision, §Compliance and §Out of scope: none. On a host that does not audit logons the Security log still gives the agent no logon, and the agent does not say so; the installation evidence records it. Open question 1: its reopen condition is replaced by item 2, and the question stays open. Open question 2, resolved by the Amendment 2026-10-19: unchanged. Proposed by Claude Code on 2026-11-03 (debt #141), and ratified by Manuel on 2026-11-04, in chat: "doy mi si a los textos 141". Status stays `Accepted`.
 
 ## References
 
