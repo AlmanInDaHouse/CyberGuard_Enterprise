@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-11
-- Last updated: 2026-10-23
+- Last updated: 2026-11-04
 - Deciders: Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -218,6 +218,18 @@ One session for all the providers, an open question of this ADR's draft, was mea
 **The amendment.** The two items join the deployment contract with SPEC-021's code, not with roadmap §F's first SPEC: the bundle's ClickHouse configuration takes the settings SPEC-021 states, the operator surface takes the retention and pattern-list settings, and the api's ClickHouse user is narrowed to the columns its routes return. Until then the two columns stay empty. The bundle keeps the server's system log tables for seven days (SPEC-023 §Operational §4), which bounds how long a failed insert's row, of any class, stays in them, and is not this ADR's setting.
 
 **Effect.** §Decision: the last sentence of §4's second bullet (`:73`), as the amendment says; the rest stands. §Consequences: the line that gives users with scoped grants to roadmap §F (`:167`) holds for the api's ClickHouse user as a whole, a read-only user SPEC-023 creates; its narrowing to columns goes with SPEC-021's code. §Out of scope: its operator setting goes with SPEC-021. §Compliance: the 365 days of the two columns, a backup included (`:184`), hold; SPEC-021 reconciles them with the bundle's backups, which the operator is asked to keep no longer than the longest retention set (SPEC-023 §Operational §10, against the retentions of §Operational §9: 365 days by default, up to 3650 by §Data contracts §3), and until then the two columns are empty. §Alternatives considered: none. Proposed by Claude Code on 2026-10-23 under Manuel's delegation (ADR-0022 §Decision record), and ratified by Manuel on 2026-10-23 with ADR-0022, in chat: "Sí, ratifico". Status stays `Accepted`.
+
+## Amendment 2026-11-03 (SPEC-024): Open question 4 for F2
+
+**What surfaced it.** Debt #141 (`docs/debts.md:86`). Open question 4 reads: "Whether a deployment keeps or sends them, with the memory they hold. Reopen: the deployment contract (roadmap §F)." (`:200`), and §Decision §2 ends its third bullet: "whether a deployment turns those off is the deployment contract's (Open questions 4)" (`:53`). SPEC-024, roadmap §F's agent installation (F2), carried that question as its Open question 5 (`docs/specs/SPEC-024-agent-installer-service.md:413-418`), and its Amendment 2026-11-01, point 5, disposes of it for F2 and leaves this ADR's question open (SPEC-024:629-667, :677-679).
+
+**The amendment.**
+
+1. **For F2, the product writes, collects and sends no crash or memory dump** (SPEC-024:631-632), and does not turn the host's off, a change to host policy that SPEC-024 §Operational §5 excludes (SPEC-024:666-667). The endpoint runbook of install_ac_016, not yet written, is to read, with administrator rights and without changing anything, and to record with the installation evidence: the kernel dump settings under `HKLM\SYSTEM\CurrentControlSet\Control\CrashControl`; the page file's and hibernation's settings; and Windows Error Reporting's `LocalDumps` settings, global and for `cg-agent.exe`, with its consent and upload policy, which decides whether reports and their dumps leave the host (SPEC-024:645-651). It is to state that a dump of the agent's process can hold its decrypted private key and the events it holds, and a kernel dump any memory of the host, and that who reads such files and how long they are kept follow the host's own policy, which it is to record (SPEC-024:655-658).
+2. **§2's clause** "whether a deployment turns those off is the deployment contract's (Open questions 4)" (`:53`) reads, for F2: whether a host keeps or sends them is the host's policy, which the product does not change and the installation evidence records (item 1).
+3. **Open question 4 stays open, with a new reopen condition:** a buyer asks the product to collect dumps (SPEC-024:662-663). A change to this ADR's boundary needs Manuel's explicit yes (SPEC-024:663-664).
+
+**Effect.** §Decision §2: the last clause of its third bullet (`:53`), as item 2 says; the rest stands, the agent writing no command line to disk or to its own output among it. §Compliance and §Out of scope: none. Roadmap §B2 is parked, so no command line is captured yet; a dump of the agent holds its private key and its events today, and the command lines and user SIDs once §B2 captures them. Open question 4: its reopen condition is replaced by item 3, and the question stays open. The threat model's Amendment 2026-10-13, which gave the same matter to the deployment contract, is superseded on it by the threat model's Amendment 2026-11-03. Proposed by Claude Code on 2026-11-03 (debt #141), and ratified by Manuel on 2026-11-04, in chat: "doy mi si a los textos 141". Status stays `Accepted`.
 
 ## References
 
