@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 52** at Session 54's close, the count `docs/handoff-session-54.md` states
-(Session 54 opened #142 to #145 and closed #137 with PR #83's landing and #141 with Manuel's ratification of its texts).
+**Open: 52** at Session 55's close, the count `docs/handoff-session-55.md` states
+(Session 55 closed #142 with PR #85's landing, opened #146 and narrowed #87's destination).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 54's close, `docs/handoff-session-54.md#how-session-55-resumes`);
+Session N resumes* (at Session 55's close, `docs/handoff-session-55.md#how-session-56-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -62,7 +62,7 @@ Session N resumes* (at Session 54's close, `docs/handoff-session-54.md#how-sessi
 | 66 | Gate output noise (`logman` text, a stop line with nothing stopped) | `handoff-session-38.md:1070` | The next change to either file. |
 | 73 | ADR-0021 §2 says `ajv-cli` reads JSON | `handoff-session-38.md:1127` | An ADR-0021 amendment, for Manuel's "sí". |
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
-| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-49.md#debts` | F2 implementation under Accepted SPEC-024: SYSTEM custody before writes, effective restricted-token access and failure/migration tests (install_ac_004/005/013). Contract `765e122` alone does not close R1; legacy copied-key exposure remains explicit. |
+| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-49.md#debts`; `handoff-session-55.md#debts` | The fresh service installation's custody landed (`9053513`, install_ac_004/005). Open for the legacy migration (install_ac_013), the package writing the configuration and trust anchor owned by SYSTEM (install_ac_001/015) and §Operational §2's disclosure of earlier copies; R1 stays open until then. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694`; `handoff-session-45.md:356` | F4, roadmap §F's renewal SPEC (SPEC-023 §Out of scope); the TLS half landed in `63ea972`. |
 | 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140`; `handoff-session-48.md#debts` | A future multi-host deployment, outside the MVP; ADR-0022 §3 retains plain HTTP on the internal single-host app network. S48 delegates alignment to that Accepted decision, not a new risk acceptance. |
@@ -82,15 +82,16 @@ Session N resumes* (at Session 54's close, `docs/handoff-session-54.md#how-sessi
 | 136 | The create-user CLI header still says later users are API-only | `handoff-session-48.md#debts` | Next F3 user-management/CLI change, with its workspace gate: align the stale comment with SPEC-023's third amendment (S48 delegated). |
 | 138 | `detect_ac_001` residuals after #4/#37: a step back of ClickHouse's clock after the settle wait can end the drain early, so a later failure reads as a detection one; the probe is found by PID alone; no elapsed line on a vitest timeout or a failure before the probe (against SPEC-006's "on every run"); the test's header comment still says the other marquees wrote earlier | `handoff-session-50.md#debts` | The next change to the marquee or to the elevated gate: assert the cursor passed the child's `(arrived_at, event_id)` before the alert criteria, and check the probe's image. |
 | 140 | A development build's version resource carries Cargo's numbers `X.Y.Z.0` and no prerelease flag, so a reader of the numbers alone cannot tell it from the same-numbered release (SPEC-024 Amendment 2026-11-01, point 2) | `handoff-session-51.md#debts` | The packaging amendment for install_ac_015: propose `VS_FF_PRERELEASE` on development builds. |
-| 142 | The service accepts any identity and trust-anchor paths (relative ones resolve against `System32`), without SPEC-024 §Data contracts §2's installed-mode validation, and reads the identity with no custody check (SPEC-017 Amendment 2026-10-27); an identity directory under `CyberGuard\agent` would inherit Administrators' full control | `handoff-session-54.md#debts` | install_ac_002/004/005 with #87. |
 | 143 | Service log residuals: a write that fails after writing part of a record leaves that part as one invalid line; an active file already above 10 MiB (from a build before rotation) is archived whole | `handoff-session-54.md#debts` | install_ac_010's next change, or accepted at F2's close. |
 | 144 | An ordinary user who creates `%ProgramData%\CyberGuard` before installation keeps the service from starting (fails closed, code 13); threat model R17 in #141's draft | `handoff-session-54.md#debts` | SPEC-024's package (install_ac_011/015). |
 | 145 | Service paths no hosted runner exercises: a real `SHUTDOWN`, the stop deadline expiring in the capture teardown or at the watchdog, a persistent log failure under the SCM, a rotated production archive | `handoff-session-54.md#debts` | The isolated Windows machine's experiments (install_ac_008, install_ac_016; #50/#59). |
+| 146 | Custody residuals only SYSTEM or an elevated administrator can reach (the certificate PEM rejected differently from TLS; the descriptor checked and copied in two reads; the token rewrite reading `agent.toml` by path), the DER reader never run over a server-issued certificate, and untested custody cases (another ACE type, file symlinks, `FILE_DELETE_CHILD` on parents, the hygiene temporary's access, an injected descriptor failure, a non-ASCII case variant) | `handoff-session-55.md#debts` | The next change to `custody.rs` or the identity (install_ac_013), with install_ac_016's run against a real server. |
 
 ## Closed
 
 | # | Debt | Closed by | Entry |
 |---|---|---|---|
+| 142 | The service accepted any identity and trust-anchor paths, with no installed-mode validation and no custody check before it read the identity; an identity directory under `CyberGuard\agent` inherited Administrators' full control | `9053513` (PR #85; contract `85ef9f5`, SPEC-024 Amendment 2026-11-04, approved by Manuel): fixed paths, handle-based custody checks, the identity written with its final security, consistency checks; CI ALL GREEN, elevated gate s55-gate1 green | `handoff-session-54.md#debts`; `handoff-session-55.md#debts` |
 | 141 | Texts behind F2's decisions: the threat model's "There is no installer" line and its dumps clause, ADR-0010's "LocalSystem … is not run in CI", ADR-0019 Open question 1 and ADR-0020 Open question 4 | `157354d` (ADR-0010), `fdc8965` (threat model), `439af6e` (ADR-0019), `cb28ea4` (ADR-0020): four amendments, fresh-context reviewed, ratified by Manuel on 2026-11-04 ("doy mi si a los textos 141") | `handoff-session-51.md#debts`; `handoff-session-54.md#debts` |
 | 137 | The "agent starting" line carried `agent.version` but none of SPEC-001 §Observability's other required fields | `f4c6f28` and `61b2f67` (PR #83, install_ac_010): "agent starting" carries `agent.version`, `agent.id` (`agent.id_source`), `agent.platform`, `agent.hostname`, `server.url`, `heartbeat.interval_seconds`, and "agent identity ready" the server-issued id; elevated gate s54-gate1 green | `handoff-session-50.md#debts`; `handoff-session-54.md#debts` |
 | 139 | No criterion ordered the release's version check before publication | `d9932a6` (contract `46c6cb5`, with Manuel's OK): the release's first job checks the tag's form and MSI's limits, and every other job waits for it | `handoff-session-51.md#debts` |

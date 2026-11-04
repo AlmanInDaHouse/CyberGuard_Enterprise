@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-54.md](../handoff-session-54.md)).
+([handoff-session-55.md](../handoff-session-55.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -404,8 +404,12 @@ This dependency-ordered document supersedes both for planning.
   `cc24b99`) and its rotating log (install_ac_010, with #137, `f4c6f28` and
   `61b2f67`), CI ALL GREEN, the SCM/SYSTEM tests running in rust-ci's
   Windows job, elevated gate s54-gate1 green
-  (`docs/handoff-session-54.md`). Custody (#87, with #142) and packaging
-  follow.
+  (`docs/handoff-session-54.md`). S55 landed the service's fixed paths,
+  custody checks and identity writes (install_ac_002's service half,
+  install_ac_004, install_ac_005, #142) on its Amendment 2026-11-04
+  (`85ef9f5`, `9053513`), CI ALL GREEN, elevated gate s55-gate1 green
+  (`docs/handoff-session-55.md`). Packaging (install_ac_001/015) and the
+  legacy migration (install_ac_013, the rest of #87) follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
