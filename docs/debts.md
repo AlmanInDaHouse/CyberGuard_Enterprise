@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 52** at Session 55's close, the count `docs/handoff-session-55.md` states
-(Session 55 closed #142 with PR #85's landing, opened #146 and narrowed #87's destination).
+**Open: 53** at Session 56's close, the count `docs/handoff-session-56.md` states
+(Session 56 landed the legacy migration's contract and #146's residuals, narrowed #87 and #146, and opened #147).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 55's close, `docs/handoff-session-55.md#how-session-56-resumes`);
+Session N resumes* (at Session 56's close, `docs/handoff-session-56.md#how-session-57-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -62,7 +62,7 @@ Session N resumes* (at Session 55's close, `docs/handoff-session-55.md#how-sessi
 | 66 | Gate output noise (`logman` text, a stop line with nothing stopped) | `handoff-session-38.md:1070` | The next change to either file. |
 | 73 | ADR-0021 §2 says `ajv-cli` reads JSON | `handoff-session-38.md:1127` | An ADR-0021 amendment, for Manuel's "sí". |
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
-| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-49.md#debts`; `handoff-session-55.md#debts` | The fresh service installation's custody landed (`9053513`, install_ac_004/005). Open for the legacy migration (install_ac_013), the package writing the configuration and trust anchor owned by SYSTEM (install_ac_001/015) and §Operational §2's disclosure of earlier copies; R1 stays open until then. |
+| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-49.md#debts`; `handoff-session-55.md#debts`; `handoff-session-56.md#debts` | The fresh service installation's custody landed (`9053513`, install_ac_004/005) and the legacy migration's contract (`5979f61`, SPEC-024 Amendment 2026-11-05, approved by Manuel). Open for install_ac_013's implementation, the package's half (install_ac_001/011/015: the default refusal, the route that starts the service with its arguments, the configuration and anchor owned by SYSTEM) and the migration runbook's disclosure; R1 stays open until then. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694`; `handoff-session-45.md:356` | F4, roadmap §F's renewal SPEC (SPEC-023 §Out of scope); the TLS half landed in `63ea972`. |
 | 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140`; `handoff-session-48.md#debts` | A future multi-host deployment, outside the MVP; ADR-0022 §3 retains plain HTTP on the internal single-host app network. S48 delegates alignment to that Accepted decision, not a new risk acceptance. |
@@ -85,7 +85,8 @@ Session N resumes* (at Session 55's close, `docs/handoff-session-55.md#how-sessi
 | 143 | Service log residuals: a write that fails after writing part of a record leaves that part as one invalid line; an active file already above 10 MiB (from a build before rotation) is archived whole | `handoff-session-54.md#debts` | install_ac_010's next change, or accepted at F2's close. |
 | 144 | An ordinary user who creates `%ProgramData%\CyberGuard` before installation keeps the service from starting (fails closed, code 13); threat model R17 in #141's draft | `handoff-session-54.md#debts` | SPEC-024's package (install_ac_011/015). |
 | 145 | Service paths no hosted runner exercises: a real `SHUTDOWN`, the stop deadline expiring in the capture teardown or at the watchdog, a persistent log failure under the SCM, a rotated production archive | `handoff-session-54.md#debts` | The isolated Windows machine's experiments (install_ac_008, install_ac_016; #50/#59). |
-| 146 | Custody residuals only SYSTEM or an elevated administrator can reach (the certificate PEM rejected differently from TLS; the descriptor checked and copied in two reads; the token rewrite reading `agent.toml` by path), the DER reader never run over a server-issued certificate, and untested custody cases (another ACE type, file symlinks, `FILE_DELETE_CHILD` on parents, the hygiene temporary's access, an injected descriptor failure, a non-ASCII case variant) | `handoff-session-55.md#debts` | The next change to `custody.rs` or the identity (install_ac_013), with install_ac_016's run against a real server. |
+| 146 | Custody residuals: the certificate PEM rejected differently from TLS (refusing it as TLS does is stricter than SPEC-024 Amendment 2026-11-04, item 5: an amendment first); the token rewrite reading `agent.toml` by path; the SCM probes of `FILE_DELETE_CHILD` on the parents and of the hygiene temporary's access; the server-issued certificate fixture regenerated by nothing in CI | `handoff-session-55.md#debts`; `handoff-session-56.md#debts` | Narrowed by `cd4ab4c` (one descriptor read; tests for another ACE type, symlinks, descriptor failures, non-ASCII case, a server-issued certificate). The rest with install_ac_013's implementation, the PEM amendment first. |
+| 147 | install_ac_013's implementation points the contract's eight review rounds left open (List B): the 120 s `START_PENDING` cap against 30 s cancellations; cancelling a waiting security change or rename; a non-propagating security change; `migration.json`'s rewrite temporary and an unparsable record; a legacy object whose file ID is not recorded; the repairs' elevation needs; a `%ProgramData%` other than `C:\ProgramData`; codes 13 and 5's stretched meanings; test isolation on the runner | `handoff-session-56.md#debts` | install_ac_013's implementation: settle each or record it. |
 
 ## Closed
 
