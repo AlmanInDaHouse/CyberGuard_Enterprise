@@ -1035,6 +1035,350 @@ and no privilege. Like the second Amendment 2026-11-01, whose outcomes it
 extends, this amendment is Manuel's to approve: he approved it in chat on
 2026-11-04 ("Sí, apruebo"). Status stays **Accepted**.
 
+## Amendment 2026-11-05: the legacy migration
+
+**What surfaced it.** One remaining part of debt #87, install_ac_013.
+§Operational §2 asks for "a documented, explicit elevated migration on the
+same host" that verifies the manual installation's identity and trust
+configuration and transfers them "through private staging into SYSTEM
+custody before starting the service", and install_ac_013 for a default
+refusal, the restriction of every remaining product-owned copy and a
+recoverable original on failure. Neither says who runs the migration, how
+it is asked for, what it accepts, in what order it changes the host or what
+each failure reports. The manual installation is the one the console
+runbook sets up (`docs/operations/install.md`): an elevated `New-Item`
+creates `C:\ProgramData\CyberGuard` and its `agent` directory with the ACL
+they inherit from `%ProgramData%`, which lets ordinary users create files
+and directories in them; an elevated administrator puts `server-ca.pem` and
+`agent.toml` there, with no ACL of CyberGuard's; and the console agent
+writes `cert.pem`, `key.dat` and `identity.json` directly there, each with
+the protected DACL it sets, SYSTEM and the account that ran it, owned by
+that account's default owner. The service's data root is that same
+directory (Amendment 2026-11-04, item 1), and the service started there
+reports code 13 (the threat model's R17).
+
+**Amendment.** Below, `<P>` is `<ProgramData>\CyberGuard`, the data root is
+`<P>\agent`, the staging directory is `<P>\agent.migrating`, the legacy
+directory is `<P>\agent.legacy`, and the enrolling account is the SID, if
+any, that the legacy identity files' DACL allows besides SYSTEM or, once
+item 2.4 has restricted them, the one this migration's record holds. A console
+layout is a data root that holds `cert.pem`, `key.dat` or `identity.json`
+directly. Every object below is opened without following a reparse point,
+and checked through that handle; an open, a security change, a rename or
+a deletion that Windows makes wait on another process (an opportunistic
+lock) is cancelled after 30 seconds and fails as one
+the object's sharing refuses; a security change applies to the object it
+names and propagates to no child; a reason names a path and the failed
+condition, never a file's content or a SID.
+
+1. **The service migrates, asked by its start arguments.** The service
+   performs the migration, as SYSTEM, while it reports `START_PENDING`,
+   advancing its checkpoint as the second Amendment 2026-11-01, item 3,
+   requires; no other process writes the migrated objects, and no
+   privilege is enabled (ADR-0010 §Compliance). A migration starts only on
+   a start whose SCM start arguments after the service's name, which only
+   the holders of the service's start right (SYSTEM and elevated
+   Administrators, §Data contracts §3) can pass and which the SCM does not
+   keep, are exactly:
+   - `--migrate-legacy=remove` or `--migrate-legacy=keep`, once (item 5);
+   - `--trust-anchor-sha256=sha256:<64 lowercase hexadecimal digits>`, one
+     or more, with the form and the exact-set rule of
+     `setup.trust_anchor_sha256` (§Data contracts §3), obtained
+     independently through SPEC-023's CA distribution procedure.
+
+   Any other start argument, either kind without the other, migration
+   arguments on a host that is neither a console layout nor a migration
+   in progress (item 4), or arguments other than those a migration in
+   progress recorded, are code 2 with
+   `cg-agent: invalid migration arguments: <reason>`, before any change;
+   the line never repeats an argument's value. Start arguments carry no
+   secret. The package's setup is the operator's route: it asks for the
+   choice and the fingerprints, installs without creating or changing
+   anything under `<P>`, and starts the service with them once the MSI
+   transaction has committed, not from an MSI action. Until the package
+   exists the migration runs only in the tests and on the isolated machine
+   of the Amendment 2026-11-01, point 4; the operator runbook documents it
+   with the package.
+2. **The route.** On a migrating start the service checks `--config` as
+   the Amendment 2026-11-04, item 2, does before parsing, reads the names
+   under `<P>` (item 4), takes the instance lock (code 10 while an elevated
+   console agent runs) and then goes through the steps below in order. On
+   every start that finds a migration in progress the lock is likewise
+   taken before any rename or deletion of items 4 and 5.
+   1. **Closes the directories.** `<P>` and the data root must be
+      directories, not reparse points, owned by SYSTEM or Administrators,
+      whose DACL lets no one else change it or take their ownership (code
+      13, the file log's reason, as R17; a directory owned by another
+      account, or whose DACL lets one, is refused with code 13 and item
+      2.2's repair). The service gives each
+      owner SYSTEM and a protected DACL that allows SYSTEM and
+      Administrators, or stops with code 13 when it cannot. From here on no ordinary user can create an entry in
+      them, through a handle opened before or after. This change is not
+      undone: reopening them would reopen R17, and an elevated console
+      agent keeps working under them.
+   2. **Checks what is there** (code 5 unless shown): `<P>` holds no entry
+      but the data root, and, on a continued migration, the staging
+      directory item 4 accepted; the data root, with case-sensitive lookup
+      off, holds `agent.toml`, `server-ca.pem`, `cert.pem`, `key.dat`,
+      `identity.json` and, optionally, `agent.toml.hygiene-tmp`, and
+      nothing else (another entry is named, neither read nor deleted, and
+      refused with the repair: an administrator who has checked that it is
+      not the agent's removes it); each
+      of those files is a regular file with one link, owned by SYSTEM or
+      Administrators, checked before any file is changed; the leftover
+      temporary is never read or adopted, and item 2.4 and item 5 treat it
+      as a copy (one that fails these checks is refused with the repair: an
+      administrator deletes it, since it holds at most a consumed token); a
+      file with another link is refused with the repair: an administrator
+      gives it item 2.4's owner and DACL, so that no one else can link it
+      again, then removes its other names;
+      each identity file's DACL allows SYSTEM alone, or SYSTEM and either
+      one other SID, the same in each file that has one, or Administrators,
+      as item 2.4 leaves it. A
+      directory or file owned by another account, as an unelevated console
+      run, or a host whose policy makes an administrator's account the
+      owner of what it creates, leaves it, is refused with the repair: after a restart, before
+      that account signs in again, an elevated administrator of another
+      account who has checked that the owner is the account that set up or
+      enrolled the agent makes Administrators
+      its owner and, for a directory, gives it item 2.1's DACL, then starts
+      the migration again; an owner the
+      administrator cannot so confirm could read and change it, and the
+      host enrolls anew instead (item 6).
+   3. **Reads each file once.** Each but the leftover temporary is opened for reading, sharing read
+      access alone, so the open fails while any process holds it open for
+      writing or deletion, or without sharing read access (code 5, the
+      file named), and read whole into
+      memory through that handle; everything after is checked and written
+      from those bytes. `agent.toml` is a valid configuration with
+      `[enrollment]`, HTTPS enrollment and heartbeat URLs, the four paths
+      of the console layout, each the data root's file of its name,
+      spelled with either slash and equal but for ASCII case, and no
+      `setup` table (code 2; a host that relied on SPEC-003's fallback to
+      `server.url` adds `server.heartbeat_url` first). The distinct
+      certificates of `server-ca.pem` are exactly those of the fingerprints
+      given (code 6,
+      `cg-agent: tls: client configuration failed: migration: <reason>`).
+      `key.dat` unseals with the machine's DPAPI key to an Ed25519 seed
+      whose public key's fingerprint is `identity.json`'s and, on a
+      continued migration, the recorded one, with the recorded
+      `agent_id`; `cert.pem` holds one
+      certificate, consistent with that key and `agent_id` (Amendment
+      2026-11-04, item 5); `identity.json`'s `expires_at` is in the future
+      (code 5).
+   4. **Restricts the console installation in place.** Each file gets
+      owner SYSTEM and a protected DACL that allows SYSTEM and
+      Administrators, through a handle whose file ID is the one checked.
+      The enrolling account's unelevated processes, and ordinary users,
+      can no longer open them; an elevated console agent still can, so a
+      refusal leaves a console installation that runs.
+      Each file's link count is read through its handle before the change
+      and again after it; a file the service cannot restrict, or that has
+      more than one link either time, refuses the migration (code 5, with
+      item 2.2's repair for a link).
+   5. **Records and stages.** It creates the staging directory, new (on
+      a continued migration it keeps the staging directory and its record,
+      clearing any reversal mark, and replaces the staged files), owned by SYSTEM with a protected DACL that allows SYSTEM and
+      Administrators, and in it `migration.json`, owned by SYSTEM with
+      `agent.toml`'s policy and flushed: the choice, the fingerprints given, `agent_id`,
+      the key's fingerprint, the enrolling account's SID, read in item 2.2
+      before item 2.4 changes the DACLs, and the checked files' IDs (on a
+      continued migration, this attempt's). A crash between items 2.4 and
+      2.5 loses that SID, which the record then gives as unknown. Then, each object new, with its final security (the
+      Amendment 2026-11-04, item 3, for each) and flushed: `agent.toml`,
+      generated from the legacy configuration with the fixed paths, the
+      legacy `agent.id`, the hostname Windows reports and no
+      `enrollment.token`; `server-ca.pem`, from the verified certificates;
+      `identity\` with `cert.pem`, `key.dat`, its sealed bytes unchanged,
+      and `identity.json`, in the order of the Amendment 2026-11-04,
+      item 4. It checks the staged tree as a start checks the data root,
+      and that the staged identity loads with the legacy `agent_id` and
+      key fingerprint.
+   6. **Commits.** With every handle of its own under the data root
+      closed, it renames the data root to the legacy directory, then
+      the staging directory to the data root; the second rename is the
+      commit. A failed first rename stops the start (code 5), the console
+      installation in place. Before reversing a failed second rename it
+      records the reversal in `migration.json`, renames the legacy
+      directory back, clears the mark, and stops the start (code 5); when
+      the rename back fails, the next start retries it (item 4).
+
+   Each refusal before the commit says the console installation is in
+   place, and which of its objects item 2.1 or 2.4 restricted, except after
+   a failed rename back, whose line says that the data root is at the
+   legacy directory's name and that the next start, with or without
+   arguments, puts it back (item 4). After the
+   commit the start goes on as any start of the service, from the checks
+   of the Amendment 2026-11-04, item 3, to `RUNNING`, the identity step,
+   which loads the migrated identity without enrolling, and capture.
+3. **The record.** `migration.json` holds the operator's request and
+   what item 2.5 lists, a reversal pending (item 2.6) and the copies not
+   reached (item 5); which step a start has reached is otherwise read from
+   which directories exist (item 4). It is created, and flushed, before the staged files,
+   rewritten as the Amendment 2026-11-04, item 6, rewrites `agent.toml`,
+   keeping its owner and DACL, and moves with the staging directory into
+   the data root, where, after the commit, it passes `agent.toml`'s
+   policy too, or the start refuses it with code 2 like a configuration
+   file.
+4. **Interruptions and their completion.** On every start, after the
+   checks of `--config` before parsing and before the data directories'
+   check, the service reads which of the data root, the staging and the
+   legacy directory exist. A staging or legacy directory counts only when
+   it is a directory, not a reparse point, SYSTEM owns it and its DACL
+   passes `agent.toml`'s policy; one that does
+   not is not used, read or deleted, and the start goes on as if it were absent, so a name an
+   ordinary user created changes no outcome of a start without migration
+   arguments (item 2.2 refuses it on the migrating route). A staging
+   directory that counts holds a migration in progress when its
+   `migration.json` passes that policy and parses; without one, beside a
+   console-layout data root, it is the service's own creation
+   interrupted, and a start with migration arguments deletes it, without
+   following a reparse point, and migrates, while a start without them is
+   code 5, which names it. Then:
+   - a data root alone, or none of the three: no migration in progress; a
+     start with migration arguments on a console layout migrates (item 2),
+     and any other start is the Amendment 2026-11-04's (this amendment's
+     item 6 for a console layout);
+   - a staging directory beside a console-layout data root, an
+     interruption before the first rename or after a reversal: a start
+     with the recorded arguments continues from item 2.1; a start without
+     them is code 5, which names the interrupted migration;
+   - no data root, a staging and a legacy directory, an interruption
+     between the renames: when `migration.json` records a reversal, the
+     next start, with or without arguments, renames the legacy directory
+     back, clears the mark and stops with code 5; otherwise it completes the commit once
+     the staged tree passes item 2.5's checks, or stops with code 5 and
+     names both directories;
+   - a data root that is not a console layout, with a legacy directory
+     and the data root's `migration.json`: a migration committed; the
+     start runs, and item 5 continues;
+   - any other combination: code 5, which names the directories, and
+     nothing is changed.
+
+   The start that the SCM's automatic start or its recovery runs carries
+   no arguments; from the first rename on, the arguments the operator gave
+   are the ones `migration.json` recorded, and no second request is
+   needed.
+5. **The old copies.** After the commit, each start, after it reports
+   `RUNNING`, until no copy is left with `remove`, and always with
+   `keep`, opens each object of the
+   legacy directory without following a reparse point, matches its file
+   ID with the record and checks it has one link, and gives it owner SYSTEM
+   and a protected DACL that
+   allows SYSTEM alone for an identity file and for the legacy directory,
+   which holds them (§Data contracts §2's identity directory), SYSTEM and
+   Administrators for the others; with `remove` it then deletes it, and the legacy directory
+   once empty. A copy the service cannot open, restrict or delete, for
+   instance one whose owner and DACL a handle held from before item 2.4
+   changed, or one with another link, does not stop the start: it is logged as a warning in the file log, named in
+   `migration.json` and retried at the next start. Deletion is not secure
+   erasure. The legacy executable outside `%ProgramData%` holds no secret
+   and is the package's. §Operational §4's purge removes the legacy
+   directory and `migration.json` with the product's paths.
+6. **The default refusal.** A start without migration arguments never
+   starts a migration: on a console layout with no migration in progress
+   it keeps the outcome of the Amendment 2026-11-04's checks (item 3),
+   code 13 at the data directories (R17) or code 2 at `agent.toml`, and
+   its reason adds
+   `the data directory holds a console installation's identity files: migrate them before removing anything`.
+   It completes a migration only from the first rename on (item 4). The
+   package's default setup refuses a console layout before it changes the
+   host (§Operational §1). A console installation the migration refuses
+   for a cause item 2 gives no repair for (an identity that is expired,
+   does not unseal or is inconsistent, an identity file whose DACL allows
+   more, an owner the administrator cannot confirm) has one route: an administrator keeps its files aside, removes
+   `<P>`, and installs anew with a new token, the old agent removed on
+   the server.
+7. **Evidence and disclosure.** After a migration the service's file log
+   says so, with `agent_id`, the key's fingerprint, the choice and the
+   copies' result; no log line or Application-log entry carries a token,
+   key bytes or a SID; the enrolling account's SID is recorded in
+   `migration.json` alone, readable by SYSTEM and elevated
+   Administrators. The runbook that documents the migration discloses,
+   for §Operational §2's "prior-copy exposure": the enrolling account's
+   processes could read and decrypt `key.dat`, and replace the identity
+   files, since enrollment (R1), and the migration cannot tell an identity
+   they resealed on this host from the one enrolled here; every local user
+   could read the identity files until the console agent restricted them,
+   and `agent.toml`, with its token until the token was removed, until the
+   migration; backups, shadow copies, crash dumps, the page file,
+   antivirus quarantine and the console's command history (the token) may
+   keep copies; a clone of the machine's disk unseals the same key; a
+   handle opened before item 2.4 keeps the access it was granted, which
+   for the enrolling account includes taking the copy's ownership, out of
+   the service's reach; the certificate stays valid until it expires,
+   there being no revocation before F4. When a compromise is suspected the
+   remedy is a new enrollment and the removal of the old agent on the
+   server, not the migration.
+
+**Tests.** Unelevated tests over temporary roots, with the current user in
+SYSTEM's place as the Amendment 2026-11-04's tests do and a failure injected
+at each step without a Cargo feature, assert items 1 to 7: each refusal and
+its code, with the console installation's bytes and place as item 2 leaves
+them; a file held open for writing refused; a staging or legacy directory
+not owned by the service ignored and left; the generated configuration and
+anchor; each interrupted state completed, reversed or refused as item 4
+says; the copies under both choices, and one the service cannot restrict
+reported without stopping the start; no secret or SID in any line. A target
+of the service and SYSTEM tests (the Amendment 2026-11-01, point 4),
+`install_ac_013_migration`, enrolls a real console agent elevated, against
+the test's own enrollment and heartbeat server, into a console-layout
+fixture on rust-ci's runner and asserts: the default refusal
+unchanged; item 2's refusals with the console installation in place and an
+elevated console agent still starting from it; with each choice, a service
+that reaches `RUNNING` and sends a heartbeat with the legacy `agent_id` and
+client key without enrolling, the identity's owner and DACL, and effective
+access to the migrated identity and the remaining copies denied to a
+standard user and to the restricted administrator token of the Amendment
+2026-11-04's tests; a restart without arguments. Its red run is a probe pull
+request, as point 4 provides. A real ingest and reboots stay with the
+isolated machine of point 4.
+
+**Effect.** install_ac_013 is tested against items 1 to 7; its setup half
+(the default refusal, the route that asks for the migration, which starts
+the service with its arguments from the setup's own elevated code, and an
+MSI that leaves `<P>` alone on it) stays with the package (install_ac_001,
+install_ac_011), which also decides the migration codes'
+place among those the SCM does not restart (install_ac_008). By scope:
+§Operational §1's refusal of a pre-existing data directory does not apply to
+the migration route on a console layout; §Operational §2's "may stop the
+manual agent" becomes the refusal while it runs (item 2), its "before
+starting the service" becomes "during the service's `START_PENDING`, before
+`RUNNING`", its "Failure preserves a recoverable original" is item 2's
+console installation in place and restricted, and its "verifies old
+product-owned copies are removed with the operator's explicit migration
+choice" becomes item 2.4's restriction of every copy and item 5's
+restriction and removal, and §Operational §4's purge removes the staging
+and legacy directories and `migration.json`; §Data contracts §2's layout,
+and the Amendment 2026-11-04, item 1's, gain the staging and legacy
+directories under `<P>` and `migration.json` in the data root; §Data
+contracts §3's operator inputs gain the start arguments, which carry no
+secret; the second Amendment 2026-11-01, item 3 (`START_PENDING` lasts
+through a migration); the Amendment 2026-11-04, item 3 (on every start, the
+read of item 4 precedes the data directories' check, and on the migration
+route the lock precedes the configuration's checks, which apply to the
+generated configuration), item 4 (the migration is a second writer of
+`identity\`, with the same rules) and item 5, whose consistency check runs
+on the legacy identity. Codes 2, 5, 6 and 13 gain the causes above, within
+their meanings; no code or Application-log entry is added. The installation
+runbook's code-13 repair says not to remove a console installation's
+identity files before migrating them, or before keeping them aside when the
+migration refuses them (item 6). Debt #87 closes with the implementation and the package's
+half. The threat model's R1 and R17 are amended with it (its Amendment
+2026-11-05). No ADR changes, no dependency of `cg-agent` and no privilege is
+added; `migration.json` records the enrolling account's SID, a datum about a
+person that stays on the host. Manuel took the design's four choices in chat
+on 2026-11-05 (the service as SYSTEM asked by start arguments; `remove` or
+`keep` required; completion forward without arguments from the commit; the
+threat model in the same review); the completion, without arguments, of a
+commit interrupted by a crash between the two renames extends the third.
+Like the amendments it extends, this one is Manuel's to approve: asked in
+chat on 2026-11-05 with the compare URL, the points of his list it touches
+(those amendments, the start arguments, the security posture, the threat
+model, the enrolling account's SID, that extension of the third choice and
+the codes' new causes), he answered "Sí, apruebo". Status stays
+**Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
