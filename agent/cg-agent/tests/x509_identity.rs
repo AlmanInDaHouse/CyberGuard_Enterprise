@@ -106,3 +106,23 @@ fn install_ac_005_other_shapes_are_errors() {
     longer.push(0);
     assert!(certificate_identity_der(&longer).is_err(), "bytes after it");
 }
+
+/// Debt #146: the reader runs over a certificate the ingest server's own
+/// `issueClientCert` issued (`custody_fixtures/issue_client_cert.mts`, for
+/// the RFC 8032 test-vector 1 key and a fixed agent id).
+#[test]
+fn install_ac_005_a_server_issued_certificate_is_read() {
+    let pem = include_str!("custody_fixtures/server_issued_client_cert.txt");
+    let identity = certificate_identity(pem).expect("read");
+    assert_eq!(identity.common_name, "01934abc-def0-7000-89ab-000000000146");
+    let mut key = [0u8; 32];
+    for (i, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(
+            &"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"[2 * i..2 * i + 2],
+            16,
+        )
+        .expect("hex");
+    }
+    assert_eq!(identity.ed25519_public_key, key);
+    check_consistency(pem, &key, "01934abc-def0-7000-89ab-000000000146").expect("consistent");
+}
