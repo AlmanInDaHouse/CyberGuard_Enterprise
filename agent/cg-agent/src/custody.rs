@@ -29,10 +29,10 @@ use windows_sys::Win32::Security::Authorization::{
     SE_FILE_OBJECT,
 };
 use windows_sys::Win32::Security::{
-    EqualSid, GetAce, GetSecurityDescriptorControl, IsValidSid, IsWellKnownSid,
-    WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
-    DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-    SECURITY_ATTRIBUTES, SE_DACL_PROTECTED,
+    EqualSid, GetAce, GetSecurityDescriptorControl, GetSecurityDescriptorDacl,
+    GetSecurityDescriptorOwner, IsValidSid, IsWellKnownSid, WinBuiltinAdministratorsSid,
+    WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION,
+    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, SE_DACL_PROTECTED,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateDirectoryW, CreateFileW, DeleteFileW, GetFileInformationByHandle, MoveFileExW,
@@ -407,8 +407,9 @@ pub fn replace_keeping_security(
     )?
     .ok_or_else(|| format!("{} does not exist", path.display()))?;
     check_shape(&handle, path, Kind::File)?;
-    check_security(&handle, path, policy)?;
+    // One read: the descriptor checked is the descriptor copied (#146).
     let descriptor = security_of(&handle, path)?;
+    check_descriptor(&descriptor, path, policy)?;
     drop(handle);
 
     let temporary_name = wide(temporary);
@@ -505,30 +506,35 @@ fn security_of(handle: &Handle, path: &Path) -> Result<Descriptor, String> {
 /// One of `policy`'s owners owns the object, and its DACL allows no
 /// principal outside `policy` (deny entries may name anyone).
 pub(crate) fn check_security(handle: &Handle, path: &Path, policy: &Policy) -> Result<(), String> {
-    let mut owner: PSID = std::ptr::null_mut();
-    let mut dacl: *mut ACL = std::ptr::null_mut();
-    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
-    // SAFETY: an open handle with READ_CONTROL; the out-pointers point into
-    // `descriptor`, freed below.
-    let error = unsafe {
-        GetSecurityInfo(
-            handle.0,
-            SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-            &mut owner,
-            std::ptr::null_mut(),
-            &mut dacl,
-            std::ptr::null_mut(),
-            &mut descriptor,
+    check_descriptor(&security_of(handle, path)?, path, policy)
+}
+
+/// `check_security` on a descriptor already read.
+fn check_descriptor(descriptor: &Descriptor, path: &Path, policy: &Policy) -> Result<(), String> {
+    let unreadable = || {
+        format!(
+            "read the security of {}: Win32 error {}",
+            path.display(),
+            last_error()
         )
     };
-    if error != 0 {
-        return Err(format!(
-            "read the security of {}: Win32 error {error}",
-            path.display()
-        ));
+    let mut owner: PSID = std::ptr::null_mut();
+    let mut defaulted = 0;
+    // SAFETY: a descriptor GetSecurityInfo returned; `owner` points into it.
+    if unsafe { GetSecurityDescriptorOwner(descriptor.0, &mut owner, &mut defaulted) } == 0 {
+        return Err(unreadable());
     }
-    let descriptor = Descriptor(descriptor);
+    let mut present = 0;
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    // SAFETY: the same descriptor; `dacl` points into it.
+    if unsafe { GetSecurityDescriptorDacl(descriptor.0, &mut present, &mut dacl, &mut defaulted) }
+        == 0
+    {
+        return Err(unreadable());
+    }
+    if present == 0 {
+        dacl = std::ptr::null_mut();
+    }
     let verdict = (|| {
         if !policy.owners.iter().any(|p| p.matches(owner)) {
             return Err(format!(
@@ -597,7 +603,6 @@ pub(crate) fn check_security(handle: &Handle, path: &Path, policy: &Policy) -> R
         }
         Ok(())
     })();
-    drop(descriptor);
     verdict
 }
 

@@ -170,4 +170,19 @@ fn install_ac_002_a_fixed_path_differs_only_in_ascii_case() {
         fixed
     ));
     assert!(!is_fixed_path("", fixed));
+    // Debt #146: a variant whose case folds to ASCII only outside ASCII
+    // (U+0131 dotless i, U+212A Kelvin sign) is another spelling, refused.
+    let key = Path::new(r"C:\ProgramData\CyberGuard\agent\identity\key.dat");
+    assert!(is_fixed_path(
+        r"C:\PROGRAMDATA\CYBERGUARD\AGENT\IDENTITY\KEY.DAT",
+        key
+    ));
+    assert!(!is_fixed_path(
+        "C:\\ProgramData\\CyberGuard\\agent\\\u{131}dentity\\key.dat",
+        key
+    ));
+    assert!(!is_fixed_path(
+        "C:\\ProgramData\\CyberGuard\\agent\\identity\\\u{212A}ey.dat",
+        key
+    ));
 }
