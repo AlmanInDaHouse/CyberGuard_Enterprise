@@ -1421,6 +1421,81 @@ dependency, privilege or ADR is added. Like the amendments it changes, this
 one is Manuel's to approve: asked in chat on 2026-11-07 with the compare URL,
 he answered "Sí, apruebo". Status stays **Accepted**.
 
+## Amendment 2026-11-07 (second): the migration's residuals
+
+**What surfaced it.** The fresh-context review of install_ac_013's
+implementation. An ordinary user who created an entry in a file transaction
+(TxF) before the Amendment 2026-11-05, item 2.1, can commit it in `<P>` or the
+data root after that item, past the DACL it gave them, so its "no ordinary user
+can create an entry in them, through a handle opened before or after" does not
+hold for a transaction, and item 2.2's listing does not see a name a
+transaction still holds. A named stream on either directory is no entry
+either. The enrolling account can lengthen a file item 2.3 reads whole to any
+size. That amendment gives no code to a failure of its item 2.5, of its item
+4's deletion or of recording a reversal, its item 4 takes a record that cannot
+be read for one that is not there and deletes it, and its "each refusal before
+the commit" does not say what it reaches. Below, an item with a dot, and "the amendment's item", are
+that amendment's.
+
+**Amendment.**
+
+1. **File transactions.** Item 2.1's sentence holds for handles, not for an
+   entry created in a file transaction before it. Just before the first rename
+   the service reads the names of `<P>` and the data root again. Apart from the
+   staging directory, a name that was not there when item 2.2 checked stops the
+   start with item 2.2's refusal and repair (code 5). A file item 2.2 requires
+   that has gone stops it as one missing there does, with the amendment's item
+   6's route. A failure a pending transaction causes is the failing step's: on
+   the route, code 13 at item 2.1 and code 5 after it. Where Windows says that
+   a transaction caused it the line says so; a transaction can also show as a
+   sharing failure. An entry a transaction commits after that read is neither
+   read nor used: under `<P>` it stays, and in the legacy directory the
+   amendment's item 5 names it as not reached, so that with `remove` that
+   directory stays. A hard link created in a transaction is the same: the
+   checks of items 2.2 and 2.4 do not see it while it is pending, and the
+   amendment's item 5 reports that copy as not reached, restricted.
+2. **Named streams.** A named stream on `<P>` or the data root is not listed or
+   read. One on the data root moves with it to the legacy directory, and with
+   `remove` goes with that directory. Nothing of the agent's reads them.
+3. **The read's bound.** Item 2.3 refuses a file above 16 MiB, unread (code 5,
+   the file named). No file of the console installation comes near it.
+4. **Other failures.** A failure of item 2.5, of the amendment's item 4's
+   deletion of a staging directory or of recording or clearing a reversal is
+   code 5. A
+   `migration.json` in a staging directory that counts, which cannot be opened
+   or read for a reason other than its custody check, is neither a record nor
+   its absence: the start is code 5 and nothing is deleted. Beside a console
+   layout an administrator who has checked it may remove the staging directory,
+   which, past item 2.4, loses the enrolling account's SID; between the renames
+   the line names both directories, and the start goes on once the record can
+   be read.
+5. **What "each refusal" reaches.** It reaches every refusal of the route from
+   the lock on, the lock's included, whose line stays and is followed by that
+   sentence, and each stop beside a console layout with a staging directory
+   that counts and no legacy directory that does, arguments other than the
+   recorded ones included. Three refusals do not add it: one of the amendment's
+   item 1 for the form of the arguments, which precedes the route; a failed
+   rename back, as the amendment's item 2 says; and a failure to record a
+   reversal,
+   after which too the data root is at the legacy directory's name, whose line
+   names both directories and says that the next start completes the commit.
+   The objects it names are read when the refusal is made, so that it says what
+   an earlier, refused start restricted too, as far as they can be read then.
+
+**Effect.** Item 2.1's sentence is read with this amendment's item 1, and by
+scope so is §Data contracts §2's "must prohibit unprivileged creation", for an
+entry created in a file transaction before a host's migration closed its
+directories. Item 2.2's listing is repeated, by name, just before the first
+rename. Item 2.3 gains the bound,
+codes 5 and 13 gain these causes within their meanings, the amendment's item 4
+gains the third state of a record, and the lock's lines on the route gain that
+sentence after them. The threat model's §1 is amended with it (its Amendment
+2026-11-07). install_ac_013's unelevated tests assert these items, with real
+file transactions for item 1. No exit code, setting, dependency, privilege or
+ADR is added. Like the amendments it changes, this one is Manuel's to approve:
+asked in chat on 2026-11-07 with the compare URL, he answered "Sí, apruebo".
+Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.

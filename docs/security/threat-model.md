@@ -376,6 +376,18 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 
 **Effect on other sections.** None is restated. R1's destination and debt #87 are unchanged; R17's destination, the package, is unchanged.
 
+## Amendment 2026-11-07 (SPEC-024): the migration's residuals
+
+**Status.** Proposed by Claude Code on 2026-11-07 with SPEC-024's Amendment 2026-11-07 (second), after the fresh-context review of install_ac_013's implementation. It adds to §1 and restates nothing. Ratified by Manuel on 2026-11-07, in chat, with it: "Sí, apruebo". The threat model remains `Accepted`.
+
+**Context.** SPEC-024's Amendment 2026-11-05 says that from the closing of the directories on, no ordinary user can create an entry in them. An entry of a file transaction created before the closing is not stopped by it.
+
+**Amendment.**
+
+- **§1 Agent, Denial of Service**, add to the entry on the data directory: an ordinary user who, before the service closed the directories, created an entry in a file transaction can afterwards commit it, or keep it pending. A pending named stream on `%ProgramData%\CyberGuard` or the data root can stop the closing (code 13), and a pending entry a later step (code 5), whose line says that a transaction holds it when Windows says so. A hard link the enrolling account creates in a transaction escapes the link checks while pending; the old copies' pass then reports that copy, restricted, as not reached. Before the first rename the service reads the names again, so a committed entry stops the migration with the repair of SPEC-024's Amendment 2026-11-05, item 2.2. One committed after that read stays under `%ProgramData%\CyberGuard`, or in the legacy directory, where `remove` then does not finish; the service neither reads nor uses it (SPEC-024 Amendment 2026-11-07, second, item 1). A named stream on those two directories is not read either (its item 2). A read-handle opportunistic lock on `%ProgramData%\CyberGuard` itself stops the closing with code 13, and a batch opportunistic lock on a file an ordinary user planted at the staging or legacy name delays a start by up to about 35 seconds for that name, which then does not count. The enrolling account can make a file too large for the migration, which refuses it (its item 3), as it can refuse the migration in other ways.
+
+**Effect on other sections.** None is restated. The Denial of Service entry's "Once installed, the protected directory leaves an ordinary user nothing to create" is read with this limit on a host that was migrated. R1 and R17 and their destinations are unchanged.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
