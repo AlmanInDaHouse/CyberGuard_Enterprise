@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-56.md](../handoff-session-56.md)).
+([handoff-session-57.md](../handoff-session-57.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -412,9 +412,11 @@ This dependency-ordered document supersedes both for planning.
   contract, SPEC-024 Amendment 2026-11-05 with the threat model's, approved
   by Manuel (`5979f61`), and #146's custody residuals (`cd4ab4c`, CI ALL
   GREEN, elevated gate s56-gate1 green), and installed the .NET SDK
-  10.0.403 for WiX 7.0.1 (`docs/handoff-session-56.md`). The migration's
-  implementation (install_ac_013) and packaging (install_ac_001/015)
-  follow.
+  10.0.403 for WiX 7.0.1 (`docs/handoff-session-56.md`). S57 landed the
+  migration (install_ac_013, `fb904ba`) and #146's residuals (`747926e`)
+  on SPEC-024's two Amendments 2026-11-07, approved by Manuel, CI ALL GREEN,
+  elevated gate s57-gate1 green (`docs/handoff-session-57.md`). Packaging
+  (install_ac_001/015, with #87's half) follows.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
