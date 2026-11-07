@@ -9,9 +9,10 @@
 //! those targets are `#![cfg(windows)]` and build only with the test-only
 //! `scm-tests` feature. Everything here acts only on a GitHub-hosted runner
 //! that is discarded after the job: `TestService` and `TestUser` refuse to
-//! act anywhere else, and neither does `FixedDataRoot`, which moves the
-//! host's `<ProgramData>\CyberGuard` aside. On that runner a test may use
-//! the fixed paths (point 4).
+//! act anywhere else, and neither do `FixedDataRoot`, which moves the
+//! host's `<ProgramData>\CyberGuard` aside, and `ConsoleAgent`, which runs
+//! a real console agent elevated at those paths. On that runner a test may
+//! use the fixed paths (point 4).
 //!
 //! The tests do not read the agent's own custody code: they spell the fixed
 //! paths and the SDDLs themselves, from the SPEC, so a probe pull request
@@ -25,38 +26,43 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use windows_sys::core::PCWSTR;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, LocalFree, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND,
-    ERROR_INVALID_OWNER, ERROR_NOT_ALL_ASSIGNED, ERROR_NO_MORE_FILES, ERROR_PATH_NOT_FOUND,
-    ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_SPECIFIC_ERROR, GENERIC_READ, GENERIC_WRITE,
-    HANDLE, INVALID_HANDLE_VALUE, LUID,
+    ERROR_INVALID_OWNER, ERROR_IO_PENDING, ERROR_NOT_ALL_ASSIGNED, ERROR_NO_MORE_FILES,
+    ERROR_OPLOCK_NOT_GRANTED, ERROR_PATH_NOT_FOUND, ERROR_SERVICE_DOES_NOT_EXIST,
+    ERROR_SERVICE_SPECIFIC_ERROR, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, LUID,
+    UNICODE_STRING, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::NetworkManagement::NetManagement::{
     NERR_Success, NetUserAdd, NetUserDel, UF_DONT_EXPIRE_PASSWD, UF_SCRIPT, USER_INFO_1,
     USER_PRIV_USER,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSecurityDescriptorToStringSecurityDescriptorW,
+    ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertSidToStringSidW,
     ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo, SetSecurityInfo,
     SDDL_REVISION_1, SE_FILE_OBJECT,
 };
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, CreateRestrictedToken, CreateWellKnownSid, GetSecurityDescriptorOwner,
     GetTokenInformation, ImpersonateLoggedOnUser, IsWellKnownSid, LogonUserW,
-    LookupPrivilegeValueW, RevertToSelf, TokenGroups, WinBuiltinAdministratorsSid,
-    DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, LOGON32_LOGON_INTERACTIVE,
-    LOGON32_LOGON_NETWORK, LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES,
-    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
-    SECURITY_MAX_SID_SIZE, SE_BACKUP_NAME, SE_PRIVILEGE_ENABLED, SE_RESTORE_NAME,
-    SID_AND_ATTRIBUTES, TOKEN_ADJUST_PRIVILEGES, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE,
-    TOKEN_GROUPS, TOKEN_IMPERSONATE, TOKEN_PRIVILEGES, TOKEN_QUERY, WELL_KNOWN_SID_TYPE,
+    LookupPrivilegeValueW, RevertToSelf, SetKernelObjectSecurity, TokenGroups, TokenPrivileges,
+    TokenUser, WinBuiltinAdministratorsSid, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE,
+    LOGON32_LOGON_INTERACTIVE, LOGON32_LOGON_NETWORK, LOGON32_PROVIDER_DEFAULT,
+    LUID_AND_ATTRIBUTES, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    SECURITY_ATTRIBUTES, SECURITY_MAX_SID_SIZE, SE_BACKUP_NAME, SE_PRIVILEGE_ENABLED,
+    SE_RESTORE_NAME, SE_TAKE_OWNERSHIP_NAME, SID_AND_ATTRIBUTES, TOKEN_ADJUST_PRIVILEGES,
+    TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_GROUPS, TOKEN_IMPERSONATE,
+    TOKEN_INFORMATION_CLASS, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_USER, WELL_KNOWN_SID_TYPE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateDirectoryW, CreateFileW, FileFullDirectoryInfo, FileFullDirectoryRestartInfo,
-    GetFileInformationByHandleEx, CREATE_NEW, DELETE, FILE_ADD_FILE, FILE_ATTRIBUTE_NORMAL,
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_DELETE_ON_CLOSE, FILE_FLAG_OPEN_REPARSE_POINT,
+    GetFileInformationByHandleEx, CREATE_NEW, DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY,
+    FILE_ATTRIBUTE_NORMAL, FILE_DELETE_CHILD, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_DELETE_ON_CLOSE, FILE_FLAG_OPEN_REPARSE_POINT, FILE_FLAG_OVERLAPPED,
     FILE_FULL_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, READ_CONTROL, WRITE_DAC, WRITE_OWNER,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, READ_CONTROL, SYNCHRONIZE, WRITE_DAC,
+    WRITE_OWNER,
 };
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::EventLog::{
@@ -72,7 +78,8 @@ use windows_sys::Win32::System::Services::{
     SERVICE_WIN32_OWN_PROCESS,
 };
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, OpenProcess, OpenProcessToken, TerminateProcess, PROCESS_TERMINATE,
+    CreateEventW, GetCurrentProcess, OpenProcess, OpenProcessToken, TerminateProcess,
+    WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows_sys::Win32::UI::Shell::{FOLDERID_ProgramData, SHGetKnownFolderPath};
 
@@ -81,6 +88,75 @@ use crate::common;
 /// A group of a token that is for deny only (winnt.h; its binding lives in
 /// a windows-sys feature these tests do not enable).
 const SE_GROUP_USE_FOR_DENY_ONLY: u32 = 0x10;
+
+/// What an oplock request and a create relative to a handle need, whose
+/// bindings also live in windows-sys features these tests do not enable.
+#[repr(C)]
+struct Overlapped {
+    internal: usize,
+    internal_high: usize,
+    offset: u32,
+    offset_high: u32,
+    event: HANDLE,
+}
+
+#[repr(C)]
+struct ObjectAttributes {
+    length: u32,
+    root_directory: HANDLE,
+    object_name: *const UNICODE_STRING,
+    attributes: u32,
+    security_descriptor: *const std::ffi::c_void,
+    security_quality_of_service: *const std::ffi::c_void,
+}
+
+#[repr(C)]
+struct IoStatusBlock {
+    status: usize,
+    information: usize,
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn DeviceIoControl(
+        device: HANDLE,
+        control_code: u32,
+        input: *const std::ffi::c_void,
+        input_size: u32,
+        output: *mut std::ffi::c_void,
+        output_size: u32,
+        returned: *mut u32,
+        overlapped: *mut Overlapped,
+    ) -> i32;
+}
+
+#[link(name = "ntdll")]
+extern "system" {
+    fn NtCreateFile(
+        file: *mut HANDLE,
+        access: u32,
+        attributes: *const ObjectAttributes,
+        status: *mut IoStatusBlock,
+        allocation_size: *const i64,
+        file_attributes: u32,
+        share: u32,
+        disposition: u32,
+        options: u32,
+        extended_attributes: *const std::ffi::c_void,
+        extended_attributes_size: u32,
+    ) -> i32;
+}
+
+/// `CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 2, METHOD_BUFFERED, FILE_ANY_ACCESS)`.
+const FSCTL_REQUEST_BATCH_OPLOCK: u32 = 0x0009_0008;
+const OBJ_CASE_INSENSITIVE: u32 = 0x40;
+const FILE_CREATE: u32 = 2;
+const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
+const FILE_NON_DIRECTORY_FILE: u32 = 0x40;
+const FILE_DELETE_ON_CLOSE: u32 = 0x1000;
+
+/// The `NTSTATUS` of a create the object's security refuses.
+pub const STATUS_ACCESS_DENIED: i32 = 0xC000_0022_u32 as i32;
 
 /// The product's service name (SPEC-024 §Data contracts §3); these tests
 /// never create, open for change, stop or delete it.
@@ -247,6 +323,22 @@ impl TestService {
         Ok(())
     }
 
+    /// Start the service with SCM start arguments, which it reads after its
+    /// name (SPEC-024 Amendment 2026-11-05, item 1).
+    pub fn start_with(&self, arguments: &[&str]) -> Result<(), u32> {
+        if arguments.is_empty() {
+            return self.start();
+        }
+        let wide_arguments: Vec<Vec<u16>> = arguments.iter().map(|text| wide(text)).collect();
+        let vector: Vec<*const u16> = wide_arguments.iter().map(|text| text.as_ptr()).collect();
+        // SAFETY: `vector` holds `arguments.len()` NUL-terminated strings,
+        // which `wide_arguments` keeps alive for the call.
+        if unsafe { StartServiceW(self.handle, vector.len() as u32, vector.as_ptr()) } == 0 {
+            return Err(last_error());
+        }
+        Ok(())
+    }
+
     pub fn status(&self) -> SERVICE_STATUS_PROCESS {
         self.query_status().unwrap_or_else(|error| {
             panic!("QueryServiceStatusEx {}: Win32 error {error}", self.name)
@@ -346,7 +438,12 @@ impl TestService {
 
     /// As `start_expecting_stop`, with what polling saw on the way.
     pub fn start_and_wait_for_stop(&self, timeout: Duration) -> Observed {
-        if let Err(code) = self.start() {
+        self.start_with_and_wait_for_stop(&[], timeout)
+    }
+
+    /// As `start_and_wait_for_stop`, with SCM start arguments.
+    pub fn start_with_and_wait_for_stop(&self, arguments: &[&str], timeout: Duration) -> Observed {
+        if let Err(code) = self.start_with(arguments) {
             eprintln!("{}: StartServiceW returned Win32 error {code}", self.name);
         }
         self.wait_for(SERVICE_STOPPED, timeout)
@@ -640,6 +737,26 @@ pub fn refused_before_running(service: &TestService, code: u32, fragments: &[&st
     entries
 }
 
+/// As `refused_before_running`, for a start with SCM start arguments, which
+/// may run a migration during `START_PENDING` (SPEC-024 Amendment
+/// 2026-11-05, item 1): the checkpoint keeps advancing until the start
+/// stops.
+pub fn refused_with_arguments(
+    service: &TestService,
+    arguments: &[&str],
+    code: u32,
+    fragments: &[&str],
+) -> Vec<Entry> {
+    let baseline = application_baseline();
+    let stopped = service.start_with_and_wait_for_stop(arguments, Duration::from_secs(120));
+    assert_pending_progress(&stopped, "START_PENDING");
+    assert_stopped_with(&stopped.status, code);
+    let entries = wait_entries(baseline, &[1002]);
+    assert_never_ran(&entries);
+    assert_failure_entry(&entries, fragments);
+    entries
+}
+
 /// A start that reports `RUNNING` and then fails, at the identity step
 /// (SPEC-024 Amendment 2026-11-04, item 3, and item 5 for code 3):
 /// `START_PENDING` progressed, entry 1000 precedes entry 1002, which
@@ -670,6 +787,23 @@ pub fn failed_after_running(service: &TestService, code: u32, fragments: &[&str]
 // Privileges, security descriptors and privileged file access.
 // ---------------------------------------------------------------------------
 
+/// The LUID of the privilege `name`.
+fn privilege_value(name: PCWSTR) -> LUID {
+    let mut luid = LUID {
+        LowPart: 0,
+        HighPart: 0,
+    };
+    // SAFETY: a constant privilege name and an out-value.
+    let found = unsafe { LookupPrivilegeValueW(std::ptr::null(), name, &mut luid) };
+    assert_ne!(
+        found,
+        0,
+        "LookupPrivilegeValueW: Win32 error {}",
+        last_error()
+    );
+    luid
+}
+
 /// Enable `SeBackupPrivilege` and `SeRestorePrivilege` in this process's
 /// token; the runner's built-in Administrator holds both, disabled. With
 /// them, and `FILE_FLAG_BACKUP_SEMANTICS`, this process reads, creates and
@@ -688,22 +822,10 @@ pub fn enable_backup_and_restore() {
     };
     assert_ne!(opened, 0, "OpenProcessToken: Win32 error {}", last_error());
     for name in [SE_BACKUP_NAME, SE_RESTORE_NAME] {
-        let mut luid = LUID {
-            LowPart: 0,
-            HighPart: 0,
-        };
-        // SAFETY: a constant privilege name and an out-value.
-        let found = unsafe { LookupPrivilegeValueW(std::ptr::null(), name, &mut luid) };
-        assert_ne!(
-            found,
-            0,
-            "LookupPrivilegeValueW: Win32 error {}",
-            last_error()
-        );
         let privileges = TOKEN_PRIVILEGES {
             PrivilegeCount: 1,
             Privileges: [LUID_AND_ATTRIBUTES {
-                Luid: luid,
+                Luid: privilege_value(name),
                 Attributes: SE_PRIVILEGE_ENABLED,
             }],
         };
@@ -735,8 +857,11 @@ pub struct Handle(pub HANDLE);
 
 impl Drop for Handle {
     fn drop(&mut self) {
-        // SAFETY: a handle CreateFileW or a token call returned, closed once.
-        unsafe { CloseHandle(self.0) };
+        if !self.0.is_null() {
+            // SAFETY: a handle CreateFileW or a token call returned, closed
+            // once.
+            unsafe { CloseHandle(self.0) };
+        }
     }
 }
 
@@ -826,6 +951,46 @@ fn set_owner(handle: &Handle, owner: PSID, path: &Path) {
         )
     };
     assert_eq!(error, 0, "set the owner of {}", path.display());
+}
+
+/// Make `sid`, as SDDL spells it (an alias or `S-1-...`), the owner of
+/// `path`, which exists, with `SeRestorePrivilege`; the DACL stays.
+pub fn set_owner_of(path: &Path, sid: &str) {
+    enable_backup_and_restore();
+    let descriptor = Descriptor::from_sddl(&format!("O:{sid}"));
+    let handle = open_existing(path, WRITE_OWNER, 0)
+        .unwrap_or_else(|e| panic!("open {} to set its owner: Win32 error {e}", path.display()));
+    set_owner(&handle, descriptor.owner(), path);
+}
+
+/// Give `path`, which exists, the owner and DACL of `sddl`, with
+/// `SeRestorePrivilege`, through `SetKernelObjectSecurity`, whose change
+/// applies to that object alone: `SetSecurityInfo`'s of a DACL propagates to
+/// what a directory holds.
+pub fn set_security(path: &Path, sddl: &str) {
+    enable_backup_and_restore();
+    let descriptor = Descriptor::from_sddl(sddl);
+    let handle = open_existing(path, WRITE_OWNER | WRITE_DAC, 0).unwrap_or_else(|e| {
+        panic!(
+            "open {} to set its security: Win32 error {e}",
+            path.display()
+        )
+    });
+    // SAFETY: an open handle with both rights and a valid descriptor.
+    let ok = unsafe {
+        SetKernelObjectSecurity(
+            handle.0,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            descriptor.0,
+        )
+    };
+    assert_ne!(
+        ok,
+        0,
+        "set the security of {} to {sddl}: Win32 error {}",
+        path.display(),
+        last_error()
+    );
 }
 
 /// The well-known SID `kind`, in its binary form.
@@ -992,15 +1157,122 @@ pub fn create_file_inheriting(path: &Path, owner: WELL_KNOWN_SID_TYPE, bytes: &[
 
 /// The bytes of `path`, read with backup semantics (a SYSTEM-only file).
 pub fn privileged_read(path: &Path) -> Vec<u8> {
+    try_privileged_read(path)
+        .unwrap_or_else(|e| panic!("open {} to read it: Win32 error {e}", path.display()))
+}
+
+/// As `privileged_read`, for a file a running service may be replacing: the
+/// error is the Win32 error of the open.
+pub fn try_privileged_read(path: &Path) -> Result<Vec<u8>, u32> {
     enable_backup_and_restore();
-    let handle = open_existing(path, GENERIC_READ, 0)
-        .unwrap_or_else(|e| panic!("open {} to read it: Win32 error {e}", path.display()));
+    let handle = open_existing(path, GENERIC_READ, 0)?;
     let mut bytes = Vec::new();
     handle
         .into_file()
         .read_to_end(&mut bytes)
         .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    bytes
+    Ok(bytes)
+}
+
+/// A handle of this process on the file `path`, opened for reading and
+/// sharing every access, held until it is dropped: the open child a
+/// directory cannot be renamed with. It takes no write or delete access, so
+/// it does not make an open that shares read access alone fail.
+pub fn hold_for_reading(path: &Path) -> Handle {
+    enable_backup_and_restore();
+    open_existing(path, GENERIC_READ, 0)
+        .unwrap_or_else(|e| panic!("hold {} open: Win32 error {e}", path.display()))
+}
+
+/// A batch opportunistic lock on the file `path`, held until it is dropped.
+/// The break Windows sends its holder is never acknowledged, so what an open
+/// of the file makes wait on another process waits until the value is
+/// dropped: an open of this process's own too, so a test reads nothing of the
+/// file while it holds one.
+pub struct Oplock {
+    file: Handle,
+    event: Handle,
+    /// Written by the kernel while the request is pending: it outlives it.
+    _overlapped: Box<Overlapped>,
+}
+
+impl Oplock {
+    /// Another handle on the file rules an oplock out, so the request is
+    /// repeated for a moment: a handle of a console agent just ended, or of a
+    /// scanner, is closed soon.
+    pub fn take(path: &Path) -> Self {
+        enable_backup_and_restore();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            match Self::request(path) {
+                Ok(oplock) => return oplock,
+                Err(ERROR_OPLOCK_NOT_GRANTED) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(e) => panic!("an oplock on {}: Win32 error {e}", path.display()),
+            }
+        }
+    }
+
+    fn request(path: &Path) -> Result<Self, u32> {
+        let file = open_existing(path, GENERIC_READ, FILE_FLAG_OVERLAPPED)?;
+        // SAFETY: a manual-reset event, not signalled; closed on drop.
+        let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
+        assert!(
+            !event.is_null(),
+            "CreateEventW: Win32 error {}",
+            last_error()
+        );
+        let event = Handle(event);
+        let mut overlapped = Box::new(Overlapped {
+            internal: 0,
+            internal_high: 0,
+            offset: 0,
+            offset_high: 0,
+            event: event.0,
+        });
+        // SAFETY: an open overlapped handle and an event that outlive the
+        // request, and a box that stays where it is while it is pending.
+        let ok = unsafe {
+            DeviceIoControl(
+                file.0,
+                FSCTL_REQUEST_BATCH_OPLOCK,
+                std::ptr::null(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                &mut *overlapped,
+            )
+        };
+        let error = last_error();
+        if ok != 0 || error != ERROR_IO_PENDING {
+            return Err(error);
+        }
+        Ok(Oplock {
+            file,
+            event,
+            _overlapped: overlapped,
+        })
+    }
+
+    /// Windows sent the break: an open waits on this holder.
+    pub fn broken(&self) -> bool {
+        // SAFETY: an event this value owns, not waited for.
+        unsafe { WaitForSingleObject(self.event.0, 0) == WAIT_OBJECT_0 }
+    }
+}
+
+impl Drop for Oplock {
+    fn drop(&mut self) {
+        // SAFETY: closing the file completes the pending request, which sets
+        // the event; the box and the event are freed only after that.
+        unsafe {
+            CloseHandle(self.file.0);
+            self.file.0 = std::ptr::null_mut();
+            WaitForSingleObject(self.event.0, 5000);
+        }
+    }
 }
 
 /// Whether anything is at `path`, seen with backup semantics.
@@ -1263,6 +1535,14 @@ pub struct FixedPaths {
     pub identity: PathBuf,
     /// FR-014's temporary file in installed mode (item 6).
     pub hygiene_temporary: PathBuf,
+    /// `<ProgramData>\CyberGuard\agent.migrating`, the migration's staging
+    /// directory (Amendment 2026-11-05).
+    pub staging: PathBuf,
+    /// `<ProgramData>\CyberGuard\agent.legacy`, the console installation's
+    /// directory after the commit.
+    pub legacy: PathBuf,
+    /// `migration.json` in the data root, after the commit.
+    pub record: PathBuf,
 }
 
 impl FixedPaths {
@@ -1275,6 +1555,9 @@ impl FixedPaths {
             config: data_root.join("agent.toml"),
             trust_anchor: data_root.join("server-ca.pem"),
             hygiene_temporary: data_root.join("agent.toml.hygiene-tmp"),
+            staging: product_root.join("agent.migrating"),
+            legacy: product_root.join("agent.legacy"),
+            record: data_root.join("migration.json"),
             cert: identity_dir.join("cert.pem"),
             key: identity_dir.join("key.dat"),
             identity: identity_dir.join("identity.json"),
@@ -1294,8 +1577,13 @@ pub fn text(path: &Path) -> String {
 /// The fixed tree `<ProgramData>\CyberGuard` this test plants. Any existing
 /// `CyberGuard` is moved aside first and restored on every exit path; on
 /// drop the planted tree is taken back (`takeown`, `icacls /reset`, both
-/// from System32) and removed. On this disposable runner a test may use the
-/// fixed paths (SPEC-024 Amendment 2026-11-01, point 4).
+/// from System32) and removed. Both tools recurse from `CyberGuard`, so they
+/// reach `agent.migrating` and `agent.legacy` beside the data root as they
+/// reach `identity\` inside it: `/D Y` has `takeown` take a directory this
+/// account cannot list, as `agent.legacy` is, and once `icacls` has reset a
+/// directory this account may delete what it holds, whatever the entries'
+/// own DACLs. On this disposable runner a test may use the fixed paths
+/// (SPEC-024 Amendment 2026-11-01, point 4).
 pub struct FixedDataRoot {
     pub paths: FixedPaths,
     moved: Option<PathBuf>,
@@ -1484,6 +1772,20 @@ impl ConfigFile {
         }
     }
 
+    /// The configuration the console runbook writes
+    /// (`docs/operations/install.md`): the trust anchor and the identity
+    /// files directly in the data root, with forward slashes.
+    pub fn console(paths: &FixedPaths, enroll_url: &str, heartbeat_url: &str) -> Self {
+        let in_data_root = |name: &str| text(&paths.data_root.join(name)).replace('\\', "/");
+        ConfigFile {
+            trust_anchor_path: in_data_root("server-ca.pem"),
+            cert_path: in_data_root("cert.pem"),
+            key_path: in_data_root("key.dat"),
+            identity_path: in_data_root("identity.json"),
+            ..Self::fixed(paths, enroll_url, heartbeat_url)
+        }
+    }
+
     /// The TOML; paths go in literal strings, so backslashes stay as they
     /// are.
     pub fn toml(&self) -> String {
@@ -1548,6 +1850,12 @@ pub fn write_config(
     file.knobs = *knobs;
     root.write_config(&file)
 }
+
+/// A PEM section TLS refuses (SPEC-024 Amendment 2026-11-07): its body is
+/// not base64. Appended to a good certificate, it leaves the first block as
+/// it was.
+pub const MALFORMED_PEM_SECTION: &str =
+    "-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n";
 
 /// The three identity files' bytes; `None` leaves a file out.
 #[derive(Debug, Clone)]
@@ -1647,6 +1955,83 @@ impl SilentListener {
 pub fn reserve_port() -> u16 {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind");
     listener.local_addr().expect("local_addr").port()
+}
+
+// ---------------------------------------------------------------------------
+// The console agent (SPEC-024 Amendment 2026-11-05): the manual installation
+// the migration moves a host from.
+// ---------------------------------------------------------------------------
+
+/// A real console agent, `cg-agent --config <config>`, elevated as this test
+/// is on the runner (its built-in Administrator). Its standard output and
+/// error go to a file, which nothing has to drain and `output` reads. `Drop`
+/// ends it, which frees the instance lock with the process, and stops the
+/// ETW session that leaves: a console agent stops only on Ctrl+C, which a
+/// process that shares no console with it cannot send.
+pub struct ConsoleAgent {
+    child: std::process::Child,
+    output: tempfile::NamedTempFile,
+}
+
+impl ConsoleAgent {
+    pub fn start(config: &Path) -> Self {
+        refuse_unless_disposable_runner(&Scm::open());
+        let output = tempfile::NamedTempFile::new().expect("the console agent's output file");
+        // Duplicates of one handle share its position, so the two streams
+        // append instead of overwriting each other.
+        let stream = || {
+            output
+                .as_file()
+                .try_clone()
+                .map(std::process::Stdio::from)
+                .expect("duplicate the console agent's output file")
+        };
+        let child = std::process::Command::new(env!("CARGO_BIN_EXE_cg-agent"))
+            .arg("--config")
+            .arg(config)
+            .stdin(std::process::Stdio::null())
+            .stdout(stream())
+            .stderr(stream())
+            .spawn()
+            .expect("launch the console agent");
+        ConsoleAgent { child, output }
+    }
+
+    /// How it ended, once it has.
+    pub fn exited(&mut self) -> Option<std::process::ExitStatus> {
+        self.child.try_wait().expect("query the console agent")
+    }
+
+    /// What it has written so far.
+    pub fn output(&self) -> String {
+        String::from_utf8_lossy(&std::fs::read(self.output.path()).unwrap_or_default()).to_string()
+    }
+}
+
+impl Drop for ConsoleAgent {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        system_tool("logman.exe", &["stop", cg_agent::etw::SESSION_NAME, "-ets"]);
+    }
+}
+
+/// The SID of the account this test runs as, as text: the account a console
+/// agent it launches runs as, which that agent's identity files allow besides
+/// SYSTEM.
+pub fn current_user_sid() -> String {
+    let output = std::process::Command::new("whoami")
+        .args(["/user", "/fo", "csv", "/nh"])
+        .output()
+        .expect("run whoami");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .trim()
+        .rsplit(',')
+        .next()
+        .map(|field| field.trim_matches('"').to_string())
+        .filter(|sid| sid.starts_with("S-1-"))
+        .unwrap_or_else(|| panic!("no SID in whoami's output: {stdout}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1755,6 +2140,11 @@ impl TestUser {
     pub fn token(&self) -> &Token {
         &self.token
     }
+
+    /// The account's SID, as SDDL spells it.
+    pub fn sid(&self) -> String {
+        token_user_sid(&self.token)
+    }
 }
 
 impl Drop for TestUser {
@@ -1825,23 +2215,99 @@ pub fn filtered_administrator_token() -> Token {
     restricted
 }
 
-/// The attributes of the well-known group `kind` in `token`'s groups.
-fn group_attributes(token: &Token, kind: WELL_KNOWN_SID_TYPE) -> Option<u32> {
+/// What `GetTokenInformation` answers for `class`, in an 8-byte aligned
+/// buffer.
+fn token_information(token: &Token, class: TOKEN_INFORMATION_CLASS) -> Vec<u64> {
     let mut needed = 0u32;
     // SAFETY: a size query.
-    unsafe { GetTokenInformation(token.0, TokenGroups, std::ptr::null_mut(), 0, &mut needed) };
+    unsafe { GetTokenInformation(token.0, class, std::ptr::null_mut(), 0, &mut needed) };
     let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
     // SAFETY: a buffer of at least `needed` bytes, 8-byte aligned.
     let ok = unsafe {
         GetTokenInformation(
             token.0,
-            TokenGroups,
+            class,
             buffer.as_mut_ptr().cast(),
             (buffer.len() * 8) as u32,
             &mut needed,
         )
     };
     assert_ne!(ok, 0, "GetTokenInformation: Win32 error {}", last_error());
+    buffer
+}
+
+/// The SID of `token`'s user, as SDDL spells it.
+pub fn token_user_sid(token: &Token) -> String {
+    let buffer = token_information(token, TokenUser);
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the call wrote a TOKEN_USER, whose SID lies in the buffer; the
+    // string is freed once.
+    unsafe {
+        let user = buffer.as_ptr().cast::<TOKEN_USER>();
+        let ok = ConvertSidToStringSidW((*user).User.Sid, &mut text);
+        assert_ne!(
+            ok,
+            0,
+            "ConvertSidToStringSidW: Win32 error {}",
+            last_error()
+        );
+        let sid = from_wide_nul(text);
+        LocalFree(text.cast());
+        sid
+    }
+}
+
+/// Which of the privileges that would let a process past a file's security
+/// the process `process_id` holds enabled (SPEC-024 Amendment 2026-11-05,
+/// item 1: "no privilege is enabled"): a SYSTEM service's token holds the
+/// three, disabled.
+pub fn enabled_custody_privileges(process_id: u32) -> Vec<String> {
+    // SAFETY: an out-value handle, owned below.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
+    assert!(
+        !process.is_null(),
+        "OpenProcess {process_id}: Win32 error {}",
+        last_error()
+    );
+    let process = Handle(process);
+    let mut token: HANDLE = std::ptr::null_mut();
+    // SAFETY: the handle above; `token` is owned below.
+    let opened = unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) };
+    assert_ne!(
+        opened,
+        0,
+        "OpenProcessToken {process_id}: Win32 error {}",
+        last_error()
+    );
+    let token = Token(token);
+    let buffer = token_information(&token, TokenPrivileges);
+    // SAFETY: the call wrote a TOKEN_PRIVILEGES and its PrivilegeCount
+    // entries.
+    let held: Vec<LUID_AND_ATTRIBUTES> = unsafe {
+        let privileges = buffer.as_ptr().cast::<TOKEN_PRIVILEGES>();
+        let first = std::ptr::addr_of!((*privileges).Privileges).cast::<LUID_AND_ATTRIBUTES>();
+        (0..(*privileges).PrivilegeCount as usize)
+            .map(|i| *first.add(i))
+            .collect()
+    };
+    [SE_BACKUP_NAME, SE_RESTORE_NAME, SE_TAKE_OWNERSHIP_NAME]
+        .into_iter()
+        .filter(|name| {
+            let luid = privilege_value(*name);
+            held.iter().any(|privilege| {
+                privilege.Luid.LowPart == luid.LowPart
+                    && privilege.Luid.HighPart == luid.HighPart
+                    && privilege.Attributes & SE_PRIVILEGE_ENABLED != 0
+            })
+        })
+        // SAFETY: a constant NUL-terminated name.
+        .map(|name| unsafe { from_wide_nul(name) })
+        .collect()
+}
+
+/// The attributes of the well-known group `kind` in `token`'s groups.
+fn group_attributes(token: &Token, kind: WELL_KNOWN_SID_TYPE) -> Option<u32> {
+    let buffer = token_information(token, TokenGroups);
     // SAFETY: the call wrote a TOKEN_GROUPS and its GroupCount entries.
     unsafe {
         let groups = buffer.as_ptr().cast::<TOKEN_GROUPS>();
@@ -1860,19 +2326,22 @@ pub struct ProbeTarget {
     pub directory: bool,
 }
 
-/// What a token is refused on each target: read (list), write (add a
-/// file), delete, change the DACL, take ownership (install_ac_004).
-fn attempts(directory: bool) -> [(&'static str, u32); 5] {
+/// What a token is refused on each target: read (list), write (add a file
+/// or a directory, or delete an entry of a directory), delete, change the
+/// DACL, take ownership (install_ac_004).
+fn attempts(directory: bool) -> &'static [(&'static str, u32)] {
     if directory {
-        [
+        &[
             ("FILE_LIST_DIRECTORY", FILE_LIST_DIRECTORY),
             ("FILE_ADD_FILE", FILE_ADD_FILE),
+            ("FILE_ADD_SUBDIRECTORY", FILE_ADD_SUBDIRECTORY),
+            ("FILE_DELETE_CHILD", FILE_DELETE_CHILD),
             ("DELETE", DELETE),
             ("WRITE_DAC", WRITE_DAC),
             ("WRITE_OWNER", WRITE_OWNER),
         ]
     } else {
-        [
+        &[
             ("GENERIC_READ", GENERIC_READ),
             ("GENERIC_WRITE", GENERIC_WRITE),
             ("DELETE", DELETE),
@@ -1880,6 +2349,99 @@ fn attempts(directory: bool) -> [(&'static str, u32); 5] {
             ("WRITE_OWNER", WRITE_OWNER),
         ]
     }
+}
+
+/// `action`'s value, run on a thread of its own (never a runtime's) under
+/// `token`'s impersonation.
+fn as_token<T: Send + 'static>(token: &Token, action: impl FnOnce() -> T + Send + 'static) -> T {
+    let raw = token.0 as usize;
+    std::thread::spawn(move || {
+        // SAFETY: a token handle the caller keeps open for the call.
+        let impersonating = unsafe { ImpersonateLoggedOnUser(raw as HANDLE) };
+        assert_ne!(
+            impersonating,
+            0,
+            "ImpersonateLoggedOnUser: Win32 error {}",
+            last_error()
+        );
+        let value = action();
+        // SAFETY: ends this thread's impersonation.
+        let reverted = unsafe { RevertToSelf() };
+        assert_ne!(reverted, 0, "RevertToSelf: Win32 error {}", last_error());
+        value
+    })
+    .join()
+    .expect("the impersonating thread")
+}
+
+/// A handle on the directory `path`, opened under `token` for adding an
+/// entry, which this process keeps for as long as a test needs it (SPEC-024
+/// Amendment 2026-11-05, item 2.1: "through a handle opened before or after").
+pub fn open_to_add_entries(token: &Token, path: &Path) -> Handle {
+    let owned = path.to_path_buf();
+    let raw = as_token(token, move || {
+        open_existing(&owned, FILE_ADD_FILE, 0).map(|handle| {
+            let raw = handle.0 as usize;
+            std::mem::forget(handle);
+            raw
+        })
+    });
+    let raw =
+        raw.unwrap_or_else(|e| panic!("open {} to add to it: Win32 error {e}", path.display()));
+    Handle(raw as HANDLE)
+}
+
+/// What creating the file `name` through `directory`, a handle, answers
+/// under `token`, as an `NTSTATUS`: Windows checks that create against the
+/// directory's security as it stands, not the handle's granted access. A file
+/// it creates is deleted as its handle closes, so a create leaves no entry.
+pub fn create_through(token: &Token, directory: &Handle, name: &str) -> i32 {
+    let root = directory.0 as usize;
+    let name = name.to_string();
+    as_token(token, move || {
+        let text: Vec<u16> = name.encode_utf16().collect();
+        let size = (text.len() * 2) as u16;
+        let object_name = UNICODE_STRING {
+            Length: size,
+            MaximumLength: size,
+            Buffer: text.as_ptr().cast_mut(),
+        };
+        let attributes = ObjectAttributes {
+            length: std::mem::size_of::<ObjectAttributes>() as u32,
+            root_directory: root as HANDLE,
+            object_name: &object_name,
+            attributes: OBJ_CASE_INSENSITIVE,
+            security_descriptor: std::ptr::null(),
+            security_quality_of_service: std::ptr::null(),
+        };
+        let mut status_block = IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+        let mut file: HANDLE = std::ptr::null_mut();
+        // SAFETY: every structure lives for the call, and the buffer of
+        // `object_name` holds `Length` bytes; `file` is closed below.
+        let status = unsafe {
+            NtCreateFile(
+                &mut file,
+                DELETE | SYNCHRONIZE,
+                &attributes,
+                &mut status_block,
+                std::ptr::null(),
+                FILE_ATTRIBUTE_NORMAL,
+                0,
+                FILE_CREATE,
+                FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_DELETE_ON_CLOSE,
+                std::ptr::null(),
+                0,
+            )
+        };
+        if status >= 0 {
+            // SAFETY: the file the call opened, closed once.
+            unsafe { CloseHandle(file) };
+        }
+        status
+    })
 }
 
 /// Impersonate `token` on a thread of its own (never a runtime's) and try
@@ -1926,7 +2488,7 @@ pub fn access_problems(
             }
         }
         for target in &targets {
-            for (name, access) in attempts(target.directory) {
+            for &(name, access) in attempts(target.directory) {
                 match open_existing(&target.path, access, 0) {
                     Ok(_) => problems.push(format!(
                         "{who}: {name} on {} was granted",

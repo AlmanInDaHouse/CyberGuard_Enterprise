@@ -685,9 +685,11 @@ struct Planted {
 /// `identity\`'s owner and DACL. The cases: an empty `identity\` (item 4:
 /// the set is absent only when that directory is); the certificate and key
 /// without `identity.json`; a certificate of another key; a certificate
-/// whose common name is another agent id; a valid set whose `identity\`
-/// also allows Administrators; a valid set whose `key.dat` is owned by
-/// Administrators.
+/// whose common name is another agent id; a certificate whose first block is
+/// good and whose later section is malformed (the Amendment 2026-11-07, which
+/// ends that start here, before capture and heartbeat); a valid set whose
+/// `identity\` also allows Administrators; a valid set whose `key.dat` is
+/// owned by Administrators.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn install_ac_005_a_partial_inconsistent_or_insecure_identity_fails_closed() {
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
@@ -746,7 +748,19 @@ async fn install_ac_005_a_partial_inconsistent_or_insecure_identity_fails_closed
             ),
             directory_sddl: IDENTITY_DIRECTORY_SDDL,
             file_sddls: [IDENTITY_FILE_SDDL; 3],
-            fragments: vec!["common name is not the agent".to_string(), repair],
+            fragments: vec!["common name is not the agent".to_string(), repair.clone()],
+        },
+        Planted {
+            what: "a certificate whose later PEM section is malformed",
+            files: IdentityFiles::new(
+                &format!("{}\n{MALFORMED_PEM_SECTION}", pki.client_cert_pem),
+                &pki.agent_seed,
+                &pki.agent_pubkey,
+                &pki.agent_id,
+            ),
+            directory_sddl: IDENTITY_DIRECTORY_SDDL,
+            file_sddls: [IDENTITY_FILE_SDDL; 3],
+            fragments: vec![repair],
         },
         Planted {
             what: "a valid set whose identity directory also allows Administrators",
@@ -855,21 +869,52 @@ async fn install_ac_005_a_partial_inconsistent_or_insecure_identity_fails_closed
 async fn install_ac_005_a_certificate_for_another_key_in_the_answer_is_code_3_and_writes_nothing() {
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
     let another_key = common::generate_test_pki(common::TEST_AGENT_ID);
-    let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
-    enroll.set_certificate_override(&another_key.client_cert_pem);
-    let heartbeat = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
+    an_answer_is_code_3_and_writes_nothing(
+        &pki,
+        |enroll| enroll.set_certificate_override(&another_key.client_cert_pem),
+        &["malformed response", "public key is not the agent"],
+        &key_material(&another_key),
+    )
+    .await;
+}
+
+/// The Amendment 2026-11-07: an answer whose certificate's first block is good
+/// and whose later section is malformed is a malformed answer too, code 3 with
+/// nothing written, where the file was written and code 6 followed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn install_ac_005_a_malformed_later_section_in_the_answer_is_code_3_and_writes_nothing() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    // The certificate the mock issues for this request's key: only the
+    // later section makes the answer malformed.
+    let suffix = format!("\n{MALFORMED_PEM_SECTION}");
+    an_answer_is_code_3_and_writes_nothing(
+        &pki,
+        |enroll| enroll.set_certificate_suffix(&suffix),
+        &["malformed response"],
+        &key_material(&pki),
+    )
+    .await;
+}
+
+/// A server that answers with `certificate_pem`: the start's outcome, code 3
+/// with `fragments`, and what it leaves.
+async fn an_answer_is_code_3_and_writes_nothing(
+    pki: &common::TlsTestPki,
+    answer: impl FnOnce(&common::TlsEnrollMock),
+    fragments: &[&str],
+    secrets: &[String],
+) {
+    let enroll = common::TlsEnrollMock::start(pki, common::TlsMockMode::Normal).await;
+    answer(&enroll);
+    let heartbeat = common::TlsMockServer::start(pki, common::TlsMockMode::Normal).await;
     let root = FixedDataRoot::plant();
     root.write_trust_anchor(&pki.trust_anchor_pem);
     let config = root.write_config(&config_file(&root, &enroll, &heartbeat.base_url));
     let config_before = privileged_read(&config);
     let service = TestService::create(&service_args(&config));
 
-    let entries = failed_after_running(
-        &service,
-        3,
-        &["malformed response", "public key is not the agent"],
-    );
-    assert_no_secret(&entries, &key_material(&another_key));
+    let entries = failed_after_running(&service, 3, fragments);
+    assert_no_secret(&entries, secrets);
     assert_eq!(
         enroll.enroll_received_count(),
         1,

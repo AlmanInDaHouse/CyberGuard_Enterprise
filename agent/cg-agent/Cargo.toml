@@ -31,6 +31,10 @@ required-features = ["scm-tests"]
 name = "install_ac_004_custody_service"
 required-features = ["scm-tests"]
 
+[[test]]
+name = "install_ac_013_migration"
+required-features = ["scm-tests"]
+
 # --- Runtime dependencies ---
 #
 # Pinned to minor versions, with rationale below. Patch updates are

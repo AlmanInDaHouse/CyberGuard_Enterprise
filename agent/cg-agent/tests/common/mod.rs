@@ -759,6 +759,7 @@ pub struct TlsEnrollMock {
     enroll_plan: Arc<Mutex<Vec<u16>>>,
     enroll_default_status: Arc<Mutex<u16>>,
     certificate_override: Arc<Mutex<Option<String>>>,
+    certificate_suffix: Arc<Mutex<String>>,
     connections: Arc<AtomicUsize>,
     _task: JoinHandle<()>,
 }
@@ -768,6 +769,7 @@ struct EnrollState {
     enroll_plan: Arc<Mutex<Vec<u16>>>,
     enroll_default_status: Arc<Mutex<u16>>,
     certificate_override: Arc<Mutex<Option<String>>>,
+    certificate_suffix: Arc<Mutex<String>>,
     issuer: Arc<Issuer>,
 }
 
@@ -790,12 +792,14 @@ impl TlsEnrollMock {
         let enroll_plan: Arc<Mutex<Vec<u16>>> = Arc::new(Mutex::new(Vec::new()));
         let enroll_default_status: Arc<Mutex<u16>> = Arc::new(Mutex::new(200));
         let certificate_override: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let certificate_suffix: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
         let connections = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(EnrollState {
             enroll_received: enroll_received.clone(),
             enroll_plan: enroll_plan.clone(),
             enroll_default_status: enroll_default_status.clone(),
             certificate_override: certificate_override.clone(),
+            certificate_suffix: certificate_suffix.clone(),
             issuer: pki.issuer.clone(),
         });
 
@@ -824,6 +828,7 @@ impl TlsEnrollMock {
             enroll_plan,
             enroll_default_status,
             certificate_override,
+            certificate_suffix,
             connections,
             _task: task,
         }
@@ -871,6 +876,17 @@ impl TlsEnrollMock {
             .certificate_override
             .lock()
             .expect("certificate_override lock") = Some(certificate_pem.to_string());
+    }
+
+    /// Append `suffix` to the certificate issued for the request's key: an
+    /// answer whose first block is the agent's own and whose document goes on
+    /// (SPEC-024 Amendment 2026-11-07). An override answers with a certificate
+    /// for another key, which this does not. Empty by default.
+    pub fn set_certificate_suffix(&self, suffix: &str) {
+        *self
+            .certificate_suffix
+            .lock()
+            .expect("certificate_suffix lock") = suffix.to_string();
     }
 
     /// The TCP connections accepted so far, a failed handshake's included.
@@ -959,10 +975,15 @@ fn answer_enroll(body: &[u8], state: &EnrollState) -> (u16, Value) {
         .clone();
     match (pubkey, certificate_override) {
         (Some(_), Some(certificate)) => (code, enroll_response(&certificate)),
-        (Some(key), None) => (
-            code,
-            enroll_response(&state.issuer.client_cert_pem(TEST_AGENT_ID, key)),
-        ),
+        (Some(key), None) => {
+            let suffix = state
+                .certificate_suffix
+                .lock()
+                .expect("certificate_suffix lock")
+                .clone();
+            let certificate = state.issuer.client_cert_pem(TEST_AGENT_ID, key);
+            (code, enroll_response(&format!("{certificate}{suffix}")))
+        }
         (None, _) => (400, json!({ "error": "malformed agent_pubkey" })),
     }
 }
