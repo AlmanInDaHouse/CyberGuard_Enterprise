@@ -1379,6 +1379,48 @@ model, the enrolling account's SID, that extension of the third choice and
 the codes' new causes), he answered "Sí, apruebo". Status stays
 **Accepted**.
 
+## Amendment 2026-11-07: the client certificate's PEM
+
+**What surfaced it.** Debt #146. A `cert.pem` whose first `CERTIFICATE`
+block is good, in a document TLS refuses, passes the Amendment 2026-11-04,
+item 5: the identity step's reader stops at that block
+(`certificate_identity`, `agent/cg-agent/src/x509.rs`), while the one TLS
+uses goes through the whole document (`certificates_from_pem`,
+`agent/cg-agent/src/tls.rs`). The service then reports `RUNNING`, opens its
+capture and ends with code 6 when it builds its TLS configuration, and a
+server's answer that carries such a document is written first. Refusing it
+at the identity step is stricter than that item's "validates nothing else of
+it there", so the item changes before the code does.
+
+**Amendment.** In installed mode the identity step accepts no certificate
+document that the reader TLS uses refuses. Such a document fails the
+consistency check of the Amendment 2026-11-04, item 5, as a certificate that
+fails either of its two fields does: code 3 at enrollment, with nothing
+written, and code 5 at the identity step, with item 4's repair. The line
+names the failed condition and not the reader's message, which can quote the
+file. The two fields are still read from the document's first `CERTIFICATE`
+block, the end-entity certificate TLS presents, and FR-006's check of the
+server's answer stays. The agent validates nothing else of the certificate
+there: its signature and validity stay with TLS (SPEC-003), and a
+certificate TLS refuses for what it holds and not for how its document is
+written, for instance one that is not X.509 v3, stays code 6. The console
+keeps FR-008's fingerprint check alone.
+
+**Effect.** For the PEM document alone this supersedes "validates nothing
+else of it there". A `cert.pem` of that shape now ends the start at the
+identity step, before capture and heartbeat, with code 5 where it was code 6
+after capture opened; in the server's answer it is code 3, where the file
+was written and code 6 followed. Codes 3 and 5 gain that cause, within their
+meanings (a malformed answer, an identity that fails item 5), and the
+installation runbook's table gains it with the code that implements it. The
+legacy migration's check of `cert.pem` (Amendment 2026-11-05, item 2.3) reads
+the document the same way and still requires one certificate. install_ac_005
+is tested against this amendment by unelevated tests of the reader and of
+`check_issued`. What TLS accepts does not change; no exit code, setting,
+dependency, privilege or ADR is added. Like the amendments it changes, this
+one is Manuel's to approve: asked in chat on 2026-11-07 with the compare URL,
+he answered "Sí, apruebo". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
