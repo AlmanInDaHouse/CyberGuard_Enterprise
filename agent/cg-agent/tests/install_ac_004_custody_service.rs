@@ -574,6 +574,7 @@ async fn install_ac_004_the_identity_is_systems_alone_and_others_cannot_reach_it
         (&config, false),
         (&root.paths.trust_anchor, false),
         (&root.paths.data_root, true),
+        (&root.paths.product_root, true),
     ]
     .map(|(path, directory)| ProbeTarget {
         path: PathBuf::from(path),

@@ -31,6 +31,10 @@ required-features = ["scm-tests"]
 name = "install_ac_004_custody_service"
 required-features = ["scm-tests"]
 
+[[test]]
+name = "install_ac_013_migration"
+required-features = ["scm-tests"]
+
 # --- Runtime dependencies ---
 #
 # Pinned to minor versions, with rationale below. Patch updates are
@@ -152,7 +156,9 @@ serde_jcs = "0.1"
 # DACL of the identity artifacts (SPEC-002 NFR-003). Win32_System_Services:
 # the service control manager (SPEC-024 §Operational §3); Win32_UI_Shell and
 # Win32_System_Com: %ProgramData% from the OS for the service's file log
-# (SPEC-024 §Data contracts §2).
+# (SPEC-024 §Data contracts §2). Win32_System_IO: cancelling a wait on another
+# process's opportunistic lock, and Win32_System_SystemInformation: the host
+# name, in the legacy migration (SPEC-024 Amendment 2026-11-05).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
@@ -163,7 +169,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Diagnostics_Etw",
     "Win32_System_Com",
     "Win32_System_EventLog",
+    "Win32_System_IO",
     "Win32_System_Services",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_UI_Shell",
 ] }
@@ -232,12 +240,15 @@ ferrisetw = "1.2"
 # local-account bindings of their effective-access probe (install_ac_004:
 # NetUserAdd / NetUserDel), which build only with the `scm-tests` feature.
 # The LSA bindings for auth_ac_012's S4U logon (SPEC-020 Amendment
-# 2026-10-11, Decision record 11). The same crate as the agent's
+# 2026-10-11, Decision record 11). The opportunistic-lock bindings of
+# install_ac_013's cancellation tests. The same crate as the agent's
 # dependency; declared here, the feature is enabled only when test
 # targets are built, and `cargo build --release` does not see it.
 windows-sys = { version = "0.59", features = [
     "Win32_NetworkManagement_NetManagement",
     "Win32_Security_Authentication_Identity",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
     "Win32_System_Services",
 ] }
 

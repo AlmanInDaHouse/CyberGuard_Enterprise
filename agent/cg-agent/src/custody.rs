@@ -16,32 +16,46 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::windows::io::{FromRawHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Duration;
 
 use windows_sys::core::PWSTR;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GetLastError, LocalFree, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND,
-    ERROR_PATH_NOT_FOUND, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+    CloseHandle, GetLastError, LocalFree, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
+    ERROR_FILE_NOT_FOUND, ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_LOCK_VIOLATION,
+    ERROR_MORE_DATA, ERROR_NOT_SUPPORTED, ERROR_OPERATION_ABORTED, ERROR_PATH_NOT_FOUND,
+    ERROR_SHARING_VIOLATION, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1,
-    SE_FILE_OBJECT,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
+    SDDL_REVISION_1, SE_FILE_OBJECT,
 };
 use windows_sys::Win32::Security::{
-    EqualSid, GetAce, GetSecurityDescriptorControl, GetSecurityDescriptorDacl,
-    GetSecurityDescriptorOwner, IsValidSid, IsWellKnownSid, WinBuiltinAdministratorsSid,
-    WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION,
-    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, SE_DACL_PROTECTED,
+    EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl, GetSecurityDescriptorDacl,
+    GetSecurityDescriptorOwner, IsValidSid, IsWellKnownSid, SetKernelObjectSecurity,
+    WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
+    DACL_SECURITY_INFORMATION, INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION,
+    PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
+    SE_DACL_PROTECTED,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateDirectoryW, CreateFileW, DeleteFileW, GetFileInformationByHandle, MoveFileExW,
-    BY_HANDLE_FILE_INFORMATION, CREATE_NEW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, OPEN_EXISTING, READ_CONTROL,
+    CreateDirectoryW, CreateFileW, DeleteFileW, FileCaseSensitiveInfo, FileDispositionInfo,
+    FileDispositionInfoEx, GetFileInformationByHandle, GetFileInformationByHandleEx, MoveFileExW,
+    SetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, CREATE_NEW, FILE_ATTRIBUTE_DIRECTORY,
+    FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT, FILE_DISPOSITION_FLAG_DELETE,
+    FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
+    FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, OPEN_EXISTING,
+    READ_CONTROL,
 };
 use windows_sys::Win32::System::Com::CoTaskMemFree;
+use windows_sys::Win32::System::SystemInformation::{
+    ComputerNamePhysicalDnsHostname, GetComputerNameExW,
+};
+use windows_sys::Win32::System::IO::CancelSynchronousIo;
 use windows_sys::Win32::UI::Shell::{FOLDERID_ProgramData, SHGetKnownFolderPath};
 
 /// The ACE types a checked DACL may hold (winnt.h); any other is refused.
@@ -60,6 +74,11 @@ pub enum Principal {
 }
 
 impl Principal {
+    /// Whether `sid`, a whole SID in its binary form, is this principal.
+    pub(crate) fn is(&self, sid: &[u8]) -> bool {
+        self.matches(sid.as_ptr() as PSID)
+    }
+
     fn matches(&self, sid: PSID) -> bool {
         // SAFETY: `sid` points into a live security descriptor; IsValidSid
         // guards the comparisons.
@@ -203,6 +222,122 @@ impl Descriptor {
             bInheritHandle: 0,
         }
     }
+
+    /// Whether the descriptor names an owner.
+    fn has_owner(&self) -> Result<bool, String> {
+        Ok(!self.owner()?.is_null())
+    }
+
+    fn owner(&self) -> Result<PSID, String> {
+        let mut owner: PSID = std::ptr::null_mut();
+        let mut defaulted = 0;
+        // SAFETY: a live descriptor; `owner` points into it.
+        if unsafe { GetSecurityDescriptorOwner(self.0, &mut owner, &mut defaulted) } == 0 {
+            return Err(format!(
+                "read a descriptor's owner: Win32 error {}",
+                last_error()
+            ));
+        }
+        Ok(owner)
+    }
+
+    /// Whether one of `owners` owns the object.
+    pub(crate) fn owned_by(&self, owners: &[Principal]) -> Result<bool, String> {
+        let owner = self.owner()?;
+        Ok(owners.iter().any(|p| p.matches(owner)))
+    }
+
+    /// The allow entries that act on the object itself, an inherit-only one
+    /// acting only on what is created in it; `None` for a null DACL. An
+    /// entry of another type is refused, as the custody check does.
+    pub(crate) fn allow_entries(&self, path: &Path) -> Result<Option<Vec<AllowEntry>>, String> {
+        let mut present = 0;
+        let mut dacl: *mut ACL = std::ptr::null_mut();
+        let mut defaulted = 0;
+        // SAFETY: a live descriptor; `dacl` points into it.
+        if unsafe { GetSecurityDescriptorDacl(self.0, &mut present, &mut dacl, &mut defaulted) }
+            == 0
+        {
+            return Err(format!(
+                "read the security of {}: Win32 error {}",
+                path.display(),
+                last_error()
+            ));
+        }
+        if present == 0 || dacl.is_null() {
+            return Ok(None);
+        }
+        let mut entries = Vec::new();
+        // SAFETY: a DACL inside the descriptor.
+        let count = unsafe { (*dacl).AceCount };
+        for index in 0..u32::from(count) {
+            let mut ace: *mut core::ffi::c_void = std::ptr::null_mut();
+            // SAFETY: an index below the DACL's count.
+            if unsafe { GetAce(dacl, index, &mut ace) } == 0 {
+                return Err(format!(
+                    "read an ACE of {}: Win32 error {}",
+                    path.display(),
+                    last_error()
+                ));
+            }
+            // SAFETY: every ACE starts with an ACE_HEADER.
+            let header = unsafe { *(ace as *const ACE_HEADER) };
+            if u32::from(header.AceFlags) & INHERIT_ONLY_ACE != 0 {
+                continue;
+            }
+            match header.AceType {
+                ACCESS_DENIED_ACE_TYPE => {}
+                ACCESS_ALLOWED_ACE_TYPE => {
+                    // SAFETY: an ACCESS_ALLOWED_ACE; its SID starts at SidStart.
+                    let (mask, sid) = unsafe {
+                        let allowed = ace as *const ACCESS_ALLOWED_ACE;
+                        (
+                            (*allowed).Mask,
+                            std::ptr::addr_of!((*allowed).SidStart) as PSID,
+                        )
+                    };
+                    // SAFETY: a valid SID inside the ACE, of GetLengthSid bytes.
+                    let sid = unsafe {
+                        std::slice::from_raw_parts(sid as *const u8, GetLengthSid(sid) as usize)
+                    };
+                    entries.push(AllowEntry {
+                        sid: sid.to_vec(),
+                        mask,
+                    });
+                }
+                other => {
+                    return Err(format!(
+                        "{} holds an ACE of type {other}, which is not checked",
+                        path.display()
+                    ))
+                }
+            }
+        }
+        Ok(Some(entries))
+    }
+}
+
+/// An allow entry of a DACL: a whole SID and its access mask.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AllowEntry {
+    pub(crate) sid: Vec<u8>,
+    pub(crate) mask: u32,
+}
+
+/// A SID's text, for the migration's record alone: no line carries it.
+pub(crate) fn sid_text(sid: &[u8]) -> Result<String, String> {
+    let mut text: PWSTR = std::ptr::null_mut();
+    // SAFETY: a whole SID; `text` is LocalAlloc'd, freed below.
+    if unsafe { ConvertSidToStringSidW(sid.as_ptr() as PSID, &mut text) } == 0 {
+        return Err(format!("render a SID: Win32 error {}", last_error()));
+    }
+    // SAFETY: a NUL-terminated string from the call, read then freed.
+    unsafe {
+        let len = (0..).take_while(|&i| *text.add(i) != 0).count();
+        let rendered = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+        LocalFree(text.cast());
+        Ok(rendered)
+    }
 }
 
 impl Drop for Descriptor {
@@ -215,6 +350,10 @@ impl Drop for Descriptor {
 
 /// A handle closed on drop.
 pub(crate) struct Handle(pub(crate) HANDLE);
+
+// SAFETY: a file handle may be used from any thread; this value owns it and
+// hands it from one thread to the next (`bounded`).
+unsafe impl Send for Handle {}
 
 impl Drop for Handle {
     fn drop(&mut self) {
@@ -250,9 +389,28 @@ pub(crate) fn file_information(
     Ok(info)
 }
 
+/// How long an open of a checked object may wait on another process: even
+/// one for attributes and security alone waits on a batch opportunistic lock,
+/// which a name an ordinary user planted can hold (SPEC-024 Amendment
+/// 2026-11-05).
+pub const OPEN_WAIT: Duration = Duration::from_secs(30);
+
 /// Open `path` without following a reparse point; `None` when nothing is
 /// there. A directory opens too, so that the caller's kind check names it.
-fn open_existing(path: &Path, access: u32, share: u32) -> Result<Option<Handle>, String> {
+fn open_existing(
+    path: &Path,
+    access: u32,
+    share: u32,
+    wait: Duration,
+) -> Result<Option<Handle>, String> {
+    let owned = path.to_path_buf();
+    bounded(wait, path, move || {
+        open_raw(&owned, access, share).map_err(|error| failure("open", &owned, error))
+    })
+}
+
+/// `open_existing`, with the Win32 error of a failure.
+fn open_raw(path: &Path, access: u32, share: u32) -> Result<Option<Handle>, u32> {
     let name = wide(path);
     // SAFETY: the name lives for the call; the handle is closed on drop.
     let raw = unsafe {
@@ -271,14 +429,18 @@ fn open_existing(path: &Path, access: u32, share: u32) -> Result<Option<Handle>,
         if error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND {
             return Ok(None);
         }
-        return Err(format!("open {}: Win32 error {error}", path.display()));
+        return Err(error);
     }
     Ok(Some(Handle(raw)))
 }
 
 /// The kind, link and reparse checks on an open handle.
-fn check_shape(handle: &Handle, path: &Path, kind: Kind) -> Result<(), String> {
-    let info = file_information(handle, path)?;
+pub(crate) fn check_shape(handle: &Handle, path: &Path, kind: Kind) -> Result<(), String> {
+    shape_of(&file_information(handle, path)?, path, kind)
+}
+
+/// `check_shape` on what the handle reported.
+fn shape_of(info: &BY_HANDLE_FILE_INFORMATION, path: &Path, kind: Kind) -> Result<(), String> {
     if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(format!("{} is a reparse point", path.display()));
     }
@@ -294,10 +456,21 @@ fn check_shape(handle: &Handle, path: &Path, kind: Kind) -> Result<(), String> {
 /// Check the object at `path` against `policy`; `Ok(false)` when nothing is
 /// there.
 pub fn check_if_exists(path: &Path, kind: Kind, policy: &Policy) -> Result<bool, String> {
+    check_if_exists_within(path, kind, policy, OPEN_WAIT)
+}
+
+/// `check_if_exists`, waiting on another process no longer than `wait`.
+pub(crate) fn check_if_exists_within(
+    path: &Path,
+    kind: Kind,
+    policy: &Policy,
+    wait: Duration,
+) -> Result<bool, String> {
     let Some(handle) = open_existing(
         path,
         READ_CONTROL | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        wait,
     )?
     else {
         return Ok(false);
@@ -320,21 +493,68 @@ pub fn check(path: &Path, kind: Kind, policy: &Policy) -> Result<(), String> {
 /// that handle and read it all from the same handle. `Ok(None)` when it is
 /// absent. Others may read it meanwhile; no one may change it.
 pub fn read_checked(path: &Path, policy: &Policy) -> Result<Option<Vec<u8>>, String> {
-    let Some(handle) = open_existing(
+    read_checked_within(path, policy, OPEN_WAIT).map_err(|unread| match unread {
+        Unread::Unreadable(reason) | Unread::Refused(reason) => reason,
+    })
+}
+
+/// Whether the object at `path`, whatever else it is, has the owner and
+/// DACL `policy` asks for. Anything else, an open that fails included, is
+/// `false`.
+pub(crate) fn has_security(path: &Path, policy: &Policy, wait: Duration) -> bool {
+    let access = READ_CONTROL | FILE_READ_ATTRIBUTES;
+    let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    match open_existing(path, access, share, wait) {
+        Ok(Some(handle)) => check_security(&handle, path, policy).is_ok(),
+        _ => false,
+    }
+}
+
+/// Whether `path` is a directory and not a reparse point. Anything else, an
+/// open that fails included, is `false`.
+pub(crate) fn is_plain_directory(path: &Path, wait: Duration) -> bool {
+    let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    match open_existing(path, FILE_READ_ATTRIBUTES, share, wait) {
+        Ok(Some(handle)) => check_shape(&handle, path, Kind::Directory).is_ok(),
+        _ => false,
+    }
+}
+
+/// Why `read_checked_within` returned no bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unread {
+    /// It could not be opened or read: it may be fine.
+    Unreadable(String),
+    /// It is there and fails the check.
+    Refused(String),
+}
+
+/// `read_checked`, waiting on another process no longer than `wait`, and
+/// telling a file that fails its check from one that cannot be read.
+pub(crate) fn read_checked_within(
+    path: &Path,
+    policy: &Policy,
+    wait: Duration,
+) -> Result<Option<Vec<u8>>, Unread> {
+    let handle = open_existing(
         path,
         GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ,
-    )?
-    else {
+        wait,
+    )
+    .map_err(Unread::Unreadable)?;
+    let Some(handle) = handle else {
         return Ok(None);
     };
-    check_shape(&handle, path, Kind::File)?;
-    check_security(&handle, path, policy)?;
+    let info = file_information(&handle, path).map_err(Unread::Unreadable)?;
+    shape_of(&info, path, Kind::File).map_err(Unread::Refused)?;
+    let descriptor = security_of(&handle, path).map_err(Unread::Unreadable)?;
+    check_descriptor(&descriptor, path, policy).map_err(Unread::Refused)?;
     let mut bytes = Vec::new();
     handle
         .into_file()
         .read_to_end(&mut bytes)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+        .map_err(|e| Unread::Unreadable(format!("read {}: {e}", path.display())))?;
     Ok(Some(bytes))
 }
 
@@ -404,6 +624,7 @@ pub fn replace_keeping_security(
         path,
         READ_CONTROL | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        OPEN_WAIT,
     )?
     .ok_or_else(|| format!("{} does not exist", path.display()))?;
     check_shape(&handle, path, Kind::File)?;
@@ -417,10 +638,7 @@ pub fn replace_keeping_security(
     if unsafe { DeleteFileW(temporary_name.as_ptr()) } == 0 {
         let error = last_error();
         if error != ERROR_FILE_NOT_FOUND {
-            return Err(format!(
-                "delete {}: Win32 error {error}",
-                temporary.display()
-            ));
+            return Err(failure("delete", temporary, error));
         }
     }
     let attributes = descriptor.attributes();
@@ -439,11 +657,7 @@ pub fn replace_keeping_security(
         )
     };
     if raw == INVALID_HANDLE_VALUE {
-        return Err(format!(
-            "create {}: Win32 error {}",
-            temporary.display(),
-            last_error()
-        ));
+        return Err(failure("create", temporary, last_error()));
     }
     let written = {
         let mut file = Handle(raw).into_file();
@@ -462,11 +676,7 @@ pub fn replace_keeping_security(
                 )
             } == 0
             {
-                return Err(format!(
-                    "replace {}: Win32 error {}",
-                    path.display(),
-                    last_error()
-                ));
+                return Err(failure("replace", path, last_error()));
             }
             Ok(())
         });
@@ -478,7 +688,7 @@ pub fn replace_keeping_security(
 }
 
 /// The owner and DACL of an open object, as a self-relative descriptor.
-fn security_of(handle: &Handle, path: &Path) -> Result<Descriptor, String> {
+pub(crate) fn security_of(handle: &Handle, path: &Path) -> Result<Descriptor, String> {
     let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
     // SAFETY: an open handle with READ_CONTROL; the descriptor is freed by
     // the returned value.
@@ -616,4 +826,337 @@ fn names(principals: &[Principal], joiner: &str) -> String {
         })
         .collect();
     named.join(joiner)
+}
+
+/// How often a wait past its bound is cancelled again, and how many times,
+/// before the waiting thread is left behind.
+const CANCEL_INTERVAL: Duration = Duration::from_millis(100);
+const CANCEL_TRIES: u32 = 50;
+
+/// What the sharing of `path` refuses, an operation cancelled included
+/// (SPEC-024 Amendment 2026-11-05): another process holds it, whether by
+/// its share mode or by an opportunistic lock Windows waited on.
+fn in_use(path: &Path) -> String {
+    format!("{} is in use by another process", path.display())
+}
+
+/// A Win32 failure of `verb` on `path`.
+fn failure(verb: &str, path: &Path, error: u32) -> String {
+    match error {
+        ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION | ERROR_OPERATION_ABORTED => in_use(path),
+        // ERROR_TRANSACTIONAL_CONFLICT and its family (winerror.h).
+        6800..=6899 => format!(
+            "{} is held by another process's file transaction (Win32 error {error})",
+            path.display()
+        ),
+        other => format!("{verb} {}: Win32 error {other}", path.display()),
+    }
+}
+
+/// Run `operation` on a thread of its own and cancel its synchronous I/O
+/// after `wait`: an open, a security change, a rename or a deletion that
+/// Windows makes wait on another process's opportunistic lock would
+/// otherwise wait for as long as that process likes (SPEC-024 Amendment
+/// 2026-11-05). The operation sees the cancellation as its own failure. A
+/// thread the cancellation cannot reach is left behind, and the object is
+/// reported as in use.
+pub(crate) fn bounded<T, F>(wait: Duration, path: &Path, operation: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel();
+    let worker = std::thread::Builder::new()
+        .name("cg-custody-io".to_string())
+        .spawn(move || {
+            let _ = sender.send(operation());
+        })
+        .map_err(|e| format!("start a thread for {}: {e}", path.display()))?;
+    match receiver.recv_timeout(wait) {
+        Ok(result) => return result,
+        Err(RecvTimeoutError::Disconnected) => {
+            return Err(format!("the operation on {} panicked", path.display()))
+        }
+        Err(RecvTimeoutError::Timeout) => {}
+    }
+    for _ in 0..CANCEL_TRIES {
+        // SAFETY: the thread's handle, which `worker` keeps open. A thread
+        // with no I/O under way makes the call fail, which is why it repeats.
+        unsafe { CancelSynchronousIo(worker.as_raw_handle() as HANDLE) };
+        match receiver.recv_timeout(CANCEL_INTERVAL) {
+            Ok(result) => return result,
+            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    }
+    Err(in_use(path))
+}
+
+/// A file's identity on its volume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileId {
+    volume: u32,
+    index: u64,
+}
+
+impl std::fmt::Display for FileId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:08x}-{:016x}", self.volume, self.index)
+    }
+}
+
+pub(crate) fn file_id(info: &BY_HANDLE_FILE_INFORMATION) -> FileId {
+    FileId {
+        volume: info.dwVolumeSerialNumber,
+        index: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    }
+}
+
+/// Open `path` without following a reparse point, for `access`, sharing
+/// `share`, waiting on another process no longer than `wait`. Absent is
+/// refused.
+pub(crate) fn open_waiting(
+    path: &Path,
+    access: u32,
+    share: u32,
+    wait: Duration,
+) -> Result<Handle, String> {
+    let owned = path.to_path_buf();
+    bounded(wait, path, move || match open_raw(&owned, access, share) {
+        Ok(Some(handle)) => Ok(handle),
+        Ok(None) => Err(format!("{} does not exist", owned.display())),
+        Err(error) => Err(failure("open", &owned, error)),
+    })
+}
+
+/// Open the regular file `path`, sharing read access alone, so that the
+/// open fails while any process holds it for writing or deletion, and read
+/// it whole through that handle (SPEC-024 Amendment 2026-11-05, item 2.3).
+pub(crate) fn read_unshared(
+    path: &Path,
+    limit: u64,
+    wait: Duration,
+) -> Result<(Vec<u8>, FileId), String> {
+    let owned = path.to_path_buf();
+    bounded(wait, path, move || {
+        let handle = match open_raw(
+            &owned,
+            GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ,
+        ) {
+            Ok(Some(handle)) => handle,
+            Ok(None) => return Err(format!("{} does not exist", owned.display())),
+            Err(error) => return Err(failure("open", &owned, error)),
+        };
+        check_shape(&handle, &owned, Kind::File)?;
+        let info = file_information(&handle, &owned)?;
+        let id = file_id(&info);
+        if (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow) > limit {
+            return Err(format!("{} is larger than {limit} bytes", owned.display()));
+        }
+        let mut bytes = Vec::new();
+        handle
+            .into_file()
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("read {}: {e}", owned.display()))?;
+        Ok((bytes, id))
+    })
+}
+
+/// Give the object behind `handle` the owner `sddl` names, if any, and its
+/// DACL, through the handle: the change applies to that object and
+/// propagates to no child, as `SetSecurityInfo`'s would.
+pub(crate) fn set_security(
+    handle: Handle,
+    path: &Path,
+    sddl: &str,
+    wait: Duration,
+) -> Result<Handle, String> {
+    let owned = path.to_path_buf();
+    let sddl = sddl.to_string();
+    bounded(wait, path, move || {
+        let descriptor = Descriptor::from_sddl(&sddl)?;
+        let mut information = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
+        if descriptor.has_owner()? {
+            information |= OWNER_SECURITY_INFORMATION;
+        }
+        // SAFETY: an open handle and a live descriptor.
+        if unsafe { SetKernelObjectSecurity(handle.0, information, descriptor.0) } == 0 {
+            return Err(failure("change the security of", &owned, last_error()));
+        }
+        Ok(handle)
+    })
+}
+
+/// Create the directory `path`, which must not exist, with `sddl` as its
+/// security.
+pub(crate) fn create_new_directory(path: &Path, sddl: &str) -> Result<(), String> {
+    let descriptor = Descriptor::from_sddl(sddl)?;
+    let attributes = descriptor.attributes();
+    let name = wide(path);
+    // SAFETY: the name and attributes live for the call.
+    if unsafe { CreateDirectoryW(name.as_ptr(), &attributes) } == 0 {
+        return Err(failure("create", path, last_error()));
+    }
+    Ok(())
+}
+
+/// Rename `from` to `to`, never over an existing name.
+pub(crate) fn rename(from: &Path, to: &Path, wait: Duration) -> Result<(), String> {
+    let (source, target) = (wide(from), wide(to));
+    let (owned, other) = (from.to_path_buf(), to.to_path_buf());
+    bounded(wait, from, move || {
+        // SAFETY: both names live for the call.
+        if unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), MOVEFILE_WRITE_THROUGH) } == 0 {
+            return Err(match last_error() {
+                // A directory with something open under it, whatever that
+                // handle shares, cannot be renamed.
+                ERROR_ACCESS_DENIED => format!(
+                    "{} or something under it is in use by another process, or Windows denies the rename",
+                    owned.display()
+                ),
+                // Either name can be the one a transaction holds.
+                error @ 6800..=6899 => format!(
+                    "{} or {} is held by another process's file transaction (Win32 error {error})",
+                    owned.display(),
+                    other.display()
+                ),
+                error => failure("rename", &owned, error),
+            });
+        }
+        Ok(())
+    })
+}
+
+/// Mark the object behind `handle` for deletion, which happens when the
+/// handle closes: what is deleted is what was opened and checked, not what
+/// its name holds by then. The read-only attribute, which ordinary users may
+/// have set, does not keep it, and its name goes with this handle, whatever
+/// other handles remain. Where the file system lacks that form, the plain one.
+pub(crate) fn delete_through(handle: Handle, path: &Path, wait: Duration) -> Result<(), String> {
+    let owned = path.to_path_buf();
+    bounded(wait, path, move || {
+        // The whole value moves here, and the handle closes with it.
+        let handle = handle;
+        let extended = FILE_DISPOSITION_INFO_EX {
+            Flags: FILE_DISPOSITION_FLAG_DELETE
+                | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS
+                | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+        };
+        // SAFETY: an open handle, and a value of the size passed.
+        let ok = unsafe {
+            SetFileInformationByHandle(
+                handle.0,
+                FileDispositionInfoEx,
+                std::ptr::from_ref(&extended).cast(),
+                std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32,
+            )
+        };
+        if ok != 0 {
+            return Ok(());
+        }
+        let error = last_error();
+        if !matches!(
+            error,
+            ERROR_INVALID_PARAMETER | ERROR_INVALID_FUNCTION | ERROR_NOT_SUPPORTED
+        ) {
+            return Err(failure("delete", &owned, error));
+        }
+        let plain = FILE_DISPOSITION_INFO { DeleteFile: 1 };
+        // SAFETY: an open handle, and a value of the size passed.
+        let ok = unsafe {
+            SetFileInformationByHandle(
+                handle.0,
+                FileDispositionInfo,
+                std::ptr::from_ref(&plain).cast(),
+                std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+            )
+        };
+        if ok == 0 {
+            return Err(failure("delete", &owned, last_error()));
+        }
+        Ok(())
+    })
+}
+
+/// The entries of the directory `path`, by name; a name that is not valid
+/// Unicode comes out with a replacement character, which matches no name of
+/// the product's.
+pub(crate) fn entries(path: &Path, wait: Duration) -> Result<Vec<String>, String> {
+    let owned = path.to_path_buf();
+    bounded(wait, path, move || {
+        let reader =
+            std::fs::read_dir(&owned).map_err(|e| format!("list {}: {e}", owned.display()))?;
+        reader
+            .map(|entry| {
+                entry
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .map_err(|e| format!("list {}: {e}", owned.display()))
+            })
+            .collect()
+    })
+}
+
+/// `FILE_CASE_SENSITIVE_INFO`, which windows-sys does not bind.
+#[repr(C)]
+struct CaseSensitiveInfo {
+    flags: u32,
+}
+
+const FILE_CS_FLAG_CASE_SENSITIVE_DIR: u32 = 1;
+
+/// Whether the directory behind `handle` has case-sensitive lookup on. A
+/// file system or a Windows without the setting has it off.
+pub(crate) fn is_case_sensitive(handle: &Handle, path: &Path) -> Result<bool, String> {
+    let mut info = CaseSensitiveInfo { flags: 0 };
+    // SAFETY: an open handle and an out-value of the size passed.
+    let ok = unsafe {
+        GetFileInformationByHandleEx(
+            handle.0,
+            FileCaseSensitiveInfo,
+            std::ptr::from_mut(&mut info).cast(),
+            std::mem::size_of::<CaseSensitiveInfo>() as u32,
+        )
+    };
+    if ok != 0 {
+        return Ok(info.flags & FILE_CS_FLAG_CASE_SENSITIVE_DIR != 0);
+    }
+    match last_error() {
+        ERROR_INVALID_PARAMETER | ERROR_INVALID_FUNCTION | ERROR_NOT_SUPPORTED => Ok(false),
+        error => Err(format!(
+            "read the case sensitivity of {}: Win32 error {error}",
+            path.display()
+        )),
+    }
+}
+
+/// The host's name, as Windows reports it.
+pub fn hostname() -> Result<String, String> {
+    let mut size = 0u32;
+    // SAFETY: a size query: a null buffer of size 0.
+    unsafe {
+        GetComputerNameExW(
+            ComputerNamePhysicalDnsHostname,
+            std::ptr::null_mut(),
+            &mut size,
+        )
+    };
+    let error = last_error();
+    if error != ERROR_MORE_DATA {
+        return Err(format!("read the host name: Win32 error {error}"));
+    }
+    let mut buffer = vec![0u16; size as usize];
+    // SAFETY: a buffer of `size` wide characters, the size passed.
+    if unsafe {
+        GetComputerNameExW(
+            ComputerNamePhysicalDnsHostname,
+            buffer.as_mut_ptr(),
+            &mut size,
+        )
+    } == 0
+    {
+        return Err(format!("read the host name: Win32 error {}", last_error()));
+    }
+    String::from_utf16(&buffer[..size as usize])
+        .map_err(|_| "the host name is not valid Unicode".to_string())
 }

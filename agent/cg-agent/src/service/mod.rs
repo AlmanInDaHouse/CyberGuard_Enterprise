@@ -10,7 +10,9 @@
 //! identity step, enrollment and capture. A stop has 60 seconds in all;
 //! `STOPPED` carries code 0 after a clean stop, else
 //! `ERROR_SERVICE_SPECIFIC_ERROR` and the cause's code. The Application log
-//! gets entries 1000 to 1003 under the source `CyberGuardAgent`.
+//! gets entries 1000 to 1003 under the source `CyberGuardAgent`. A start
+//! asked to by its SCM start arguments migrates a console installation
+//! during `START_PENDING` (`migration`).
 //!
 //! This module holds what is portable: the codes, the lines, the outcome
 //! and its entry, and the enrollment rounds. The SCM, the Application log
@@ -28,6 +30,8 @@ use crate::identity::Identity;
 
 #[cfg(windows)]
 mod log_file;
+#[cfg(windows)]
+pub mod migration;
 pub mod rotation;
 #[cfg(windows)]
 mod windows;
@@ -233,6 +237,23 @@ impl InstalledPaths {
     /// FR-014's temporary file in the data root.
     pub fn hygiene_temporary(&self) -> PathBuf {
         self.data_root.join("agent.toml.hygiene-tmp")
+    }
+
+    /// `agent.migrating` beside the data root, the migration's staging
+    /// directory (Amendment 2026-11-05).
+    pub fn staging(&self) -> PathBuf {
+        self.product_root.join("agent.migrating")
+    }
+
+    /// `agent.legacy` beside the data root, the console installation's
+    /// directory after the migration's commit.
+    pub fn legacy(&self) -> PathBuf {
+        self.product_root.join("agent.legacy")
+    }
+
+    /// `migration.json` in the data root, after the commit.
+    pub fn record(&self) -> PathBuf {
+        self.data_root.join("migration.json")
     }
 }
 

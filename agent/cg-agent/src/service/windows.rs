@@ -37,6 +37,7 @@ use windows_sys::Win32::System::Services::{
     SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
 };
 
+use super::migration::{self, Environment, Injected, Point, Prepared, Stop, Watch};
 use super::{
     check_config_path, check_installed_config, config_error_line, identity_rounds_until_stopped,
     log_file, running_entry, stderr_service_log, Entry, InstalledPaths, ServiceExit,
@@ -47,7 +48,7 @@ use crate::config::AgentConfig;
 use crate::custody::{self, Kind, Policy};
 use crate::errors::{ConfigError, TlsError};
 use crate::identity::installed::{self as installed_identity, InstalledCustody};
-use crate::instance_lock::{self, LockOutcome};
+use crate::instance_lock::{self, stderr_lock_failed, LockOutcome};
 use crate::{Capture, StopOutcome};
 
 /// How often a pending state's checkpoint advances.
@@ -56,8 +57,10 @@ const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(5);
 const STOP_POLL: Duration = Duration::from_millis(250);
 /// The wait hint of a pending state, in milliseconds.
 const WAIT_HINT_MS: u32 = 15_000;
-/// How long `START_PENDING` may advance its checkpoint: past it the SCM
-/// sees no progress, and a start that hangs is not pending for ever.
+/// How long `START_PENDING` may advance its checkpoint without news of the
+/// start: past it the SCM sees no progress, which shows a start that hangs.
+/// A migration's steps renew it, each being bounded by its 30-second wait
+/// (SPEC-024 Amendment 2026-11-05, item 1).
 const START_PENDING_CAP: Duration = Duration::from_secs(120);
 /// The same for `STOP_PENDING`, past the stop deadline.
 const STOP_PENDING_CAP: Duration = Duration::from_secs(75);
@@ -159,12 +162,22 @@ unsafe extern "system" fn service_main(argc: u32, argv: *mut PWSTR) {
         .spawn(|| SHARED.get().expect("set").status.tick_while_pending());
 
     let config_path = CONFIG.get().cloned().unwrap_or_default();
+    // The SCM start arguments follow the service's name (SPEC-024 Amendment
+    // 2026-11-05, item 1); it does not keep them.
+    let arguments: Vec<String> = (1..argc as usize)
+        .map(|index| wide_argument(*argv.add(index)))
+        .collect();
     let exit = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => {
-            let exit = runtime.block_on(supervise(config_path, stop_rx, Arc::clone(&events)));
+            let exit = runtime.block_on(supervise(
+                config_path,
+                arguments,
+                stop_rx,
+                Arc::clone(&events),
+            ));
             // Blocking teardown work cut off by the deadline is not waited for.
             runtime.shutdown_background();
             exit
@@ -186,6 +199,16 @@ unsafe extern "system" fn service_main(argc: u32, argv: *mut PWSTR) {
     if let Ok(ticker) = ticker {
         let _ = ticker.join();
     }
+}
+
+/// A start argument's text; one that is not valid Unicode is refused by
+/// `parse_start_arguments` for what it then holds.
+unsafe fn wide_argument(argument: PWSTR) -> String {
+    if argument.is_null() {
+        return String::new();
+    }
+    let len = (0..).take_while(|&i| *argument.add(i) != 0).count();
+    String::from_utf16_lossy(std::slice::from_raw_parts(argument, len))
 }
 
 /// STOP and SHUTDOWN record the stop; the status thread reports
@@ -215,10 +238,11 @@ unsafe extern "system" fn control_handler(
 /// failure of its own keeps its code).
 async fn supervise(
     config_path: PathBuf,
+    arguments: Vec<String>,
     stop: watch::Receiver<bool>,
     events: Arc<EventLog>,
 ) -> ServiceExit {
-    let mut run = tokio::spawn(serve(config_path, stop.clone(), events));
+    let mut run = tokio::spawn(serve(config_path, arguments, stop.clone(), events));
     let watchdog = async move {
         stopped(stop).await;
         tokio::time::sleep(STOP_DEADLINE).await;
@@ -246,6 +270,7 @@ async fn supervise(
 /// The console's secure runtime under the states of item 3.
 async fn serve(
     config_path: PathBuf,
+    arguments: Vec<String>,
     stop: watch::Receiver<bool>,
     events: Arc<EventLog>,
 ) -> ServiceExit {
@@ -262,22 +287,63 @@ async fn serve(
     if let Err(line) = check_config_path(&paths, &config_path) {
         return failed(2, line);
     }
-    // Item 3: the data root and its parent first, as the file log checks
-    // them (code 13); absent, `agent.toml` is absent too.
-    for directory in [&paths.product_root, &paths.data_root] {
-        if let Err(reason) = custody::check_if_exists(directory, Kind::Directory, &Policy::shared())
-        {
-            return failed(EXIT_SERVICE_LOG, stderr_service_log(&reason));
+    // SPEC-024 Amendment 2026-11-05: the start arguments, which directories
+    // exist, a migration asked for or in progress (the lock before any
+    // change), and then item 3's check of the data root and its parent, as
+    // the file log checks them (code 13); absent, `agent.toml` is absent too.
+    let request = match migration::parse_start_arguments(&arguments) {
+        Ok(request) => request,
+        Err(line) => return failed(2, line),
+    };
+    let mut _instance_lock = None;
+    let prepared = {
+        let environment = Environment::service(paths.clone(), &SERVICE_WATCH);
+        let mut lock = || match instance_lock::acquire() {
+            LockOutcome::Acquired(lock) => {
+                _instance_lock = Some(lock);
+                Ok(())
+            }
+            // A migration changes the host only under the lock.
+            LockOutcome::Unprivileged => Err(Stop::Refused {
+                code: 1,
+                line: stderr_lock_failed("the migration's token cannot create the lock", 5),
+            }),
+            outcome => Err(Stop::Refused {
+                code: outcome.exit_code().unwrap_or(1),
+                line: outcome.stderr_line().unwrap_or_default(),
+            }),
+        };
+        tokio::task::block_in_place(|| {
+            migration::prepare(&environment, request.as_ref(), &mut lock)
+        })
+    };
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
+        Err(Stop::Refused { code, line }) => return failed(code, line),
+        Err(Stop::Crashed) => {
+            return failed(1, "cg-agent: the migration ended abnormally".to_string())
         }
-    }
+    };
+    // Item 6: on a console layout each refusal adds why.
+    let console = prepared == Prepared::ConsoleLayout;
+    let refused = |line: String| {
+        failed(
+            2,
+            if console {
+                format!("{line}; {}", migration::DEFAULT_REFUSAL)
+            } else {
+                line
+            },
+        )
+    };
     let mut config = match read_installed_config(&paths.config, &config_path) {
         Ok(config) => config,
-        Err(line) => return failed(2, line),
+        Err(line) => return refused(line),
     };
     // The installed service runs the secure path alone, at the fixed paths
     // (SPEC-024 §Data contracts §2): no plain HTTP.
     if let Err(line) = check_installed_config(&paths, &config_path, &config) {
-        return failed(2, line);
+        return refused(line);
     }
     // The configured spellings equal the fixed paths but for ASCII case;
     // from here on the service uses the fixed ones alone.
@@ -285,21 +351,19 @@ async fn serve(
     let config_path = paths.config.clone();
 
     // Item 1: the lock before the file log, so before RUNNING.
-    let mut _instance_lock = None;
-    let mut holds_lock = false;
-    match instance_lock::acquire() {
-        LockOutcome::Acquired(lock) => {
-            _instance_lock = Some(lock);
-            holds_lock = true;
-        }
-        LockOutcome::Unprivileged => {}
-        outcome => {
-            return failed(
-                outcome.exit_code().unwrap_or(1),
-                outcome.stderr_line().unwrap_or_default(),
-            )
+    if _instance_lock.is_none() {
+        match instance_lock::acquire() {
+            LockOutcome::Acquired(lock) => _instance_lock = Some(lock),
+            LockOutcome::Unprivileged => {}
+            outcome => {
+                return failed(
+                    outcome.exit_code().unwrap_or(1),
+                    outcome.stderr_line().unwrap_or_default(),
+                )
+            }
         }
     }
+    let holds_lock = _instance_lock.is_some();
 
     let mut log = match log_file::open() {
         Ok(log) => log,
@@ -321,6 +385,21 @@ async fn serve(
 
     if status.running() {
         events.write(&running_entry());
+    }
+    // SPEC-024 Amendment 2026-11-05, item 5: the old copies, beside the
+    // identity step and capture, which they do not stop; under the lock,
+    // like every deletion of the migration.
+    if prepared == Prepared::Committed && !holds_lock {
+        tracing::warn!("the migration's old copies wait for a start that holds the lock");
+    }
+    if prepared == Prepared::Committed && holds_lock {
+        let paths = paths.clone();
+        tokio::task::spawn_blocking(move || {
+            let environment = Environment::service(paths, &SERVICE_WATCH);
+            if let Err(reason) = migration::copies(&environment) {
+                tracing::warn!(reason, "the migration's old copies were not reached");
+            }
+        });
     }
 
     // SPEC-024 Amendment 2026-11-04, item 3: once per start, after RUNNING
@@ -422,6 +501,20 @@ async fn stopped(mut stop: watch::Receiver<bool>) {
     let _ = stop.wait_for(|stopping| *stopping).await;
 }
 
+/// The migration's steps keep `START_PENDING` advancing (item 1).
+struct ServiceWatch;
+
+impl Watch for ServiceWatch {
+    fn at(&self, _point: Point) -> Result<(), Injected> {
+        if let Some(shared) = SHARED.get() {
+            shared.status.progress();
+        }
+        Ok(())
+    }
+}
+
+static SERVICE_WATCH: ServiceWatch = ServiceWatch;
+
 /// The status the service reports to the SCM.
 struct Status {
     handle: StatusHandle,
@@ -493,6 +586,14 @@ impl Status {
     fn start_pending(&self) {
         let mut current = self.lock();
         self.enter(&mut current, SERVICE_START_PENDING, 0);
+    }
+
+    /// A migration's step began: `START_PENDING`'s cap counts from here.
+    fn progress(&self) {
+        let mut current = self.lock();
+        if current.status.dwCurrentState == SERVICE_START_PENDING {
+            current.since = Instant::now();
+        }
     }
 
     /// `RUNNING`, accepting STOP and SHUTDOWN alone; never after a stop.
