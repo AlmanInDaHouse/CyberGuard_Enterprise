@@ -5,6 +5,9 @@
 //! a partial, inconsistent or insecure set fails closed with code 5 and
 //! names the repair; a certificate in the server's answer for another key
 //! or id is code 3; the token's rewrite keeps the original's owner and DACL.
+//! The Amendment 2026-11-07: a later PEM section TLS refuses is code 3 in the
+//! answer, with nothing written, and code 5 at the identity step, and the
+//! console keeps FR-008's check alone.
 //!
 //! The custody names the current user where the service's names SYSTEM
 //! (`custody_fixtures`); the service and SYSTEM tests run SYSTEM's.
@@ -31,11 +34,19 @@ struct Root {
 }
 
 fn root() -> Root {
+    root_at("https://127.0.0.1:9")
+}
+
+/// A section TLS refuses, after a good first block (`tls.rs`).
+const MALFORMED_SECTION: &str =
+    "-----BEGIN CERTIFICATE-----\nnot base64 !!\n-----END CERTIFICATE-----\n";
+
+fn root_at(server_url: &str) -> Root {
     let dir = tempfile::tempdir().expect("tempdir");
     let identity_dir = dir.path().join("identity");
     let anchor = dir.path().join("server-ca.pem");
     let text = common::enrollment_toml(
-        "https://127.0.0.1:9",
+        server_url,
         "install-ac-005-token",
         Some(&anchor),
         &identity_dir,
@@ -326,6 +337,107 @@ fn install_ac_005_a_certificate_for_another_key_in_the_answer_is_code_3() {
             "{error}"
         );
     }
+}
+
+/// The Amendment 2026-11-07 at enrollment: the answer holds the agent's own
+/// certificate, for its key and id, and a later section TLS refuses. That is
+/// a malformed answer, code 3, with nothing written; an override's
+/// certificate for another key would be code 3 with or without the section,
+/// so the mock issues the real one. The same answer without it enrolls.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn install_ac_005_a_later_section_tls_refuses_in_the_answer_writes_nothing() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
+    enroll.set_certificate_suffix(MALFORMED_SECTION);
+    let root = root_at(&enroll.base_url);
+    let anchor = root.config.server.trust_anchor_path.as_ref().expect("set");
+    std::fs::write(anchor, &pki.trust_anchor_pem).expect("the trust anchor");
+
+    let error = installed::ensure_identity(&root.config, &root.config_path, &root.custody)
+        .await
+        .expect_err("a section TLS refuses");
+    assert_eq!(error.exit_code(), 3, "{error}");
+    assert!(
+        error.stderr_line().contains("malformed response"),
+        "{error}"
+    );
+    assert!(files(&root).iter().all(|p| !p.exists()), "nothing written");
+    assert!(!root.custody.identity_dir.exists(), "nothing written");
+
+    enroll.set_certificate_suffix("");
+    installed::ensure_identity(&root.config, &root.config_path, &root.custody)
+        .await
+        .expect("the same answer without the section");
+}
+
+/// The Amendment 2026-11-07 at the identity step: a `cert.pem` of that shape
+/// is code 5 with item 5's repair, and nothing is changed. "The console
+/// keeps FR-008's fingerprint check alone": its load takes the same set.
+#[test]
+fn install_ac_005_a_later_section_tls_refuses_fails_the_identity_step() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    for later in [
+        MALFORMED_SECTION,
+        "-----BEGIN CERTIFICATE-----\nAAAA\n",
+        "-----BEGIN PRIVATE KEY-----\nnot base64 !!\n-----END PRIVATE KEY-----\n",
+    ] {
+        let root = root();
+        let document = format!("{}{later}", pki.client_cert_pem);
+        installed::persist(&root.config, &enrolled(&pki, &document), &root.custody)
+            .expect("persist writes what it is given");
+        installed::check(&root.config, &root.custody).expect("complete and in custody");
+        let before: Vec<Vec<u8>> = files(&root)
+            .iter()
+            .map(|p| std::fs::read(p).unwrap())
+            .collect();
+
+        let error = installed::load(&root.config).expect_err("a section TLS refuses");
+        let line = code_5_containing(error, "inconsistent identity");
+        assert!(
+            line.contains("restore the identity, or remove the identity directory"),
+            "the repair: {line}"
+        );
+        let after: Vec<Vec<u8>> = files(&root)
+            .iter()
+            .map(|p| std::fs::read(p).unwrap())
+            .collect();
+        assert_eq!(before, after, "nothing is changed");
+
+        let console = cg_agent::identity::load_identity(&root.config);
+        assert_eq!(
+            console.expect("the console's load").agent_id,
+            pki.agent_id,
+            "FR-008's check alone"
+        );
+    }
+}
+
+/// The Amendment 2026-11-07: "every section, skipping those of another
+/// kind", which TLS skips too, and "the two fields are still read from the
+/// document's first `CERTIFICATE` block": what follows it, a section of
+/// another kind or another certificate, passes, and another certificate
+/// before it does not. It passes before the change too: a guard on what
+/// the change must keep.
+#[test]
+fn install_ac_005_only_the_first_certificate_block_is_compared() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let other = common::generate_test_pki("01934abc-def0-7000-89ab-0000000000aa");
+    let own = &pki.client_cert_pem;
+    for document in [
+        format!("{own}-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n"),
+        format!("-----BEGIN UNKNOWN KIND-----\nAAAA\n-----END UNKNOWN KIND-----\n{own}"),
+        format!("{own}{}", other.client_cert_pem),
+    ] {
+        installed::check_issued(&enrolled(&pki, &document)).expect("the answer");
+        let root = root();
+        installed::persist(&root.config, &enrolled(&pki, &document), &root.custody)
+            .expect("persist");
+        installed::load(&root.config).expect("the identity step");
+    }
+
+    let document = format!("{}{own}", other.client_cert_pem);
+    let error = installed::check_issued(&enrolled(&pki, &document)).expect_err("another first");
+    assert_eq!(error.exit_code(), 3, "{error}");
 }
 
 /// Item 6: FR-014's rewrite drops the token and keeps the original's owner

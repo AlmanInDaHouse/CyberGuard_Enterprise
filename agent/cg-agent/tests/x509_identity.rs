@@ -39,6 +39,59 @@ fn install_ac_005_the_certificate_names_its_key_and_agent() {
     assert_eq!(error, "the certificate's common name is not the agent's id");
 }
 
+/// SPEC-024 Amendment 2026-11-07: a document the reader TLS uses refuses is
+/// refused here too, whatever its first block holds, and what that reader
+/// accepts stays accepted, read from the first block. The error names the
+/// condition and quotes nothing of the document.
+#[test]
+fn install_ac_005_a_document_tls_refuses_is_refused() {
+    use rustls::pki_types::pem::PemObject as _;
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let good = &pki.client_cert_pem;
+    let tls_accepts = |document: &str| {
+        rustls::pki_types::CertificateDer::pem_slice_iter(document.as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .is_ok()
+    };
+    for later in [
+        "-----BEGIN CERTIFICATE-----\n!!not base64!!\n-----END CERTIFICATE-----\n",
+        "-----BEGIN PRIVATE KEY-----\n!!not base64!!\n-----END PRIVATE KEY-----\n",
+        "-----BEGIN CERTIFICATE-----\nMIIB\n",
+        "-----BEGIN FOO-----\nAAAA\n",
+    ] {
+        let document = format!("{good}{later}");
+        assert!(!tls_accepts(&document), "TLS refuses: {later}");
+        let error = certificate_identity(&document).expect_err(later);
+        assert_eq!(error, "the certificate's PEM document cannot be read");
+    }
+    for later in [
+        "-----BEGIN FOO-----\n!!not base64!!\n-----END FOO-----\n",
+        good.as_str(),
+    ] {
+        let document = format!("{good}{later}");
+        assert!(tls_accepts(&document), "TLS accepts: {later}");
+        let identity = certificate_identity(&document).expect(later);
+        assert_eq!(identity.ed25519_public_key, pki.agent_pubkey);
+    }
+}
+
+/// SPEC-024 Amendment 2026-11-07: the consistency check reads the document
+/// as TLS reads it: a later section TLS refuses fails it, though the first
+/// block is good, and the error quotes nothing of the document.
+#[test]
+fn install_ac_005_a_later_section_tls_refuses_fails_the_consistency_check() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    for later in [
+        "-----BEGIN CERTIFICATE-----\nnot base64 !!\n-----END CERTIFICATE-----\n",
+        "-----BEGIN CERTIFICATE-----\nAAAA\n",
+    ] {
+        let document = format!("{}{later}", pki.client_cert_pem);
+        let error = check_consistency(&document, &pki.agent_pubkey, common::TEST_AGENT_ID)
+            .expect_err("a section TLS refuses");
+        assert!(!error.contains("not base64"), "{error}");
+    }
+}
+
 /// A certificate for another algorithm, a PEM without a certificate and
 /// every truncation of a valid DER are errors.
 #[test]

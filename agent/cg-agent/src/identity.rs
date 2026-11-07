@@ -669,9 +669,13 @@ pub mod installed {
     /// owner and DACL. Best-effort, as the console's.
     pub fn hygienize_token(config_path: &Path, custody: &InstalledCustody) {
         // A TOML error can quote a line of the file, which holds the token:
-        // the warning names the failure, not the parser's message.
-        let rewritten = std::fs::read_to_string(config_path)
-            .map_err(|e| e.to_string())
+        // the warning names the failure, not the parser's message. The text
+        // comes from a handle the custody check passed, as the start's did.
+        let rewritten = custody::read_checked(config_path, &custody.config_policy)
+            .and_then(|bytes| bytes.ok_or_else(|| "agent.toml does not exist".to_string()))
+            .and_then(|bytes| {
+                String::from_utf8(bytes).map_err(|_| "agent.toml is not UTF-8".to_string())
+            })
             .and_then(|content| {
                 without_token(&content).map_err(|_| "agent.toml is not valid TOML".to_string())
             })

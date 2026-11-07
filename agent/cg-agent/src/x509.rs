@@ -6,7 +6,9 @@
 //! A minimal DER reader over the certificate's structure (RFC 5280 §4.1),
 //! with no new dependency: it walks `tbsCertificate` to `subject` and
 //! `subjectPublicKeyInfo` and validates nothing else. The certificate's
-//! signature and validity stay with TLS (SPEC-003).
+//! signature and validity stay with TLS (SPEC-003), which also reads the
+//! PEM document: a document its reader refuses is refused here (Amendment
+//! 2026-11-07).
 
 /// The fields installed mode compares.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,15 +31,25 @@ const COMMON_NAME: &[u8] = &[0x55, 0x04, 0x03];
 const ED25519: &[u8] = &[0x2b, 0x65, 0x70];
 
 /// Read the first `CERTIFICATE` block of `pem_text`, the end-entity
-/// certificate TLS presents (SPEC-003).
+/// certificate TLS presents (SPEC-003), from a document TLS accepts.
 pub fn certificate_identity(pem_text: &str) -> Result<CertificateIdentity, String> {
-    // The same PEM reader TLS uses (`tls.rs`), so both see the same leaf.
-    use rustls::pki_types::pem::PemObject as _;
-    let first = rustls::pki_types::CertificateDer::pem_slice_iter(pem_text.as_bytes())
-        .next()
-        .ok_or_else(|| "no CERTIFICATE block".to_string())?
-        .map_err(|e| format!("certificate PEM: {e:?}"))?;
+    let certificates = certificates_in(pem_text)?;
+    let first = certificates
+        .first()
+        .ok_or_else(|| "no CERTIFICATE block".to_string())?;
     certificate_identity_der(first.as_ref())
+}
+
+/// The certificates of a PEM document, in their order, as TLS reads them
+/// (`tls.rs`). The error names the condition, not the reader's message,
+/// which can quote the document.
+pub fn certificates_in(
+    pem_text: &str,
+) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, String> {
+    use rustls::pki_types::pem::PemObject as _;
+    rustls::pki_types::CertificateDer::pem_slice_iter(pem_text.as_bytes())
+        .collect::<Result<_, _>>()
+        .map_err(|_| "the certificate's PEM document cannot be read".to_string())
 }
 
 /// The same from the certificate's DER.
