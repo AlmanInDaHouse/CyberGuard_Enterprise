@@ -1496,6 +1496,246 @@ ADR is added. Like the amendments it changes, this one is Manuel's to approve:
 asked in chat on 2026-11-07 with the compare URL, he answered "Sí, apruebo".
 Status stays **Accepted**.
 
+## Amendment 2026-11-09: the setup's elevated code and the service's adoption of its configuration
+
+**What surfaced it.** The package. §Data contracts §3 and §Operational §1 ask
+setup to take a masked token and report the outcome, §Data contracts §2 has
+`agent.toml` and `server-ca.pem` owned by SYSTEM, and the Amendment 2026-11-05 has setup start the
+service "from the setup's own elevated code", but no text says what that code
+is. WiX's Burn reaches a package only by its command line or an MSI property
+and gives it no input stream (read at the `v7.0.1` tag), so the standard
+bootstrapper cannot carry the token within §Data contracts §3. An elevated
+administrator cannot create a file owned by SYSTEM without enabling
+`SeRestorePrivilege` (error 1307, `install_ac_004_custody_residuals.rs`),
+which the agent may not do (ADR-0010 §Compliance) and item 1 keeps for the
+setup; SYSTEM can. On a fresh installation no service exists before
+the MSI commits, and inputs are to be validated before it. The spike of pull
+request #91 ran the chain below on a hosted runner, with the agent's executable
+standing in for `cg-setup`.
+
+**Amendment.** `<P>` and the data root are as in the Amendment 2026-11-05.
+
+1. **`cg-setup`.** The setup's elevated code is one Rust executable,
+   `cg-setup.exe`, built in this workspace from `agent/cg-setup/` with the
+   workspace's existing Windows binding and no new third-party crate, at the
+   same release version as the agent (§Data contracts §1). Applying ADR-0010
+   §Compliance to it as well, it enables no
+   privilege and does not adjust its token. The
+   setup is WiX's unmodified Burn engine and standard bootstrapper
+   application, whose chain is: `cg-setup` **preflight**, the MSI, a vital
+   rollback boundary, then `cg-setup` **configure**. Burn carries no secret:
+   the token is read only by `cg-setup`, from the bootstrap file or the
+   wizard, and is written only to the staged configuration (item 3).
+   Both steps run on every install, repair and upgrade, and on uninstall
+   neither; if the MSI fails, Burn's rollback runs preflight's reversal
+   (item 3). The interactive route is a Win32 dialog of the same executable
+   with a masked field, feeding the same validation and staging, built
+   after the unattended route; whether its window is visible and in the
+   foreground from a Burn child is tested on the isolated machine of the
+   Amendment 2026-11-01, point 4, and if it is not this choice reopens for
+   the wizard alone.
+2. **The unattended route's inputs.** `setup.exe` takes, as bundle variables
+   that carry no secret: `CG_BOOTSTRAP=<path>`, the bootstrap file of §Data
+   contracts §3; `CG_MIGRATE_LEGACY=remove|keep` and
+   `CG_TRUST_ANCHORS=<fingerprints, comma-separated>`, the migration route
+   of the Amendment 2026-11-05. The bootstrap file admits exactly
+   `server.url`, `server.heartbeat_url`, `server.trust_anchor_path` (the
+   source of the anchor, which is read once and checked by fingerprint),
+   `enrollment.token` and `setup.trust_anchor_sha256`; any other key is
+   refused. The runbook's unattended command includes `-norestart`: the
+   standard bootstrapper application reads it only from the command line,
+   and without it a silent run may restart the computer if the MSI asks,
+   which §Operational §4's "Do not restart the computer automatically"
+   excludes and this setup cannot enforce. By scope, §Operational §4 holds
+   for the runbook's command.
+3. **Preflight.** Before anything changes the host it checks the platform
+   and elevation, and refuses (27) a `<P>` or data root that is a reparse
+   point, without following it. Then it reads the state of the host, by name
+   without opening `identity\`, the first of these that applies:
+   - a migration in progress, which it reads by name, a directory
+     `agent.migrating`, or `agent.legacy` with no data root: only the
+     migration route, with the arguments it recorded, continues; any other
+     request is refused (28);
+   - a console layout: refused (28) unless the migration is requested, the
+     package's default refusal (the Amendment 2026-11-05, item 6);
+   - `<P>` or the data root exists and is not a directory, or fails the
+     service's check of those directories (the
+     Amendment 2026-11-04, item 3), or `agent.legacy` exists with a data
+     root and no `identity\`: refused (27);
+   - `identity\` present (an enrolled or preserved host, a kept legacy
+     directory included): with a bootstrap, refused (30); without one, no
+     token is taken and the service is started with no argument;
+   - `agent.toml` and no `identity\` (a pending host): new input replaces
+     the configuration; without any, the service is started with no
+     argument;
+   - neither: a bootstrap or the wizard's input is required (22).
+
+   A migration requested on any state but the first two is refused (28). On
+   those two it checks only the arguments' form and reads no file under
+   `<P>`, the service being the one that checks them (the Amendment
+   2026-11-05, item 2); a name an ordinary user planted yields at most a
+   refusal. On the others it then checks what that state takes in: the inputs; the trust anchor
+   against the fingerprints; the generated configuration, by the same
+   checks the service applies (the Amendment 2026-11-04, item 2); a
+   conflicting service; and a downgrade found from the installed binary.
+   Only then, on every route but a migration's, does it remove the staged
+   files and the record an earlier attempt left, and, on a route that
+   stages, create what is absent of `<P>` and the data root with owner
+   Administrators and a protected DACL for SYSTEM and Administrators alone,
+   and in the data root, each created new with that security,
+   `server-ca.pem.setup` and `agent.toml.setup`, the only file the setup
+   writes this token to (a pending host's `agent.toml` keeps its own earlier
+   token until item 6.6 deletes it, and the bootstrap file is the
+   operator's, §Data contracts §3). On every route but a migration's, staging
+   or not, it writes `setup-attempt.json` in the data root, which records what
+   it created, if anything, the fingerprints and whether the service was
+   running, and holds no secret.
+   It then stops a running service and proves it `STOPPED` within 75
+   seconds, longer than the service's 60-second stop deadline; a refusal or
+   failure after staging removes what it staged before it returns. On the
+   migration route it creates and changes nothing under `<P>`, and a running
+   service refuses that route (26). If the MSI fails, Burn runs preflight's
+   reversal, which removes what the record names and starts again a service
+   the record says was running. "Before
+   changing the host" (§Operational §1) excludes Burn's own registration
+   and package cache, which precede any package and which Burn removes on a
+   refusal.
+4. **The MSI.** It creates nothing under `<P>`, on any route. It is
+   installed only through the setup: a launch condition admits it only when
+   the setup runs it or when it is already installed, so a direct `msiexec`
+   installation or major upgrade is refused. The published MSI is a
+   verifiable release asset, not an installation route; by scope this
+   narrows install_ac_001's "Setup/MSI install". The upgrade family is one
+   `UpgradeCode`; the previous product is removed early in the new
+   transaction (`afterInstallInitialize`), so that a failure rolls its
+   removal back. It registers the Event Log source, whose message file is
+   `cg-agent.exe`, which gains a message table for entries 1000 to 1003.
+5. **Configure.** After the MSI commits, with no token in hand, it checks
+   the staged files' custody and that the installed binary is this
+   package's version, applies the failure actions (item 8), records the
+   position of the service's log, starts the service with the arguments of
+   item 6 or of the Amendment 2026-11-05, or with none, deletes the record,
+   and observes the outcome for up to 60 seconds (item 7).
+6. **The adoption.** The service adopts the staged configuration only on a
+   start whose SCM start arguments after the service's name are exactly
+   `--adopt-staged-config`, once, and `--trust-anchor-sha256=sha256:<64
+   lowercase hexadecimal digits>`, one or more, with the form and exact-set
+   rule of the migration's. Those arguments carry no secret, only the
+   holders of the service's start right can pass them, and the SCM does not
+   keep them. A start without them never adopts, and leaves staged files
+   untouched. As SYSTEM, during `START_PENDING`, advancing its checkpoint:
+   1. Before any change it reads the names under `<P>`: on a console layout
+      or a migration in progress these arguments are code 2, as the
+      Amendment 2026-11-05, item 1, rules for arguments a migration did not
+      record.
+   2. It takes the instance lock (code 10 while another instance runs).
+   3. A name `identity` in the data root is code 5: adoption never points
+      an enrolled identity at new inputs (§Operational §1). No staged
+      configuration is code 2.
+   4. It opens each staged file without following a reparse point and holds
+      that handle: a regular file, one link, owner SYSTEM or Administrators,
+      a protected DACL with allow entries for SYSTEM and Administrators
+      only, at most 16 MiB, read through the handle excluding writers. A
+      configuration that fails this or the checks the service applies to
+      `agent.toml` (the Amendment 2026-11-04, item 2), has no token, or has
+      a `setup` table, is code 2. An anchor that fails this, or does not
+      match the fingerprints exactly, is code 6.
+   5. It closes `<P>` and the data root to owner SYSTEM as the Amendment
+      2026-11-05's item 2.1 does (code 13 if it cannot), sets each staged
+      file's owner to SYSTEM and its protected DACL for SYSTEM and
+      Administrators, and checks its link count again.
+   6. With no name `identity`, whatever final `agent.toml` or
+      `server-ca.pem` exists, a pending host's or one an interrupted
+      adoption left, it deletes through a handle, the configuration first.
+      It closes its handles and renames the anchor, then the configuration
+      last, without replacing. That last
+      rename is the configuration's commit. A failure in steps 5 and 6 with
+      no code above is code 5 (as the Amendment 2026-11-07, second, item 4).
+
+   The start then continues as any other, and the file log opens after
+   adoption. A process that dies during adoption is restarted without
+   arguments and adopts nothing: before step 6's deletion a pending host
+   runs on its earlier `agent.toml`; from that deletion to the last rename
+   it is code 2 at the absent file; after it, the commit stands. The retry
+   is the setup. A token left in `agent.toml.setup` because the service
+   never adopted it stays readable by SYSTEM and Administrators alone, and
+   the next setup that passes its checks removes it, on any route but a
+   migration's. A default
+   uninstall leaves it, which the runbook discloses; an enrollment token is
+   single-use (SPEC-002), and its lifetime is the server's.
+7. **The outcome.** Configure reads `logs\agent.jsonl` after the recorded
+   position, the file's ID and size, which accounts for a file that does
+   not yet exist or that rotates. Operational is `RUNNING`, then the
+   identity line, then a
+   successful heartbeat line, whose text a test of the agent pins; it
+   claims nothing on a level that hides those lines. `setup.exe`'s exit code
+   is the operator's result: 0 operational. 20 to 31, refused before the
+   MSI: 20 platform, 21 elevation, 22 no input, 23 bootstrap's access,
+   24 invalid input, 25 anchor, 26 conflicting service, 27 an untrusted
+   path, 28 console layout or a migration asked otherwise, 29 downgrade,
+   30 already configured, 31 service not proved stopped. 40 to 45: 40 the
+   setup could not write or check its own state (staging before the MSI,
+   or configure's checks and failure actions after it), and, the MSI having
+   committed and staying installed, 41 the SCM refused the start, 42 the
+   service stopped with a code, 43 pending at the timeout, 44 running but
+   not observable, 45 a restart is pending. Burn's own results pass through
+   unchanged: a downgrade Windows Installer finds first is 1638, before any
+   package runs, and an MSI failure is its Windows Installer code.
+8. **Failure actions.** Configure applies them with
+   `ChangeServiceConfig2W`, on every route that reaches them: restart after 60, 120 and 300
+   seconds, the count reset after 86400 seconds, and the failure-actions
+   flag left unset, so the SCM restarts a process that dies and no service
+   that reported `STOPPED`, whatever its code. This settles the second
+   Amendment 2026-11-01's "the installer's setting" and the Amendment
+   2026-11-05's placing of the migration codes: none is restarted.
+   Windows Installer's own failure-action table is documented as not
+   working, and WiX's utility action holds one delay.
+
+**Tests.** `package-ci`, on a hosted Windows runner, installs the setup and
+MSI; those tests have no local venue and follow the Amendment 2026-11-01,
+point 4's probe (CLAUDE.md control §1); a test that runs `cg-setup` against
+the host itself runs only in that job and fails without acting elsewhere. The
+agent's adoption is tested like
+the migration: unelevated over temporary roots, with a failure and a crash
+injected at each step, and in the SCM target. A filtered administrator's and
+a standard user's access to the staged files, and `SERVICE_START` denied to
+both, are asserted. That an administrator creates the staged files with no
+privilege enabled is asserted by launching the real `cg-setup`. A real UAC
+token, the wizard's window and the 60 seconds against a real ingest stay with
+the isolated machine.
+
+**Effect.** By scope, §Operational §2's "Create a SYSTEM-owned protected
+directory before writing any sensitive byte" is, for the configuration on a
+fresh installation, item 3's Administrators-owned protected directory, whose
+ownership item 6.5 passes to SYSTEM; the identity's directory stays SYSTEM's
+from creation. §Data contracts §2's layout gains the staged files and
+`setup-attempt.json`. §Data contracts §3's "the protected destination" is the
+staged file; its "existing config fields" narrow to item 2's, the others
+taking their defaults, and `server.trust_anchor_path` is there the anchor's
+source; its operator inputs gain items 2 and 6. §Operational §1's
+"pre-existing data directory" is read by item 3's states. §Operational §2's
+token hygiene gains item 6's leftover. §Operational §4's repair and upgrade and install_ac_011
+keep their text but for a pending host given new input, whose configuration
+item 6 replaces. `cg-setup`'s source sits with the agent, as a workspace
+member, and the package's other sources stay under `deploy/windows/`
+(§Operational §5). The second Amendment 2026-11-01, item 3 (`START_PENDING`
+lasts through adoption). The Amendment 2026-11-04, item 3 (adoption, and its
+lock, precede the read of `agent.toml`). The Amendment 2026-11-05, item 1 ("Any other start
+argument" excepts item 6's), and its item 4's "any other start" excepts a start
+with item 6's arguments. Codes 2, 5, 6, 10 and 13 gain these causes within
+their meanings; the setup's exit codes are
+new and are not the agent's. Purge (§Operational §4, install_ac_012) is not
+settled here: this amendment gives it no route, and it is decided with that
+criterion. No ADR changes, and no dependency of `cg-agent` or privilege is
+added; `cg-setup` is a new elevated component, a new operator interface and a
+change to what SYSTEM adopts, and the threat model is amended with it (its
+Amendment 2026-11-09). Manuel chose on 2026-11-09, in chat, each in the
+recommended option: `cg-setup` on stock Burn; the service's adoption over
+`SeRestorePrivilege`; the operator contract of items 2, 3, 4 and 7, with the
+`-norestart` of item 2 as one proposal; and the probe for `package-ci`. He
+approved this text on 2026-11-09, in chat: "Sí, apruebo". Status stays
+**Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.

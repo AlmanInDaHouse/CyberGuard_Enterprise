@@ -388,6 +388,21 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 
 **Effect on other sections.** None is restated. The Denial of Service entry's "Once installed, the protected directory leaves an ordinary user nothing to create" is read with this limit on a host that was migrated. R1 and R17 and their destinations are unchanged.
 
+## Amendment 2026-11-09 (SPEC-024): the setup's elevated code and the adoption
+
+**Status.** Proposed by Claude Code on 2026-11-09 with SPEC-024's Amendment 2026-11-09, and ratified by Manuel on 2026-11-09, in chat, with it: "Sí, apruebo". It adds to §1 and to R17, and restates nothing. The threat model remains `Accepted`.
+
+**Context.** SPEC-024's Amendment 2026-11-09 gives the setup its own elevated executable, `cg-setup`, which enables no privilege, stages the configuration and the trust anchor owned by Administrators in a directory only SYSTEM and Administrators can reach, and starts the service; the service, as SYSTEM, adopts those files when started with an argument the SCM does not keep.
+
+**Amendment.**
+
+- **§1 Agent, Tampering**, add: *the configuration the service adopts.* The staged files are created with their final DACL, SYSTEM and Administrators, in directories whose DACL admits those two alone, which the setup creates or has checked, and a filtered administrator's token has no access through the Administrators entry. An elevated administrator can replace them before adoption, as they can rewrite `agent.toml` afterwards: elevated administration is not a threat boundary (SPEC-024 §Data contracts §2), and ownership does not prove which administrator wrote a file. Adoption refuses a host that has an `identity\` name, so it never points an enrolled identity at new inputs.
+- **§1 Agent, Information Disclosure**, add: *the token between staging and enrollment.* The token rests in one file the setup writes, `agent.toml.setup` and then `agent.toml`, readable by SYSTEM and elevated Administrators, from staging until the service removes it after enrollment; the bootstrap file holds it too, in the operator's custody until their procedure removes it, and a pending host's earlier `agent.toml` keeps its own token until the adoption deletes it. If the service never adopts it, it stays there until a later setup that passes its checks removes it, on any route but a migration's; a default uninstall leaves it, and the runbook discloses this. Backups and shadow copies may keep it. It is single-use. Burn's bundle variables, the MSI's properties, command lines, the environment and the setup's logs never carry it.
+- **§1 Agent, Elevation of Privilege**, add to the entry on the installer's code: `cg-setup` is the project's own elevated code on the endpoint; it enables no privilege (ADR-0010 §Compliance), and its inputs come from an elevated administrator; on a host with a migration in progress or a console layout it reads no file under `<P>`, the service checking them.
+- **R17**, add: on a fresh installation `cg-setup` creates `<P>` and the data root with their final DACL, or refuses a pre-existing object that fails the service's own check of them, before the MSI and the service; an ordinary user who creates `<P>` first still blocks the installation, which is this risk's denial of service.
+
+**Effect on other sections.** None is restated. The clause of debt #87 that names "the configuration and anchor owned by SYSTEM" is met by the setup and the service together: the setup stages, and the service makes them SYSTEM's.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
