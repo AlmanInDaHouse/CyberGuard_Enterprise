@@ -23,8 +23,8 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 51** at Session 58's close, the count `docs/handoff-session-58.md` states
-(Session 58 landed the package's pins and contract and the agent's static C runtime and message table, and narrowed #87).
+**Open: 52** at Session 58's close, the count `docs/handoff-session-58.md` states
+(Session 58 landed the package's pins and contract and the agent's static C runtime and message table, narrowed #87 and opened #148).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
 Session N resumes* (at Session 58's close, `docs/handoff-session-58.md#how-session-59-resumes`);
@@ -85,6 +85,7 @@ Session N resumes* (at Session 58's close, `docs/handoff-session-58.md#how-sessi
 | 143 | Service log residuals: a write that fails after writing part of a record leaves that part as one invalid line; an active file already above 10 MiB (from a build before rotation) is archived whole | `handoff-session-54.md#debts` | install_ac_010's next change, or accepted at F2's close. |
 | 144 | An ordinary user who creates `%ProgramData%\CyberGuard` before installation keeps the service from starting (fails closed, code 13); threat model R17 in #141's draft | `handoff-session-54.md#debts` | SPEC-024's package (install_ac_011/015). |
 | 145 | Service paths no hosted runner exercises: a real `SHUTDOWN`, the stop deadline expiring in the capture teardown or at the watchdog, a persistent log failure under the SCM, a rotated production archive | `handoff-session-54.md#debts` | The isolated Windows machine's experiments (install_ac_008, install_ac_016; #50/#59). |
+| 148 | Two tests stop the agent with a heartbeat possibly in flight and hold only a time margin: `install_ac_007_a_delivered_final_request_completes_with_nothing_lost` (one second, `526997d`) and `agent/cg-agent/tests/capture_ac_006_shutdown.rs:31` (200 ms); on a stalled runner they fail with events counted undelivered | `handoff-session-58.md#debts` | Sweep: an observable that the answer reached the agent, or a run with no heartbeat in flight at the stop. |
 
 ## Closed
 

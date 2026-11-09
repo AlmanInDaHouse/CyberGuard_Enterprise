@@ -15,8 +15,8 @@ service's adoption are not written: this is a checkpoint at a green commit.
   PR open; tip CI green; 22 ADRs / 23 SPECs; open debts 51; Known CI debt
   none. The repo agreed with the handoff.
 - Resulting `main`: `858c777` (pins, PR #90), `f31aca3` (the amendment),
-  `3f04ca7` (C runtime and message table, PR #92), and this close commit. No
-  PR open.
+  `3f04ca7` (C runtime and message table, PR #92), `526997d` (a race in an
+  install_ac_007 test, PR #93), and the close commits. No PR open.
 - Catalogs: 22 ADRs / 23 SPECs (SPEC-024 and the threat model amended in
   place).
 - Branches and worktrees left: the local branch `worktree-wf_2d2e581a-62e-2`
@@ -149,7 +149,11 @@ changes; two `ExePackage`s of one executable need distinct `CacheId`s.
   after it counts the request made the old test fail with exactly that value
   and the corrected test pass. The agent and `3f04ca7` are not at fault. The
   close commit `6636d95` first said this run had passed: it was written while
-  the result was unread, and this text corrects it.
+  the result was unread, and this text corrects it. The failed job, re-run on
+  the same SHA, passed (attempt 2), and `526997d` gives the test a margin of one
+  second with a single heartbeat. That narrows the race and does not close it
+  (#148), so the commit's subject, first written as "close the race", was
+  reworded at landing with the tree unchanged.
 - The review of `858c777` made the licence check admit a nuget pin by name
   alone; trusting the field `pins.json` declares let a carried pin claiming MIT
   through.
@@ -246,6 +250,22 @@ It found no contradicted behaviour. Its list and the dispositions:
 
 The fixes changed a test and comments, so no further fresh pass was made.
 
+### The race fix (`526997d`)
+
+Contract: the statement of the defect in *Reactive corrections*. Claude Code's
+matrix: the failing case's cause, by the experiment with the mock widened to
+300 ms, old test failing with `undelivered: 4`, corrected test passing; no
+`src/` change. The fresh reviewer read it without running it:
+
+- *Weak*: the one-second sleep narrows the race and does not close it; nothing
+  observes the answer's arrival. Recorded as #148; the subject reworded.
+- *Gap*: "one heartbeat and no other" is not asserted. Not blocking: the test
+  asserts the last envelope's status and its four pids.
+- *Outside the diff*: `agent/cg-agent/tests/capture_ac_006_shutdown.rs:31` has
+  the same exposure with a 200 ms margin. Recorded as #148.
+- Confirmed: the mock counts before it answers, the citations hold, and the
+  behaviour is what SPEC-017 allows (`docs/specs/SPEC-017-agent-capture-normal-run-path.md:96`).
+
 ## Gates and CI
 
 - Local Rust gate on `3f04ca7`: `cargo fmt --check` clean, `clippy -D warnings`
@@ -276,7 +296,13 @@ The fixes changed a test and comments, so no further fresh pass was made.
   `markdown-lint`, `ts-ci`, `rust-ci`, `deploy-ci`, all `success`. On `main`:
   `dependency-audit`, `markdown-lint`, `ts-ci` `success`; `rust-ci` **failure**
   (run 42707897567, Windows job, `cargo test`), the same tree that had passed
-  twice on the pull request and locally. See *Reactive corrections*.
+  twice on the pull request and locally. See *Reactive corrections*. Its failed
+  job, re-run on the same SHA: `success`. `f4d68a3` on the pull request:
+  `ts-ci`, `deploy-ci`, `rust-ci`, all `success`. `526997d` on `main`: `rust-ci`,
+  `ts-ci`, both `success`, ALL GREEN.
+- Local Rust gate on `f4d68a3`: "binaries 80, passed 352, failed 0, ignored 11",
+  "agent version matrix: all steps passed". The elevated gate's paths are not
+  touched by that change, which is one test file.
 - The weekly `dependency-audit` ran on `858c777` on 2026-11-09: `success`.
 
 ## Landing
@@ -286,8 +312,10 @@ The fixes changed a test and comments, so no further fresh pass was made.
   `NOT YET RATIFIED`), then the marker stripped and fast-forwarded; the diff
   against `9743d71` is the ratification words alone.
 - `3f04ca7`, fast-forward; the elevated gate ran on that very commit.
-- The owner-review branch and both feature branches are deleted; PRs #90, #91
-  and #92 are closed.
+- `526997d`, on `f4d68a3`'s tree, CI ALL GREEN on the pull request; its subject
+  reworded, and `git diff --quiet f4d68a3 HEAD` returned 0 before the push.
+- The owner-review branch and the feature branches are deleted; PRs #90, #91,
+  #92 and #93 are closed.
 
 ## Test baselines at close
 
@@ -306,9 +334,11 @@ The fixes changed a test and comments, so no further fresh pass was made.
   (SPEC-024 Amendment 2026-11-09), and the agent's binary is ready for the MSI.
   Open for the implementation: the adoption, `cg-setup`, the MSI and bundle
   (install_ac_001/011/015) and the migration's runbook.
-- Opened: none. The review's residuals are in the plan below or in
-  `dependency-review.md`.
-- Open at close: **51**.
+- Opened: **#148**, two tests' stops race a heartbeat in flight and hold only a
+  time margin (`install_ac_007_a_delivered_final_request_completes_with_nothing_lost`,
+  one second; `capture_ac_006_shutdown.rs:31`, 200 ms). The other residuals of
+  the reviews are in the plan below or in `dependency-review.md`.
+- Open at close: **52**.
 
 ## Waiting on Manuel
 
@@ -319,7 +349,7 @@ seconds against a real ingest.
 ## How Session 59 resumes
 
 1. Run the start protocol (CLAUDE.md). `main` is this handoff's close commit;
-   no PR; 51 open debts; 22 ADRs / 23 SPECs. Remove the worktrees named above.
+   no PR; 52 open debts; 22 ADRs / 23 SPECs. Remove the worktrees named above.
    Check C: (26 GB free at this close), RAM and Docker before builds.
 2. The contract is `SPEC-024` Amendment 2026-11-09. Continue, one commit per
    push, each through a PR, contract tests first:
@@ -350,5 +380,7 @@ seconds against a real ingest.
   worktree are separate; removing the worktree frees the latter.
 - The session worked from the worktree after its shell entered it; the elevated
   gate ran in the main checkout, detached at the tested SHA, and restored it.
+- The system reaped the background poller of `526997d`'s CI under low memory;
+  that CI was then read by a single query.
 - The auto-memory note `project-session-58-in-progress.md` is retired at this
   close.
