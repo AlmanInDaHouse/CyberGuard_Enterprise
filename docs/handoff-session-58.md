@@ -138,6 +138,18 @@ changes; two `ExePackage`s of one executable need distinct `CacheId`s.
   wrong: `docs/handoff-session-56.md:106-108` records only the design choice,
   and the reason was the panel's and Claude Code's (`:210-212`). Corrected in
   chat before he decided.
+- `rust-ci` failed on `main` at `3f04ca7`:
+  `install_ac_007_a_delivered_final_request_completes_with_nothing_lost`
+  (`tests/install_ac_007_stop.rs:178`), `left: Completed { undelivered: 4 }`.
+  Cause: a race in the test since `cc24b99` (S54). The mock counts a request
+  before it answers, so the test can stop the agent while the first heartbeat
+  is in flight; `Delivery::finish` then sends that empty batch
+  (`src/delivery.rs:269-272`) and counts the ring's four events undelivered
+  (`:289-290`), as the contract allows. A temporary 300 ms sleep in the mock
+  after it counts the request made the old test fail with exactly that value
+  and the corrected test pass. The agent and `3f04ca7` are not at fault. The
+  close commit `6636d95` first said this run had passed: it was written while
+  the result was unread, and this text corrects it.
 - The review of `858c777` made the licence check admit a nuget pin by name
   alone; trusting the field `pins.json` declares let a carried pin claiming MIT
   through.
@@ -261,8 +273,10 @@ The fixes changed a test and comments, so no further fresh pass was made.
   - `logman`: no `CGAgent-KernelProcess` session left.
 - CI: `858c777` ALL GREEN on the branch and on `main`. `f31aca3`
   `markdown-lint → success`. `3f04ca7` on the pull request: `dependency-audit`,
-  `markdown-lint`, `ts-ci`, `rust-ci`, `deploy-ci`, all `success`; on `main`:
-  `dependency-audit`, `markdown-lint`, `ts-ci`, `rust-ci`, all `success`.
+  `markdown-lint`, `ts-ci`, `rust-ci`, `deploy-ci`, all `success`. On `main`:
+  `dependency-audit`, `markdown-lint`, `ts-ci` `success`; `rust-ci` **failure**
+  (run 42707897567, Windows job, `cargo test`), the same tree that had passed
+  twice on the pull request and locally. See *Reactive corrections*.
 - The weekly `dependency-audit` ran on `858c777` on 2026-11-09: `success`.
 
 ## Landing
