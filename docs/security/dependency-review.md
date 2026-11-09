@@ -122,6 +122,11 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
 
 ## What is not covered
 
+- **The C runtime in the agent's Windows binaries.** `.cargo/config.toml` links
+  it statically, so a fix to it reaches an endpoint only in a release built
+  after the build image took the fix: Windows Update does not reach it,
+  `cargo audit` does not read it, and the licence check reads crates and nuget
+  pins.
 - **The pnpm development dependencies** (the test tooling, the linters) fail
   CI only on a critical advisory; `pnpm audit` without `--prod` lists the
   rest (debt #110). Since Session 43 it lists three:

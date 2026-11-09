@@ -1,0 +1,6 @@
+# The Windows binaries carry the C runtime, so that the endpoint needs nothing
+# beyond the OS (SPEC-001 NFR-004). A RUSTFLAGS in the environment replaces
+# this, which tests/package_executable.rs shows in a test build. A fix to that
+# runtime arrives only with a rebuild (docs/security/dependency-review.md).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

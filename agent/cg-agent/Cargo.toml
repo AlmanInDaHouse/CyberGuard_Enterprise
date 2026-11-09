@@ -241,14 +241,17 @@ ferrisetw = "1.2"
 # NetUserAdd / NetUserDel), which build only with the `scm-tests` feature.
 # The LSA bindings for auth_ac_012's S4U logon (SPEC-020 Amendment
 # 2026-10-11, Decision record 11). The opportunistic-lock bindings of
-# install_ac_013's cancellation tests. The same crate as the agent's
+# install_ac_013's cancellation tests. The message-table bindings of
+# tests/package_executable.rs. The same crate as the agent's
 # dependency; declared here, the feature is enabled only when test
 # targets are built, and `cargo build --release` does not see it.
 windows-sys = { version = "0.59", features = [
     "Win32_NetworkManagement_NetManagement",
     "Win32_Security_Authentication_Identity",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_IO",
     "Win32_System_Ioctl",
+    "Win32_System_LibraryLoader",
     "Win32_System_Services",
 ] }
 

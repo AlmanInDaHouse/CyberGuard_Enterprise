@@ -1,9 +1,12 @@
-//! The Windows version resource of `cg-agent.exe` (SPEC-024 Amendment
-//! 2026-11-01, point 2), from the build-only input of `src/version.rs`.
+//! The Windows resources of `cg-agent.exe`: the version (SPEC-024 Amendment
+//! 2026-11-01, point 2), from the build-only input of `src/version.rs`, and
+//! the message table of the Application log's entries (SPEC-024 Amendment
+//! 2026-11-09, item 4).
 //!
 //! On a Windows MSVC target this writes `version.res`, a compiled resource
-//! file with one VERSIONINFO, into `OUT_DIR`, and gives it to the linker of
-//! the `cg-agent` binary, which takes a `.res` file as an input. Its numeric
+//! file with one VERSIONINFO and one message table, into `OUT_DIR`, and gives
+//! it to the linker of the `cg-agent` binary, which takes a `.res` file as an
+//! input. Its numeric
 //! file and product versions are `X.Y.Z.0`; its `FileVersion` and
 //! `ProductVersion` strings are the version `cg-agent --version` prints:
 //! the input's `X.Y.Z`, or `<Cargo package version>-dev` without it, whose
@@ -21,6 +24,12 @@ const LANGUAGE: u16 = 0x0409;
 const CODE_PAGE: u16 = 1200;
 /// `RT_VERSION`.
 const RT_VERSION: u16 = 16;
+/// `RT_MESSAGETABLE`.
+const RT_MESSAGETABLE: u16 = 11;
+/// The Application-log entries, `EVENT_RUNNING` to `EVENT_DEADLINE` of
+/// `src/service/mod.rs`; `tests/package_executable.rs` holds them equal.
+const FIRST_ENTRY: u32 = 1000;
+const LAST_ENTRY: u32 = 1003;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -75,13 +84,24 @@ fn release_components(s: &str) -> Option<[String; 3]> {
 }
 
 /// A `.res` file: the empty resource every one begins with, then the
-/// VERSIONINFO.
+/// VERSIONINFO and the message table.
 fn resource_file(numbers: [u16; 3], text: &str) -> Vec<u8> {
     let mut out = Vec::new();
     resource_header(&mut out, 0, 0, 0, 0, 0);
     let data = version_info(numbers, text);
     resource_header(&mut out, data.len() as u32, RT_VERSION, 1, 0x0030, LANGUAGE);
     out.extend_from_slice(&data);
+    pad4(&mut out);
+    let table = message_table();
+    resource_header(
+        &mut out,
+        table.len() as u32,
+        RT_MESSAGETABLE,
+        1,
+        0x0030,
+        LANGUAGE,
+    );
+    out.extend_from_slice(&table);
     pad4(&mut out);
     out
 }
@@ -106,6 +126,28 @@ fn resource_header(
     out.extend_from_slice(&language.to_le_bytes());
     out.extend_from_slice(&0u32.to_le_bytes()); // Version
     out.extend_from_slice(&0u32.to_le_bytes()); // Characteristics
+}
+
+/// The MESSAGE_RESOURCE_DATA: one block of the entries, each of which is its
+/// one insertion string, in UTF-16.
+fn message_table() -> Vec<u8> {
+    let text: Vec<u8> = "%1\0".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut entry = vec![0u8; 4];
+    entry.extend_from_slice(&text);
+    pad4(&mut entry);
+    let length = entry.len() as u16;
+    entry[0..2].copy_from_slice(&length.to_le_bytes());
+    entry[2..4].copy_from_slice(&1u16.to_le_bytes()); // Flags: Unicode
+
+    let mut out = Vec::new();
+    out.extend_from_slice(&1u32.to_le_bytes()); // NumberOfBlocks
+    out.extend_from_slice(&FIRST_ENTRY.to_le_bytes());
+    out.extend_from_slice(&LAST_ENTRY.to_le_bytes());
+    out.extend_from_slice(&16u32.to_le_bytes()); // OffsetToEntries
+    for _ in FIRST_ENTRY..=LAST_ENTRY {
+        out.extend_from_slice(&entry);
+    }
+    out
 }
 
 /// The VS_VERSIONINFO tree.
