@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <NoBuild>true</NoBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageDownload Include="wix" Version="[7.0.1]" />
+    <PackageDownload Include="WixToolset.Sdk" Version="[7.0.1]" />
+    <PackageDownload Include="WixToolset.Util.wixext" Version="[7.0.1]" />
+    <PackageDownload Include="WixToolset.BootstrapperApplications.wixext" Version="[7.0.1]" />
+  </ItemGroup>
+</Project>

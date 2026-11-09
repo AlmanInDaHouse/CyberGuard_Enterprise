@@ -101,3 +101,7 @@ nats-data/
 
 # === Claude Code (per-machine local settings) ===
 .claude/settings.local.json
+
+# === Windows package ===
+deploy/windows/**/bin/
+deploy/windows/**/obj/

@@ -1,0 +1,35 @@
+{
+  "comment": "SPEC-024 Amendment 2026-11-01, point 1: the pinned WiX release and .NET SDK, with each nuget package's SHA-512 as nuget.org's catalog publishes it (packageHash, base64). `carried` marks a package whose binaries the setup or the MSI carries onto the endpoint; check-licences.mjs admits those by name. A change to this file is a reviewed change.",
+  "wixRelease": "7.0.1",
+  "wixInformationalVersion": "7.0.1+642f1a0",
+  "eulaId": "wix7",
+  "dotnetSdk": "10.0.403",
+  "packages": [
+    {
+      "id": "wix",
+      "version": "7.0.1",
+      "sha512": "nHKhfUNeDGQvK6bXhCSklSb810PMLQS9HgU9Hsri3RLWP6piAceVd0kON3Vmd/Wo199/VJjmS/mWAY6+F7N9cA==",
+      "carried": false
+    },
+    {
+      "id": "WixToolset.Sdk",
+      "version": "7.0.1",
+      "sha512": "onlTGAitZXZQ43Q5h0tRt5B+IkQWdO5SAQs4+FLYDM0RPE708xqnVefLFJiOuGWSbL0UVeLleTKJxMwS0XqGXw==",
+      "carried": true,
+      "licence": "MS-RL"
+    },
+    {
+      "id": "WixToolset.Util.wixext",
+      "version": "7.0.1",
+      "sha512": "iIakOhTWOsKkiQUWLRyVEh/RpBJaIWjdmOKyAMdhT01vrZaEWojU4etk259XH5M5C19nvTQSmEwUl9TZWJgQPQ==",
+      "carried": false
+    },
+    {
+      "id": "WixToolset.BootstrapperApplications.wixext",
+      "version": "7.0.1",
+      "sha512": "9CCiXGkDQpMnkUfhsjd3ul10GiV6GGLkak9dkww3ZSDA1+5+nvkaLovig+FAjGAuXKjJwGrTwbsGO18gxA9ZEw==",
+      "carried": true,
+      "licence": "MS-RL"
+    }
+  ]
+}

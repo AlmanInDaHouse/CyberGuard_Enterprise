@@ -3,12 +3,14 @@
 The runbook the threat model names for its build dependencies
 ([threat-model.md](threat-model.md), *Scope* and *Dependency review*). It
 covers the third-party packages the repository locks: `pnpm-lock.yaml` for
-`services/ingest`, `services/api` and `dashboard`, and `Cargo.lock` for
-`cg-agent`. It was written when debt #93 closed, in Session 41.
+`services/ingest`, `services/api` and `dashboard`, `Cargo.lock` for
+`cg-agent`, and `deploy/windows/pins/pins.json` for the agent's Windows package
+(SPEC-024 Amendment 2026-11-01, point 1). It was written when debt #93 closed,
+in Session 41.
 
 ## The audit in CI
 
-[`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) runs four
+[`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) runs five
 jobs:
 
 - `pnpm audit --prod --audit-level=high` reads `pnpm-lock.yaml`. It audits the
@@ -21,15 +23,21 @@ jobs:
   workspace locks, the agent's development dependencies with them. Any
   vulnerability advisory fails the run, whatever its severity; an unmaintained,
   unsound or yanked crate is printed as a warning and passes.
-- `check-licences.mjs` reads the licences of the production pnpm dependencies
-  and of the agent's runtime crates; one that
+- `audit-pins.mjs` reads nuget.org's vulnerability feed, the one NuGet's own
+  audit reads, for every pin of the Windows package: WiX's tool, its MSBuild
+  SDK and its extensions, which are not `PackageReference` items that
+  `dotnet list package --vulnerable` would read. Any advisory that covers a
+  pin fails the run, whatever its severity, and so does a feed it cannot read.
+- `check-licences.mjs` reads the licences of the production pnpm dependencies,
+  of the agent's runtime crates and of the nuget pins whose binaries the setup
+  or the MSI carries; one that
   `.github/scripts/licences-allowed.json` does not admit fails the run, named.
   Red for a licence: replace the package, or add the licence or the package to
   the list, a reviewed change with its reason (debt #112).
 
 It runs on a push to `main` or a pull request that changes a lockfile, a
-`package.json`, a Cargo manifest, the licence checker or its list, or the
-workflow itself; every Monday at
+`package.json`, a Cargo manifest, the Windows package's pins, the licence
+checker or its list, or the workflow itself; every Monday at
 06:17 UTC, on `main`; and by hand (`workflow_dispatch`). The weekly run is
 what catches an advisory published after a release: it turns `main` red with
 no commit of ours.
@@ -91,6 +99,24 @@ added:
   (`build.rs`) always runs when the agent builds, so a new crate's is read
   before it is added.
 
+### The Windows package's pins
+
+WiX and the .NET SDK build the agent's MSI and setup. Manuel's acceptance of
+WiX's EULA and fee, and its channel, are in CLAUDE.md's *Approved local
+toolchain* and SPEC-024 Amendment 2026-11-01, point 1. Neither `dotnet tool
+restore` nor the MSBuild SDK resolver checks a hash, so a change to a pin is a
+change to `deploy/windows/pins/pins.json` and its three companions together:
+
+- take each package's `packageHash` from nuget.org's catalog, not from a
+  restored file, and record it in `pins.json`;
+- `deploy/windows/pins/verify-pins.mjs` then hashes each retained `.nupkg`
+  against it, before anything loads the package, and asks the `wix` tool for
+  its build and its EULA ID. A release whose EULA ID is not `wix7` fails: a
+  new EULA is Manuel's to accept;
+- a package whose binaries the setup or the MSI carries is marked `carried`
+  and named in `.github/scripts/licences-allowed.json` under MS-RL, with its
+  reason. MS-RL is not admitted in general.
+
 A package whose private fields the code reads is pinned to one release, and a
 test asserts that release (nodemailer, soar_ac_006, debt #75).
 
@@ -121,8 +147,9 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
   so a release enters only through a lockfile change someone reviews. Nothing
   checks a release's provenance.
 - **Licences** beyond the checked ones. `check-licences.mjs` reads the
-  production pnpm dependencies as CI installs them (on Linux with glibc) and
-  the agent's runtime crates for its Windows target. What an image ships
+  production pnpm dependencies as CI installs them (on Linux with glibc), the
+  agent's runtime crates for its Windows target and the nuget pins marked
+  `carried`, which it admits by name alone. What an image ships
   beyond them is not checked: its base image's packages, and the musl build
   of a native package the image installs. Each released image's index carries BuildKit's SBOM attestation, which lists the operating-system and Node packages installed in the image, and each image carries its third-party notices (SPEC-023 Amendment 2026-10-26, items 2 and 4; debt #112); neither checks a licence.
 - **The warnings `cargo audit` lets pass**: an unmaintained, unsound or

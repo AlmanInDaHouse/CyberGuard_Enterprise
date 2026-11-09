@@ -1,0 +1,70 @@
+name: package-ci
+
+# SPEC-024 Amendment 2026-11-01, point 1: the pins of the agent's Windows package. Each nuget
+# package is restored by its pinned version and checked against its recorded hash before
+# anything loads it; WiX's EULA ID is checked to be the one Manuel accepted. A hosted Windows
+# runner, the venue of §Test scenarios' "Packaging CI" line.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/windows/**"
+      - ".github/scripts/check-licences.mjs"
+      - ".github/scripts/licences-allowed.json"
+      - ".github/workflows/package-ci.yml"
+  pull_request:
+    paths:
+      - "deploy/windows/**"
+      - ".github/scripts/check-licences.mjs"
+      - ".github/scripts/licences-allowed.json"
+      - ".github/workflows/package-ci.yml"
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  pins:
+    name: Pins, hashes and the EULA ID
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Set up the pinned .NET SDK
+        # v6.1.0, by its commit.
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: deploy/windows/global.json
+
+      - name: Package tests
+        run: node --test "deploy/windows/test/*.test.mjs"
+
+      - name: Restore the pinned packages
+        working-directory: deploy/windows
+        run: dotnet restore pins/Pins.csproj
+
+      - name: Check each package against its recorded hash
+        working-directory: deploy/windows
+        run: node pins/verify-pins.mjs
+
+      - name: Restore the wix tool
+        working-directory: deploy/windows
+        run: dotnet tool restore
+
+      - name: Check the tool's build and EULA ID
+        working-directory: deploy/windows
+        run: node pins/verify-pins.mjs --tool

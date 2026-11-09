@@ -16,6 +16,7 @@ on:
   pull_request:
     paths:
       - "deploy/**"
+      - "!deploy/windows/**"
       - "docs/operations/**"
       - "services/**"
       - "dashboard/**"

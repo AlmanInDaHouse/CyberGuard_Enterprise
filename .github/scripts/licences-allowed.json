@@ -28,6 +28,18 @@
       "name": "thirty-two",
       "licence": "Unknown",
       "reason": "otplib's base32 codec. Its package.json declares no licence; its LICENSE.txt is the MIT licence (Copyright (c) 2011, Chris Umbel)."
+    },
+    {
+      "ecosystem": "nuget",
+      "name": "WixToolset.Sdk",
+      "licence": "MS-RL",
+      "reason": "Carries Burn's engine, which the agent's setup runs elevated on the endpoint, unmodified. Reviewed under SPEC-024 Amendment 2026-11-01, point 1: the package declares its licence as a file, the OSMF EULA v1.1 (wix7), which Manuel accepted on 2026-11-01; its binaries are redistributed under MS-RL, whose reciprocity reaches each distributed file of WiX's own and not the agent."
+    },
+    {
+      "ecosystem": "nuget",
+      "name": "WixToolset.BootstrapperApplications.wixext",
+      "licence": "MS-RL",
+      "reason": "Carries the standard bootstrapper application, which the agent's setup runs on the endpoint, unmodified. Reviewed under SPEC-024 Amendment 2026-11-01, point 1, on the same terms as WixToolset.Sdk."
     }
   ]
 }

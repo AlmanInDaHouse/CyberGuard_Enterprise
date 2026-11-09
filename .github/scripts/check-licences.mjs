@@ -6,11 +6,14 @@
 // (.github/scripts/licences-allowed.json) does not admit. A licence is an SPDX expression:
 // OR admits it when one side is admitted, AND when both are, `X WITH Y` when X is (an
 // exception adds permissions), and the older `X/Y` reads as OR. A package the list names
-// is admitted under the licence it names too.
+// is admitted under the licence it names too. The nuget pins that the agent's setup or MSI
+// carries (deploy/windows/pins/pins.json) declare their licence as a file, the WiX EULA, so
+// they are admitted by name alone, under MS-RL (SPEC-024 Amendment 2026-11-01, point 1).
 //
-//   node .github/scripts/check-licences.mjs [--pnpm <file>] [--cargo <file>] [--report <file>]
+//   node .github/scripts/check-licences.mjs [--pnpm <file>] [--cargo <file>] [--nuget <file>] [--report <file>]
 //
-// --pnpm and --cargo read those commands' JSON from a file instead of running them;
+// --pnpm and --cargo read those commands' JSON from a file instead of running them, --nuget
+// another pins file;
 // --report writes every package and its licence as Markdown (a release asset).
 import { execFileSync, execSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -110,6 +113,11 @@ export function cargoPackages(json) {
   });
 }
 
+/** The nuget pins whose binaries the setup or the MSI carries (SPEC-024 Amendment 2026-11-01, point 1). */
+export function nugetPackages(pins) {
+  return pins.packages.filter((p) => p.carried).map((p) => ({ ecosystem: "nuget", name: p.id, version: p.version, licence: p.licence ?? "Unknown" }));
+}
+
 /** The packages the allowlist does not admit, each with the reason. */
 export function refused(packages, allowlist) {
   const allowed = new Set(allowlist.licences);
@@ -117,6 +125,11 @@ export function refused(packages, allowlist) {
   const out = [];
   for (const p of packages) {
     if (named.get(`${p.ecosystem}:${p.name}`)?.licence === p.licence) continue;
+    // A nuget package declares its licence as a file, so the pin's own field proves nothing.
+    if (p.ecosystem === "nuget") {
+      out.push({ ...p, why: "a nuget pin is admitted by name alone, and the list does not name it under this licence" });
+      continue;
+    }
     let ok;
     try {
       ok = admitted(p.licence, allowed);
@@ -160,14 +173,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(resolve(p
   ]);
   const npm = pnpmPackages(pnpm);
   const crates = cargoPackages(cargo);
+  const nuget = nugetPackages(JSON.parse(readFileSync(arg("--nuget") ?? join(REPO, "deploy", "windows", "pins", "pins.json"), "utf8")));
   // A shape the checker does not read would yield nothing, and pass: none is a failure.
-  for (const [what, list] of [["npm packages", npm], ["crates", crates]]) {
+  for (const [what, list] of [["npm packages", npm], ["crates", crates], ["nuget packages", nuget]]) {
     if (list.length === 0) {
       process.stderr.write(`licence check: no ${what} read\n`);
       process.exit(1);
     }
   }
-  const packages = [...npm, ...crates].sort((a, b) =>
+  const packages = [...npm, ...crates, ...nuget].sort((a, b) =>
     `${a.ecosystem}:${a.name}@${a.version}`.localeCompare(`${b.ecosystem}:${b.name}@${b.version}`),
   );
   const report = arg("--report");
