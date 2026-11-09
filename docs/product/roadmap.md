@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-57.md](../handoff-session-57.md)).
+([handoff-session-58.md](../handoff-session-58.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -415,8 +415,13 @@ This dependency-ordered document supersedes both for planning.
   10.0.403 for WiX 7.0.1 (`docs/handoff-session-56.md`). S57 landed the
   migration (install_ac_013, `fb904ba`) and #146's residuals (`747926e`)
   on SPEC-024's two Amendments 2026-11-07, approved by Manuel, CI ALL GREEN,
-  elevated gate s57-gate1 green (`docs/handoff-session-57.md`). Packaging
-  (install_ac_001/015, with #87's half) follows.
+  elevated gate s57-gate1 green (`docs/handoff-session-57.md`). S58 started
+  the package: WiX 7.0.1's pins and hash check (`858c777`), its contract,
+  SPEC-024 Amendment 2026-11-09 with the threat model's, approved by Manuel
+  (`f31aca3`), and the agent's static C runtime and message table (`3f04ca7`,
+  CI ALL GREEN, elevated gate s58-gate1 green; `docs/handoff-session-58.md`).
+  The service's adoption, `cg-setup`, the MSI and the bundle
+  (install_ac_001/011/015, with #87's half) follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the

@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 51** at Session 57's close, the count `docs/handoff-session-57.md` states
-(Session 57 landed the legacy migration and #146's residuals, closed #146 and #147, and narrowed #87).
+**Open: 51** at Session 58's close, the count `docs/handoff-session-58.md` states
+(Session 58 landed the package's pins and contract and the agent's static C runtime and message table, and narrowed #87).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 57's close, `docs/handoff-session-57.md#how-session-58-resumes`);
+Session N resumes* (at Session 58's close, `docs/handoff-session-58.md#how-session-59-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -62,7 +62,7 @@ Session N resumes* (at Session 57's close, `docs/handoff-session-57.md#how-sessi
 | 66 | Gate output noise (`logman` text, a stop line with nothing stopped) | `handoff-session-38.md:1070` | The next change to either file. |
 | 73 | ADR-0021 §2 says `ajv-cli` reads JSON | `handoff-session-38.md:1127` | An ADR-0021 amendment, for Manuel's "sí". |
 | 83 | The dashboard enrolls no TOTP and manages no user | `handoff-session-39.md:642`; `handoff-session-40.md:1136` | The TOTP enrollment and the user management in the dashboard, with #98's invitation. Required by roadmap §F. |
-| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-49.md#debts`; `handoff-session-55.md#debts`; `handoff-session-56.md#debts`; `handoff-session-57.md#debts` | The fresh service installation's custody landed (`9053513`, install_ac_004/005) and the legacy migration (`fb904ba`, install_ac_013, SPEC-024 Amendments 2026-11-05 and 2026-11-07 second). Open for the package's half (install_ac_001/011/015: the default refusal in setup, the route that starts the service with its arguments, the configuration and anchor owned by SYSTEM) and the migration's runbook (item 7's disclosure, the repairs' commands, `takeown /A` and `icacls`); R1 stays open until then. |
+| 87 | The agent's private key readable by the enrolling user's processes | `handoff-session-39.md:676`; `handoff-session-49.md#debts`; `handoff-session-55.md#debts`; `handoff-session-56.md#debts`; `handoff-session-57.md#debts`; `handoff-session-58.md#debts` | The fresh service installation's custody landed (`9053513`, install_ac_004/005), the legacy migration (`fb904ba`, install_ac_013, SPEC-024 Amendments 2026-11-05 and 2026-11-07 second) and the package's contract (`f31aca3`, SPEC-024 Amendment 2026-11-09). Open for the package's implementation (install_ac_001/011/015: the service's adoption, `cg-setup` with the default refusal, the MSI and bundle, the route that starts the service with its arguments, the configuration and anchor owned by SYSTEM; `docs/handoff-session-58.md#how-session-59-resumes`) and the migration's runbook (item 7's disclosure, the repairs' commands, `takeown /A` and `icacls`); R1 stays open until then. |
 | 88 | Agent certificates expire at 90 days, with no renewal and no revocation list | `handoff-session-39.md:683`; `handoff-session-40.md:1127` | The agents' renewal, before roadmap §F's installation is called done. The server's half closed by `b293500`. |
 | 89 | Enrollment hardening (clear-text token, unchecked scope, no rate limit) | `handoff-session-39.md:694`; `handoff-session-45.md:356` | F4, roadmap §F's renewal SPEC (SPEC-023 §Out of scope); the TLS half landed in `63ea972`. |
 | 97 | The transport between the dashboard and the api is plain HTTP | `handoff-session-39.md:733`; `handoff-session-40.md:1140`; `handoff-session-48.md#debts` | A future multi-host deployment, outside the MVP; ADR-0022 §3 retains plain HTTP on the internal single-host app network. S48 delegates alignment to that Accepted decision, not a new risk acceptance. |
