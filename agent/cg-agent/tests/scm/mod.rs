@@ -73,9 +73,9 @@ use windows_sys::Win32::System::Services::{
     CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
     OpenServiceW, QueryServiceStatusEx, StartServiceW, SC_HANDLE, SC_MANAGER_CONNECT,
     SC_MANAGER_CREATE_SERVICE, SC_STATUS_PROCESS_INFO, SERVICE_ALL_ACCESS, SERVICE_CONTROL_STOP,
-    SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_QUERY_STATUS, SERVICE_START_PENDING,
-    SERVICE_STATUS, SERVICE_STATUS_PROCESS, SERVICE_STOPPED, SERVICE_STOP_PENDING,
-    SERVICE_WIN32_OWN_PROCESS,
+    SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_QUERY_STATUS, SERVICE_START,
+    SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_PROCESS, SERVICE_STOPPED,
+    SERVICE_STOP_PENDING, SERVICE_WIN32_OWN_PROCESS,
 };
 use windows_sys::Win32::System::Threading::{
     CreateEventW, GetCurrentProcess, OpenProcess, OpenProcessToken, TerminateProcess,
@@ -2372,6 +2372,34 @@ fn as_token<T: Send + 'static>(token: &Token, action: impl FnOnce() -> T + Send 
     })
     .join()
     .expect("the impersonating thread")
+}
+
+/// What opening the service `name` for `SERVICE_START` answers under
+/// `token` (SPEC-024 Amendment 2026-11-09, *Tests*): the Win32 error of the
+/// open, or nothing when the right is granted.
+pub fn open_service_to_start(token: &Token, name: &str) -> Result<(), u32> {
+    let name = wide(name);
+    as_token(token, move || {
+        // SAFETY: null machine and database name the local active database;
+        // the handle is closed below.
+        let manager =
+            unsafe { OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT) };
+        if manager.is_null() {
+            return Err(last_error());
+        }
+        // SAFETY: an open manager and a NUL-terminated name.
+        let service = unsafe { OpenServiceW(manager, name.as_ptr(), SERVICE_START) };
+        let result = if service.is_null() {
+            Err(last_error())
+        } else {
+            // SAFETY: a handle OpenServiceW returned.
+            unsafe { CloseServiceHandle(service) };
+            Ok(())
+        };
+        // SAFETY: the handle OpenSCManagerW returned.
+        unsafe { CloseServiceHandle(manager) };
+        result
+    })
 }
 
 /// A handle on the directory `path`, opened under `token` for adding an

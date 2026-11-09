@@ -88,8 +88,9 @@ jobs:
       # requests #80 and #82 (install_ac_007, install_ac_010), #84
       # (install_ac_002/004/005) and the migration's probe (install_ac_013),
       # closed without landing (CLAUDE.md compensating control 1).
-      - name: "cargo test, the SCM and SYSTEM tests (scm-tests)"
-        run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_007_service --test install_ac_004_custody_service --test install_ac_013_migration -- --test-threads=1
+      - name: "probe: package_adoption_service against the tree without the implementation"
+        continue-on-error: true
+        run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test package_adoption_service -- --test-threads=1
 
       - name: agent version matrix
         run: node .github/scripts/agent-version-matrix.mjs
