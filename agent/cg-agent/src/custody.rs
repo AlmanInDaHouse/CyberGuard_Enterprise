@@ -16,7 +16,7 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
@@ -49,7 +49,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX, FILE_FLAG_BACKUP_SEMANTICS,
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
     FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, OPEN_EXISTING,
-    READ_CONTROL,
+    READ_CONTROL, WRITE_DAC, WRITE_OWNER,
 };
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::SystemInformation::{
@@ -363,6 +363,11 @@ impl Drop for Handle {
 }
 
 impl Handle {
+    /// Take the handle back from a `File`.
+    fn from_file(file: File) -> Self {
+        Handle(file.into_raw_handle() as HANDLE)
+    }
+
     /// Hand the handle to a `File`, which closes it.
     pub(crate) fn into_file(self) -> File {
         let raw = self.0;
@@ -397,7 +402,7 @@ pub const OPEN_WAIT: Duration = Duration::from_secs(30);
 
 /// Open `path` without following a reparse point; `None` when nothing is
 /// there. A directory opens too, so that the caller's kind check names it.
-fn open_existing(
+pub(crate) fn open_existing(
     path: &Path,
     access: u32,
     share: u32,
@@ -1013,6 +1018,43 @@ pub(crate) fn read_unshared(
             .read_to_end(&mut bytes)
             .map_err(|e| format!("read {}: {e}", owned.display()))?;
         Ok((bytes, id))
+    })
+}
+
+/// Open the regular file `path`, sharing read access alone, for reading and
+/// for changing its security; check it against `policy` and its size against
+/// `limit` through that handle, read it whole through it, and hand the
+/// handle back open, so that what was read is what the caller goes on holding
+/// (SPEC-024 Amendment 2026-11-09, item 6.4). `Ok(None)` when it is absent.
+pub(crate) fn read_held(
+    path: &Path,
+    limit: u64,
+    policy: &Policy,
+    wait: Duration,
+) -> Result<Option<(Handle, Vec<u8>)>, String> {
+    let owned = path.to_path_buf();
+    let policy = policy.clone();
+    bounded(wait, path, move || {
+        let handle = match open_raw(
+            &owned,
+            GENERIC_READ | READ_CONTROL | WRITE_DAC | WRITE_OWNER | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ,
+        ) {
+            Ok(Some(handle)) => handle,
+            Ok(None) => return Ok(None),
+            Err(error) => return Err(failure("open", &owned, error)),
+        };
+        let info = file_information(&handle, &owned)?;
+        shape_of(&info, &owned, Kind::File)?;
+        check_security(&handle, &owned, &policy)?;
+        if (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow) > limit {
+            return Err(format!("{} is larger than {limit} bytes", owned.display()));
+        }
+        let mut file = handle.into_file();
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|e| format!("read {}: {e}", owned.display()))?;
+        Ok(Some((Handle::from_file(file), bytes)))
     })
 }
 

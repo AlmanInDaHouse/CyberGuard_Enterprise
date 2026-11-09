@@ -12,7 +12,8 @@
 //! `ERROR_SERVICE_SPECIFIC_ERROR` and the cause's code. The Application log
 //! gets entries 1000 to 1003 under the source `CyberGuardAgent`. A start
 //! asked to by its SCM start arguments migrates a console installation
-//! during `START_PENDING` (`migration`).
+//! during `START_PENDING` (`migration`), or adopts the configuration the
+//! setup staged (`adoption`).
 //!
 //! This module holds what is portable: the codes, the lines, the outcome
 //! and its entry, and the enrollment rounds. The SCM, the Application log
@@ -28,6 +29,8 @@ use crate::config::AgentConfig;
 use crate::errors::{ConfigError, EnrollmentError};
 use crate::identity::Identity;
 
+#[cfg(windows)]
+pub mod adoption;
 #[cfg(windows)]
 pub mod layout;
 #[cfg(windows)]
@@ -256,6 +259,16 @@ impl InstalledPaths {
     /// `migration.json` in the data root, after the commit.
     pub fn record(&self) -> PathBuf {
         self.data_root.join("migration.json")
+    }
+
+    /// The configuration the setup staged (Amendment 2026-11-09, item 3).
+    pub fn staged_config(&self) -> PathBuf {
+        self.data_root.join("agent.toml.setup")
+    }
+
+    /// The trust anchor the setup staged (Amendment 2026-11-09, item 3).
+    pub fn staged_anchor(&self) -> PathBuf {
+        self.data_root.join("server-ca.pem.setup")
     }
 }
 

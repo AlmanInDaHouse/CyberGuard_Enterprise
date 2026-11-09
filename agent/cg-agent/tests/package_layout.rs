@@ -178,6 +178,14 @@ fn package_layout_identity_is_not_opened() {
 #[test]
 fn package_layout_names_are_read_without_opening_them() {
     let console = empty();
+    touch(&console.paths.identity_dir);
+    let _held = batch_oplock(&console.paths.identity_dir).expect("an oplock on identity");
+    assert_eq!(
+        classify(&console.paths, &directories(&console), WAIT),
+        HostState::Enrolled
+    );
+
+    let console = empty();
     touch(&console.paths.config);
     let _held = batch_oplock(&console.paths.config).expect("an oplock on agent.toml");
     assert_eq!(
@@ -204,6 +212,18 @@ fn package_layout_any_identity_file_directly_is_a_console_layout() {
         touch(&console.paths.data_root.join(name));
         assert_eq!(state(&console), HostState::ConsoleLayout, "{name}");
     }
+}
+
+/// By name, whatever the object is.
+#[test]
+fn package_layout_the_console_and_pending_names_count_whatever_they_are() {
+    let console = empty();
+    directory(&console.paths.data_root.join("key.dat"));
+    assert_eq!(state(&console), HostState::ConsoleLayout, "a directory");
+
+    let console = empty();
+    directory(&console.paths.config);
+    assert_eq!(state(&console), HostState::Pending, "a directory");
 }
 
 /// The first that applies: the check of the directories comes after, and a
@@ -313,6 +333,13 @@ fn package_layout_a_data_directory_that_is_no_directory_is_untrusted() {
     let sddl = console.custody.closed_directory_sddl.clone();
     custody_ensure(&console.paths.product_root, &sddl);
     touch(&console.paths.data_root);
+    assert_untrusted(&console, "agent");
+
+    // A legacy name beside it does not make a migration: there is a data root.
+    let console = Console::bare();
+    custody_ensure(&console.paths.product_root, &sddl);
+    touch(&console.paths.data_root);
+    directory(&console.paths.legacy());
     assert_untrusted(&console, "agent");
 }
 

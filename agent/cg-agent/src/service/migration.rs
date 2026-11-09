@@ -66,12 +66,12 @@ const RECORD_TEMPORARY: &str = "migration.json.rewrite-tmp";
 const REQUIRED: [&str; 5] = [CONFIG, ANCHOR, CERT, KEY, IDENTITY];
 /// The most item 2.3 reads of a file: far above anything the agent writes,
 /// and a bound on what the enrolling account's replaced file can cost.
-const READ_LIMIT: u64 = 16 * 1024 * 1024;
+pub(super) const READ_LIMIT: u64 = 16 * 1024 * 1024;
 const IDENTITY_FILES: [&str; 3] = [CERT, KEY, IDENTITY];
 
 /// Any access an unrelated handle may hold while the service opens an object
 /// for its attributes or its security.
-const SHARE_ALL: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+pub(super) const SHARE_ALL: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 /// What changing an object's security through a handle needs.
 const SECURITY_ACCESS: u32 = READ_CONTROL | WRITE_DAC | WRITE_OWNER | FILE_READ_ATTRIBUTES;
 /// What reading an object's attributes and security needs.
@@ -95,6 +95,10 @@ pub enum Choice {
     Keep,
 }
 
+/// The start argument that asks for the adoption (Amendment 2026-11-09,
+/// item 6).
+const ADOPT: &str = "--adopt-staged-config";
+
 /// What the start arguments ask for (item 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -102,7 +106,7 @@ pub struct Request {
     pub fingerprints: BTreeSet<String>,
 }
 
-fn invalid_arguments(reason: &str) -> String {
+pub(super) fn invalid_arguments(reason: &str) -> String {
     format!("cg-agent: invalid migration arguments: {reason}")
 }
 
@@ -164,6 +168,53 @@ pub fn parse_start_arguments(arguments: &[String]) -> Result<Option<Request>, St
         choice,
         fingerprints,
     }))
+}
+
+/// What a start was asked to do by its SCM start arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Start {
+    Plain,
+    Migrate(Request),
+    /// The Amendment 2026-11-09, item 6: the anchor's fingerprints.
+    Adopt(BTreeSet<String>),
+}
+
+/// The SCM start arguments after the service's name (item 1, and item 6 of
+/// the Amendment 2026-11-09): the error is code 2's whole line, which never
+/// repeats a value.
+pub fn parse_start(arguments: &[String]) -> Result<Start, String> {
+    if !arguments.iter().any(|argument| argument == ADOPT) {
+        return Ok(parse_start_arguments(arguments)?.map_or(Start::Plain, Start::Migrate));
+    }
+    let mut seen = false;
+    let mut fingerprints = BTreeSet::new();
+    for argument in arguments {
+        if argument == ADOPT {
+            if seen {
+                return Err(invalid_arguments(
+                    "--adopt-staged-config is given more than once",
+                ));
+            }
+            seen = true;
+        } else if let Some(value) = argument.strip_prefix("--trust-anchor-sha256=") {
+            if !is_fingerprint(value) {
+                return Err(invalid_arguments(
+                    "--trust-anchor-sha256 is not sha256: and 64 lowercase hexadecimal digits",
+                ));
+            }
+            fingerprints.insert(value.to_string());
+        } else {
+            return Err(invalid_arguments(
+                "a start argument is neither --adopt-staged-config nor --trust-anchor-sha256",
+            ));
+        }
+    }
+    if fingerprints.is_empty() {
+        return Err(invalid_arguments(
+            "--adopt-staged-config is given without --trust-anchor-sha256",
+        ));
+    }
+    Ok(Start::Adopt(fingerprints))
 }
 
 /// `migration.json` (item 3).
@@ -274,6 +325,17 @@ pub enum Point {
     Copy(&'static str),
     RemoveLegacyDirectory,
     RewriteRecord,
+    /// The adoption (Amendment 2026-11-09, item 6): item 6.4's read of the
+    /// staged file of that name; item 6.5's restriction of it, and the
+    /// reading of its link count once it is restricted; item 6.6's reading of
+    /// the data root's names, its deletion of the final file of that name, and
+    /// its rename to that name.
+    AdoptRead(&'static str),
+    AdoptRestrict(&'static str),
+    AdoptRestricted(&'static str),
+    AdoptNames,
+    AdoptDelete(&'static str),
+    AdoptRename(&'static str),
 }
 
 /// What an injected point does: `Failure` makes the operation fail with
@@ -349,7 +411,7 @@ pub enum Prepared {
     Committed,
 }
 
-fn identity_line(reason: &str) -> String {
+pub(super) fn identity_line(reason: &str) -> String {
     EnrollmentError::Persistence(reason.to_string()).stderr_line()
 }
 
@@ -357,7 +419,7 @@ fn anchor_line(reason: &str) -> String {
     TlsError::ClientConfig(format!("migration: {reason}")).stderr_line()
 }
 
-fn refused(code: u8, line: String) -> Stop {
+pub(super) fn refused(code: u8, line: String) -> Stop {
     Stop::Refused { code, line }
 }
 
@@ -396,7 +458,7 @@ fn with_state(environment: &Environment<'_>, line: String) -> String {
     }
 }
 
-fn in_place(environment: &Environment<'_>, code: u8, line: String) -> Stop {
+pub(super) fn in_place(environment: &Environment<'_>, code: u8, line: String) -> Stop {
     refused(code, with_state(environment, line))
 }
 
@@ -415,7 +477,7 @@ fn cut_in_place(
 
 /// A step's failure names its object, whatever the operation's own reason
 /// says.
-fn naming(path: &Path, cut: Injected) -> Injected {
+pub(super) fn naming(path: &Path, cut: Injected) -> Injected {
     match cut {
         Injected::Failure(reason) if !reason.contains(&path.display().to_string()) => {
             Injected::Failure(format!("{}: {reason}", path.display()))
@@ -437,7 +499,7 @@ fn is_there(path: &Path) -> bool {
 /// Item 4: a staging or legacy directory counts only as a directory, not a
 /// reparse point, under `agent.toml`'s policy: a name an ordinary user
 /// created cannot pass, and changes nothing.
-fn counts(environment: &Environment<'_>, path: &Path) -> bool {
+pub(super) fn counts(environment: &Environment<'_>, path: &Path) -> bool {
     matches!(
         custody::check_if_exists_within(
             path,
@@ -528,7 +590,7 @@ fn check_data_directories(environment: &Environment<'_>, console: bool) -> Resul
     Ok(())
 }
 
-fn other_combination(environment: &Environment<'_>) -> Stop {
+pub(super) fn other_combination(environment: &Environment<'_>) -> Stop {
     refused(
         5,
         identity_line(&format!(
@@ -808,7 +870,11 @@ fn close_directories(environment: &Environment<'_>) -> Result<(), Stop> {
     Ok(())
 }
 
-fn close(environment: &Environment<'_>, path: &Path, point: Point) -> Result<(), Injected> {
+pub(super) fn close(
+    environment: &Environment<'_>,
+    path: &Path,
+    point: Point,
+) -> Result<(), Injected> {
     environment.watch.at(point)?;
     let handle = custody::open_waiting(path, SECURITY_ACCESS, SHARE_ALL, environment.wait)?;
     custody::check_shape(&handle, path, Kind::Directory)?;
@@ -1213,7 +1279,10 @@ fn fingerprint(der: &[u8]) -> String {
 
 /// The distinct certificates of `server-ca.pem`, in their order: exactly
 /// those of the fingerprints given (§Data contracts §3's exact-set rule).
-fn check_anchor(bytes: &[u8], expected: &BTreeSet<String>) -> Result<Vec<Vec<u8>>, String> {
+pub(super) fn check_anchor(
+    bytes: &[u8],
+    expected: &BTreeSet<String>,
+) -> Result<Vec<Vec<u8>>, String> {
     let mut distinct: Vec<Vec<u8>> = Vec::new();
     for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(bytes) {
         let certificate = certificate.map_err(|_| "server-ca.pem cannot be read".to_string())?;

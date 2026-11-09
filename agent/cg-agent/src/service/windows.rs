@@ -37,7 +37,8 @@ use windows_sys::Win32::System::Services::{
     SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
 };
 
-use super::migration::{self, Environment, Injected, Point, Prepared, Stop, Watch};
+use super::adoption;
+use super::migration::{self, Environment, Injected, Point, Prepared, Start, Stop, Watch};
 use super::{
     check_config_path, check_installed_config, config_error_line, identity_rounds_until_stopped,
     log_file, running_entry, stderr_service_log, Entry, InstalledPaths, ServiceExit,
@@ -59,8 +60,8 @@ const STOP_POLL: Duration = Duration::from_millis(250);
 const WAIT_HINT_MS: u32 = 15_000;
 /// How long `START_PENDING` may advance its checkpoint without news of the
 /// start: past it the SCM sees no progress, which shows a start that hangs.
-/// A migration's steps renew it, each being bounded by its 30-second wait
-/// (SPEC-024 Amendment 2026-11-05, item 1).
+/// A migration's or an adoption's steps renew it, each being bounded by its
+/// 30-second wait (SPEC-024 Amendment 2026-11-05, item 1).
 const START_PENDING_CAP: Duration = Duration::from_secs(120);
 /// The same for `STOP_PENDING`, past the stop deadline.
 const STOP_PENDING_CAP: Duration = Duration::from_secs(75);
@@ -291,30 +292,52 @@ async fn serve(
     // exist, a migration asked for or in progress (the lock before any
     // change), and then item 3's check of the data root and its parent, as
     // the file log checks them (code 13); absent, `agent.toml` is absent too.
-    let request = match migration::parse_start_arguments(&arguments) {
-        Ok(request) => request,
+    // The Amendment 2026-11-09, item 6: an adoption asked for comes first, and
+    // the start goes on from what it committed.
+    let start = match migration::parse_start(&arguments) {
+        Ok(start) => start,
         Err(line) => return failed(2, line),
     };
     let mut _instance_lock = None;
     let prepared = {
         let environment = Environment::service(paths.clone(), &SERVICE_WATCH);
-        let mut lock = || match instance_lock::acquire() {
-            LockOutcome::Acquired(lock) => {
-                _instance_lock = Some(lock);
-                Ok(())
+        let mut lock = || {
+            if _instance_lock.is_some() {
+                return Ok(());
             }
-            // A migration changes the host only under the lock.
-            LockOutcome::Unprivileged => Err(Stop::Refused {
-                code: 1,
-                line: stderr_lock_failed("the migration's token cannot create the lock", 5),
-            }),
-            outcome => Err(Stop::Refused {
-                code: outcome.exit_code().unwrap_or(1),
-                line: outcome.stderr_line().unwrap_or_default(),
-            }),
+            match instance_lock::acquire() {
+                LockOutcome::Acquired(lock) => {
+                    _instance_lock = Some(lock);
+                    Ok(())
+                }
+                // A migration or an adoption changes the host only under the
+                // lock.
+                LockOutcome::Unprivileged => Err(Stop::Refused {
+                    code: 1,
+                    line: stderr_lock_failed(
+                        match start {
+                            Start::Adopt(_) => "the adoption's token cannot create the lock",
+                            _ => "the migration's token cannot create the lock",
+                        },
+                        5,
+                    ),
+                }),
+                outcome => Err(Stop::Refused {
+                    code: outcome.exit_code().unwrap_or(1),
+                    line: outcome.stderr_line().unwrap_or_default(),
+                }),
+            }
         };
         tokio::task::block_in_place(|| {
-            migration::prepare(&environment, request.as_ref(), &mut lock)
+            let request = match &start {
+                Start::Plain => None,
+                Start::Migrate(request) => Some(request),
+                Start::Adopt(fingerprints) => {
+                    adoption::adopt(&environment, fingerprints, &mut lock)?;
+                    None
+                }
+            };
+            migration::prepare(&environment, request, &mut lock)
         })
     };
     let prepared = match prepared {
@@ -501,7 +524,7 @@ async fn stopped(mut stop: watch::Receiver<bool>) {
     let _ = stop.wait_for(|stopping| *stopping).await;
 }
 
-/// The migration's steps keep `START_PENDING` advancing (item 1).
+/// A migration's and an adoption's steps keep `START_PENDING` advancing.
 struct ServiceWatch;
 
 impl Watch for ServiceWatch {
@@ -588,7 +611,8 @@ impl Status {
         self.enter(&mut current, SERVICE_START_PENDING, 0);
     }
 
-    /// A migration's step began: `START_PENDING`'s cap counts from here.
+    /// A step of a migration or an adoption began: `START_PENDING`'s cap
+    /// counts from here.
     fn progress(&self) {
         let mut current = self.lock();
         if current.status.dwCurrentState == SERVICE_START_PENDING {
