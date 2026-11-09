@@ -29,6 +29,8 @@ use crate::errors::{ConfigError, EnrollmentError};
 use crate::identity::Identity;
 
 #[cfg(windows)]
+pub mod layout;
+#[cfg(windows)]
 mod log_file;
 #[cfg(windows)]
 pub mod migration;

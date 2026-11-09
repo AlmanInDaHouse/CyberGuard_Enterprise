@@ -453,6 +453,59 @@ fn shape_of(info: &BY_HANDLE_FILE_INFORMATION, path: &Path, kind: Kind) -> Resul
     }
 }
 
+/// What a name is, without following it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    Directory,
+    ReparsePoint,
+    Other,
+}
+
+fn shape_from(attributes: u32) -> Shape {
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        Shape::ReparsePoint
+    } else if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+        Shape::Directory
+    } else {
+        Shape::Other
+    }
+}
+
+/// What the object at `path` is, opened without following a reparse point and
+/// waiting on another process no longer than `wait`; `None` when nothing is
+/// there.
+pub(crate) fn shape(path: &Path, wait: Duration) -> Result<Option<Shape>, String> {
+    let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    let Some(handle) = open_existing(path, FILE_READ_ATTRIBUTES, share, wait)? else {
+        return Ok(None);
+    };
+    Ok(Some(shape_from(
+        file_information(&handle, path)?.dwFileAttributes,
+    )))
+}
+
+/// The entries of the directory `path`, each with what it is, from the
+/// directory's own listing: no entry is opened, so an opportunistic lock on
+/// one does not matter.
+pub(crate) fn listing(path: &Path, wait: Duration) -> Result<Vec<(String, Shape)>, String> {
+    use std::os::windows::fs::MetadataExt as _;
+    let owned = path.to_path_buf();
+    bounded(wait, path, move || {
+        let list_error = |e: std::io::Error| format!("list {}: {e}", owned.display());
+        std::fs::read_dir(&owned)
+            .map_err(list_error)?
+            .map(|entry| {
+                let entry = entry.map_err(list_error)?;
+                let attributes = entry.metadata().map_err(list_error)?.file_attributes();
+                Ok((
+                    entry.file_name().to_string_lossy().into_owned(),
+                    shape_from(attributes),
+                ))
+            })
+            .collect()
+    })
+}
+
 /// Check the object at `path` against `policy`; `Ok(false)` when nothing is
 /// there.
 pub fn check_if_exists(path: &Path, kind: Kind, policy: &Policy) -> Result<bool, String> {
