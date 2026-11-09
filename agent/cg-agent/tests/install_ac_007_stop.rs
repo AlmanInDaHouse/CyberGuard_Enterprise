@@ -161,13 +161,18 @@ async fn install_ac_007_a_final_request_failing_within_the_budget_completes() {
 async fn install_ac_007_a_delivered_final_request_completes_with_nothing_lost() {
     let pki = common::generate_test_pki(AGENT_ID);
     let mock = common::TlsMockServer::start(&pki, common::TlsMockMode::Normal).await;
-    let fixture = common::secure_fixture(&mock.base_url, &pki);
+    let mut fixture = common::secure_fixture(&mock.base_url, &pki);
+    // One heartbeat and no other: a stop with a batch in flight sends that
+    // batch and leaves the ring's events undelivered, which is another case.
+    fixture.config.heartbeat.interval_seconds = 3600;
     let ring = Arc::new(EventRing::new(65536));
     let (stop, run, _anchor) = start_run(fixture, Arc::clone(&ring), Some(STOP_DEADLINE));
     assert!(
         common::wait_until(Duration::from_secs(10), || mock.received_count() >= 1).await,
         "a first heartbeat"
     );
+    // The mock counts a request before it answers: let the answer arrive.
+    tokio::time::sleep(Duration::from_secs(1)).await;
     common::enqueue_launches(&ring, 1..=4);
     stop.send(()).expect("stop");
     let outcome = tokio::time::timeout(Duration::from_secs(20), run)
