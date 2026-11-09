@@ -1,0 +1,7 @@
+<Project Sdk="WixToolset.Sdk">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <OutputName>cyberguard-agent-$(ProductVersion)-x64</OutputName>
+    <DefineConstants>ProductVersion=$(ProductVersion);AgentExe=$(AgentExe)</DefineConstants>
+  </PropertyGroup>
+</Project>

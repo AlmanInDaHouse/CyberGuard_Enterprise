@@ -1,0 +1,27 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="CyberGuard Agent" Manufacturer="CyberGuard" Version="$(var.ProductVersion)"
+           UpgradeCode="AF9D0A74-7206-49F9-B391-645F1C1F05AD" Scope="perMachine" Compressed="yes" InstallerVersion="500">
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer CyberGuard Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="CyberGuardDir" Name="CyberGuard">
+        <Directory Id="INSTALLDIR" Name="Agent">
+          <Component Id="AgentExe" Guid="625894A2-2E34-41A3-B15D-407A6AC45566">
+            <File Id="cg_agent_exe" Source="$(var.AgentExe)" Name="cg-agent.exe" KeyPath="yes" />
+            <ServiceInstall Id="AgentService" Name="CyberGuardAgent" DisplayName="CyberGuard Agent" Type="ownProcess" Start="auto"
+                            ErrorControl="normal" Vital="yes"
+                            Arguments="--service --config &quot;[CommonAppDataFolder]CyberGuard\agent\agent.toml&quot;" />
+            <ServiceControl Id="AgentServiceControl" Name="CyberGuardAgent" Stop="both" Remove="uninstall" Wait="yes" />
+            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\CyberGuardAgent"
+                           Name="EventMessageFile" Type="expandable" Value="[#cg_agent_exe]" />
+            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\CyberGuardAgent"
+                           Name="TypesSupported" Type="integer" Value="7" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main">
+      <ComponentRef Id="AgentExe" />
+    </Feature>
+  </Package>
+</Wix>

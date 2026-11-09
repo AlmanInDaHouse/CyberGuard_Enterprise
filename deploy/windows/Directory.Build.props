@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <!-- SPEC-024 Amendment 2026-11-01, point 1: Manuel accepted this EULA and its fee on 2026-11-01. -->
+    <AcceptEula>wix7</AcceptEula>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,22 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Bundle Name="CyberGuard Agent" Manufacturer="CyberGuard" Version="$(var.ProductVersion)" UpgradeCode="B3D1FE6C-5F20-4E58-9B7A-3A7C8E1D4F10">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication LicenseFile="license.rtf" Theme="rtfLicense" />
+    </BootstrapperApplication>
+    <Variable Name="CG_BOOTSTRAP" Type="string" Value="" bal:Overridable="yes" />
+    <Variable Name="CG_SPIKE_PREFLIGHT" Type="string" Value="--version" bal:Overridable="yes" />
+    <Variable Name="CG_SPIKE_CONFIGURE" Type="string" Value="--version" bal:Overridable="yes" />
+    <util:FileSearch Variable="CgCert" Path="[CommonAppDataFolder]CyberGuard\agent\cert.pem" Result="exists" />
+    <bal:Condition Message="A console installation is present." Condition="WixBundleInstalled OR NOT CgCert = 1" />
+    <Chain>
+      <ExePackage Id="Preflight" PerMachine="yes" Vital="yes" DetectCondition="1 = 0" SourceFile="$(var.AgentExe)"
+                  InstallArguments="[CG_SPIKE_PREFLIGHT]" UninstallArguments="--version" />
+      <MsiPackage Id="Agent" SourceFile="$(var.Msi)" Vital="yes" />
+      <RollbackBoundary Id="Committed" Vital="yes" />
+      <ExePackage Id="Configure" CacheId="cg-configure" PerMachine="yes" Vital="yes" Permanent="yes" DetectCondition="" SourceFile="$(var.AgentExe)" Name="configure\cg-agent.exe"
+                  InstallArguments="[CG_SPIKE_CONFIGURE]" />
+    </Chain>
+  </Bundle>
+</Wix>

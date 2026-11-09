@@ -1,0 +1,11 @@
+<Project Sdk="WixToolset.Sdk">
+  <PropertyGroup>
+    <OutputType>Bundle</OutputType>
+    <OutputName>cyberguard-agent-$(ProductVersion)-x64-setup</OutputName>
+    <DefineConstants>ProductVersion=$(ProductVersion);AgentExe=$(AgentExe);Msi=$(Msi)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="[7.0.1]" />
+    <PackageReference Include="WixToolset.BootstrapperApplications.wixext" Version="[7.0.1]" />
+  </ItemGroup>
+</Project>

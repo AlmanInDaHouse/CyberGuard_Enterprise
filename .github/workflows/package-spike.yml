@@ -1,0 +1,63 @@
+name: package-spike
+
+# Spike, never landed: the PR that carries it is closed without merging.
+on:
+  pull_request:
+    paths:
+      - "deploy/windows/**"
+      - ".github/workflows/package-spike.yml"
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  spike:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: deploy/windows/global.json
+      - name: Build the agent
+        run: cargo build --release -p cg-agent
+      - name: cg-agent exit code on an unknown flag
+        run: |
+          & target\release\cg-agent.exe --no-such-flag
+          Write-Host "exit=$LASTEXITCODE"
+          exit 0
+      - name: Restore
+        working-directory: deploy/windows
+        run: |
+          dotnet restore pins/Pins.csproj
+          node pins/verify-pins.mjs
+          dotnet tool restore
+          node pins/verify-pins.mjs --tool
+      - name: Build two versions
+        working-directory: deploy/windows
+        run: |
+          $exe = (Resolve-Path ..\..\target\release\cg-agent.exe).Path
+          foreach ($v in '1.2.3','1.2.4') {
+            dotnet build --no-incremental msi/CyberGuardAgent.wixproj -c Release "-p:ProductVersion=$v" "-p:AgentExe=$exe" "-p:OutputPath=$env:RUNNER_TEMP\o$v\"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $msi = "$env:RUNNER_TEMP\o$v\cyberguard-agent-$v-x64.msi"
+            dotnet build --no-incremental bundle/CyberGuardSetup.wixproj -c Release "-p:ProductVersion=$v" "-p:AgentExe=$exe" "-p:Msi=$msi" "-p:OutputPath=$env:RUNNER_TEMP\o$v\"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+      - name: The experiments
+        run: pwsh -NoProfile -File deploy/windows/test/spike.ps1 "$env:RUNNER_TEMP\o1.2.3" "$env:RUNNER_TEMP\o1.2.4"
+      - name: The logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-logs
+          path: ${{ runner.temp }}/spike-logs
