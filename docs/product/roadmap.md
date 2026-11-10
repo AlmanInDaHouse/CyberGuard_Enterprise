@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-58.md](../handoff-session-58.md)).
+([handoff-session-59.md](../handoff-session-59.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -420,8 +420,11 @@ This dependency-ordered document supersedes both for planning.
   SPEC-024 Amendment 2026-11-09 with the threat model's, approved by Manuel
   (`f31aca3`), and the agent's static C runtime and message table (`3f04ca7`,
   CI ALL GREEN, elevated gate s58-gate1 green; `docs/handoff-session-58.md`).
-  The service's adoption, `cg-setup`, the MSI and the bundle
-  (install_ac_001/011/015, with #87's half) follow.
+  S59 landed the host's classification (`e7067be`) and the service's
+  adoption of the staged configuration (`8994b50`, SPEC-024 Amendment
+  2026-11-09, item 6), CI ALL GREEN (`docs/handoff-session-59.md`).
+  `cg-setup`, the MSI and the bundle (install_ac_001/011/015, with #87's
+  half) follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
