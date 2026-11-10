@@ -53,7 +53,10 @@ permissions:
 jobs:
   images:
     name: The four images and the bundle, from the commit
-    runs-on: ubuntu-latest
+    # ubuntu-latest began serving Ubuntu 26.04 on 2026-11-10, where the dashboard's next
+    # build dies with kill EACCES under this job's plain docker build; the release dry run
+    # below, whose buildx container builder does not, stays on ubuntu-latest.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
