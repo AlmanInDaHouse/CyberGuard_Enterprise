@@ -1951,7 +1951,7 @@ leaves stopped a service preflight stopped, until the setup runs again. In
 the fourth, a reversal on a host that became untrusted leaves the staged
 files, readable by SYSTEM and Administrators alone, until a setup passes
 its checks there. Manuel chose item 1's floor on 2026-11-10, in chat: "a, suelo en
-build 17763". The rest of this text awaits his approval. Status stays
+build 17763". He approved this text on 2026-11-10, in chat: "Sí, apruebo". Status stays
 **Accepted**.
 
 ## References
