@@ -1736,6 +1736,224 @@ recommended option: `cg-setup` on stock Burn; the service's adoption over
 approved this text on 2026-11-09, in chat: "Sí, apruebo". Status stays
 **Accepted**.
 
+## Amendment 2026-11-10: the setup's floor, its readings, the record, the stop and the outcome
+
+**What surfaced it.** C4, the first half of `cg-setup`
+(`docs/handoff-session-60.md`), and the plan of the second. Code 20 refuses
+an architecture but no Windows version, and `IsWow64Process2`, which
+`cg-setup` imports, is absent from early Windows 10 releases, so such a
+Windows fails to start it instead of exiting 20. Item 3 of the Amendment
+2026-11-09 leaves four of preflight's readings open (#151). It names a
+conflicting service (26) and a downgrade found from the installed binary
+(29) without saying what either is, `setup-attempt.json` without its form,
+and the reversal without how Burn reaches it. Item 7 names 45 without
+saying where the setup learns of a restart, and its heartbeat line is
+pinned by no test of the agent. The Amendment 2026-11-01, point 4, governs
+the real SCM tests of `cg-agent` alone. This amendment settles those
+points.
+Below, the product service is the service named `CyberGuardAgent`, its
+command line is the one §Data contracts §3 gives with the fixed paths, and
+the installed binary is `<ProgramFiles>\CyberGuard\Agent\cg-agent.exe`, with
+`<ProgramFiles>` resolved through the OS (§Data contracts §2).
+
+**Amendment.**
+
+1. **The platform's floor.** Code 20 is also a Windows below version 10.0
+   build 17763 (Windows 10 1809, Windows Server 2019). The compatibility
+   record (§Test scenarios) names Windows 10 without a build and Server
+   2019, whose build this is, so earlier Windows 10 releases are outside
+   it.
+   `cg-setup` reads the version with `RtlGetVersion`, which no
+   compatibility manifest changes, before any other check, and its line
+   names the version it read: a compatibility mode applied to the setup
+   lowers it, which yields 20. It resolves `IsWow64Process2` at run time
+   after that check, so that a Windows 10 below the floor reaches the check
+   and exits 20. The Rust standard library of this target supports
+   Windows 10 and later; a Windows before 10 that does not load `cg-setup`
+   gets its package's failure from setup.exe, not 20.
+2. **Item 3's readings (#151).** An untrusted state is 27 whatever the
+   request asks, a migration included: its bullet refuses it as a state.
+   On a migration in progress or a console layout, a request that gives a
+   bootstrap, or asks for no migration, is 28. A migration request whose
+   form is not the service's is 24 there. A host whose names cannot be
+   read is 27, in the order of states of that item 3, the service's own
+   reading. A
+   `%ProgramData%`, `%ProgramFiles%` or host name that Windows does not
+   report is 40.
+3. **A conflicting service (26).** A product service whose configuration
+   cannot be read, or is not the product's, is a conflicting service. It
+   is not the product's when its type is not exactly own process, its
+   account not `LocalSystem`, or its command line not the product's, the
+   two paths in it equal but for ASCII case, as the service compares them
+   (the Amendment 2026-11-04, item 2), and the rest exactly.
+   Its start type is not compared: a disabled service is 41 at configure.
+   The check runs on every route, a migration's included, since the
+   service's configuration is not a file under `<P>`. On the migration
+   route a product service in any state but `STOPPED` is 26 too. No
+   product service is no conflict. A service control manager that cannot
+   be opened is 40.
+4. **A downgrade (29).** Preflight reads the installed binary's version
+   resource, on every route. A numeric file version above `X.Y.Z.0`, where
+   `X.Y.Z` is the numeric version `cg-setup` was built with, is 29. An
+   installed binary that does not exist is none. One that exists and whose
+   version cannot be read is 40.
+5. **The staging and the record.** On every route but a migration's, after
+   items 3 and 4, preflight removes the staged files and the record an
+   earlier attempt left. Before any removal or creation under `<P>`, it
+   holds `<P>` and the data root open, each as it finds or creates it,
+   without following them and sharing no deletion, and checks them through
+   those handles with the service's check of them. A directory it creates
+   is created new: a name that is there by then, or one that fails that
+   check, is 27. It deletes each name without following it, and a
+   directory under one of those names is 27. On a route that stages it
+   creates what is absent of `<P>` and the data root, writes
+   `setup-attempt.json`, and creates the staged anchor and the staged
+   configuration, in that order. On the route that starts without input,
+   it writes the record alone. The record is created new, with the staged
+   files' security. It holds a JSON object of at most 64 KiB with exactly
+   these keys:
+   - `format`, the number 1;
+   - `created`, the names it created or is about to create, from
+     `product_root`, `data_root`, `staged_anchor` and `staged_config`;
+   - `fingerprints`, the anchor's, an empty array when nothing is staged;
+   - `service_running`, whether the product service was in a state other
+     than `STOPPED`, `STOP_PENDING` included, before preflight stopped
+     it.
+
+   It names no path and holds no secret. A refusal or failure after the
+   record removes what the record names, in this order: the staged files,
+   the record, then the data root and `<P>`, each only if the record names
+   it and it is empty. That happens before preflight returns. A crash
+   before the record, or between the record's removal and a directory's,
+   leaves empty directories with their final security, which the next
+   preflight accepts.
+6. **The stop (31).** Preflight then sends the product service, if it is
+   not `STOPPED`, the stop control. Within 75 seconds of the first request
+   it proves `STOPPED`, sending the control again while the service cannot
+   accept it. A service still in another state at the end is 31, after the
+   removal of item 5. A service that does not exist needs no stop.
+7. **The reversal.** Burn reaches it as `cg-setup`'s `reverse` verb (item
+   9) when it rolls preflight back. Before it opens any file, the reversal
+   reads the host's state as preflight does (item 3 of the Amendment
+   2026-11-09). On an untrusted state, a migration in progress, a console
+   layout or a host with no data root it changes nothing and exits 0. A
+   host whose names cannot be read, which preflight refuses as untrusted,
+   is the one untrusted state on which it exits 40 instead.
+   Otherwise it holds `<P>` and the data root as item 5 does, and changes
+   nothing, with exit 0, if either fails that check. It then reads the
+   record with item 8's checks of the record. With no record it changes
+   nothing and exits 0. A deletion that fails is 40.
+   With a record that passes them, it removes what the record names, in
+   item 5's order, and then starts the product service with no argument
+   when `service_running` is true. With a record that fails them, it
+   removes the staged files and the record by their names, starts nothing,
+   and exits 40. Each name is deleted without following it, and a
+   directory under one of those names is left, with exit 40. A record that
+   a crash left behind belongs to that earlier attempt, and the next
+   preflight that passes items 3 and 4 removes it (item 5). Until then a
+   reversal that reads it starts the service only if that attempt had
+   found it running.
+8. **Configure.** It reads no input file. On a route other than a
+   migration's, it holds `<P>` and the data root as item 5 does, 40 if
+   either fails that check, and reads the record as item 6.4 of the Amendment
+   2026-11-09 opens a staged file, and checks its form: these are the
+   record's checks. On a route that staged it checks each staged file that
+   way. Either failure is 40, and leaves the record for the next preflight.
+   - **The version.** The installed binary's numeric file version must be
+     `X.Y.Z.0`, and its `ProductVersion` string `cg-setup`'s own version.
+     If not, configure starts nothing and leaves the record. It exits 45
+     when Windows holds a rename onto the installed binary for the next
+     restart (`PendingFileRenameOperations` or
+     `PendingFileRenameOperations2`, a destination compared without its
+     `!` and `\??\` prefixes and equal but for ASCII case), and 40
+     otherwise. After
+     that restart the product service starts without arguments, so the
+     staged files are not adopted, and the operator runs the setup again,
+     as before.
+   - **The failure actions.** Item 8 of the Amendment 2026-11-09 sets the
+     failure-actions flag to false, which its "left unset" means: a flag
+     set earlier is cleared.
+   - **The start.** With the record's fingerprints it starts the service
+     with the arguments of the Amendment 2026-11-09, item 6. With an empty list it starts the service
+     with none. On the migration route it uses the arguments of the
+     Amendment 2026-11-05, item 1, from its own variables.
+   - **The outcome.** The identity line of the Amendment 2026-11-09, item
+     7, is the agent's `agent identity ready` and its heartbeat line the agent's `signed heartbeat sent`,
+     each a JSON line whose `fields.message` is that text. A test of the
+     agent pins both. Before the start, configure records the log's
+     position: the file ID and size of `agent.jsonl`, or its absence, and
+     the IDs of the log files present. It then reads, without following a
+     reparse point and sharing read, write and delete, that file from that
+     size, wherever rotation has moved it, then each log file whose ID was
+     not present, oldest first (the archives from the highest number, then
+     `agent.rotating.jsonl`, then `agent.jsonl`), each up to its last line
+     end. The 60
+     seconds run from the start request. A service that reports `STOPPED`
+     in them is 42, and one still pending at their end is 43. One
+     `RUNNING` whose two lines have not both appeared in order by then is
+     44.
+9. **`cg-setup`'s command line.** Burn runs `cg-setup.exe` with one verb,
+   `preflight`, `configure` or `reverse`. `preflight` takes `--bootstrap=`,
+   `--migrate-legacy=` and `--trust-anchors=`, `configure` the last two,
+   from the bundle variables of item 2, each at most once, an empty value
+   as not given. `reverse` takes nothing. `cg-setup --version` answers
+   `cg-setup <version>`. Any other command line is 40. Each verb checks
+   item 1 and the elevation first. `cg-setup` writes its refusal or
+   failure as one line on standard error, never the token or a line of an
+   input file. Its version resource follows the agent's (the Amendment
+   2026-11-01, point 2) with its own file name, and carries no message
+   table.
+
+**Tests.** Item 1's comparison is tested on build numbers below, at and
+above the floor. Item 5's staging and the reversal are tested on temporary
+roots, with a failure injected at each step. The product service's checks,
+the stop, the failure actions and the observer are tested against test
+services of their own name: `cg-setup`'s SCM client takes the service's
+name, as its tests take the paths. Those tests follow the Amendment
+2026-11-01, point 4, as `cg-agent`'s SCM tests do: a test-only feature of
+`cg-setup`, rust-ci's Windows job alone, a failure without acting off a
+GitHub-hosted runner, and their red run on a probe pull request; CLAUDE.md
+states it. The real `cg-setup` runs against the host only in `package-ci`,
+under the Amendment 2026-11-09's *Tests*: `preflight` and then `reverse` on
+a fresh hosted runner, with a bootstrap file and anchor the test creates
+and a token from which every privilege but `SeChangeNotifyPrivilege` is
+deleted. That asserts the staged files' security, the record and its
+removal, and that the staging needs no privilege.
+
+**Effect.** §Scope's "Windows x86-64" gains item 1's floor; the
+compatibility record and #59 are unchanged. Item 3 of the Amendment
+2026-11-09 changes by items 2 to 7, which supersede it where they differ
+(an untrusted state with a migration requested is 27, not 28; the
+reversal is narrowed to item 7's): its conflicting service and downgrade are
+checked on the migration route too, and the order it gives (record, then
+stop) holds, with item 5's order inside the staging. Its item 5 gains item
+8, and its item 7 gains item 8's lines and 45's cause. Its item 7's code 40
+gains the causes of items 2, 3, 4, 7 and 9: what the setup could not read
+of the host or of its own state before the MSI, the reversal's failure, and
+a command line Burn did not form; its 27 gains item 5's names. Its item
+8's "left unset" is item 8's flag set to false. §Operational §4's "Refuse downgrade ... before stopping a
+healthy service" is item 4, which precedes item 6's stop. The Amendment
+2026-11-01, point 4, covers `cg-setup`'s SCM tests. No ADR changes. No
+dependency of `cg-agent` or privilege is added, and no operator input: item
+9's command line is Burn's, not the operator's, and carries no secret. The
+stop, the record and the reversal are those of the Amendment 2026-11-09's
+item 3, with which the threat model's Amendment 2026-11-09 was ratified.
+The reversal opens no file under `<P>` on a host where preflight opens
+none (item 7). The record is written and read only in a data root held
+open and checked as item 5 says. Four cases stay with the setup's
+administrator, within that threat model's "elevated administration is not
+a threat boundary". In the first, a record a crash left behind drives a
+later reversal (item 7). In the second, a second setup that runs while the
+service is still adopting replaces staged files the service then renames
+without checking them; the service then refuses them (code 2 or 6, owner
+not SYSTEM). In the third, a configure that exits 40 or 45 before its start
+leaves stopped a service preflight stopped, until the setup runs again. In
+the fourth, a reversal on a host that became untrusted leaves the staged
+files, readable by SYSTEM and Administrators alone, until a setup passes
+its checks there. Manuel chose item 1's floor on 2026-11-10, in chat: "a, suelo en
+build 17763". The rest of this text awaits his approval. Status stays
+**Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
