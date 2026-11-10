@@ -165,7 +165,10 @@ elevated runner the filtered-token assertion catches it.
 
 ### Manuel's decisions in chat
 
-None this session.
+- 2026-11-10, on the platform's version floor (*Waiting on Manuel*,
+  option a): "a, suelo en build 17763". `cg-setup`'s code 20 refuses a
+  Windows build below 17763 (Windows 10 1809 / Server 2019). It lands in
+  C5: a SPEC-024 amendment that states the floor, then the check.
 
 ## Self-review (CLAUDE.md compensating control 5)
 
@@ -289,7 +292,10 @@ later (*Waiting on Manuel*); `Inputs`' `Debug` prints the URLs whole.
 
 ## Waiting on Manuel
 
-One question, not blocking: **the platform's version floor.** §Scope says
+Nothing. The question below was answered after the close (*Manuel's
+decisions in chat*: option a, build 17763); it is kept as it was asked.
+
+**The platform's version floor.** §Scope says
 "Windows x86-64" and the matrix names Windows 11, 10 and Server 2019; code 20
 refuses another architecture but no Windows version, and `IsWow64Process2`
 makes `cg-setup` load only on Windows 10 1709 (build 16299) or later, so an
@@ -306,8 +312,10 @@ The release-tag freeze stays.
 1. Run the start protocol (CLAUDE.md). `main` is this handoff's close
    commit; no PR; 55 open debts; 22 ADRs / 23 SPECs. Check memory before a
    full gate.
-2. Ask Manuel's answer on the version floor, if he has not given it; it
-   lands with C5's platform check.
+2. The version floor is decided (build 17763, Manuel on 2026-11-10): C5's
+   SPEC-024 amendment states it with #151's readings, and code 20 refuses a
+   lower build, read with `RtlGetVersion` (not `GetVersionEx`, which a
+   manifest-less executable is lied to by), tested below and at the floor.
 3. C5, one commit per push, each through a PR, contract tests first: the
    staging (`<P>` and the data root created, the staged files created new
    with their security, the record), the conflicting service (26), the
