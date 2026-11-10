@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-59.md](../handoff-session-59.md)).
+([handoff-session-60.md](../handoff-session-60.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -423,7 +423,11 @@ This dependency-ordered document supersedes both for planning.
   S59 landed the host's classification (`e7067be`) and the service's
   adoption of the staged configuration (`8994b50`, SPEC-024 Amendment
   2026-11-09, item 6), CI ALL GREEN (`docs/handoff-session-59.md`).
-  `cg-setup`, the MSI and the bundle (install_ac_001/011/015, with #87's
+  S60 landed `cg-setup` as a workspace member with preflight's inputs, the
+  host's state and the staged configuration (C4: `427fa31`, `023504c`,
+  `a801019`; install_ac_002's setup half for the inputs), CI ALL GREEN
+  (`docs/handoff-session-60.md`). The staging, the SCM client and the
+  verbs (C5), the MSI and the bundle (install_ac_001/011/015, with #87's
   half) follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
