@@ -14,6 +14,9 @@ pub mod inputs;
 pub mod platform;
 #[cfg(windows)]
 pub mod preflight;
+pub mod record;
 pub mod staged;
+#[cfg(windows)]
+pub mod staging;
 
 pub use codes::Refusal;

@@ -7,9 +7,9 @@ repository.workspace = true
 publish.workspace = true
 description = "CyberGuard agent setup's elevated code: preflight, staging and configure (SPEC-024 Amendment 2026-11-09)."
 
-# The executable and its verbs land with the staging and the SCM client
-# (SPEC-024 Amendment 2026-11-09, items 3, 5 and 7); this crate holds, for
-# now, what preflight reads and decides.
+# The executable and its verbs land later (SPEC-024 Amendment
+# 2026-11-10, item 9); this crate holds, for now, what preflight reads and
+# decides, the staging, the record and the reversal.
 [lib]
 name = "cg_setup"
 path = "src/lib.rs"
@@ -19,6 +19,7 @@ path = "src/lib.rs"
 [dependencies]
 cg-agent = { path = "../cg-agent" }
 pem = "3"
+serde_json = "1.0"
 toml = "0.8"
 uuid = { version = "1.10", features = ["v7"] }
 zeroize = "1.8"

@@ -91,6 +91,11 @@ impl Names {
         (self.data_root == Some(Shape::ReparsePoint)).then_some(paths.data_root.as_path())
     }
 
+    /// What the data root is, if `<P>` lists it.
+    pub fn data_root(&self) -> Option<Shape> {
+        self.data_root
+    }
+
     /// Why the data root could not be listed, if it could not.
     pub fn unlisted(&self) -> Option<&str> {
         self.unlisted.as_deref()
@@ -128,10 +133,21 @@ impl Names {
 /// check of `<P>` and the data root (Amendment 2026-11-04, item 3). What cannot
 /// be read is untrusted: nothing can be said of the host.
 pub fn classify(paths: &InstalledPaths, directories: &Policy, wait: Duration) -> HostState {
-    let names = match Names::read(paths, wait) {
-        Ok(names) => names,
-        Err(reason) => return HostState::Untrusted(reason),
-    };
+    match Names::read(paths, wait) {
+        Ok(names) => classify_names(&names, paths, directories, wait),
+        Err(reason) => HostState::Untrusted(reason),
+    }
+}
+
+/// `classify` of names already read: the setup's reversal tells names that
+/// cannot be read from the other untrusted states (SPEC-024 Amendment
+/// 2026-11-10, item 7).
+pub fn classify_names(
+    names: &Names,
+    paths: &InstalledPaths,
+    directories: &Policy,
+    wait: Duration,
+) -> HostState {
     if let Some(path) = names.reparse_point(paths) {
         return HostState::Untrusted(format!("{} is a reparse point", path.display()));
     }

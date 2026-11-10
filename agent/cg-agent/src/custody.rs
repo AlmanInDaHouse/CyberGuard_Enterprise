@@ -351,7 +351,7 @@ impl Drop for Descriptor {
 }
 
 /// A handle closed on drop.
-pub(crate) struct Handle(pub(crate) HANDLE);
+pub struct Handle(pub(crate) HANDLE);
 
 // SAFETY: a file handle may be used from any thread; this value owns it and
 // hands it from one thread to the next (`bounded`).
@@ -371,7 +371,7 @@ impl Handle {
     }
 
     /// Hand the handle to a `File`, which closes it.
-    pub(crate) fn into_file(self) -> File {
+    pub fn into_file(self) -> File {
         let raw = self.0;
         std::mem::forget(self);
         // SAFETY: a file handle this value owned, handed to the File.
@@ -379,7 +379,7 @@ impl Handle {
     }
 }
 
-pub(crate) fn file_information(
+pub fn file_information(
     handle: &Handle,
     path: &Path,
 ) -> Result<BY_HANDLE_FILE_INFORMATION, String> {
@@ -404,7 +404,7 @@ pub const OPEN_WAIT: Duration = Duration::from_secs(30);
 
 /// Open `path` without following a reparse point; `None` when nothing is
 /// there. A directory opens too, so that the caller's kind check names it.
-pub(crate) fn open_existing(
+pub fn open_existing(
     path: &Path,
     access: u32,
     share: u32,
@@ -442,7 +442,7 @@ fn open_raw(path: &Path, access: u32, share: u32) -> Result<Option<Handle>, u32>
 }
 
 /// The kind, link and reparse checks on an open handle.
-pub(crate) fn check_shape(handle: &Handle, path: &Path, kind: Kind) -> Result<(), String> {
+pub fn check_shape(handle: &Handle, path: &Path, kind: Kind) -> Result<(), String> {
     shape_of(&file_information(handle, path)?, path, kind)
 }
 
@@ -481,7 +481,7 @@ fn shape_from(attributes: u32) -> Shape {
 /// What the object at `path` is, opened without following a reparse point and
 /// waiting on another process no longer than `wait`; `None` when nothing is
 /// there.
-pub(crate) fn shape(path: &Path, wait: Duration) -> Result<Option<Shape>, String> {
+pub fn shape(path: &Path, wait: Duration) -> Result<Option<Shape>, String> {
     let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
     let Some(handle) = open_existing(path, FILE_READ_ATTRIBUTES, share, wait)? else {
         return Ok(None);
@@ -775,7 +775,7 @@ pub(crate) fn security_of(handle: &Handle, path: &Path) -> Result<Descriptor, St
 
 /// One of `policy`'s owners owns the object, and its DACL allows no
 /// principal outside `policy` (deny entries may name anyone).
-pub(crate) fn check_security(handle: &Handle, path: &Path, policy: &Policy) -> Result<(), String> {
+pub fn check_security(handle: &Handle, path: &Path, policy: &Policy) -> Result<(), String> {
     check_descriptor(&security_of(handle, path)?, path, policy)
 }
 
@@ -965,7 +965,7 @@ impl std::fmt::Display for FileId {
     }
 }
 
-pub(crate) fn file_id(info: &BY_HANDLE_FILE_INFORMATION) -> FileId {
+pub fn file_id(info: &BY_HANDLE_FILE_INFORMATION) -> FileId {
     FileId {
         volume: info.dwVolumeSerialNumber,
         index: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
@@ -1087,7 +1087,7 @@ pub(crate) fn set_security(
 
 /// Create the directory `path`, which must not exist, with `sddl` as its
 /// security.
-pub(crate) fn create_new_directory(path: &Path, sddl: &str) -> Result<(), String> {
+pub fn create_new_directory(path: &Path, sddl: &str) -> Result<(), String> {
     let descriptor = Descriptor::from_sddl(sddl)?;
     let attributes = descriptor.attributes();
     let name = wide(path);
@@ -1130,7 +1130,7 @@ pub(crate) fn rename(from: &Path, to: &Path, wait: Duration) -> Result<(), Strin
 /// its name holds by then. The read-only attribute, which ordinary users may
 /// have set, does not keep it, and its name goes with this handle, whatever
 /// other handles remain. Where the file system lacks that form, the plain one.
-pub(crate) fn delete_through(handle: Handle, path: &Path, wait: Duration) -> Result<(), String> {
+pub fn delete_through(handle: Handle, path: &Path, wait: Duration) -> Result<(), String> {
     let owned = path.to_path_buf();
     bounded(wait, path, move || {
         // The whole value moves here, and the handle closes with it.
@@ -1179,7 +1179,7 @@ pub(crate) fn delete_through(handle: Handle, path: &Path, wait: Duration) -> Res
 /// The entries of the directory `path`, by name; a name that is not valid
 /// Unicode comes out with a replacement character, which matches no name of
 /// the product's.
-pub(crate) fn entries(path: &Path, wait: Duration) -> Result<Vec<String>, String> {
+pub fn entries(path: &Path, wait: Duration) -> Result<Vec<String>, String> {
     let owned = path.to_path_buf();
     bounded(wait, path, move || {
         let reader =
