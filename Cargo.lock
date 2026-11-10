@@ -426,6 +426,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cg-setup"
+version = "0.1.0"
+dependencies = [
+ "cg-agent",
+ "pem",
+ "rcgen",
+ "tempfile",
+ "toml",
+ "uuid",
+ "windows-sys 0.59.0",
+ "zeroize",
+]
+
+[[package]]
 name = "chacha20"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

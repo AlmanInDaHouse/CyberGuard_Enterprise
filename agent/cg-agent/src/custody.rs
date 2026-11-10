@@ -42,14 +42,14 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateDirectoryW, CreateFileW, DeleteFileW, FileCaseSensitiveInfo, FileDispositionInfo,
-    FileDispositionInfoEx, GetFileInformationByHandle, GetFileInformationByHandleEx, MoveFileExW,
-    SetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, CREATE_NEW, FILE_ATTRIBUTE_DIRECTORY,
-    FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT, FILE_DISPOSITION_FLAG_DELETE,
-    FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
-    FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX, FILE_FLAG_BACKUP_SEMANTICS,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, OPEN_EXISTING,
-    READ_CONTROL, WRITE_DAC, WRITE_OWNER,
+    FileDispositionInfoEx, GetFileInformationByHandle, GetFileInformationByHandleEx,
+    GetFinalPathNameByHandleW, MoveFileExW, SetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    CREATE_NEW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+    FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING,
+    MOVEFILE_WRITE_THROUGH, OPEN_EXISTING, READ_CONTROL, VOLUME_NAME_NT, WRITE_DAC, WRITE_OWNER,
 };
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::SystemInformation::{
@@ -57,6 +57,7 @@ use windows_sys::Win32::System::SystemInformation::{
 };
 use windows_sys::Win32::System::IO::CancelSynchronousIo;
 use windows_sys::Win32::UI::Shell::{FOLDERID_ProgramData, SHGetKnownFolderPath};
+use zeroize::Zeroizing;
 
 /// The ACE types a checked DACL may hold (winnt.h); any other is refused.
 const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
@@ -918,7 +919,7 @@ fn failure(verb: &str, path: &Path, error: u32) -> String {
 /// 2026-11-05). The operation sees the cancellation as its own failure. A
 /// thread the cancellation cannot reach is left behind, and the object is
 /// reported as in use.
-pub(crate) fn bounded<T, F>(wait: Duration, path: &Path, operation: F) -> Result<T, String>
+pub fn bounded<T, F>(wait: Duration, path: &Path, operation: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
@@ -1254,4 +1255,94 @@ pub fn hostname() -> Result<String, String> {
     }
     String::from_utf16(&buffer[..size as usize])
         .map_err(|_| "the host name is not valid Unicode".to_string())
+}
+
+/// The NT prefixes of the network redirectors: every one reaches its files
+/// through the multiple UNC provider; the second is its pre-Vista name.
+const REMOTE_PREFIXES: [&str; 2] = ["\\Device\\Mup\\", "\\Device\\LanmanRedirector\\"];
+
+/// Whether a file's NT path, as `GetFinalPathNameByHandleW` gives it with
+/// `VOLUME_NAME_NT`, is on a network redirector's volume.
+pub fn is_remote_nt_path(nt_path: &str) -> bool {
+    REMOTE_PREFIXES.iter().any(|prefix| {
+        nt_path
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    })
+}
+
+/// The NT path of the object behind `handle`.
+fn nt_path(handle: &Handle, path: &Path) -> Result<String, String> {
+    let mut buffer = vec![0u16; 512];
+    loop {
+        // SAFETY: an open handle and a buffer of its length.
+        let written = unsafe {
+            GetFinalPathNameByHandleW(
+                handle.0,
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                VOLUME_NAME_NT,
+            )
+        } as usize;
+        if written == 0 {
+            return Err(format!(
+                "read the volume of {}: Win32 error {}",
+                path.display(),
+                last_error()
+            ));
+        }
+        if written < buffer.len() {
+            return Ok(String::from_utf16_lossy(&buffer[..written]));
+        }
+        // Too small: `written` is the size needed, its NUL included.
+        buffer.resize(written + 1, 0);
+    }
+}
+
+/// Open the regular local file `path` without following a reparse point,
+/// sharing read access alone, check its owner and DACL against `policy`, its
+/// volume and its size against `limit` through that handle, and read it whole
+/// through it into memory that is zeroed when dropped (SPEC-024 §Data
+/// contracts §3: the bootstrap file). `Ok(None)` when it is absent.
+pub fn read_local_checked(
+    path: &Path,
+    limit: u64,
+    policy: &Policy,
+    wait: Duration,
+) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
+    let owned = path.to_path_buf();
+    let policy = policy.clone();
+    bounded(wait, path, move || {
+        let handle = match open_raw(
+            &owned,
+            GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ,
+        ) {
+            Ok(Some(handle)) => handle,
+            Ok(None) => return Ok(None),
+            Err(error) => return Err(failure("open", &owned, error)),
+        };
+        let info = file_information(&handle, &owned)?;
+        shape_of(&info, &owned, Kind::File)?;
+        if is_remote_nt_path(&nt_path(&handle, &owned)?) {
+            return Err(format!("{} is not on a local volume", owned.display()));
+        }
+        check_security(&handle, &owned, &policy)?;
+        let size = (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow);
+        if size > limit {
+            return Err(format!("{} is larger than {limit} bytes", owned.display()));
+        }
+        // Sized once, so that reading does not reallocate and leave a copy
+        // that is not zeroed; no writer can grow it while the handle is open.
+        let mut bytes = Zeroizing::new(Vec::with_capacity(size as usize + 1));
+        handle
+            .into_file()
+            .take(limit + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("read {}: {e}", owned.display()))?;
+        if bytes.len() as u64 > limit {
+            return Err(format!("{} is larger than {limit} bytes", owned.display()));
+        }
+        Ok(Some(bytes))
+    })
 }

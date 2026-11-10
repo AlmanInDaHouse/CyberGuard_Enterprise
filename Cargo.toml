@@ -1,13 +1,14 @@
 # CyberGuard — Rust workspace root.
-# Members are concrete crates under agent/. Currently a single crate:
-# cg-agent (per SPEC-001). The forward-looking split into
+# Members are concrete crates under agent/: cg-agent (per SPEC-001) and
+# cg-setup, the setup's elevated code (SPEC-024 Amendment 2026-11-09,
+# item 1). The forward-looking split into
 # cg-agent-core / -windows / -linux / -cli (placeholders under
 # agent/crates/) is preserved as roadmap and will land as separate
 # members when the codebase justifies the split.
 
 [workspace]
 resolver = "2"
-members = ["agent/cg-agent"]
+members = ["agent/cg-agent", "agent/cg-setup"]
 
 [workspace.package]
 edition = "2021"

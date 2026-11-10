@@ -31,6 +31,7 @@ use crate::identity::Identity;
 
 #[cfg(windows)]
 pub mod adoption;
+pub mod anchor;
 #[cfg(windows)]
 pub mod layout;
 #[cfg(windows)]
@@ -201,6 +202,42 @@ pub fn check_service_config(path: &Path, config: &AgentConfig) -> Result<(), Str
             "cg-agent: invalid config {}: the service requires [enrollment] and server.trust_anchor_path",
             path.display()
         ));
+    }
+    Ok(())
+}
+
+/// The most the service reads of a file it adopts or migrates, and the setup
+/// of a file it is given: far above anything the agent writes, and a bound on
+/// what a replaced file can cost.
+pub const READ_LIMIT: u64 = 16 * 1024 * 1024;
+
+/// The staged configuration's checks (SPEC-024 Amendment 2026-11-09, item
+/// 6.4): the service's checks of `agent.toml`, a token and no `setup` table.
+/// The adoption applies them to what it reads and the setup to what it
+/// generates (item 3). The error is the line, which names `path` and quotes
+/// nothing of the file.
+pub fn check_staged_config(
+    paths: &InstalledPaths,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let invalid = |reason: &str| format!("cg-agent: invalid config {}: {reason}", path.display());
+    let text = std::str::from_utf8(bytes).map_err(|_| invalid("the file is not UTF-8"))?;
+    let config = crate::config::load_from_str(text).map_err(|e| config_error_line(path, &e))?;
+    let document: toml::Value = text
+        .parse()
+        .map_err(|_| invalid("the file is not valid TOML"))?;
+    if document.get("setup").is_some() {
+        return Err(invalid("a staged configuration holds no setup table"));
+    }
+    check_installed_config(paths, path, &config)?;
+    let has_token = config
+        .enrollment
+        .as_ref()
+        .and_then(|enrollment| enrollment.token.as_deref())
+        .is_some_and(|token| !token.is_empty());
+    if !has_token {
+        return Err(invalid("the staged configuration has no enrollment token"));
     }
     Ok(())
 }

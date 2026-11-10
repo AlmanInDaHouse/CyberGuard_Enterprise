@@ -20,9 +20,7 @@ use super::migration::{
     check_anchor, close, counts, identity_line, in_place, invalid_arguments, naming,
     other_combination, refused, Environment, Injected, Point, Stop, READ_LIMIT, SHARE_ALL,
 };
-use super::{
-    check_installed_config, config_error_line, stderr_service_log, InstalledPaths, EXIT_SERVICE_LOG,
-};
+use super::{check_staged_config, config_error_line, stderr_service_log, EXIT_SERVICE_LOG};
 use crate::custody::{self, Handle, Policy};
 use crate::errors::{ConfigError, TlsError};
 
@@ -107,30 +105,6 @@ fn read_staged(
     )?)
 }
 
-/// The staged configuration's own checks: its line when it is refused, which
-/// names the file and quotes nothing of it.
-fn check_staged_config(paths: &InstalledPaths, path: &Path, bytes: Vec<u8>) -> Result<(), String> {
-    let invalid = |reason: &str| format!("cg-agent: invalid config {}: {reason}", path.display());
-    let text = String::from_utf8(bytes).map_err(|_| invalid("the file is not UTF-8"))?;
-    let config = crate::config::load_from_str(&text).map_err(|e| config_error_line(path, &e))?;
-    let document: toml::Value = text
-        .parse()
-        .map_err(|_| invalid("the file is not valid TOML"))?;
-    if document.get("setup").is_some() {
-        return Err(invalid("a staged configuration holds no setup table"));
-    }
-    check_installed_config(paths, path, &config)?;
-    let has_token = config
-        .enrollment
-        .as_ref()
-        .and_then(|enrollment| enrollment.token.as_deref())
-        .is_some_and(|token| !token.is_empty());
-    if !has_token {
-        return Err(invalid("the staged configuration has no enrollment token"));
-    }
-    Ok(())
-}
-
 /// Item 6.4 for the configuration (code 2).
 fn hold_config(environment: &Environment<'_>) -> Result<Handle, Stop> {
     let path = environment.paths.staged_config();
@@ -145,7 +119,7 @@ fn hold_config(environment: &Environment<'_>) -> Result<Handle, Stop> {
         Ok(None) => return Err(no_staged_configuration(&path)),
         Err(cut) => return Err(cut_short(cut, invalid)),
     };
-    check_staged_config(&environment.paths, &path, bytes).map_err(|line| refused(2, line))?;
+    check_staged_config(&environment.paths, &path, &bytes).map_err(|line| refused(2, line))?;
     Ok(handle)
 }
 

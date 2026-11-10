@@ -9,6 +9,7 @@ The agent is a self-deployable program that sends telemetry (processes, network,
 | Path | Purpose |
 |---|---|
 | [`cg-agent/`](cg-agent/) | First concrete crate. Member of the workspace at the repo root. Implements SPEC-001/002/003 and Windows process capture (SPEC-005, SPEC-017). |
+| [`cg-setup/`](cg-setup/) | The setup's elevated code (SPEC-024 Amendment 2026-11-09): preflight's inputs, the host's state and the configuration it stages. Member of the workspace. |
 | [`crates/`](crates/) | Roadmap placeholders for the forward-looking multi-crate split (cg-agent-core / -windows / -linux / -cli). Each `README.md` describes the future crate; no code lives there yet. |
 
 The workspace lives at the **repository root** ([`/Cargo.toml`](../Cargo.toml)) so that future Rust projects in this repo can join the same workspace without reorganising paths.

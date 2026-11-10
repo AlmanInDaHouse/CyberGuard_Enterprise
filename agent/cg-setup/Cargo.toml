@@ -1,0 +1,45 @@
+[package]
+name = "cg-setup"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "CyberGuard agent setup's elevated code: preflight, staging and configure (SPEC-024 Amendment 2026-11-09)."
+
+# The executable and its verbs land with the staging and the SCM client
+# (SPEC-024 Amendment 2026-11-09, items 3, 5 and 7); this crate holds, for
+# now, what preflight reads and decides.
+[lib]
+name = "cg_setup"
+path = "src/lib.rs"
+
+# No new third-party crate (SPEC-024 Amendment 2026-11-09, item 1): each one
+# below is already a dependency of cg-agent, at the same requirement.
+[dependencies]
+cg-agent = { path = "../cg-agent" }
+pem = "3"
+toml = "0.8"
+uuid = { version = "1.10", features = ["v7"] }
+zeroize = "1.8"
+
+# The workspace's existing Windows binding: IsWow64Process2 for the platform,
+# CheckTokenMembership for the elevation.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+# The tests' certificates, as cg-agent's tests make theirs.
+rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Security_Authorization",
+] }

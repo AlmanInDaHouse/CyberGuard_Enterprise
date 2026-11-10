@@ -23,9 +23,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use rustls::pki_types::pem::PemObject as _;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use windows_sys::Win32::Foundation::GENERIC_ALL;
 use windows_sys::Win32::Storage::FileSystem::{
     DELETE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_READ_ATTRIBUTES,
@@ -33,6 +31,9 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use zeroize::Zeroizing;
 
+pub(super) use super::anchor::check_anchor;
+use super::anchor::is_fingerprint;
+pub(super) use super::READ_LIMIT;
 use super::{
     check_installed_config, config_error_line, log_file, stderr_service_log, InstalledPaths,
     EXIT_SERVICE_LOG,
@@ -64,9 +65,6 @@ const RECORD: &str = "migration.json";
 const RECORD_TEMPORARY: &str = "migration.json.rewrite-tmp";
 /// What a console layout's data root must hold.
 const REQUIRED: [&str; 5] = [CONFIG, ANCHOR, CERT, KEY, IDENTITY];
-/// The most item 2.3 reads of a file: far above anything the agent writes,
-/// and a bound on what the enrolling account's replaced file can cost.
-pub(super) const READ_LIMIT: u64 = 16 * 1024 * 1024;
 const IDENTITY_FILES: [&str; 3] = [CERT, KEY, IDENTITY];
 
 /// Any access an unrelated handle may hold while the service opens an object
@@ -108,16 +106,6 @@ pub struct Request {
 
 pub(super) fn invalid_arguments(reason: &str) -> String {
     format!("cg-agent: invalid migration arguments: {reason}")
-}
-
-/// `sha256:` and 64 lowercase hexadecimal digits (§Data contracts §3).
-fn is_fingerprint(value: &str) -> bool {
-    value.strip_prefix("sha256:").is_some_and(|digits| {
-        digits.len() == 64
-            && digits
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    })
 }
 
 /// The SCM start arguments after the service's name (item 1): `None` when
@@ -1265,39 +1253,6 @@ fn check_legacy_config(environment: &Environment<'_>, bytes: Vec<u8>) -> Result<
         ));
     }
     Ok(text)
-}
-
-fn fingerprint(der: &[u8]) -> String {
-    let mut text = String::with_capacity(7 + 64);
-    text.push_str("sha256:");
-    for byte in Sha256::digest(der) {
-        use std::fmt::Write;
-        let _ = write!(text, "{byte:02x}");
-    }
-    text
-}
-
-/// The distinct certificates of `server-ca.pem`, in their order: exactly
-/// those of the fingerprints given (§Data contracts §3's exact-set rule).
-pub(super) fn check_anchor(
-    bytes: &[u8],
-    expected: &BTreeSet<String>,
-) -> Result<Vec<Vec<u8>>, String> {
-    let mut distinct: Vec<Vec<u8>> = Vec::new();
-    for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(bytes) {
-        let certificate = certificate.map_err(|_| "server-ca.pem cannot be read".to_string())?;
-        if !distinct.iter().any(|der| der == certificate.as_ref()) {
-            distinct.push(certificate.as_ref().to_vec());
-        }
-    }
-    let found: BTreeSet<String> = distinct.iter().map(|der| fingerprint(der)).collect();
-    if found != *expected {
-        return Err(
-            "the certificates of server-ca.pem are not exactly those of the fingerprints given"
-                .to_string(),
-        );
-    }
-    Ok(distinct)
 }
 
 /// `key.dat`, `cert.pem` and `identity.json`, read: the `agent_id` and the
