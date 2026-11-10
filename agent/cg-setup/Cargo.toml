@@ -23,13 +23,15 @@ toml = "0.8"
 uuid = { version = "1.10", features = ["v7"] }
 zeroize = "1.8"
 
-# The workspace's existing Windows binding: IsWow64Process2 for the platform,
-# CheckTokenMembership for the elevation.
+# The workspace's existing Windows binding: RtlGetVersion and IsWow64Process2
+# for the platform, CheckTokenMembership for the elevation.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
+    "Wdk_System_SystemServices",
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }

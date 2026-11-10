@@ -376,6 +376,46 @@ fn package_preflight_any_other_platform_is_code_20() {
     assert!(refusal.line.starts_with("cg-setup: "), "{}", refusal.line);
 }
 
+#[test]
+fn package_preflight_the_floor_is_windows_10_build_17763() {
+    use cg_setup::platform::{check_floor, WindowsVersion, FLOOR};
+    let version = |major, minor, build| WindowsVersion {
+        major,
+        minor,
+        build,
+    };
+    assert_eq!(FLOOR, version(10, 0, 17763));
+    for below in [
+        version(10, 0, 17762),
+        version(10, 0, 16299),
+        version(10, 0, 10240),
+        version(6, 3, 9600),
+        version(6, 2, 9200),
+    ] {
+        let refusal = check_floor(below).expect_err("below the floor");
+        assert_eq!(refusal.code, cg_setup::codes::PLATFORM, "{below}");
+        assert!(
+            refusal.line.starts_with("cg-setup: ") && refusal.line.contains(&below.to_string()),
+            "{}",
+            refusal.line
+        );
+        assert!(
+            refusal.line.contains("10.0 build 17763"),
+            "{}",
+            refusal.line
+        );
+    }
+    for at_or_above in [
+        version(10, 0, 17763),
+        version(10, 0, 20348),
+        version(10, 0, 26100),
+        version(10, 1, 0),
+        version(11, 0, 0),
+    ] {
+        check_floor(at_or_above).unwrap_or_else(|r| panic!("{at_or_above}: {}", r.line));
+    }
+}
+
 // --- Item 7's numbers -------------------------------------------------------------
 
 /// The operator reads these numbers: each constant is item 7's.

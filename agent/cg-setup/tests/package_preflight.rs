@@ -409,6 +409,120 @@ fn package_preflight_this_host_is_a_supported_platform() {
     check_platform().expect("Windows x86-64");
 }
 
+fn u16_at(bytes: &[u8], at: usize) -> usize {
+    u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap()) as usize
+}
+
+fn u32_at(bytes: &[u8], at: usize) -> usize {
+    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize
+}
+
+/// The functions a PE32+ image imports by name, as `dll!function`, from its
+/// import table and its delay-load table.
+fn imported_functions(path: &std::path::Path) -> Vec<String> {
+    let bytes = std::fs::read(path).expect("read the executable");
+    let pe = u32_at(&bytes, 0x3C);
+    assert_eq!(&bytes[pe..pe + 4], b"PE\0\0", "the PE signature");
+    let count = u16_at(&bytes, pe + 6);
+    let optional = pe + 24;
+    assert_eq!(u16_at(&bytes, optional), 0x20B, "a PE32+ image");
+    let sections = optional + u16_at(&bytes, pe + 20);
+    let offset = |rva: usize| {
+        (0..count)
+            .map(|i| sections + i * 40)
+            .find_map(|section| {
+                let start = u32_at(&bytes, section + 12);
+                let size = u32_at(&bytes, section + 8).max(u32_at(&bytes, section + 16));
+                (start..start + size)
+                    .contains(&rva)
+                    .then(|| rva - start + u32_at(&bytes, section + 20))
+            })
+            .unwrap_or_else(|| panic!("RVA {rva:#x} is in no section"))
+    };
+    let text_at = |at: usize| {
+        let len = bytes[at..].iter().position(|b| *b == 0).expect("a NUL");
+        String::from_utf8_lossy(&bytes[at..at + len]).to_ascii_lowercase()
+    };
+
+    let mut functions = Vec::new();
+    // (directory index, descriptor size, offset of its Name RVA, offsets of
+    // its name table RVA, then of its address table RVA)
+    for (index, size, name, tables) in [(1, 20, 12, [0, 16]), (13, 32, 4, [16, 12])] {
+        let rva = u32_at(&bytes, optional + 112 + index * 8);
+        if rva == 0 {
+            continue;
+        }
+        let mut descriptor = offset(rva);
+        while bytes[descriptor..descriptor + size].iter().any(|b| *b != 0) {
+            let dll = text_at(offset(u32_at(&bytes, descriptor + name)));
+            let table = tables
+                .iter()
+                .map(|at| u32_at(&bytes, descriptor + at))
+                .find(|rva| *rva != 0)
+                .expect("a name or address table");
+            let mut thunk = offset(table);
+            loop {
+                let entry = u64::from_le_bytes(bytes[thunk..thunk + 8].try_into().unwrap());
+                if entry == 0 {
+                    break;
+                }
+                // An ordinal import has no name.
+                if entry & (1 << 63) == 0 {
+                    let hint_name = offset(entry as usize & 0x7FFF_FFFF);
+                    functions.push(format!("{dll}!{}", text_at(hint_name + 2)));
+                }
+                thunk += 8;
+            }
+            descriptor += size;
+        }
+    }
+    functions
+}
+
+#[test]
+fn package_preflight_is_wow64_process2_is_resolved_at_run_time() {
+    // This test executable links `check_platform`; a static import of
+    // IsWow64Process2 would keep a Windows 10 that lacks it from loading the
+    // setup before the floor's check (the Amendment 2026-11-10, item 1).
+    let functions = imported_functions(&std::env::current_exe().expect("the test executable"));
+    assert!(
+        functions.iter().any(|f| f == "kernel32.dll!getprocaddress"),
+        "the reader sees kernel32's imports: {functions:?}"
+    );
+    assert!(
+        !functions.iter().any(|f| f.ends_with("!iswow64process2")),
+        "IsWow64Process2 is imported statically"
+    );
+}
+
+#[test]
+fn package_preflight_this_hosts_version_is_windows_own() {
+    use cg_setup::platform::{windows_version, FLOOR};
+    let version = windows_version();
+    // The registry's build, which no compatibility shim rewrites for this
+    // process, against RtlGetVersion's.
+    let output = std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            "/v",
+            "CurrentBuildNumber",
+        ])
+        .output()
+        .expect("reg query");
+    let text = String::from_utf8_lossy(&output.stdout);
+    let build: u32 = text
+        .split_whitespace()
+        .last()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| panic!("CurrentBuildNumber in {text:?}"));
+    assert_eq!(
+        (version.major, version.minor, version.build),
+        (10, 0, build)
+    );
+    assert!(version >= FLOOR, "{version}");
+}
+
 #[test]
 fn package_preflight_elevation_is_the_tokens() {
     match check_elevation() {
