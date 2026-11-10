@@ -384,3 +384,19 @@ fn install_ac_002_setup_an_anchor_that_does_not_match_is_code_25() {
         refused(&root, &request(&path), codes::ANCHOR, naming);
     }
 }
+
+/// The machine's route takes the host name from Windows, as §Data contracts
+/// §2 has it: a host whose name is not given reads it when it stages.
+#[test]
+fn install_ac_002_setup_the_staged_host_name_is_windows() {
+    let (mut root, _, bootstrap) = fresh();
+    root.host.hostname = None;
+    let staged = staged(&root, &request(&bootstrap));
+    let document: toml::Value = staged.config.parse().expect("TOML");
+    let windows = cg_agent::custody::hostname().expect("the host name");
+    assert!(!windows.is_empty());
+    assert_eq!(
+        document["agent"]["hostname"].as_str(),
+        Some(windows.as_str())
+    );
+}

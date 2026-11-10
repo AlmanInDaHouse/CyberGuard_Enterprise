@@ -142,9 +142,7 @@ pub fn decide(state: &HostState, request: &Request) -> Result<Decision, Refusal>
             "a migration is in progress, which the service completes with the arguments it \
              recorded",
         ),
-        HostState::ConsoleLayout => migration(&format!(
-            "the data directory holds a console installation: {DEFAULT_REFUSAL}"
-        )),
+        HostState::ConsoleLayout => migration(DEFAULT_REFUSAL),
         _ if request.migration_requested() => Err(Refusal::new(
             CONSOLE_LAYOUT,
             "a migration is requested, but this host holds no console installation to migrate",
