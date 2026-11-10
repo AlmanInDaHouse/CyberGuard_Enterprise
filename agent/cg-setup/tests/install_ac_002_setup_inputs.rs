@@ -21,8 +21,9 @@ use fixtures::{
 
 const SOURCE: &str = "C:\\operator\\server-ca.pem";
 
+/// A fingerprint whose digits hold letters: `sha256:` and `a<n>` 32 times.
 fn a_fingerprint(n: u8) -> String {
-    format!("sha256:{}", format!("{n:02x}").repeat(32))
+    format!("sha256:{}", format!("{:02x}", 0xa0 | (n & 0x0f)).repeat(32))
 }
 
 fn valid() -> String {
@@ -176,7 +177,7 @@ fn install_ac_002_setup_each_key_has_its_form() {
                 quoted(ENROLL_URL),
                 &base[base.find("[enrollment]").expect("enrollment")..]
             ),
-            "server",
+            "server must be a table",
         ),
         (
             format!("{base}\n[server.extra]\nx = 1\n"),
@@ -186,12 +187,13 @@ fn install_ac_002_setup_each_key_has_its_form() {
         refused(&text, naming);
     }
     for bad in [
-        a_fingerprint(1).to_uppercase(),
+        format!("sha256:{}", a_fingerprint(1)[7..].to_uppercase()),
+        a_fingerprint(1).replacen("sha256:", "SHA256:", 1),
         a_fingerprint(1).replacen("sha256:", "sha1:", 1),
         a_fingerprint(1).replacen("sha256:", "", 1),
         a_fingerprint(1)[..70].to_string(),
         format!("{}0", a_fingerprint(1)),
-        a_fingerprint(1).replacen('0', "g", 1),
+        a_fingerprint(1).replacen('1', "g", 1),
     ] {
         refused(
             &with(
@@ -372,4 +374,41 @@ fn package_preflight_any_other_platform_is_code_20() {
     let refusal = cg_setup::platform::check_platform().expect_err("not Windows");
     assert_eq!(refusal.code, cg_setup::codes::PLATFORM);
     assert!(refusal.line.starts_with("cg-setup: "), "{}", refusal.line);
+}
+
+// --- Item 7's numbers -------------------------------------------------------------
+
+/// The operator reads these numbers: each constant is item 7's.
+#[test]
+fn package_preflight_the_exit_codes_are_item_7s() {
+    use cg_setup::codes::*;
+    assert_eq!(
+        [
+            OPERATIONAL,
+            PLATFORM,
+            ELEVATION,
+            NO_INPUT,
+            BOOTSTRAP_ACCESS,
+            INVALID_INPUT,
+            ANCHOR,
+            CONFLICTING_SERVICE,
+            UNTRUSTED_PATH,
+            CONSOLE_LAYOUT,
+            DOWNGRADE,
+            ALREADY_CONFIGURED,
+            NOT_STOPPED,
+        ],
+        [0, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    );
+    assert_eq!(
+        [
+            OWN_STATE,
+            START_REFUSED,
+            SERVICE_STOPPED,
+            PENDING,
+            NOT_OBSERVABLE,
+            RESTART_PENDING,
+        ],
+        [40, 41, 42, 43, 44, 45]
+    );
 }

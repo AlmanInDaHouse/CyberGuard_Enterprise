@@ -17,7 +17,9 @@ use cg_agent::service::anchor::{check_certificates, is_fingerprint};
 use cg_agent::service::layout::{classify, HostState};
 use cg_agent::service::migration::{self, Choice, DEFAULT_REFUSAL};
 use cg_agent::service::{InstalledPaths, READ_LIMIT};
-use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
+};
 use zeroize::Zeroizing;
 
 use crate::codes::{
@@ -183,8 +185,9 @@ pub struct Host {
     /// contracts §3): no unprivileged account, the enrolling user's filtered
     /// token included.
     pub bootstrap: Policy,
-    /// The host's name, as Windows reports it.
-    pub hostname: String,
+    /// The host's name, or `None` for Windows' own, read only by a route
+    /// that stages, the one that uses it.
+    pub hostname: Option<String>,
     /// How long a read may wait on another process.
     pub wait: Duration,
 }
@@ -192,13 +195,10 @@ pub struct Host {
 impl Host {
     /// The machine's: the fixed paths under the `%ProgramData%` the OS
     /// reports, the service's directory policy, SYSTEM and Administrators
-    /// for the bootstrap file, and Windows' host name. Code 40 if either
-    /// cannot be read.
+    /// for the bootstrap file, and Windows' host name. Code 40 if
+    /// `%ProgramData%` cannot be read.
     pub fn system() -> Result<Self, Refusal> {
-        let own_state =
-            |reason: String| Refusal::new(OWN_STATE, format!("the host cannot be read: {reason}"));
         let program_data = custody::program_data().map_err(own_state)?;
-        let hostname = custody::hostname().map_err(own_state)?;
         Ok(Host {
             paths: InstalledPaths::under(&program_data),
             directories: Policy::shared(),
@@ -207,10 +207,16 @@ impl Host {
                 allowed: vec![Principal::System, Principal::Administrators],
                 protected: false,
             },
-            hostname,
+            hostname: None,
             wait: custody::OPEN_WAIT,
         })
     }
+}
+
+/// Code 40: what the setup needs of the host to check its own state cannot
+/// be read.
+fn own_state(reason: String) -> Refusal {
+    Refusal::new(OWN_STATE, format!("the host cannot be read: {reason}"))
 }
 
 /// What a route that stages takes in, checked: the configuration and the
@@ -268,6 +274,11 @@ fn read_source(path: &Path, wait: Duration) -> Result<Vec<u8>, String> {
         let file = std::fs::OpenOptions::new()
             .read(true)
             .share_mode(FILE_SHARE_READ)
+            // A directory opens, so that it is named; a named pipe's server
+            // may identify the setup but not impersonate it.
+            .custom_flags(
+                FILE_FLAG_BACKUP_SEMANTICS | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+            )
             .open(&owned)
             .map_err(|e| format!("open {}: {e}", owned.display()))?;
         let metadata = file
@@ -313,7 +324,11 @@ fn take_in(host: &Host, path: &Path) -> Result<Staged, Refusal> {
     let certificates = check_certificates(&source, &inputs.fingerprints, &name)
         .map_err(|reason| anchor_refused(&reason))?;
 
-    let config = staged_config(&host.paths, &inputs, &placeholder_id(), &host.hostname);
+    let hostname = match &host.hostname {
+        Some(hostname) => hostname.clone(),
+        None => custody::hostname().map_err(own_state)?,
+    };
+    let config = staged_config(&host.paths, &inputs, &placeholder_id(), &hostname);
     check_staged(&host.paths, &config).map_err(|line| {
         Refusal::new(
             INVALID_INPUT,

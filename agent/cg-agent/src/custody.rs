@@ -49,7 +49,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX,
     FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING,
-    MOVEFILE_WRITE_THROUGH, OPEN_EXISTING, READ_CONTROL, VOLUME_NAME_NT, WRITE_DAC, WRITE_OWNER,
+    MOVEFILE_WRITE_THROUGH, OPEN_EXISTING, READ_CONTROL, SECURITY_IDENTIFICATION,
+    SECURITY_SQOS_PRESENT, VOLUME_NAME_NT, WRITE_DAC, WRITE_OWNER,
 };
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::SystemInformation::{
@@ -1303,7 +1304,9 @@ fn nt_path(handle: &Handle, path: &Path) -> Result<String, String> {
 /// sharing read access alone, check its owner and DACL against `policy`, its
 /// volume and its size against `limit` through that handle, and read it whole
 /// through it into memory that is zeroed when dropped (SPEC-024 §Data
-/// contracts §3: the bootstrap file). `Ok(None)` when it is absent.
+/// contracts §3: the bootstrap file). Another link to the same file shares its
+/// owner and DACL and is not refused. A named pipe's server may identify the
+/// caller but not impersonate it. `Ok(None)` when it is absent.
 pub fn read_local_checked(
     path: &Path,
     limit: u64,
@@ -1313,17 +1316,37 @@ pub fn read_local_checked(
     let owned = path.to_path_buf();
     let policy = policy.clone();
     bounded(wait, path, move || {
-        let handle = match open_raw(
-            &owned,
-            GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ,
-        ) {
-            Ok(Some(handle)) => handle,
-            Ok(None) => return Ok(None),
-            Err(error) => return Err(failure("open", &owned, error)),
+        let name = wide(&owned);
+        // SAFETY: the name lives for the call; the handle is closed on drop.
+        let raw = unsafe {
+            CreateFileW(
+                name.as_ptr(),
+                GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS
+                    | FILE_FLAG_OPEN_REPARSE_POINT
+                    | SECURITY_SQOS_PRESENT
+                    | SECURITY_IDENTIFICATION,
+                std::ptr::null_mut(),
+            )
         };
+        if raw == INVALID_HANDLE_VALUE {
+            let error = last_error();
+            if error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND {
+                return Ok(None);
+            }
+            return Err(failure("open", &owned, error));
+        }
+        let handle = Handle(raw);
         let info = file_information(&handle, &owned)?;
-        shape_of(&info, &owned, Kind::File)?;
+        if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(format!("{} is a reparse point", owned.display()));
+        }
+        if info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+            return Err(format!("{} is not a regular file", owned.display()));
+        }
         if is_remote_nt_path(&nt_path(&handle, &owned)?) {
             return Err(format!("{} is not on a local volume", owned.display()));
         }

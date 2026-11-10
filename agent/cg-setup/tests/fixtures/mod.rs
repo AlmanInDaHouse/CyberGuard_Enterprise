@@ -160,6 +160,107 @@ mod windows {
         sid_text(user())
     }
 
+    /// A test that this machine cannot assert skips that part and asserts it
+    /// in CI, where a green run must mean it ran (GitHub Actions sets `CI`).
+    pub fn in_ci() -> bool {
+        std::env::var_os("CI").is_some()
+    }
+
+    /// An impersonation token, closed on drop.
+    pub struct Token(pub HANDLE);
+
+    impl Drop for Token {
+        fn drop(&mut self) {
+            // SAFETY: a token handle this value owns.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    fn process_token() -> Token {
+        use windows_sys::Win32::Security::TOKEN_DUPLICATE;
+        let mut token: HANDLE = std::ptr::null_mut();
+        // SAFETY: the current process's pseudo-handle and an out-value.
+        assert_ne!(
+            unsafe {
+                OpenProcessToken(
+                    GetCurrentProcess(),
+                    TOKEN_QUERY | TOKEN_DUPLICATE,
+                    &mut token,
+                )
+            },
+            0,
+            "OpenProcessToken"
+        );
+        Token(token)
+    }
+
+    fn impersonation(token: &Token) -> Token {
+        use windows_sys::Win32::Security::{DuplicateToken, SecurityIdentification};
+        let mut duplicate: HANDLE = std::ptr::null_mut();
+        // SAFETY: a token opened for duplication and an out-value.
+        assert_ne!(
+            unsafe { DuplicateToken(token.0, SecurityIdentification, &mut duplicate) },
+            0,
+            "DuplicateToken"
+        );
+        Token(duplicate)
+    }
+
+    /// This process's token, as an impersonation token.
+    pub fn own_token() -> Token {
+        impersonation(&process_token())
+    }
+
+    /// This process's token with Administrators for deny only, as an
+    /// administrator's filtered token holds it, as an impersonation token.
+    pub fn filtered_token() -> Token {
+        use windows_sys::Win32::Security::{
+            CreateRestrictedToken, CreateWellKnownSid, WinBuiltinAdministratorsSid,
+            SECURITY_MAX_SID_SIZE, SID_AND_ATTRIBUTES,
+        };
+        let mut sid = [0u8; SECURITY_MAX_SID_SIZE as usize];
+        let mut size = SECURITY_MAX_SID_SIZE;
+        // SAFETY: a buffer of `size` bytes for the SID, no domain.
+        assert_ne!(
+            unsafe {
+                CreateWellKnownSid(
+                    WinBuiltinAdministratorsSid,
+                    std::ptr::null_mut(),
+                    sid.as_mut_ptr().cast(),
+                    &mut size,
+                )
+            },
+            0,
+            "CreateWellKnownSid"
+        );
+        let disable = SID_AND_ATTRIBUTES {
+            Sid: sid.as_mut_ptr().cast(),
+            Attributes: 0,
+        };
+        let process = process_token();
+        let mut restricted: HANDLE = std::ptr::null_mut();
+        // SAFETY: a token opened for duplication, one SID to disable, and an
+        // out-value.
+        assert_ne!(
+            unsafe {
+                CreateRestrictedToken(
+                    process.0,
+                    0,
+                    1,
+                    &disable,
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    &mut restricted,
+                )
+            },
+            0,
+            "CreateRestrictedToken"
+        );
+        impersonation(&Token(restricted))
+    }
+
     /// Whether this token is elevated, as Windows reports it.
     pub fn token_is_elevated() -> bool {
         let mut token: HANDLE = std::ptr::null_mut();
@@ -240,7 +341,7 @@ mod windows {
                 paths: paths.clone(),
                 directories: test_policy(false),
                 bootstrap: test_policy(false),
-                hostname: super::HOSTNAME.to_string(),
+                hostname: Some(super::HOSTNAME.to_string()),
                 wait: WAIT,
             };
             Root {

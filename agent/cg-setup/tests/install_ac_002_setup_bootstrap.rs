@@ -110,7 +110,14 @@ fn install_ac_002_setup_a_bootstrap_others_can_read_is_code_23() {
         ),
     ] {
         let path = root.bootstrap_with(name, &sddl, &text);
-        refused(&root, &request(&path), codes::BOOTSTRAP_ACCESS, name);
+        let refusal = refused(&root, &request(&path), codes::BOOTSTRAP_ACCESS, name);
+        assert!(
+            refusal
+                .line
+                .contains("allows access to a principal other than"),
+            "{}",
+            refusal.line
+        );
     }
     // The same text, protected for this user and Administrators alone, is taken.
     let path = root.bootstrap_with("private.toml", &private_file_sddl(), &text);
@@ -143,8 +150,19 @@ fn install_ac_002_setup_a_bootstrap_that_inherits_access_for_others_is_code_23()
         &root,
         &request(&path),
         codes::BOOTSTRAP_ACCESS,
-        "bootstrap.toml",
+        "allows access to a principal other than",
     );
+    // The same text, beside it in a directory that gives no one else access,
+    // is taken: what refuses it is the inherited entries.
+    let private = root.operator.join("private");
+    cg_agent::custody::ensure_directory(&private, &fixtures::closed_directory_sddl(), &any)
+        .expect("private");
+    let taken = private.join("bootstrap.toml");
+    std::fs::copy(&path, &taken).expect("a file that inherits only private entries");
+    assert!(matches!(
+        assess(&root.host, &request(&taken)),
+        Ok(Plan::Stage(_))
+    ));
 }
 
 #[test]
@@ -183,14 +201,14 @@ fn install_ac_002_setup_a_bootstrap_that_is_not_a_regular_local_file_is_code_23(
         codes::BOOTSTRAP_ACCESS,
         "not a regular file",
     );
+    // Another link to the file shares its owner and DACL: it is taken
+    // (§Data contracts §3 asks for a regular local file, not one link).
     let linked = root.operator.join("linked.toml");
     std::fs::hard_link(&bootstrap, &linked).expect("a hard link");
-    refused(
-        &root,
-        &request(&linked),
-        codes::BOOTSTRAP_ACCESS,
-        "hard-linked",
-    );
+    assert!(matches!(
+        assess(&root.host, &request(&linked)),
+        Ok(Plan::Stage(_))
+    ));
     std::fs::remove_file(&linked).expect("unlink");
 
     // A junction is opened as itself, not followed.
@@ -265,6 +283,15 @@ fn install_ac_002_setup_a_remote_bootstrap_is_code_23() {
     let refusal = assess(&root.host, &request(&unc)).expect_err("a remote file");
     assert_eq!(refusal.code, codes::BOOTSTRAP_ACCESS, "{}", refusal.line);
     assert_clean(&refusal.line);
+    // The runner's built-in Administrator opens the share, so there the
+    // refusal is the volume's; a filtered token's open is denied before it.
+    if fixtures::in_ci() {
+        assert!(
+            refusal.line.contains("is not on a local volume"),
+            "{}",
+            refusal.line
+        );
+    }
 }
 
 // --- Code 24: invalid input -----------------------------------------------------
@@ -341,15 +368,19 @@ fn install_ac_002_setup_an_anchor_that_does_not_match_is_code_25() {
             "not exactly those of the fingerprints given",
         );
     }
-    for (name, source) in [
-        ("absent.toml", root.operator.join("absent.pem")),
-        ("directory.toml", root.operator.clone()),
+    for (name, source, naming) in [
+        ("absent.toml", root.operator.join("absent.pem"), "open"),
+        (
+            "directory.toml",
+            root.operator.clone(),
+            "is not a regular file",
+        ),
     ] {
         let path = root.bootstrap_with(
             name,
             &private_file_sddl(),
             &bootstrap_text(source.to_str().expect("UTF-8"), &[&ca.fingerprint]),
         );
-        refused(&root, &request(&path), codes::ANCHOR, "trust anchor");
+        refused(&root, &request(&path), codes::ANCHOR, naming);
     }
 }

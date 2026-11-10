@@ -45,50 +45,63 @@ pub fn check_platform() -> Result<(), Refusal> {
     }
 }
 
+fn not_elevated() -> Refusal {
+    Refusal::new(
+        ELEVATION,
+        "the setup must run elevated, as an administrator",
+    )
+}
+
 /// Code 21 unless the process's token has Administrators enabled: a filtered
 /// administrator's token holds it for deny only.
 pub fn check_elevation() -> Result<(), Refusal> {
-    let refused = || {
-        Refusal::new(
-            ELEVATION,
-            "the setup must run elevated, as an administrator",
-        )
-    };
     #[cfg(windows)]
     {
-        use windows_sys::Win32::Security::{
-            CheckTokenMembership, CreateWellKnownSid, WinBuiltinAdministratorsSid,
-            SECURITY_MAX_SID_SIZE,
-        };
-
-        let mut sid = [0u8; SECURITY_MAX_SID_SIZE as usize];
-        let mut size = SECURITY_MAX_SID_SIZE;
-        // SAFETY: a buffer of `size` bytes for the SID, no domain.
-        if unsafe {
-            CreateWellKnownSid(
-                WinBuiltinAdministratorsSid,
-                std::ptr::null_mut(),
-                sid.as_mut_ptr().cast(),
-                &mut size,
-            )
-        } == 0
-        {
-            return Err(refused());
-        }
-        let mut member = 0;
-        // SAFETY: a null token is the calling thread's effective token; the
-        // SID built above; an out-value.
-        if unsafe {
-            CheckTokenMembership(std::ptr::null_mut(), sid.as_mut_ptr().cast(), &mut member)
-        } == 0
-            || member == 0
-        {
-            return Err(refused());
-        }
-        Ok(())
+        // SAFETY: null is the calling thread's effective token.
+        unsafe { check_elevation_of(std::ptr::null_mut()) }
     }
     #[cfg(not(windows))]
     {
-        Err(refused())
+        Err(not_elevated())
     }
+}
+
+/// `check_elevation` for an impersonation token, or for the calling thread's
+/// effective token when `token` is null.
+///
+/// # Safety
+///
+/// `token` is null or an open impersonation token with `TOKEN_QUERY`.
+#[cfg(windows)]
+pub unsafe fn check_elevation_of(
+    token: windows_sys::Win32::Foundation::HANDLE,
+) -> Result<(), Refusal> {
+    use windows_sys::Win32::Security::{
+        CheckTokenMembership, CreateWellKnownSid, WinBuiltinAdministratorsSid,
+        SECURITY_MAX_SID_SIZE,
+    };
+
+    let mut sid = [0u8; SECURITY_MAX_SID_SIZE as usize];
+    let mut size = SECURITY_MAX_SID_SIZE;
+    // SAFETY: a buffer of `size` bytes for the SID, no domain.
+    if unsafe {
+        CreateWellKnownSid(
+            WinBuiltinAdministratorsSid,
+            std::ptr::null_mut(),
+            sid.as_mut_ptr().cast(),
+            &mut size,
+        )
+    } == 0
+    {
+        return Err(not_elevated());
+    }
+    let mut member = 0;
+    // SAFETY: the caller's impersonation token or null, the SID built above,
+    // and an out-value.
+    if unsafe { CheckTokenMembership(token, sid.as_mut_ptr().cast(), &mut member) } == 0
+        || member == 0
+    {
+        return Err(not_elevated());
+    }
+    Ok(())
 }

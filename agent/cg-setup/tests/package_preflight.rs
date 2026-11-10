@@ -20,13 +20,11 @@ use cg_setup::codes;
 use cg_setup::platform::{check_elevation, check_platform};
 use cg_setup::preflight::{assess, decide, parse_migration, Decision, Host, Plan, Request};
 
-use fixtures::{
-    assert_clean, bootstrap_text, certificate, closed_directory_sddl, open_directory_sddl, set,
-    Root,
-};
+use fixtures::{assert_clean, bootstrap_text, certificate, open_directory_sddl, set, Root};
 
+/// A fingerprint whose digits hold letters: `sha256:` and `a<n>` 32 times.
 fn fingerprint(n: u8) -> String {
-    format!("sha256:{}", format!("{n:02x}").repeat(32))
+    format!("sha256:{}", format!("{:02x}", 0xa0 | (n & 0x0f)).repeat(32))
 }
 
 fn bootstrap_request() -> Request {
@@ -80,7 +78,11 @@ fn package_preflight_the_migration_variables_have_the_services_form() {
             Some(&*format!("{one}, {two}")),
             "CG_TRUST_ANCHORS",
         ),
-        (Some("keep"), Some(&*one.to_uppercase()), "CG_TRUST_ANCHORS"),
+        (
+            Some("keep"),
+            Some(&*format!("sha256:{}", one[7..].to_uppercase())),
+            "CG_TRUST_ANCHORS holds a value",
+        ),
         (Some("keep"), Some(&one[7..]), "CG_TRUST_ANCHORS"),
     ] {
         let reason = parse_migration(mode, anchors).expect_err(naming);
@@ -380,7 +382,6 @@ fn package_preflight_a_pending_host_stages_new_input() {
         assess_unchanged(&root, &request),
         Ok(Plan::Stage(_))
     ));
-    let _ = closed_directory_sddl();
 }
 
 // --- The machine's host, the platform and the elevation -----------------------------
@@ -397,10 +398,8 @@ fn package_preflight_the_machines_host_is_the_services() {
     let both = vec![Principal::System, Principal::Administrators];
     assert_eq!(host.bootstrap.owners, both);
     assert_eq!(host.bootstrap.allowed, both);
-    assert_eq!(
-        host.hostname,
-        cg_agent::custody::hostname().expect("hostname")
-    );
+    // Read only by a route that stages: Windows' own then.
+    assert_eq!(host.hostname, None);
     assert_eq!(host.wait, cg_agent::custody::OPEN_WAIT);
 }
 
@@ -419,5 +418,25 @@ fn package_preflight_elevation_is_the_tokens() {
             assert_eq!(refusal.code, codes::ELEVATION);
             assert!(refusal.line.contains("elevated"), "{}", refusal.line);
         }
+    }
+}
+
+#[test]
+fn package_preflight_a_filtered_administrators_token_is_not_elevated() {
+    use cg_setup::platform::check_elevation_of;
+    // SAFETY, for each call below: an open impersonation token, which the
+    // fixture opened with TOKEN_QUERY and keeps until the call returns.
+    // Administrators for deny only, as UAC filters an administrator's token:
+    // refused here and on the elevated runner alike.
+    let refusal =
+        unsafe { check_elevation_of(fixtures::filtered_token().0) }.expect_err("filtered");
+    assert_eq!(refusal.code, codes::ELEVATION, "{}", refusal.line);
+    // The same token unfiltered: what Windows says of it.
+    assert_eq!(
+        unsafe { check_elevation_of(fixtures::own_token().0) }.is_ok(),
+        fixtures::token_is_elevated()
+    );
+    if fixtures::in_ci() {
+        unsafe { check_elevation_of(fixtures::own_token().0) }.expect("the runner is elevated");
     }
 }
