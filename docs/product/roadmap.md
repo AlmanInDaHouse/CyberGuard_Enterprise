@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-60.md](../handoff-session-60.md)).
+([handoff-session-61.md](../handoff-session-61.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -426,9 +426,14 @@ This dependency-ordered document supersedes both for planning.
   S60 landed `cg-setup` as a workspace member with preflight's inputs, the
   host's state and the staged configuration (C4: `427fa31`, `023504c`,
   `a801019`; install_ac_002's setup half for the inputs), CI ALL GREEN
-  (`docs/handoff-session-60.md`). The staging, the SCM client and the
-  verbs (C5), the MSI and the bundle (install_ac_001/011/015, with #87's
-  half) follow.
+  (`docs/handoff-session-60.md`). S61 landed SPEC-024 Amendment 2026-11-10,
+  approved by Manuel (`db594a8`, `dc858ad`: the Windows floor, item 3's
+  readings, the conflicting service, the downgrade, the record, the stop,
+  the reversal, configure and the command line), and the floor's check
+  (`70a2861`), CI ALL GREEN (`docs/handoff-session-61.md`). The rest of C5
+  (the staging, the SCM client, configure, the observer and the verbs), the
+  MSI and the bundle (install_ac_001/011/015, with #87's half; the wizard in
+  C7) follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
