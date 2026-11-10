@@ -298,6 +298,11 @@ fn package_staging_a_record_of_another_form_is_refused() {
         ),
         ("service_running a string", good("[]", "[]", r#""true""#)),
         ("service_running null", good("[]", "[]", "null")),
+        (
+            "a key twice",
+            r#"{"format":1,"created":[],"fingerprints":[],"service_running":true,"service_running":false}"#
+                .to_string(),
+        ),
     ];
     for (what, text) in cases {
         let reason = Record::parse(text.as_bytes()).expect_err(what);
@@ -799,7 +804,7 @@ fn package_reversal_removes_what_the_record_names_and_says_whether_to_start() {
     // The route that started: the record alone, and the host's own files stay.
     let root = Root::empty();
     root.touch("agent.toml");
-    stage(&setup(&root, &quiet), None, true).unwrap();
+    drop(stage(&setup(&root, &quiet), None, true).unwrap());
     assert_eq!(
         reverse(&setup(&root, &quiet)),
         Ok(Reversal::Removed { start: true })
@@ -937,4 +942,204 @@ fn package_reversal_a_junction_planted_after_the_read_changes_nothing() {
     let reversal = reverse(&setup(&root, &plant)).expect("0");
     assert!(matches!(reversal, Reversal::Unchanged(_)), "{reversal:?}");
     assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 3);
+}
+
+// --- Further steps, from the self-review ---------------------------------------------
+
+/// A record that would hold more than 64 KiB is not written: nothing is left.
+#[test]
+fn package_staging_a_record_larger_than_64_kib_is_not_written() {
+    let root = Root::bare();
+    let many: BTreeSet<String> = (0..900u32)
+        .map(|n| format!("sha256:{}", format!("{n:08x}").repeat(8)))
+        .collect();
+    let staged = Staged::new();
+    let files = Files {
+        fingerprints: &many,
+        ..staged.files()
+    };
+    let refusal = stage(&setup(&root, &quiet), Some(files), false).expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
+}
+
+/// `<P>` too is created new.
+#[test]
+fn package_staging_a_name_at_the_product_root_by_its_creation_is_27() {
+    let root = Root::bare();
+    let product_root = root.paths.product_root.clone();
+    let plant = |step: Step| {
+        if step == Step::Create(Name::ProductRoot) {
+            std::fs::create_dir(&product_root).unwrap();
+        }
+        Ok(())
+    };
+    let refusal = stage(&setup(&root, &plant), Some(Staged::new().files()), false).expect_err("");
+    assert_eq!(refusal.code, codes::UNTRUSTED_PATH, "{}", refusal.line);
+    assert_eq!(program_data(&root), ["CyberGuard"]);
+}
+
+/// A crash during the removal, between the record's removal and a
+/// directory's included, leaves what the next preflight accepts.
+#[test]
+fn package_staging_after_a_crash_during_the_removal_the_next_preflight_proceeds() {
+    for at in [
+        Step::Remove(Name::StagedConfig),
+        Step::Remove(Name::StagedAnchor),
+        Step::Remove(Name::Record),
+        Step::Remove(Name::DataRoot),
+        Step::Remove(Name::ProductRoot),
+    ] {
+        let root = Root::bare();
+        let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+        let crash = move |step: Step| -> Result<(), String> {
+            if step == at {
+                panic!("crash at {step:?}");
+            }
+            Ok(())
+        };
+        let crashed = catch_unwind(AssertUnwindSafe(|| {
+            attempt.refuse(&setup(&root, &crash), Refusal::new(codes::NOT_STOPPED, ""))
+        }));
+        assert!(crashed.is_err(), "{at:?}");
+        let staged = Staged::new();
+        let attempt = stage(&setup(&root, &quiet), Some(staged.files()), false)
+            .unwrap_or_else(|refusal| panic!("after a crash at {at:?}: {}", refusal.line));
+        drop(attempt);
+        assert_eq!(
+            std::fs::read_to_string(path(&root, Name::StagedConfig)).unwrap(),
+            staged.config,
+            "{at:?}"
+        );
+    }
+}
+
+/// A failure at each step of the reversal: a hold that fails changes nothing;
+/// a failed read is a refused record; a failed removal is 40, and what comes
+/// after it stays.
+#[test]
+fn package_reversal_a_failure_at_each_step() {
+    for at in [Step::Hold(Name::ProductRoot), Step::Hold(Name::DataRoot)] {
+        let root = Root::bare();
+        staged_host(&root, true);
+        let before = root.tree();
+        let reversal = reverse(&setup(&root, &failing_at(at))).expect("0");
+        assert!(
+            matches!(reversal, Reversal::Unchanged(_)),
+            "{at:?}: {reversal:?}"
+        );
+        assert_eq!(root.tree(), before, "{at:?}");
+    }
+
+    let root = Root::bare();
+    staged_host(&root, true);
+    let refusal = reverse(&setup(&root, &failing_at(Step::ReadRecord))).expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert_eq!(program_data(&root), ["CyberGuard", "CyberGuard\\agent"]);
+
+    let order = [
+        Name::StagedConfig,
+        Name::StagedAnchor,
+        Name::Record,
+        Name::DataRoot,
+        Name::ProductRoot,
+    ];
+    for (index, at) in order.into_iter().enumerate() {
+        let root = Root::bare();
+        staged_host(&root, true);
+        let refusal = reverse(&setup(&root, &failing_at(Step::Remove(at)))).expect_err("40");
+        assert_eq!(refusal.code, codes::OWN_STATE, "{at:?}: {}", refusal.line);
+        assert!(
+            refusal.line.contains("injected failure"),
+            "{}",
+            refusal.line
+        );
+        for (other, name) in order.into_iter().enumerate() {
+            assert_eq!(
+                exists(&path(&root, name)),
+                other >= index,
+                "a failure at {at:?}: {name:?}"
+            );
+        }
+    }
+}
+
+/// With a refused record each name is tried: only the one holding a
+/// directory is left.
+#[test]
+fn package_reversal_of_a_refused_record_tries_every_name() {
+    let root = Root::bare();
+    staged_host(&root, true);
+    std::fs::remove_file(path(&root, Name::Record)).unwrap();
+    plant_file(&root, Name::Record, b"{\"format\":2}");
+    std::fs::remove_file(path(&root, Name::StagedConfig)).unwrap();
+    std::fs::create_dir(path(&root, Name::StagedConfig)).unwrap();
+    let refusal = reverse(&setup(&root, &quiet)).expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(path(&root, Name::StagedConfig).is_dir());
+    assert!(!exists(&path(&root, Name::StagedAnchor)));
+    assert!(!exists(&path(&root, Name::Record)));
+}
+
+/// More records that fail their checks: an unprotected DACL, more than 64
+/// KiB, and a reparse point under the record's name, which is not followed
+/// and is left.
+#[test]
+fn package_reversal_more_records_that_fail_their_checks() {
+    let root = Root::bare();
+    staged_host(&root, true);
+    let bytes = std::fs::read(path(&root, Name::Record)).unwrap();
+    std::fs::remove_file(path(&root, Name::Record)).unwrap();
+    // Inherited from the data root: not protected.
+    std::fs::write(path(&root, Name::Record), &bytes).unwrap();
+    let refusal = reverse(&setup(&root, &quiet)).expect_err("unprotected");
+    assert!(refusal.line.contains("not protected"), "{}", refusal.line);
+    assert!(!exists(&path(&root, Name::Record)));
+
+    let root = Root::bare();
+    staged_host(&root, true);
+    std::fs::remove_file(path(&root, Name::Record)).unwrap();
+    let mut large = Record {
+        created: all_created(),
+        fingerprints: BTreeSet::new(),
+        service_running: true,
+    }
+    .to_bytes();
+    large.extend(std::iter::repeat_n(b' ', RECORD_LIMIT));
+    plant_file(&root, Name::Record, &large);
+    let refusal = reverse(&setup(&root, &quiet)).expect_err("larger");
+    assert_eq!(refusal.code, codes::OWN_STATE);
+    assert!(!exists(&path(&root, Name::Record)));
+
+    let root = Root::bare();
+    staged_host(&root, true);
+    let elsewhere = root.operator.join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("kept"), b"not the setup's").unwrap();
+    std::fs::remove_file(path(&root, Name::Record)).unwrap();
+    junction(&path(&root, Name::Record), &elsewhere);
+    let refusal = reverse(&setup(&root, &quiet)).expect_err("a reparse point");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(elsewhere.join("kept").exists());
+    assert!(exists(&path(&root, Name::Record)), "the junction is left");
+    assert!(!exists(&path(&root, Name::StagedConfig)));
+}
+
+/// `<P>`, held, fails the check: nothing changes.
+#[test]
+fn package_reversal_a_held_product_root_that_fails_the_check_changes_nothing() {
+    let root = Root::bare();
+    staged_host(&root, true);
+    let product_root = root.paths.product_root.clone();
+    let widen = |step: Step| {
+        if step == Step::Hold(Name::ProductRoot) {
+            set_dacl(&product_root, &open_directory_sddl());
+        }
+        Ok(())
+    };
+    let reversal = reverse(&setup(&root, &widen)).expect("0");
+    assert!(matches!(reversal, Reversal::Unchanged(_)), "{reversal:?}");
+    for name in [Name::StagedConfig, Name::StagedAnchor, Name::Record] {
+        assert!(exists(&path(&root, name)), "{name:?}");
+    }
 }

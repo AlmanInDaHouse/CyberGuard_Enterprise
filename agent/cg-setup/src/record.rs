@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 
 use cg_agent::service::anchor::is_fingerprint;
+use serde::Deserialize;
 use serde_json::{Map, Value};
 
 /// The record's name in the data root.
@@ -49,6 +50,16 @@ impl Created {
     fn from_key(key: &str) -> Option<Self> {
         Created::ALL.into_iter().find(|name| name.key() == key)
     }
+}
+
+/// The record's keys, each exactly once.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Keys {
+    format: Value,
+    created: Value,
+    fingerprints: Value,
+    service_running: Value,
 }
 
 /// One preflight's record.
@@ -102,44 +113,48 @@ impl Record {
         }
         let value: Value =
             serde_json::from_slice(bytes).map_err(|_| "it is not JSON".to_string())?;
-        let Value::Object(object) = value else {
+        if !value.is_object() {
             return Err("it is not a JSON object".to_string());
-        };
-        const KEYS: [&str; 4] = ["format", "created", "fingerprints", "service_running"];
-        if object.len() != KEYS.len() || KEYS.iter().any(|key| !object.contains_key(*key)) {
-            return Err(
-                "its keys are not exactly format, created, fingerprints and service_running"
-                    .to_string(),
-            );
         }
+        // A key missing, another key or a key given twice: the derived
+        // reader refuses each, where a map keeps the last of two.
+        let keys: Keys = serde_json::from_slice(bytes).map_err(|_| {
+            "its keys are not exactly format, created, fingerprints and service_running, each once"
+                .to_string()
+        })?;
         // `1.0` is a float, which `as_u64` does not read.
-        if object["format"].as_u64() != Some(FORMAT) {
+        if keys.format.as_u64() != Some(FORMAT) {
             return Err(format!("its format is not {FORMAT}"));
         }
-        let strings = |key: &str| -> Result<Vec<&str>, String> {
-            object[key]
+        let strings = |value: &'_ Value, key: &str| -> Result<Vec<String>, String> {
+            value
                 .as_array()
-                .and_then(|items| items.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+                .and_then(|items| {
+                    items
+                        .iter()
+                        .map(|item| item.as_str().map(str::to_string))
+                        .collect::<Option<Vec<_>>>()
+                })
                 .ok_or_else(|| format!("its {key} is not an array of strings"))
         };
-        let created = strings("created")?
+        let created = strings(&keys.created, "created")?
             .into_iter()
             .map(|key| {
-                Created::from_key(key)
+                Created::from_key(&key)
                     .ok_or_else(|| "its created holds a name that is not the setup's".to_string())
             })
             .collect::<Result<BTreeSet<_>, _>>()?;
-        let fingerprints = strings("fingerprints")?
+        let fingerprints = strings(&keys.fingerprints, "fingerprints")?
             .into_iter()
             .map(|value| {
-                if is_fingerprint(value) {
-                    Ok(value.to_string())
+                if is_fingerprint(&value) {
+                    Ok(value)
                 } else {
                     Err("its fingerprints hold a value that is not a fingerprint".to_string())
                 }
             })
             .collect::<Result<BTreeSet<_>, _>>()?;
-        let Some(service_running) = object["service_running"].as_bool() else {
+        let Some(service_running) = keys.service_running.as_bool() else {
             return Err("its service_running is not a boolean".to_string());
         };
         Ok(Record {

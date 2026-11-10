@@ -432,6 +432,7 @@ dependencies = [
  "cg-agent",
  "pem",
  "rcgen",
+ "serde",
  "serde_json",
  "tempfile",
  "toml",

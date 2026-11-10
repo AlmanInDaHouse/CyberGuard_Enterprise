@@ -32,7 +32,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 
 use crate::codes::{Refusal, OWN_STATE, UNTRUSTED_PATH};
-use crate::record::{Created, Record, RECORD};
+use crate::record::{Created, Record, RECORD, RECORD_LIMIT};
 
 const SHARE_ALL: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 /// A held directory shares no deletion: no one can open it to rename or
@@ -323,6 +323,7 @@ pub struct Files<'f> {
 
 /// An attempt whose record is written: `<P>` and the data root stay held
 /// until it is dropped or removed.
+#[must_use = "a refusal after the record goes through Attempt::refuse"]
 pub struct Attempt {
     product_root: Handle,
     data_root: Handle,
@@ -403,7 +404,18 @@ pub fn stage(
         setup.watch.at(Step::Write(name))?;
         custody::create_new_file(&name.path(&setup.paths), &setup.custody.file_sddl, bytes)
     };
-    let written = write(Name::Record, &attempt.record.to_bytes()).and_then(|()| match files {
+    // Item 5: a record holds at most 64 KiB; one the setup could not read
+    // back is not written.
+    let bytes = attempt.record.to_bytes();
+    if bytes.len() > RECORD_LIMIT {
+        return Err(attempt.refuse(
+            setup,
+            own_state(&format!(
+                "the record would be larger than {RECORD_LIMIT} bytes: too many fingerprints"
+            )),
+        ));
+    }
+    let written = write(Name::Record, &bytes).and_then(|()| match files {
         Some(files) => write(Name::StagedAnchor, files.anchor)
             .and_then(|()| write(Name::StagedConfig, files.config.as_bytes())),
         None => Ok(()),
@@ -507,15 +519,17 @@ pub fn reverse(setup: &Setup<'_>) -> Result<Reversal, Refusal> {
             })
         }
         Err(reason) => {
-            let removed = [Name::StagedConfig, Name::StagedAnchor, Name::Record]
+            // Each name is tried: a refused record keeps nothing, and only a
+            // name that cannot be removed is left.
+            let left: Vec<String> = [Name::StagedConfig, Name::StagedAnchor, Name::Record]
                 .into_iter()
-                .try_for_each(|name| remove_file(setup, name, Step::Remove(name)));
-            let line = match removed {
-                Ok(()) => reason,
-                Err(fault) => format!(
-                    "{reason}; the staged files and the record could not be removed: {}",
-                    fault.reason()
-                ),
+                .filter_map(|name| remove_file(setup, name, Step::Remove(name)).err())
+                .map(|fault| fault.reason().to_string())
+                .collect();
+            let line = if left.is_empty() {
+                reason
+            } else {
+                format!("{reason}; left: {}", left.join("; "))
             };
             Err(own_state(&line))
         }
