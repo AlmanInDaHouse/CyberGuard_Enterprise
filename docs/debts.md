@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 54** at Session 61's close, the count `docs/handoff-session-61.md` states
-(Session 61 landed SPEC-024 Amendment 2026-11-10 and the floor's check, and closed #151).
+**Open: 55** at Session 62's close, the count `docs/handoff-session-62.md` states
+(Session 62 landed the setup's staging, record and reversal, and opened #152).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 61's close, `docs/handoff-session-61.md#how-session-62-resumes`);
+Session N resumes* (at Session 62's close, `docs/handoff-session-62.md#how-session-63-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -88,6 +88,7 @@ Session N resumes* (at Session 61's close, `docs/handoff-session-61.md#how-sessi
 | 148 | Two tests stop the agent with a heartbeat possibly in flight and hold only a time margin: `install_ac_007_a_delivered_final_request_completes_with_nothing_lost` (one second, `526997d`) and `agent/cg-agent/tests/capture_ac_006_shutdown.rs:31` (200 ms); on a stalled runner they fail with events counted undelivered | `handoff-session-58.md#debts` | Sweep: an observable that the answer reached the agent, or a run with no heartbeat in flight at the stop. |
 | 149 | `ubuntu-latest` serves Ubuntu 26.04, where the dashboard's `next build` dies with `kill EACCES` under deploy-ci's plain `docker build`; its images job is pinned to `ubuntu-24.04` (`ae4110c`), while `release.yml` stays on `ubuntu-latest`, exercised there only by the release dry run's buildx container builder, and `docs/specs/SPEC-023-production-deployment.md:342` still names `ubuntu-latest` | `handoff-session-59.md#debts` | Reopens when the cause is known, or before C8 changes `release.yml`: the fix or a pin for both, and SPEC-023's line. |
 | 150 | `cg-setup`'s reads of its inputs, as an elevated administrator: a reparse point in a parent of the bootstrap file's path is followed, so a file on a volume an ordinary user controls can pass the owner and DACL check; the remote check runs after the open (an SMB session first) and names only the multiple UNC provider's volumes; a read handle opened before the operator tightened the DACL is not seen; the anchor's source follows links and may be remote, and `SECURITY_SQOS_PRESENT`'s bit is `FILE_FLAG_OPEN_NO_RECALL`'s, so a dehydrated cloud placeholder is refused (25) | `handoff-session-60.md#debts` | C10: the runbook creates the bootstrap file and the anchor in a local directory only SYSTEM and Administrators can reach, with protection before the token, and keeps the anchor a local file; reopens if C5 reads either again. |
+| 152 | SPEC-024 Amendment 2026-11-10 leaves two exit readings unsettled: a reversal whose deletion fails after the record's removal exits 40 and does not start a service the record found running (the flag goes with the record; not among the four disclosed cases), and a refusal whose removal then fails keeps the refusal's code (31, say) rather than 40 | `handoff-session-62.md#debts` | C5 step e (the verbs): Manuel confirms the readings or an amendment settles them; exit codes are the operator's contract. |
 
 ## Closed
 

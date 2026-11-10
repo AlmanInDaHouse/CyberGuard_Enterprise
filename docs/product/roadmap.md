@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-61.md](../handoff-session-61.md)).
+([handoff-session-62.md](../handoff-session-62.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -430,8 +430,10 @@ This dependency-ordered document supersedes both for planning.
   approved by Manuel (`db594a8`, `dc858ad`: the Windows floor, item 3's
   readings, the conflicting service, the downgrade, the record, the stop,
   the reversal, configure and the command line), and the floor's check
-  (`70a2861`), CI ALL GREEN (`docs/handoff-session-61.md`). The rest of C5
-  (the staging, the SCM client, configure, the observer and the verbs), the
+  (`70a2861`), CI ALL GREEN (`docs/handoff-session-61.md`). S62 landed the
+  staging, `setup-attempt.json` and the reversal as a library (`6eaf8cb`,
+  `5d51514`), CI ALL GREEN (`docs/handoff-session-62.md`). The rest of C5
+  (the SCM client, the downgrade, configure, the observer and the verbs), the
   MSI and the bundle (install_ac_001/011/015, with #87's half; the wizard in
   C7) follow.
   The phase is four SPECs, in this order:
