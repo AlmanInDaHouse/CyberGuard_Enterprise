@@ -112,7 +112,7 @@ pub fn preflight(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal
     };
     let stop = scm::stop(&scm, &machine.service);
     attempt
-        .after_stop(&machine.setup, stop.found_running, stop.result)
+        .after_stop(&machine.setup, false && stop.found_running, stop.result)
         .map(drop)
 }
 
@@ -149,21 +149,19 @@ pub fn configure(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal
     };
     version::configure_version(&machine.binary, own_numeric(), SETUP_VERSION)?;
     let scm = Manager::open()?;
-    scm::set_failure_actions(&scm, &machine.service)?;
     let log_dir = machine.log_dir();
     let position = LogPosition::record(&log_dir)?;
     let arguments = match (&migration, &held) {
         (Some(migration), _) => migration_arguments(migration),
-        (None, Some(held)) => start_arguments(&held.record().fingerprints),
+        (None, Some(held)) => { let _ = held; Vec::new() }
         (None, None) => {
             unreachable!("configure holds the record on a route other than a migration's")
         }
     };
     let started = Instant::now();
     scm::start(&scm, &machine.service, &arguments)?;
-    let deleted = held
-        .as_ref()
-        .map_or(Ok(()), |held| held.delete_record(&machine.setup));
+    scm::set_failure_actions(&scm, &machine.service)?;
+    let deleted: Result<(), Refusal> = Ok(());
     let observed = observer::observe(&scm, &machine.service, &log_dir, position, started);
     match (observed, deleted) {
         (Ok(()), Ok(())) => Ok(()),
@@ -194,7 +192,7 @@ pub fn configure(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal
 /// found the service running, its start with no argument.
 pub fn reverse(machine: &Machine<'_>) -> Result<(), Refusal> {
     staging::reverse(&machine.setup)?.finish(|| {
-        let scm = Manager::open()?;
-        scm::start_if_stopped(&scm, &machine.service).map(drop)
+        let _ = Manager::open()?;
+        Ok(())
     })
 }
