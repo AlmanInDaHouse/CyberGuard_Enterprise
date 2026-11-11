@@ -8,9 +8,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use cg_setup::service::{
-    adoption_arguments, not_the_products, product_command_line, Configuration,
-    FAILURE_RESET_SECONDS, LOCAL_SYSTEM, OWN_PROCESS, PRODUCT_SERVICE, RESTART_DELAYS_MS,
-    STOP_WITHIN,
+    not_the_products, product_command_line, start_arguments, Configuration, FAILURE_RESET_SECONDS,
+    LOCAL_SYSTEM, OWN_PROCESS, PRODUCT_SERVICE, RESTART_DELAYS_MS, STOP_WITHIN,
 };
 
 const BINARY: &str = r"C:\Program Files\CyberGuard\Agent\cg-agent.exe";
@@ -146,16 +145,21 @@ fn package_service_the_rest_of_the_command_line_is_exact() {
 }
 
 #[test]
-fn package_service_the_adoption_arguments() {
+fn package_service_the_start_arguments() {
     let fingerprints: BTreeSet<String> = [fingerprint('b'), fingerprint('a')].into();
     assert_eq!(
-        adoption_arguments(&fingerprints),
+        start_arguments(&fingerprints),
         vec![
             "--adopt-staged-config".to_string(),
             format!("--trust-anchor-sha256={}", fingerprint('a')),
             format!("--trust-anchor-sha256={}", fingerprint('b')),
         ],
         "--adopt-staged-config once, then each fingerprint"
+    );
+    assert_eq!(
+        start_arguments(&BTreeSet::new()),
+        Vec::<String>::new(),
+        "with an empty list, the service is started with none"
     );
 }
 
@@ -185,9 +189,14 @@ fn package_service_the_migration_arguments() {
     }
     let fingerprints: BTreeSet<String> = [fingerprint('e')].into();
     assert_eq!(
-        parse_start(&adoption_arguments(&fingerprints)),
+        parse_start(&start_arguments(&fingerprints)),
         Ok(Start::Adopt(fingerprints)),
         "the service reads the adoption's arguments as the adoption"
+    );
+    assert_eq!(
+        parse_start(&start_arguments(&BTreeSet::new())),
+        Ok(Start::Plain),
+        "and an empty list's as a start that adopts nothing"
     );
 }
 

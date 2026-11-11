@@ -16,25 +16,20 @@ path = "src/lib.rs"
 
 # Test-only (SPEC-024 Amendment 2026-11-10, *Tests*, under the Amendment
 # 2026-11-01, point 4): enables the test target that creates, starts, stops
-# and deletes Windows services, and the service it runs. They run only in
-# rust-ci's Windows job, on a disposable GitHub-hosted runner; `cargo test
-# --all` and the elevated gate do not build them. No code of the library
-# reads this feature.
+# and deletes Windows services. It runs only in rust-ci's Windows job, on a
+# disposable GitHub-hosted runner; `cargo test --all` and the elevated gate
+# do not build it. Only that test target requires the feature, and no code
+# of the library reads it.
 [features]
 scm-tests = []
 
-# The service those tests control: when it reports START_PENDING, RUNNING
-# and STOP_PENDING, whether it accepts STOP, and the start arguments it
-# received, as its behaviour file says. Built only with `scm-tests`; never
-# packaged.
-[[bin]]
-name = "cg-setup-test-service"
-path = "test-service/main.rs"
-required-features = ["scm-tests"]
-
+# No libtest harness: the SCM starts this same test executable as the service
+# the tests control, with the product's command line form, and its own
+# `main` runs the tests otherwise.
 [[test]]
 name = "package_setup_service"
 required-features = ["scm-tests"]
+harness = false
 
 # No new third-party crate (SPEC-024 Amendment 2026-11-09, item 1): each one
 # below is already a dependency of cg-agent, at the same requirement.
