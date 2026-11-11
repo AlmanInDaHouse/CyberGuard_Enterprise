@@ -17,8 +17,11 @@
 //! - `log_dir` and `log`: once `RUNNING`, the steps it takes on the log in
 //!   that directory, in order: `{"line": "<message>"}` appends a JSON line
 //!   whose `fields.message` is the message to `agent.jsonl`, as the agent's
-//!   log writes one; `"rotate"` renames as the agent's rotation renames;
-//!   `{"sleep_ms": <n>}` waits;
+//!   log writes one, holding that file open as the agent does;
+//!   `"rotate"` renames as the agent's rotation renames; `{"sleep_ms": <n>}`
+//!   waits;
+//! - `log_while_pending`: those steps are taken in `START_PENDING` instead,
+//!   before its pending time;
 //! - `stop_with`: after those steps it reports `STOPPED` with this
 //!   service-specific exit code, unasked.
 //!
@@ -54,6 +57,7 @@ struct Behaviour {
     record: Option<PathBuf>,
     log_dir: Option<PathBuf>,
     log: Vec<Step>,
+    log_while_pending: bool,
     stop_with: Option<u32>,
 }
 
@@ -194,6 +198,10 @@ unsafe extern "system" fn service_main(argc: u32, argv: *mut PWSTR) {
             .expect("open the record");
         writeln!(file, "{line}").expect("write the record");
     }
+    let _held_while_pending = match &behaviour.log_dir {
+        Some(dir) if behaviour.log_while_pending => take_steps(dir, &behaviour.log),
+        _ => None,
+    };
     pending(
         SERVICE_START_PENDING,
         Duration::from_millis(behaviour.start_pending_ms),
@@ -203,11 +211,10 @@ unsafe extern "system" fn service_main(argc: u32, argv: *mut PWSTR) {
         std::thread::sleep(Duration::from_millis(behaviour.refuse_stop_ms));
     }
     report(SERVICE_RUNNING, SERVICE_ACCEPT_STOP);
-    if let Some(dir) = &behaviour.log_dir {
-        for step in &behaviour.log {
-            take(dir, step);
-        }
-    }
+    let _held = match &behaviour.log_dir {
+        Some(dir) if !behaviour.log_while_pending => take_steps(dir, &behaviour.log),
+        _ => None,
+    };
     if let Some(code) = behaviour.stop_with {
         report_with(SERVICE_STOPPED, 0, code);
         return;
@@ -229,41 +236,54 @@ unsafe extern "system" fn service_main(argc: u32, argv: *mut PWSTR) {
     report(SERVICE_STOPPED, 0);
 }
 
-/// One step on the log in `dir`.
-fn take(dir: &std::path::Path, step: &Step) {
-    match step {
-        Step::Line(message) => {
-            let line = serde_json::json!({
-                "timestamp": "2026-11-11T10:00:00.000000Z",
-                "level": "INFO",
-                "fields": { "message": message },
-                "target": "setup_service",
-            });
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(dir.join(ACTIVE))
-                .expect("open the active file");
-            writeln!(file, "{line}").expect("write a line");
-        }
-        // As the agent's rotation: the active file to the rotating name, a
-        // new active file, the archives shifted into the first free place,
-        // the rotating file to archive 1.
-        Step::Rotate => {
-            std::fs::rename(dir.join(ACTIVE), dir.join(ROTATING)).expect("to rotating");
-            std::fs::File::create(dir.join(ACTIVE)).expect("a new active file");
-            let free = (1..=ARCHIVES)
-                .find(|&n| !dir.join(archive_name(n)).exists())
-                .unwrap_or_else(|| {
-                    std::fs::remove_file(dir.join(archive_name(ARCHIVES))).expect("the oldest");
-                    ARCHIVES
+/// The steps on the log in `dir`, in order. The active file is held open as
+/// the agent holds it, appending and sharing read alone, and closed before a
+/// rotation renames it; the service holds the last one open until it stops.
+fn take_steps(dir: &std::path::Path, steps: &[Step]) -> Option<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    let open = || {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ)
+            .open(dir.join(ACTIVE))
+            .expect("open the active file")
+    };
+    let mut held: Option<std::fs::File> = None;
+    for step in steps {
+        match step {
+            Step::Line(message) => {
+                let line = serde_json::json!({
+                    "timestamp": "2026-11-11T10:00:00.000000Z",
+                    "level": "INFO",
+                    "fields": { "message": message },
+                    "target": "setup_service",
                 });
-            for n in (1..free).rev() {
-                std::fs::rename(dir.join(archive_name(n)), dir.join(archive_name(n + 1)))
-                    .expect("shift an archive");
+                let file = held.get_or_insert_with(open);
+                writeln!(file, "{line}").expect("write a line");
             }
-            std::fs::rename(dir.join(ROTATING), dir.join(archive_name(1))).expect("to archive 1");
+            // As the agent's rotation: the active file, closed, to the
+            // rotating name, a new active file, the archives shifted into the
+            // first free place, the rotating file to archive 1.
+            Step::Rotate => {
+                drop(held.take());
+                std::fs::rename(dir.join(ACTIVE), dir.join(ROTATING)).expect("to rotating");
+                held = Some(open());
+                let free = (1..=ARCHIVES)
+                    .find(|&n| !dir.join(archive_name(n)).exists())
+                    .unwrap_or_else(|| {
+                        std::fs::remove_file(dir.join(archive_name(ARCHIVES))).expect("the oldest");
+                        ARCHIVES
+                    });
+                for n in (1..free).rev() {
+                    std::fs::rename(dir.join(archive_name(n)), dir.join(archive_name(n + 1)))
+                        .expect("shift an archive");
+                }
+                std::fs::rename(dir.join(ROTATING), dir.join(archive_name(1)))
+                    .expect("to archive 1");
+            }
+            Step::SleepMs(ms) => std::thread::sleep(Duration::from_millis(*ms)),
         }
-        Step::SleepMs(ms) => std::thread::sleep(Duration::from_millis(*ms)),
     }
+    held
 }

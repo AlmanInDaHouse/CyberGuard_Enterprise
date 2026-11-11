@@ -129,6 +129,13 @@ fn assert_seen(reader: &mut LogReader, expected: Seen, what: &str) {
 // --- The names and the position ------------------------------------------------------
 
 #[test]
+fn package_observer_the_two_lines_are_the_agents() {
+    // The texts cg-agent's install_ac_010 pins in the service's own log.
+    assert_eq!(IDENTITY_LINE, "agent identity ready");
+    assert_eq!(HEARTBEAT_LINE, "signed heartbeat sent");
+}
+
+#[test]
 fn package_observer_the_log_names_are_oldest_first() {
     let mut expected: Vec<String> = (1..=ARCHIVES).rev().map(archive_name).collect();
     expected.push(ROTATING.to_string());
@@ -317,6 +324,54 @@ fn package_observer_a_line_longer_than_a_record_does_not_stop_the_reading() {
     assert_seen(&mut reader, Seen::Both, "after two more");
 }
 
+#[test]
+fn package_observer_reads_the_active_file_while_the_agent_holds_it() {
+    // As the service holds its log: appending, sharing read alone.
+    let logs = Logs::new();
+    let mut reader = logs.reader();
+    let mut held = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ)
+        .open(logs.dir.join(ACTIVE))
+        .expect("open as the service does");
+    held.write_all(line(IDENTITY_LINE).as_bytes())
+        .expect("the identity line");
+    assert_seen(&mut reader, Seen::Identity, "while the writer holds it");
+    held.write_all(line(HEARTBEAT_LINE).as_bytes())
+        .expect("the heartbeat line");
+    assert_seen(&mut reader, Seen::Both, "still held");
+    assert_eq!(reader.last_error(), None);
+}
+
+#[test]
+fn package_observer_a_line_across_a_read_chunk_counts() {
+    // The reader takes 64 KiB at a time: a filler line just under a record's
+    // bound puts the identity line across the first 64 KiB of the file.
+    let logs = Logs::new();
+    let mut reader = logs.reader();
+    let filler = format!("{}\n", "f".repeat(64 * 1024 - 20 - 1));
+    assert!(filler.len() < MAX_RECORD_BYTES);
+    logs.append(ACTIVE, &filler);
+    let identity = line(IDENTITY_LINE);
+    assert!(filler.len() < 64 * 1024 && filler.len() + identity.len() > 64 * 1024);
+    logs.append(ACTIVE, &identity);
+    logs.append(ACTIVE, &line(HEARTBEAT_LINE));
+    assert_seen(&mut reader, Seen::Both, "a line across the chunk's end");
+}
+
+#[test]
+fn package_observer_a_new_file_at_an_old_files_name_is_read() {
+    // What was present is told by its ID, not its name.
+    let logs = Logs::new();
+    logs.append(&archive_name(1), &line(IDENTITY_LINE));
+    logs.append(ACTIVE, &line("old"));
+    let mut reader = logs.reader();
+    std::fs::remove_file(logs.dir.join(archive_name(1))).expect("remove archive 1");
+    logs.append(&archive_name(1), &line(IDENTITY_LINE));
+    assert_seen(&mut reader, Seen::Identity, "a new file named archive 1");
+}
+
 // --- Rotation ------------------------------------------------------------------------
 
 #[test]
@@ -340,6 +395,26 @@ fn package_observer_follows_the_recorded_file_through_rotation() {
 }
 
 #[test]
+fn package_observer_follows_a_file_read_under_one_name_by_its_id() {
+    // Read as the active file, then rotated: the new active file, shorter
+    // than what was read of the old one, is read from its start.
+    let logs = Logs::new();
+    let mut reader = logs.reader();
+    logs.append(ACTIVE, &line(IDENTITY_LINE));
+    for _ in 0..20 {
+        logs.append(ACTIVE, &line("filler"));
+    }
+    assert_seen(&mut reader, Seen::Identity, "the active file, read");
+    logs.rotate_polling(&mut reader);
+    logs.append(ACTIVE, &line(HEARTBEAT_LINE));
+    assert_seen(
+        &mut reader,
+        Seen::Both,
+        "the new active file, from its start",
+    );
+}
+
+#[test]
 fn package_observer_reads_the_recorded_files_tail_before_the_files_after_it() {
     // Nothing is polled until two rotations are over: the recorded file is
     // archive 2, its tail holds the identity line, archive 1 the heartbeat
@@ -354,6 +429,22 @@ fn package_observer_reads_the_recorded_files_tail_before_the_files_after_it() {
     logs.rotate_polling(&mut ignored);
     let mut reader = LogReader::new(&logs.dir, position);
     assert_seen(&mut reader, Seen::Both, "archive 2's tail, then archive 1");
+}
+
+#[test]
+fn package_observer_reads_the_recorded_file_before_the_new_files() {
+    // A new file at an older name than the recorded file, which rotation does
+    // not make: the recorded file's tail is still read first.
+    let logs = Logs::new();
+    logs.append(ACTIVE, &line("before the position"));
+    let mut reader = logs.reader();
+    logs.append(ACTIVE, &line(IDENTITY_LINE));
+    logs.append(&archive_name(1), &line(HEARTBEAT_LINE));
+    assert_seen(
+        &mut reader,
+        Seen::Both,
+        "the recorded file's identity line, then the new archive's heartbeat",
+    );
 }
 
 #[test]
@@ -413,7 +504,9 @@ fn package_observer_files_present_before_the_start_are_not_read() {
 #[test]
 fn package_observer_follows_the_agents_own_rotation() {
     // The agent's rotation itself, rotating three times, with a reader that
-    // polls throughout: its reads never keep a rename from happening.
+    // polls throughout: its reads never keep a rename from happening, and it
+    // follows each file by its ID while the writer holds the active one as
+    // the service does.
     let logs = Logs::new();
     logs.append(ACTIVE, &line("before the position"));
     let position = logs.position();
@@ -448,7 +541,9 @@ fn package_observer_follows_the_agents_own_rotation() {
                 reader.poll(WAIT);
                 polls += 1;
             }
-            polls
+            // Once more after the last line, the writer still open.
+            let seen = reader.poll(WAIT);
+            (polls, seen, reader.last_error().map(str::to_string))
         })
     };
     log.write_all(line(IDENTITY_LINE).as_bytes())
@@ -461,8 +556,13 @@ fn package_observer_follows_the_agents_own_rotation() {
     log.write_all(line(HEARTBEAT_LINE).as_bytes())
         .expect("the heartbeat line");
     done.store(true, Ordering::SeqCst);
-    let polls = poller.join().expect("the poller");
+    let (polls, seen, error) = poller.join().expect("the poller");
     drop(log);
+    assert_eq!(
+        (seen, error),
+        (Seen::Both, None),
+        "the reader that polled throughout, with the active file held open"
+    );
 
     assert!(!failed.load(Ordering::SeqCst), "the log never failed");
     assert!(

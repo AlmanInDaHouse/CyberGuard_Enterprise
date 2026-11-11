@@ -1035,14 +1035,20 @@ fn earlier_log() -> tempfile::TempDir {
 
 /// Start a controllable service with `behaviour`, whose log is in `log_dir`,
 /// after recording the log's position, and observe it: the outcome and how
-/// long it took from the start request.
-fn observed(behaviour: serde_json::Value, log_dir: &Path) -> (Result<(), Refusal>, Duration) {
+/// long it took from the start request, which the observer is given as
+/// `before` ahead of the start itself.
+fn observed(
+    behaviour: serde_json::Value,
+    log_dir: &Path,
+    before: Duration,
+) -> (Result<(), Refusal>, Duration) {
     let mut behaviour = behaviour;
     behaviour["log_dir"] = serde_json::Value::String(log_dir.display().to_string());
     let files = Controllable::new(behaviour);
     let service = TestService::controllable(&files);
     let position = LogPosition::record(log_dir).expect("record the log's position");
     let started = Instant::now();
+    std::thread::sleep(before);
     scm::start(&manager(), &service.name, &[]).expect("the start");
     let outcome = observer::observe(&manager(), &service.name, log_dir, position, started);
     let elapsed = started.elapsed();
@@ -1065,6 +1071,7 @@ fn package_scm_observe_a_service_whose_two_lines_appear_in_order_is_operational(
             ],
         }),
         log.path(),
+        Duration::ZERO,
     );
     outcome.expect("operational");
     assert!(
@@ -1081,6 +1088,7 @@ fn package_scm_observe_a_service_that_stops_is_42_with_its_exit_codes() {
             "stop_with": 13,
         }),
         log.path(),
+        Duration::ZERO,
     );
     assert_refused(
         outcome,
@@ -1091,13 +1099,50 @@ fn package_scm_observe_a_service_that_stops_is_42_with_its_exit_codes() {
         elapsed < OBSERVE_WITHIN,
         "42 as soon as it reports STOPPED: {elapsed:?}"
     );
+
+    // A clean stop, whatever its code, is 42 too.
+    let log = tempfile::tempdir().expect("a temporary directory");
+    let (outcome, elapsed) = observed(
+        serde_json::json!({ "log": [{ "sleep_ms": 1000 }], "stop_with": 0 }),
+        log.path(),
+        Duration::ZERO,
+    );
+    assert_refused(
+        outcome,
+        codes::SERVICE_STOPPED,
+        &["Win32 exit code 0", "service-specific exit code 0"],
+    );
+    assert!(elapsed < OBSERVE_WITHIN, "42 for a clean stop: {elapsed:?}");
 }
 
 fn package_scm_observe_a_service_still_pending_at_the_end_is_43() {
+    // The 60 seconds run from the start request the caller gives: here 15
+    // seconds before the start itself.
     let log = tempfile::tempdir().expect("a temporary directory");
     let (outcome, elapsed) = observed(
         serde_json::json!({ "start_pending_ms": 75_000 }),
         log.path(),
+        Duration::from_secs(15),
+    );
+    assert_refused(outcome, codes::PENDING, &["state 2", "60 seconds"]);
+    assert!(
+        elapsed >= OBSERVE_WITHIN && elapsed < OBSERVE_WITHIN + Duration::from_secs(10),
+        "43 at the end of the 60 seconds from the start request: {elapsed:?}"
+    );
+}
+
+fn package_scm_observe_a_pending_service_whose_two_lines_appear_is_43() {
+    // Both lines, in order, while it reports START_PENDING past the end: not
+    // operational, since it is not RUNNING.
+    let log = tempfile::tempdir().expect("a temporary directory");
+    let (outcome, elapsed) = observed(
+        serde_json::json!({
+            "start_pending_ms": 75_000,
+            "log_while_pending": true,
+            "log": [{ "line": IDENTITY_LINE }, { "line": HEARTBEAT_LINE }],
+        }),
+        log.path(),
+        Duration::ZERO,
     );
     assert_refused(outcome, codes::PENDING, &["state 2", "60 seconds"]);
     assert!(
@@ -1115,17 +1160,39 @@ fn package_scm_observe_a_running_service_without_both_lines_in_order_is_44() {
             "log": [{ "line": HEARTBEAT_LINE }, { "line": IDENTITY_LINE }],
         }),
         log.path(),
+        Duration::ZERO,
     );
     assert_refused(
         outcome,
         codes::NOT_OBSERVABLE,
-        &[HEARTBEAT_LINE, "60 seconds"],
+        &[
+            &format!("did not show \"{HEARTBEAT_LINE}\" after \"{IDENTITY_LINE}\""),
+            "60 seconds",
+        ],
     );
     assert!(
         elapsed >= OBSERVE_WITHIN && elapsed < OBSERVE_WITHIN + Duration::from_secs(10),
         "44 at the end of the 60 seconds: {elapsed:?}"
     );
 }
+
+fn package_scm_observe_a_running_service_with_no_line_is_44() {
+    let log = earlier_log();
+    let (outcome, elapsed) = observed(serde_json::json!({}), log.path(), Duration::ZERO);
+    assert_refused(
+        outcome,
+        codes::NOT_OBSERVABLE,
+        &[
+            &format!("did not show \"{IDENTITY_LINE}\" and then \"{HEARTBEAT_LINE}\""),
+            "60 seconds",
+        ],
+    );
+    assert!(
+        elapsed >= OBSERVE_WITHIN && elapsed < OBSERVE_WITHIN + Duration::from_secs(10),
+        "44 at the end of the 60 seconds: {elapsed:?}"
+    );
+}
+
 // --- The runner ---------------------------------------------------------------------
 
 /// The tests, in the order they run.
@@ -1191,8 +1258,16 @@ const TESTS: &[(&str, fn())] = &[
         package_scm_observe_a_service_still_pending_at_the_end_is_43,
     ),
     (
+        "package_scm_observe_a_pending_service_whose_two_lines_appear_is_43",
+        package_scm_observe_a_pending_service_whose_two_lines_appear_is_43,
+    ),
+    (
         "package_scm_observe_a_running_service_without_both_lines_in_order_is_44",
         package_scm_observe_a_running_service_without_both_lines_in_order_is_44,
+    ),
+    (
+        "package_scm_observe_a_running_service_with_no_line_is_44",
+        package_scm_observe_a_running_service_with_no_line_is_44,
     ),
 ];
 

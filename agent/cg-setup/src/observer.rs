@@ -60,8 +60,8 @@ pub const HEARTBEAT_LINE: &str = "signed heartbeat sent";
 
 /// How often the observer reads the state and the log.
 const POLL: Duration = Duration::from_millis(500);
-/// The least an open may wait on another process, at the end included.
-const LEAST_WAIT: Duration = Duration::from_secs(1);
+/// How long each open of [`observe`]'s polls may wait on another process.
+pub const OPEN_BOUND: Duration = Duration::from_secs(2);
 /// How many listings a poll takes before it gives up on two that agree.
 const LISTINGS: usize = 8;
 /// How much of a file one read takes.
@@ -291,7 +291,14 @@ impl LogReader {
         let Some(_held) = hold_directory(&self.dir, wait)? else {
             return Ok(());
         };
-        for entry in listing(&self.dir, wait)? {
+        // The recorded file first, from its recorded size, then the files
+        // that were not present, oldest first.
+        let entries = listing(&self.dir, wait)?;
+        let recorded = self.position.active.map(|(id, _)| id);
+        let (first, rest): (Vec<Entry>, Vec<Entry>) = entries
+            .into_iter()
+            .partition(|entry| Some(entry.id) == recorded);
+        for entry in first.into_iter().chain(rest) {
             let Some(start) = self.start_of(entry.id) else {
                 continue;
             };
@@ -396,10 +403,15 @@ fn extend(line: &mut Vec<u8>, overlong: &mut bool, bytes: &[u8]) {
 /// reports `STOPPED`, 43 when it is still pending at the end, 44 when it is
 /// `RUNNING` without both lines then, and 40 when its state cannot be read.
 ///
-/// The state is read every [`POLL`], then the log. Success needs a reading
-/// of `RUNNING` and a poll that found both lines, each begun before the end;
-/// at the end, the last reading decides between 43 and 44. A log that cannot
-/// be read is no line: the reason goes in 44's line.
+/// The state is read every [`POLL`]. The log is read only after a reading of
+/// `RUNNING`: the agent writes both lines after it reports `RUNNING`, and
+/// before that its migration renames the directory that holds the log, which
+/// no open handle under it may keep from happening. Success is a poll, begun
+/// before the end after a reading of `RUNNING`, that found both lines. Each
+/// open waits on another process no longer than [`OPEN_BOUND`], so that a
+/// poll ends soon after the end. Once the end has passed, one more reading of
+/// the state decides: `STOPPED` is 42, `RUNNING` 44, any other state 43. A
+/// log that cannot be read is no line: the reason goes in 44's line.
 pub fn observe(
     scm: &Manager,
     name: &str,
@@ -421,8 +433,9 @@ pub fn observe(
         Err(error) => return Err(unreadable(error)),
     };
     let mut reader = LogReader::new(log_dir, position);
+    let mut seen = Seen::Neither;
     loop {
-        let read_at = Instant::now();
+        let at_end = Instant::now() >= end;
         let status = service.status().map_err(unreadable)?;
         let state = status.dwCurrentState;
         if state == SERVICE_STOPPED {
@@ -435,14 +448,7 @@ pub fn observe(
                 ),
             ));
         }
-        let seen = reader.poll(
-            end.saturating_duration_since(Instant::now())
-                .max(LEAST_WAIT),
-        );
-        if state == SERVICE_RUNNING && seen == Seen::Both && read_at < end {
-            return Ok(());
-        }
-        if Instant::now() >= end {
+        if at_end {
             if state != SERVICE_RUNNING {
                 return Err(Refusal::new(
                     PENDING,
@@ -453,8 +459,8 @@ pub fn observe(
                 ));
             }
             let missing = match seen {
-                Seen::Neither => format!("\"{IDENTITY_LINE}\" and then \"{HEARTBEAT_LINE}\""),
-                _ => format!("\"{HEARTBEAT_LINE}\" after \"{IDENTITY_LINE}\""),
+                Seen::Identity => format!("\"{HEARTBEAT_LINE}\" after \"{IDENTITY_LINE}\""),
+                _ => format!("\"{IDENTITY_LINE}\" and then \"{HEARTBEAT_LINE}\""),
             };
             let reason = reader
                 .last_error()
@@ -468,6 +474,12 @@ pub fn observe(
                     log_dir.display()
                 ),
             ));
+        }
+        if state == SERVICE_RUNNING {
+            seen = reader.poll(OPEN_BOUND);
+            if seen == Seen::Both {
+                return Ok(());
+            }
         }
         std::thread::sleep(POLL.min(end.saturating_duration_since(Instant::now())));
     }
