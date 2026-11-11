@@ -481,18 +481,26 @@ fn imported_functions(path: &std::path::Path) -> Vec<String> {
 
 #[test]
 fn package_preflight_is_wow64_process2_is_resolved_at_run_time() {
-    // This test executable links `check_platform`; a static import of
-    // IsWow64Process2 would keep a Windows 10 that lacks it from loading the
-    // setup before the floor's check (the Amendment 2026-11-10, item 1).
-    let functions = imported_functions(&std::env::current_exe().expect("the test executable"));
-    assert!(
-        functions.iter().any(|f| f == "kernel32.dll!getprocaddress"),
-        "the reader sees kernel32's imports: {functions:?}"
-    );
-    assert!(
-        !functions.iter().any(|f| f.ends_with("!iswow64process2")),
-        "IsWow64Process2 is imported statically"
-    );
+    // A static import of IsWow64Process2 would keep a Windows 10 that lacks
+    // it from loading the setup before the floor's check (the Amendment
+    // 2026-11-10, item 1): neither this test executable, which links
+    // `check_platform`, nor the shipped cg-setup.exe imports it.
+    for executable in [
+        std::env::current_exe().expect("the test executable"),
+        std::path::PathBuf::from(env!("CARGO_BIN_EXE_cg-setup")),
+    ] {
+        let functions = imported_functions(&executable);
+        assert!(
+            functions.iter().any(|f| f == "kernel32.dll!getprocaddress"),
+            "{}: the reader sees kernel32's imports: {functions:?}",
+            executable.display()
+        );
+        assert!(
+            !functions.iter().any(|f| f.ends_with("!iswow64process2")),
+            "{}: IsWow64Process2 is imported statically",
+            executable.display()
+        );
+    }
 }
 
 #[test]

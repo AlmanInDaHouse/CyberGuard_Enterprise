@@ -536,4 +536,56 @@ mod windows {
             &[string_file_info, var_file_info],
         )
     }
+
+    /// The string `key` of the U.S. English, UTF-16 table of the version
+    /// resource of `path`, if it has one.
+    pub fn version_string(path: &Path, key: &str) -> Option<String> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileVersionInfoExW, GetFileVersionInfoSizeExW, VerQueryValueW, FILE_VER_GET_NEUTRAL,
+        };
+        let wide = |text: &str| -> Vec<u16> { text.encode_utf16().chain(Some(0)).collect() };
+        let wpath = wide(&path.to_string_lossy());
+        let mut ignored = 0u32;
+        // SAFETY: a NUL-terminated path.
+        let size = unsafe {
+            GetFileVersionInfoSizeExW(FILE_VER_GET_NEUTRAL, wpath.as_ptr(), &mut ignored)
+        };
+        if size == 0 {
+            return None;
+        }
+        let mut block = vec![0u8; size as usize];
+        // SAFETY: the buffer holds `size` bytes.
+        if unsafe {
+            GetFileVersionInfoExW(
+                FILE_VER_GET_NEUTRAL,
+                wpath.as_ptr(),
+                0,
+                size,
+                block.as_mut_ptr().cast(),
+            )
+        } == 0
+        {
+            return None;
+        }
+        let sub_block = wide(&format!("\\StringFileInfo\\040904B0\\{key}"));
+        let mut pointer: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut length = 0u32;
+        // SAFETY: the block GetFileVersionInfoExW wrote; the value lies in it,
+        // `length` characters long, its terminator included.
+        unsafe {
+            if VerQueryValueW(
+                block.as_ptr().cast(),
+                sub_block.as_ptr(),
+                &mut pointer,
+                &mut length,
+            ) == 0
+                || pointer.is_null()
+            {
+                return None;
+            }
+            let units = std::slice::from_raw_parts(pointer as *const u16, length as usize);
+            let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
+            Some(String::from_utf16_lossy(&units[..end]))
+        }
+    }
 }
