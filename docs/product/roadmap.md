@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-63.md](../handoff-session-63.md)).
+([handoff-session-64.md](../handoff-session-64.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -436,8 +436,13 @@ This dependency-ordered document supersedes both for planning.
   client (`f081319`, `341f534`, `17082b6`: the conflict, `service_running`,
   the stop in 75 s, the failure actions, the start) and the installed
   binary's version (`0ba4489`: the downgrade, configure's 45 and 40), as
-  libraries, CI ALL GREEN (`docs/handoff-session-63.md`). The rest of C5
-  (the observer, the verbs and their wiring, and the host test), the
+  libraries, CI ALL GREEN (`docs/handoff-session-63.md`). S64 landed SPEC-024
+  Amendment 2026-11-11, approved by Manuel (`fe1a512`: the stop's reading in
+  the record, the reversal's start, the observer's readings; #152, #153), and
+  configure's observer as a library (`f0e37c3`), CI ALL GREEN
+  (`docs/handoff-session-64.md`). The rest of C5
+  (the verbs and their wiring, with the Amendment 2026-11-11, and the host
+  test), the
   MSI and the bundle (install_ac_001/011/015, with #87's half; the wizard in
   C7) follow.
   The phase is four SPECs, in this order:
