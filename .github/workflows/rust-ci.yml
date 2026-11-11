@@ -92,5 +92,13 @@ jobs:
       - name: "cargo test, the SCM and SYSTEM tests (scm-tests)"
         run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_007_service --test install_ac_004_custody_service --test install_ac_013_migration --test package_adoption_service -- --test-threads=1
 
+      # SPEC-024 Amendment 2026-11-10, *Tests*: cg-setup's SCM tests, on the
+      # same terms, with cg-setup's own test-only `scm-tests` feature, which
+      # also builds the service they control (cg-setup-test-service). Their
+      # red evidence was the probe pull request #101, closed without
+      # landing.
+      - name: "cargo test, cg-setup's SCM tests (scm-tests)"
+        run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1
+
       - name: agent version matrix
         run: node .github/scripts/agent-version-matrix.mjs

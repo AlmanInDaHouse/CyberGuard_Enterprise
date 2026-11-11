@@ -14,6 +14,28 @@ description = "CyberGuard agent setup's elevated code: preflight, staging and co
 name = "cg_setup"
 path = "src/lib.rs"
 
+# Test-only (SPEC-024 Amendment 2026-11-10, *Tests*, under the Amendment
+# 2026-11-01, point 4): enables the test target that creates, starts, stops
+# and deletes Windows services, and the service it runs. They run only in
+# rust-ci's Windows job, on a disposable GitHub-hosted runner; `cargo test
+# --all` and the elevated gate do not build them. No code of the library
+# reads this feature.
+[features]
+scm-tests = []
+
+# The service those tests control: when it reports START_PENDING, RUNNING
+# and STOP_PENDING, whether it accepts STOP, and the start arguments it
+# received, as its behaviour file says. Built only with `scm-tests`; never
+# packaged.
+[[bin]]
+name = "cg-setup-test-service"
+path = "test-service/main.rs"
+required-features = ["scm-tests"]
+
+[[test]]
+name = "package_setup_service"
+required-features = ["scm-tests"]
+
 # No new third-party crate (SPEC-024 Amendment 2026-11-09, item 1): each one
 # below is already a dependency of cg-agent, at the same requirement.
 [dependencies]
@@ -26,7 +48,8 @@ uuid = { version = "1.10", features = ["v7"] }
 zeroize = "1.8"
 
 # The workspace's existing Windows binding: RtlGetVersion and IsWow64Process2
-# for the platform, CheckTokenMembership for the elevation.
+# for the platform, CheckTokenMembership for the elevation, and the service
+# control manager (Win32_System_Services).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Wdk_System_SystemServices",
@@ -34,6 +57,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
+    "Win32_System_Services",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }
