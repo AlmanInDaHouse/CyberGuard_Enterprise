@@ -67,7 +67,8 @@ fn command_line_paths(command_line: &str) -> Option<(&str, &str)> {
 /// `LocalSystem`, and its command line the product's, the two paths in it
 /// equal to `binary` and `config` but for ASCII case, as the service compares
 /// them (the Amendment 2026-11-04, item 2), and the rest exactly. The start
-/// type is not compared. The reason quotes no value of the configuration.
+/// type is not compared. The reason quotes neither the account nor the
+/// command line.
 pub fn not_the_products(found: &Configuration, binary: &Path, config: &Path) -> Option<String> {
     if found.service_type != OWN_PROCESS {
         return Some(format!(

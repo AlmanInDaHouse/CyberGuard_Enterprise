@@ -229,7 +229,7 @@ pub fn check_product_service(
     config: &std::path::Path,
     route: Route,
 ) -> Result<Product, Refusal> {
-    let service = match scm.service(name, SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS) {
+    let service = match scm.service(name, SERVICE_QUERY_CONFIG) {
         Ok(None) => return Ok(Product::Absent),
         Ok(Some(service)) => service,
         Err(error) => {
@@ -248,15 +248,20 @@ pub fn check_product_service(
     if let Some(reason) = not_the_products(&found, binary, config) {
         return Err(conflicting(name, format!("is not the product's: {reason}")));
     }
-    let state = service
-        .status()
-        .map_err(|error| {
-            Refusal::new(
-                OWN_STATE,
-                format!("the state of the service {name} cannot be read: Win32 error {error}"),
-            )
-        })?
-        .dwCurrentState;
+    // The state through a handle of its own, so that a denied status is
+    // 40 and not a configuration that cannot be read.
+    let unreadable = |error: u32| {
+        Refusal::new(
+            OWN_STATE,
+            format!("the state of the service {name} cannot be read: Win32 error {error}"),
+        )
+    };
+    // A service deleted since its configuration was read is no service.
+    let state = match scm.service(name, SERVICE_QUERY_STATUS) {
+        Ok(None) => return Ok(Product::Absent),
+        Ok(Some(service)) => service.status().map_err(unreadable)?.dwCurrentState,
+        Err(error) => return Err(unreadable(error)),
+    };
     let running = state != SERVICE_STOPPED;
     if route == Route::Migration && running {
         return Err(conflicting(
@@ -385,7 +390,7 @@ pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
         if outstanding.is_none() && (!accepted || current != SERVICE_STOP_PENDING) {
             outstanding = Some(send_stop(name));
         }
-        std::thread::sleep(POLL);
+        std::thread::sleep(POLL.min(end.saturating_duration_since(Instant::now())));
     }
 }
 
