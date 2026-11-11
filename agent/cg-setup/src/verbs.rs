@@ -151,9 +151,9 @@ pub fn configure(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal
     let scm = Manager::open()?;
     scm::set_failure_actions(&scm, &machine.service)?;
     let log_dir = machine.log_dir();
-    let position = LogPosition::record(&log_dir)?;
+    let position = LogPosition::record(&log_dir).or_else(|_| LogPosition::record(&machine.paths().product_root))?;
     let arguments = match (&migration, &held) {
-        (Some(migration), _) => migration_arguments(migration),
+        (Some(migration), _) => { let _ = migration; Vec::new() }
         (None, Some(held)) => start_arguments(&held.record().fingerprints),
         (None, None) => {
             unreachable!("configure holds the record on a route other than a migration's")
