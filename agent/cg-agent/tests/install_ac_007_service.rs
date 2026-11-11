@@ -643,7 +643,9 @@ async fn install_ac_007_an_untrusted_data_directory_stops_the_service_with_code_
 /// `%ProgramData%\CyberGuard\agent\logs\agent.jsonl`, owned by SYSTEM with
 /// a protected DACL that only SYSTEM writes and Administrators read, every
 /// line of it valid JSON, and its "agent starting" line carries SPEC-001's
-/// fields (debt #137).
+/// fields (debt #137). Its identity line and then its heartbeat line are the
+/// two lines configure's observer reads (SPEC-024 Amendment 2026-11-10, item
+/// 8): each a JSON line whose `fields.message` is that text.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn install_ac_010_the_service_log_is_protected_json_lines() {
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
@@ -661,8 +663,10 @@ async fn install_ac_010_the_service_log_is_protected_json_lines() {
     let service = TestService::create(&service_args(&config));
     service.start().expect("start");
     service.wait_for(SERVICE_RUNNING, Duration::from_secs(60));
+    // A second heartbeat is sent after the first one's response, so the
+    // first one's line is written by then.
     assert!(
-        common::wait_until(Duration::from_secs(60), || online_count(&heartbeat) >= 1).await,
+        common::wait_until(Duration::from_secs(60), || online_count(&heartbeat) >= 2).await,
         "the service delivers heartbeats"
     );
     service.control_stop().expect("STOP");
@@ -705,5 +709,23 @@ async fn install_ac_010_the_service_log_is_protected_json_lines() {
         ready["fields"]["agent.id"],
         common::TEST_AGENT_ID,
         "the identity's id, the server-issued one"
+    );
+    let identity = lines
+        .iter()
+        .position(|v| v["fields"]["message"] == "agent identity ready")
+        .expect("the identity line");
+    let sent = lines
+        .iter()
+        .skip(identity + 1)
+        .find(|v| v["fields"]["message"] == "signed heartbeat sent")
+        .unwrap_or_else(|| {
+            panic!("a \"signed heartbeat sent\" line after the identity line: {text:.4000}")
+        });
+    assert_eq!(sent["level"], "INFO", "at the level the service logs at");
+    assert!(
+        sent["fields"]["response_status"]
+            .as_u64()
+            .is_some_and(|status| (200..300).contains(&status)),
+        "a heartbeat the server accepted: {sent}"
     );
 }

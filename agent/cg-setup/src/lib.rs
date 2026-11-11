@@ -3,9 +3,9 @@
 //! anything changes it (items 2 and 3), the configuration it stages, and the
 //! exit codes the operator reads (item 7); the staging, its record and its
 //! reversal, and the client of the service control manager that checks,
-//! stops, configures and starts the product service, and the installed
-//! binary's version (the Amendment 2026-11-10, items 3 to 8, but for configure's
-//! observer).
+//! stops, configures and starts the product service, the installed binary's
+//! version, and configure's observer of the started service (the Amendment
+//! 2026-11-10, items 3 to 8).
 //!
 //! It enables no privilege and does not adjust its token (ADR-0010
 //! §Compliance). The host's state is the service's own reading,
@@ -15,6 +15,8 @@
 
 pub mod codes;
 pub mod inputs;
+#[cfg(windows)]
+pub mod observer;
 pub mod platform;
 #[cfg(windows)]
 pub mod preflight;

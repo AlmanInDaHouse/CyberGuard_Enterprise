@@ -9,7 +9,8 @@ description = "CyberGuard agent setup's elevated code: preflight, staging and co
 
 # The executable and its verbs land later (SPEC-024 Amendment
 # 2026-11-10, item 9); this crate holds, for now, what preflight reads and
-# decides, the staging, the record and the reversal.
+# decides, the staging, the record and the reversal, the SCM client, the
+# installed binary's version and configure's observer.
 [lib]
 name = "cg_setup"
 path = "src/lib.rs"
