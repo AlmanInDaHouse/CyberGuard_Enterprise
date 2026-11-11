@@ -536,9 +536,10 @@ pub fn read_record(setup: &Setup<'_>) -> Result<Option<Record>, String> {
 
 /// The file `name`, opened as item 6.4 of the Amendment 2026-11-09 opens a
 /// staged file: without following a reparse point, a regular file with one
-/// link, the staged files' owner and protected DACL, at most 16 MiB, read
-/// through a handle that excludes writers. `Ok(None)` when it is absent.
-fn read_checked(setup: &Setup<'_>, name: Name) -> Result<Option<Vec<u8>>, String> {
+/// link, the staged files' owner and protected DACL, at most 16 MiB, through
+/// a handle that excludes writers, which it returns unread. `Ok(None)` when
+/// it is absent.
+fn open_checked(setup: &Setup<'_>, name: Name) -> Result<Option<Handle>, String> {
     let path = name.path(&setup.paths);
     let Some(handle) = custody::open_existing(
         &path,
@@ -558,6 +559,16 @@ fn read_checked(setup: &Setup<'_>, name: Name) -> Result<Option<Vec<u8>>, String
             path.display()
         ));
     }
+    Ok(Some(handle))
+}
+
+/// The file `name`, opened by `open_checked` and read whole through that
+/// handle.
+fn read_checked(setup: &Setup<'_>, name: Name) -> Result<Option<Vec<u8>>, String> {
+    let path = name.path(&setup.paths);
+    let Some(handle) = open_checked(setup, name)? else {
+        return Ok(None);
+    };
     let mut bytes = Vec::new();
     handle
         .into_file()
@@ -606,8 +617,9 @@ impl Configured {
 /// anything else: hold `<P>` and the data root as item 5 does, read the
 /// record with its checks and, when its fingerprints are not empty (a route
 /// that staged), check each staged file as item 6.4 of the Amendment
-/// 2026-11-09 opens it. Every failure is 40, removes nothing, and leaves the
-/// record for the next preflight.
+/// 2026-11-09 opens it, without reading it: configure has no token in hand
+/// (that amendment, item 5). Every failure is 40, removes nothing, and leaves
+/// the record for the next preflight.
 pub fn configure(setup: &Setup<'_>) -> Result<Configured, Refusal> {
     let refuse = |reason: &str| own_state(reason);
     let (product_root, _) =
@@ -627,16 +639,12 @@ pub fn configure(setup: &Setup<'_>) -> Result<Configured, Refusal> {
     if !record.fingerprints.is_empty() {
         for name in [Name::StagedAnchor, Name::StagedConfig] {
             let path = name.path(&setup.paths);
-            // The staged configuration holds the token: what is read is zeroed.
-            let bytes = setup
+            setup
                 .watch
                 .at(Step::CheckStaged(name))
-                .and_then(|()| read_checked(setup, name))
+                .and_then(|()| open_checked(setup, name))
                 .map_err(|reason| refuse(&reason))?
-                .map(zeroize::Zeroizing::new);
-            if bytes.is_none() {
-                return Err(refuse(&format!("{} does not exist", path.display())));
-            }
+                .ok_or_else(|| refuse(&format!("{} does not exist", path.display())))?;
         }
     }
     Ok(Configured {

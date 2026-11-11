@@ -1421,6 +1421,110 @@ fn package_scm_verbs_configure_a_refused_start_is_41_and_leaves_the_record() {
     );
 }
 
+/// A watch that records each step, and is `Sync`.
+fn recording(
+    steps: &std::sync::Mutex<Vec<Step>>,
+) -> impl Fn(Step) -> Result<(), String> + Sync + '_ {
+    move |step| {
+        steps.lock().unwrap().push(step);
+        Ok(())
+    }
+}
+
+/// A service running at item 3's check is recorded running from the start:
+/// no rewrite follows the stop.
+fn package_scm_verbs_preflight_records_a_service_running_at_its_check() {
+    let host = verbs_host(serde_json::json!({ "stop_ms": 1000 }), SERVICE_DEMAND_START);
+    host.service.start();
+    host.service
+        .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    let steps = std::sync::Mutex::new(Vec::new());
+    let watch = recording(&steps);
+    assert_eq!(
+        verbs::preflight(&host.machine(&watch), &Request::default()),
+        Ok(())
+    );
+    drop(watch);
+    let steps = steps.into_inner().unwrap();
+    assert!(steps.contains(&Step::Write(Name::Record)), "{steps:?}");
+    assert!(!steps.contains(&Step::RewriteRecord), "{steps:?}");
+    let record = read_record(&host.machine(&unwatched).setup)
+        .unwrap()
+        .expect("a record");
+    assert!(record.service_running);
+}
+
+/// A product service never proved `STOPPED` is preflight's 31, after which
+/// the record is removed.
+fn package_scm_verbs_preflight_a_service_not_proved_stopped_is_31() {
+    let host = verbs_host(
+        serde_json::json!({ "refuse_stop_ms": 100_000, "never_stop": true }),
+        SERVICE_DEMAND_START,
+    );
+    host.service.start();
+    host.service
+        .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    let refusal = verbs::preflight(&host.machine(&unwatched), &Request::default()).expect_err("31");
+    assert_eq!(refusal.code, codes::NOT_STOPPED, "{}", refusal.line);
+    assert!(!host.record().exists(), "the refusal removed the record");
+}
+
+/// A product service of another configuration is 26 before the staging.
+fn package_scm_verbs_preflight_a_conflicting_service_is_26_before_the_staging() {
+    let host = verbs_host(serde_json::json!({}), SERVICE_DEMAND_START);
+    let (request, _) = host.bootstrap();
+    let mut other = host.machine(&unwatched);
+    other.binary = host.root.operator.join("another").join("cg-agent.exe");
+    let refusal = verbs::preflight(&other, &request).expect_err("26");
+    assert_eq!(refusal.code, codes::CONFLICTING_SERVICE, "{}", refusal.line);
+    assert!(!host.record().exists());
+    assert!(!host.root.paths.staged_config().exists());
+}
+
+/// On the migration route configure reads no record and starts the service
+/// with the migration's arguments, from its own variables.
+fn package_scm_verbs_configure_on_the_migration_route_starts_with_its_arguments() {
+    let host = verbs_host(operational(), SERVICE_DEMAND_START);
+    let request = Request::new(
+        None,
+        Some("keep"),
+        Some(&format!("sha256:{}", "ab".repeat(32))),
+    );
+    assert_eq!(
+        verbs::configure(&host.machine(&unwatched), &request),
+        Ok(())
+    );
+    let migration = cg_setup::preflight::parse_migration(
+        request.migrate_legacy.as_deref(),
+        request.trust_anchors.as_deref(),
+    )
+    .unwrap();
+    assert_eq!(host.starts(), vec![migration_arguments(&migration)]);
+}
+
+/// A log position that cannot be recorded is 40: configure starts nothing
+/// and leaves the record (the Amendment 2026-11-11, point 4). The service,
+/// which would run if started, is still `STOPPED` seconds later, with no
+/// start received.
+fn package_scm_verbs_configure_an_unrecordable_log_position_is_40() {
+    let host = verbs_host(serde_json::json!({}), SERVICE_DEMAND_START);
+    let (request, _) = host.bootstrap();
+    assert_eq!(
+        verbs::preflight(&host.machine(&unwatched), &request),
+        Ok(())
+    );
+    let logs = host.root.paths.data_root.join("logs");
+    std::fs::remove_dir(&logs).expect("the log directory");
+    std::fs::write(&logs, b"not a directory").expect("a file at logs");
+    let refusal = verbs::configure(&host.machine(&unwatched), &Request::default()).expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(refusal.line.contains("log position"), "{}", refusal.line);
+    std::thread::sleep(Duration::from_secs(5));
+    assert_eq!(host.service.state(), SERVICE_STOPPED, "never started");
+    assert!(host.starts().is_empty(), "nothing started");
+    assert!(host.record().exists(), "the record stays");
+}
+
 // --- The observer (item 8's outcome) -------------------------------------------------
 
 /// A log directory of the test's, holding an earlier run's log with both
@@ -1698,6 +1802,26 @@ const TESTS: &[(&str, fn())] = &[
     (
         "package_scm_verbs_configure_a_refused_start_is_41_and_leaves_the_record",
         package_scm_verbs_configure_a_refused_start_is_41_and_leaves_the_record,
+    ),
+    (
+        "package_scm_verbs_preflight_records_a_service_running_at_its_check",
+        package_scm_verbs_preflight_records_a_service_running_at_its_check,
+    ),
+    (
+        "package_scm_verbs_preflight_a_service_not_proved_stopped_is_31",
+        package_scm_verbs_preflight_a_service_not_proved_stopped_is_31,
+    ),
+    (
+        "package_scm_verbs_preflight_a_conflicting_service_is_26_before_the_staging",
+        package_scm_verbs_preflight_a_conflicting_service_is_26_before_the_staging,
+    ),
+    (
+        "package_scm_verbs_configure_on_the_migration_route_starts_with_its_arguments",
+        package_scm_verbs_configure_on_the_migration_route_starts_with_its_arguments,
+    ),
+    (
+        "package_scm_verbs_configure_an_unrecordable_log_position_is_40",
+        package_scm_verbs_configure_an_unrecordable_log_position_is_40,
     ),
     (
         "package_scm_the_start_passes_its_arguments_or_none",

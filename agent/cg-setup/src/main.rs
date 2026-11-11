@@ -1,10 +1,11 @@
 //! `cg-setup.exe`, the setup's elevated code (SPEC-024 Amendment 2026-11-09,
 //! item 1), as Burn runs it (the Amendment 2026-11-10, item 9): one verb,
-//! `preflight`, `configure` or `reverse`, or `--version`. Each verb checks
-//! the platform and the elevation first (item 1), then runs in its item's
-//! order (`cg_setup::verbs`). The exit code is the operator's result (the
-//! Amendment 2026-11-09, item 7); a refusal or failure is one line on
-//! standard error, which never holds the token or a line of an input file.
+//! `preflight`, `configure` or `reverse`, or `--version`. The platform's floor
+//! is checked first (item 1), then the command line, then, for each verb, the
+//! elevation; the verb then runs in its item's order (`cg_setup::verbs`).
+//! The exit code is the operator's result (the Amendment 2026-11-09, item
+//! 7); a refusal or failure is one line on standard error, which never holds
+//! the token or a line of an input file.
 
 use std::process::ExitCode;
 
@@ -30,12 +31,15 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Refusal> {
     use cg_setup::verbs::{self, Machine};
     use cg_setup::version::SETUP_VERSION;
 
-    let command = parse(arguments)?;
-    if command == Command::Version {
+    // The floor is read before any other check (item 1): a command line Burn
+    // did not form is refused after it, and `--version` answers anywhere.
+    let command = parse(arguments);
+    if command == Ok(Command::Version) {
         println!("cg-setup {SETUP_VERSION}");
         return Ok(());
     }
     check_platform()?;
+    let command = command?;
     check_elevation()?;
     let machine = Machine::system()?;
     match command {

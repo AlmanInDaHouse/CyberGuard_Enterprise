@@ -476,3 +476,145 @@ fn package_verbs_reverse_starts_only_from_the_record() {
         Ok(())
     );
 }
+
+// --- From the review ---------------------------------------------------------------
+
+/// Configure holds the data root from its first check on: it cannot be
+/// renamed, at the record's reading or at the staged files' checks. (`<P>`,
+/// which holds the data root, is held too, but a directory with an open
+/// descendant cannot be renamed whether or not it is held.)
+#[test]
+fn package_verbs_configure_holds_the_directories() {
+    let root = Root::bare();
+    let (request, _) = bootstrap(&root);
+    assert_eq!(
+        verbs::preflight(
+            &machine(&root, &quiet, root.operator.join("absent.exe")),
+            &request
+        ),
+        Ok(())
+    );
+    let moved = root.paths.product_root.join("moved");
+    let renamed = Mutex::new(Vec::new());
+    let try_renaming = |step: Step| {
+        if matches!(step, Step::ReadRecord | Step::CheckStaged(_)) {
+            let outcome = std::fs::rename(&root.paths.data_root, &moved).is_ok();
+            renamed.lock().unwrap().push((step, outcome));
+        }
+        Ok(())
+    };
+    let configure = machine(&root, &try_renaming, root.operator.join("absent.exe"));
+    assert_code(
+        verbs::configure(&configure, &Request::default()),
+        codes::OWN_STATE,
+        &["no installed agent"],
+    );
+    let renamed = renamed.into_inner().unwrap();
+    assert_eq!(renamed.len(), 3, "{renamed:?}");
+    assert!(renamed.iter().all(|(_, ok)| !ok), "{renamed:?}");
+}
+
+/// The staged configuration, which holds the token, is checked as item 6.4
+/// of the Amendment 2026-11-09 opens it, as the anchor is: hard-linked, open
+/// to users or a reparse point, it is 40, and nothing changes.
+#[test]
+fn package_verbs_configure_checks_the_staged_configuration() {
+    type Spoil = fn(&Root);
+    let cases: Vec<(&str, &str, Spoil)> = vec![
+        ("hard-linked", "hard-linked", |root| {
+            std::fs::hard_link(
+                root.paths.staged_config(),
+                root.paths.data_root.join("another-name"),
+            )
+            .unwrap()
+        }),
+        (
+            "open to users",
+            "allows access to a principal other than",
+            |root| {
+                let bytes = std::fs::read(root.paths.staged_config()).unwrap();
+                std::fs::remove_file(root.paths.staged_config()).unwrap();
+                cg_agent::custody::create_new_file(
+                    &root.paths.staged_config(),
+                    &format!("{}(A;;FR;;;BU)", private_file_sddl()),
+                    &bytes,
+                )
+                .unwrap();
+            },
+        ),
+        ("a junction", "reparse point", |root| {
+            std::fs::remove_file(root.paths.staged_config()).unwrap();
+            let elsewhere = root.operator.join("elsewhere");
+            std::fs::create_dir(&elsewhere).unwrap();
+            fixtures::junction(&root.paths.staged_config(), &elsewhere);
+        }),
+    ];
+    for (what, fragment, spoil) in cases {
+        let root = Root::bare();
+        let (request, _) = bootstrap(&root);
+        let binary = installed(&root, own_numbers(), SETUP_VERSION);
+        assert_eq!(
+            verbs::preflight(&machine(&root, &quiet, binary.clone()), &request),
+            Ok(()),
+            "{what}"
+        );
+        spoil(&root);
+        let before = root.tree();
+        assert_code(
+            verbs::configure(&machine(&root, &quiet, binary), &Request::default()),
+            codes::OWN_STATE,
+            &[fragment],
+        );
+        assert_eq!(root.tree(), before, "{what}");
+    }
+}
+
+/// Configure has no token in hand (the Amendment 2026-11-09, item 5): it
+/// checks the staged configuration without reading it. A lock on its bytes
+/// that no reader can pass leaves configure's checks to pass, on to the
+/// installed binary's version.
+#[test]
+fn package_verbs_configure_reads_no_token() {
+    let root = Root::bare();
+    let (request, _) = bootstrap(&root);
+    assert_eq!(
+        verbs::preflight(
+            &machine(&root, &quiet, root.operator.join("absent.exe")),
+            &request
+        ),
+        Ok(())
+    );
+    let locked = std::fs::File::open(root.paths.staged_config()).expect("open to lock");
+    locked.lock().expect("an exclusive lock on the whole file");
+    let outcome = verbs::configure(
+        &machine(&root, &quiet, root.operator.join("absent.exe")),
+        &Request::default(),
+    );
+    drop(locked);
+    assert_code(outcome, codes::OWN_STATE, &["no installed agent"]);
+}
+
+/// An installed binary that is not this package's is 40 at configure, before
+/// the failure actions, and the record stays.
+#[test]
+fn package_verbs_configure_refuses_another_packages_binary() {
+    let root = Root::bare();
+    let (request, _) = bootstrap(&root);
+    let binary = installed(&root, [0, 0, 1, 0], "0.0.1");
+    assert_eq!(
+        verbs::preflight(&machine(&root, &quiet, binary.clone()), &request),
+        Ok(())
+    );
+    let before = root.tree();
+    let refusal = assert_code(
+        verbs::configure(&machine(&root, &quiet, binary), &Request::default()),
+        codes::OWN_STATE,
+        &["not this package's"],
+    );
+    assert!(
+        !refusal.line.contains("failure actions"),
+        "{}",
+        refusal.line
+    );
+    assert_eq!(root.tree(), before);
+}

@@ -1,5 +1,5 @@
 //! `cg-setup.exe` itself (SPEC-024 Amendment 2026-11-10, items 1 and 9):
-//! `--version`; a command line Burn did not form, 40 before any check; each
+//! `--version`; a command line Burn did not form, 40 after the floor; each
 //! verb's first checks, the platform and then the elevation; and its version
 //! resource, the agent's with its own file name and no message table.
 //!
@@ -222,7 +222,7 @@ fn package_setup_executable_answers_its_version() {
 }
 
 /// Any command line Burn does not form is 40, one line on standard error,
-/// before any check: these run no verb, elevated or not.
+/// after the platform's floor: these run no verb, elevated or not.
 #[test]
 fn package_setup_executable_a_command_line_burn_did_not_form_is_40() {
     for arguments in [
@@ -274,19 +274,39 @@ fn package_setup_executable_each_verb_checks_the_elevation_first() {
     }
 }
 
-/// The platform's floor precedes the elevation (item 1): a compatibility
-/// mode applied to the setup lowers the version `RtlGetVersion` reports,
-/// which is 20 even under a filtered token, the line naming the version read.
+/// The platform's floor is read before any other check (item 1): a
+/// compatibility mode applied to the setup lowers the version
+/// `RtlGetVersion` reports, which is 20 for each verb even under a filtered
+/// token, and for a command line Burn did not form, the line naming the
+/// version read; `--version` still answers.
 #[test]
-fn package_setup_executable_the_floor_comes_before_the_elevation() {
-    let run = run_filtered(&["preflight"], &[("__COMPAT_LAYER", "WIN7RTM")]);
-    assert_eq!(run.code, 20, "{run:?}");
-    assert!(
-        run.stderr.contains("Windows 10.0 build 17763 or later"),
-        "{run:?}"
+fn package_setup_executable_the_floor_comes_before_any_other_check() {
+    let compatibility = [("__COMPAT_LAYER", "WIN7RTM")];
+    for arguments in [
+        &["preflight"][..],
+        &["configure"],
+        &["reverse"],
+        &["preflight", "--x=1"],
+        &["install"],
+    ] {
+        let run = run_filtered(arguments, &compatibility);
+        assert_eq!(run.code, 20, "{arguments:?}: {run:?}");
+        assert!(
+            run.stderr.contains("Windows 10.0 build 17763 or later"),
+            "{arguments:?}: {run:?}"
+        );
+        assert!(run.stderr.contains("this Windows reports 6.1"), "{run:?}");
+        assert_eq!(run.stderr.lines().count(), 1, "{run:?}");
+    }
+    let run = run_filtered(&["--version"], &compatibility);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert_eq!(
+        run.stdout,
+        format!(
+            "cg-setup {SETUP_VERSION}
+"
+        )
     );
-    assert!(run.stderr.contains("this Windows reports 6.1"), "{run:?}");
-    assert_eq!(run.stderr.lines().count(), 1, "{run:?}");
 }
 
 /// The version resource: `X.Y.Z.0` and the setup's own version string, the
