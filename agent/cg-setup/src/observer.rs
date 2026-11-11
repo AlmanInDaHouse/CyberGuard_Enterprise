@@ -425,7 +425,7 @@ pub fn observe(
     // observation (SPEC-024 Amendment 2026-11-11, item 4).
     let unreadable = |error: u32| {
         Refusal::new(
-            NOT_OBSERVABLE,
+            OWN_STATE,
             format!(
                 "the state of the service {name} cannot be read after its start: Win32 error {error}"
             ),
