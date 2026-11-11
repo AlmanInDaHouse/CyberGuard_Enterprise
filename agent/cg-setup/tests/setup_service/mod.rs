@@ -1,8 +1,8 @@
 //! The setup's client of the service control manager against real services
 //! (SPEC-024 Amendment 2026-11-10, items 3, 6 and 8): the conflict check
 //! (26) and `service_running`, the stop within 75 seconds (31), the failure
-//! actions with their flag set to false, and the start with its arguments
-//! (41 when refused).
+//! actions with their flag set to false, the start with its arguments (41
+//! when refused), and configure's observer (42 to 44, item 8's outcome).
 //!
 //! These tests create, start, stop and delete Windows services, so they build
 //! only with the test-only `scm-tests` feature and run only in rust-ci's
@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use cg_agent::service::migration::{Choice, Request};
 use cg_setup::codes;
+use cg_setup::observer::{self, LogPosition, HEARTBEAT_LINE, IDENTITY_LINE, OBSERVE_WITHIN};
 use cg_setup::scm::{self, Manager, Product, Route};
 use cg_setup::service::{migration_arguments, product_command_line, start_arguments};
 use cg_setup::Refusal;
@@ -1011,6 +1012,118 @@ fn package_scm_a_start_the_scm_refuses_is_41() {
     assert_eq!(files.starts().len(), 1, "only the one start ran");
 }
 
+// --- The observer (item 8's outcome) -------------------------------------------------
+
+/// A log directory of the test's, holding an earlier run's log with both
+/// lines in its active file and in an archive: lines before the position.
+fn earlier_log() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let both: String = [IDENTITY_LINE, HEARTBEAT_LINE]
+        .iter()
+        .map(|message| format!("{}\n", serde_json::json!({ "fields": { "message": message } })))
+        .collect();
+    for name in ["agent.1.jsonl", "agent.jsonl"] {
+        std::fs::write(dir.path().join(name), &both).expect("an earlier run's log");
+    }
+    dir
+}
+
+/// Start a controllable service with `behaviour`, whose log is in `log_dir`,
+/// after recording the log's position, and observe it: the outcome and how
+/// long it took from the start request.
+fn observed(
+    behaviour: serde_json::Value,
+    log_dir: &Path,
+) -> (Result<(), Refusal>, Duration) {
+    let mut behaviour = behaviour;
+    behaviour["log_dir"] = serde_json::Value::String(log_dir.display().to_string());
+    let files = Controllable::new(behaviour);
+    let service = TestService::controllable(&files);
+    let position = LogPosition::record(log_dir).expect("record the log's position");
+    let started = Instant::now();
+    scm::start(&manager(), &service.name, &[]).expect("the start");
+    let outcome = observer::observe(&manager(), &service.name, log_dir, position, started);
+    let elapsed = started.elapsed();
+    eprintln!("observed {}: {outcome:?} after {elapsed:?}", service.name);
+    (outcome, elapsed)
+}
+
+fn package_scm_observe_a_service_whose_two_lines_appear_in_order_is_operational() {
+    let log = earlier_log();
+    let (outcome, elapsed) = observed(
+        serde_json::json!({
+            "start_pending_ms": 1000,
+            "log": [
+                { "sleep_ms": 500 },
+                { "line": "agent starting" },
+                { "line": IDENTITY_LINE },
+                "rotate",
+                { "sleep_ms": 1000 },
+                { "line": HEARTBEAT_LINE },
+            ],
+        }),
+        log.path(),
+    );
+    outcome.expect("operational");
+    assert!(
+        elapsed < OBSERVE_WITHIN,
+        "operational once both lines appear: {elapsed:?}"
+    );
+}
+
+fn package_scm_observe_a_service_that_stops_is_42_with_its_exit_codes() {
+    let log = earlier_log();
+    let (outcome, elapsed) = observed(
+        serde_json::json!({
+            "log": [{ "line": IDENTITY_LINE }, { "sleep_ms": 1000 }],
+            "stop_with": 13,
+        }),
+        log.path(),
+    );
+    assert_refused(
+        outcome,
+        codes::SERVICE_STOPPED,
+        &["Win32 exit code 1066", "service-specific exit code 13"],
+    );
+    assert!(
+        elapsed < OBSERVE_WITHIN,
+        "42 as soon as it reports STOPPED: {elapsed:?}"
+    );
+}
+
+fn package_scm_observe_a_service_still_pending_at_the_end_is_43() {
+    let log = tempfile::tempdir().expect("a temporary directory");
+    let (outcome, elapsed) = observed(
+        serde_json::json!({ "start_pending_ms": 75_000 }),
+        log.path(),
+    );
+    assert_refused(outcome, codes::PENDING, &["state 2", "60 seconds"]);
+    assert!(
+        elapsed >= OBSERVE_WITHIN && elapsed < OBSERVE_WITHIN + Duration::from_secs(10),
+        "43 at the end of the 60 seconds: {elapsed:?}"
+    );
+}
+
+fn package_scm_observe_a_running_service_without_both_lines_in_order_is_44() {
+    // The earlier run's lines precede the position, and this run writes the
+    // two lines out of order.
+    let log = earlier_log();
+    let (outcome, elapsed) = observed(
+        serde_json::json!({
+            "log": [{ "line": HEARTBEAT_LINE }, { "line": IDENTITY_LINE }],
+        }),
+        log.path(),
+    );
+    assert_refused(
+        outcome,
+        codes::NOT_OBSERVABLE,
+        &[HEARTBEAT_LINE, "60 seconds"],
+    );
+    assert!(
+        elapsed >= OBSERVE_WITHIN && elapsed < OBSERVE_WITHIN + Duration::from_secs(10),
+        "44 at the end of the 60 seconds: {elapsed:?}"
+    );
+}
 // --- The runner ---------------------------------------------------------------------
 
 /// The tests, in the order they run.
@@ -1062,6 +1175,22 @@ const TESTS: &[(&str, fn())] = &[
     (
         "package_scm_a_start_the_scm_refuses_is_41",
         package_scm_a_start_the_scm_refuses_is_41,
+    ),
+    (
+        "package_scm_observe_a_service_whose_two_lines_appear_in_order_is_operational",
+        package_scm_observe_a_service_whose_two_lines_appear_in_order_is_operational,
+    ),
+    (
+        "package_scm_observe_a_service_that_stops_is_42_with_its_exit_codes",
+        package_scm_observe_a_service_that_stops_is_42_with_its_exit_codes,
+    ),
+    (
+        "package_scm_observe_a_service_still_pending_at_the_end_is_43",
+        package_scm_observe_a_service_still_pending_at_the_end_is_43,
+    ),
+    (
+        "package_scm_observe_a_running_service_without_both_lines_in_order_is_44",
+        package_scm_observe_a_running_service_without_both_lines_in_order_is_44,
     ),
 ];
 

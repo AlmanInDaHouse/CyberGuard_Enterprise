@@ -393,7 +393,7 @@ impl<'a> Delivery<'a> {
                     events_count = batch.events.len(),
                     body_size_bytes = bytes.len(),
                     response_status = s,
-                    "signed heartbeat sent"
+                    "signed heartbeat delivered (probe)"
                 );
                 Attempt::Delivered
             }

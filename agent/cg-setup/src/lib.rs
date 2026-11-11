@@ -15,6 +15,8 @@
 
 pub mod codes;
 pub mod inputs;
+#[cfg(windows)]
+pub mod observer;
 pub mod platform;
 #[cfg(windows)]
 pub mod preflight;
