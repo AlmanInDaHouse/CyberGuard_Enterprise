@@ -127,13 +127,27 @@ fn open_scm() -> SC_HANDLE {
 fn unused_name() -> String {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let scm = open_scm();
-    // SAFETY: a handle OpenSCManagerW returned, closed once.
-    unsafe { CloseServiceHandle(scm) };
-    format!(
+    let name = format!(
         "CgSetupTest-{}-absent-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::SeqCst)
-    )
+    );
+    let wname = wide(&name);
+    // SAFETY: the name lives for the call; each handle is closed once.
+    let error = unsafe {
+        let handle = OpenServiceW(scm, wname.as_ptr(), SERVICE_QUERY_STATUS);
+        let error = if handle.is_null() { last_error() } else { 0 };
+        if !handle.is_null() {
+            CloseServiceHandle(handle);
+        }
+        CloseServiceHandle(scm);
+        error
+    };
+    assert_eq!(
+        error, ERROR_SERVICE_DOES_NOT_EXIST,
+        "refusing to act: {name} is not established absent"
+    );
+    name
 }
 
 /// What a service is created with.
@@ -156,7 +170,10 @@ struct Controllable {
 
 impl Controllable {
     fn new(behaviour: serde_json::Value) -> Self {
-        refuse_outside_a_disposable_runner();
+        // Both refusals before anything is written.
+        let scm = open_scm();
+        // SAFETY: a handle OpenSCManagerW returned, closed once.
+        unsafe { CloseServiceHandle(scm) };
         let directory = tempfile::tempdir().expect("a temporary directory");
         let record = directory.path().join("arguments.jsonl");
         let mut behaviour = behaviour;
@@ -682,7 +699,8 @@ fn package_scm_each_difference_from_the_products_configuration_is_26() {
     }
 }
 
-/// A service whose configuration the setup cannot read is 26.
+/// A service whose configuration the setup cannot read is 26; one whose
+/// configuration is the product's but whose state it cannot read is 40.
 fn package_scm_a_configuration_that_cannot_be_read_is_26() {
     let files = Controllable::new(serde_json::json!({}));
     let service = TestService::controllable(&files);
@@ -693,6 +711,17 @@ fn package_scm_a_configuration_that_cannot_be_read_is_26() {
             check(&service, &files, route),
             codes::CONFLICTING_SERVICE,
             &[&service.name, "cannot be read", "Win32 error 5"],
+        );
+    }
+
+    let service = TestService::controllable(&files);
+    // Administrators may query its configuration (CC) but not its state (LC).
+    service.set_dacl("D:P(A;;GA;;;SY)(A;;CC;;;BA)");
+    for route in [Route::Other, Route::Migration] {
+        assert_refused(
+            check(&service, &files, route),
+            codes::OWN_STATE,
+            &[&service.name, "state", "cannot be read", "Win32 error 5"],
         );
     }
 }
@@ -846,12 +875,13 @@ fn package_scm_the_stop_waits_75_seconds_and_no_more() {
 }
 
 /// The 75 seconds hold while a stop control blocks: the service's handler
-/// takes 45 seconds to answer it, longer than the SCM waits for a handler,
-/// and the service never stops. 31 comes at 75 seconds, not after the
-/// controls still outstanding.
+/// takes 80 seconds to answer each stop, longer than the SCM waits for a
+/// handler (30 seconds) and than the bound, so a control is outstanding at
+/// the end; the service never stops. 31 comes at 75 seconds, not when that
+/// control returns.
 fn package_scm_the_stop_bound_holds_while_a_control_blocks() {
     let files = Controllable::new(serde_json::json!({
-        "block_stop_ms": 45000,
+        "block_stop_ms": 80000,
         "never_stop": true,
     }));
     let service = TestService::controllable(&files);
@@ -1035,25 +1065,94 @@ const TESTS: &[(&str, fn())] = &[
     ),
 ];
 
+/// libtest's options that take a value as the next argument.
+const VALUE_OPTIONS: &[&str] = &[
+    "--test-threads",
+    "--skip",
+    "--logfile",
+    "--format",
+    "--color",
+    "--shuffle-seed",
+    "-Z",
+];
+
+/// The tests a libtest command line selects: its filters, `--skip`,
+/// `--exact`, and `--ignored` (none of these tests is ignored). `None` for
+/// `--list`, which lists them instead.
+struct Selection {
+    filters: Vec<String>,
+    skips: Vec<String>,
+    exact: bool,
+    ignored_only: bool,
+    list: bool,
+}
+
+impl Selection {
+    fn parse(arguments: &[String]) -> Self {
+        let mut selection = Selection {
+            filters: Vec::new(),
+            skips: Vec::new(),
+            exact: false,
+            ignored_only: false,
+            list: false,
+        };
+        let mut arguments = arguments.iter();
+        while let Some(argument) = arguments.next() {
+            match argument.as_str() {
+                "--list" => selection.list = true,
+                "--exact" => selection.exact = true,
+                "--ignored" => selection.ignored_only = true,
+                "--skip" => selection.skips.extend(arguments.next().cloned()),
+                option if VALUE_OPTIONS.contains(&option) => {
+                    arguments.next();
+                }
+                option if option.starts_with("--skip=") => {
+                    selection.skips.push(option["--skip=".len()..].to_string());
+                }
+                option if option.starts_with('-') => {}
+                filter => selection.filters.push(filter.to_string()),
+            }
+        }
+        selection
+    }
+
+    fn matches(&self, name: &str, pattern: &str) -> bool {
+        if self.exact {
+            name == pattern
+        } else {
+            name.contains(pattern)
+        }
+    }
+
+    fn selects(&self, name: &str) -> bool {
+        !self.ignored_only
+            && (self.filters.is_empty() || self.filters.iter().any(|f| self.matches(name, f)))
+            && !self.skips.iter().any(|s| self.matches(name, s))
+    }
+}
+
 /// As the SCM's service, `--service --config <file>`; otherwise the tests,
-/// one at a time, in libtest's report form. An argument that does not start
-/// with `-` is a filter on the test's name; libtest's options
-/// (`--test-threads=1`, `--nocapture`, ...) are accepted and change nothing.
+/// one at a time, in libtest's report form, selected as libtest selects them
+/// (filters, `--skip`, `--exact`, `--ignored`, `--list`); its other options
+/// (`--test-threads=1`, `--nocapture`, ...) change nothing.
 pub fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.first().map(String::as_str) == Some("--service") {
         service::main(&arguments);
         return;
     }
-    let filters: Vec<&str> = arguments
-        .iter()
-        .map(String::as_str)
-        .filter(|argument| !argument.starts_with('-'))
-        .collect();
+    let selection = Selection::parse(&arguments);
     let selected: Vec<&(&str, fn())> = TESTS
         .iter()
-        .filter(|(name, _)| filters.is_empty() || filters.iter().any(|f| name.contains(f)))
+        .filter(|(name, _)| selection.selects(name))
         .collect();
+    if selection.list {
+        for (name, _) in &selected {
+            println!("{name}: test");
+        }
+        println!("\n{} tests, 0 benchmarks", selected.len());
+        return;
+    }
     println!("\nrunning {} tests", selected.len());
     let started = Instant::now();
     let mut failed = Vec::new();
