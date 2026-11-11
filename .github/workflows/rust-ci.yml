@@ -97,6 +97,8 @@ jobs:
       # test executable is also the service they control. Their red evidence
       # was the probe pull request #101, closed without landing.
       - name: "cargo test, cg-setup's SCM tests (scm-tests)"
+        # The probe: this step cannot fail the job; its log is the red evidence.
+        continue-on-error: true
         run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1
 
       - name: agent version matrix

@@ -7,7 +7,6 @@
 //! the access it needs alone, so that a right the service's security denies
 //! fails that call and no other.
 
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
@@ -61,20 +60,17 @@ impl Manager {
     /// The local SCM, for connecting alone. One that cannot be opened is 40
     /// (item 3).
     pub fn open() -> Result<Self, Refusal> {
-        Self::connect().map_err(|error| {
-            Refusal::new(
-                OWN_STATE,
-                format!("the service control manager cannot be opened: Win32 error {error}"),
-            )
-        })
-    }
-
-    fn connect() -> Result<Self, u32> {
         // SAFETY: null machine and database name the local active database.
         let handle =
             unsafe { OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT) };
         if handle.is_null() {
-            return Err(last_error());
+            return Err(Refusal::new(
+                OWN_STATE,
+                format!(
+                    "the service control manager cannot be opened: Win32 error {}",
+                    last_error()
+                ),
+            ));
         }
         Ok(Manager(handle))
     }
@@ -274,43 +270,19 @@ fn not_stopped(name: &str, reason: impl std::fmt::Display) -> Refusal {
     )
 }
 
-/// One stop control sent to the service `name` on a thread of its own,
-/// through a handle opened for `SERVICE_STOP` alone: `ControlService` can
-/// block for up to 30 seconds while a service handles a control, and the
-/// stop's bound must not wait on it.
-fn send_stop(name: &str) -> mpsc::Receiver<Result<(), u32>> {
-    let (sender, receiver) = mpsc::channel();
-    let name = name.to_string();
-    std::thread::spawn(move || {
-        let result = Manager::connect().and_then(|scm| {
-            scm.service(&name, SERVICE_STOP)?
-                .ok_or(ERROR_SERVICE_DOES_NOT_EXIST)?
-                .control_stop()
-        });
-        // The receiver is gone when the stop has already ended.
-        let _ = sender.send(result);
-    });
-    receiver
-}
-
 /// Item 6: send the service `name`, if it is not `STOPPED`, the stop control,
 /// and prove it `STOPPED` within `STOP_WITHIN` of the first request, sending
 /// the control again while the service cannot accept it. A service still in
 /// another state at the end is 31; a service that does not exist needs no
 /// stop.
-///
-/// The state is read every `POLL` through a handle for the status alone, and
-/// only a reading taken before the end proves `STOPPED`. Each control is sent
-/// by `send_stop`, one at a time; a control still outstanding at the end is
-/// left to finish on its own.
 pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
-    let service = match scm.service(name, SERVICE_QUERY_STATUS) {
+    let service = match scm.service(name, SERVICE_STOP | SERVICE_QUERY_STATUS) {
         Ok(None) => return Ok(()),
         Ok(Some(service)) => service,
         Err(error) => {
             return Err(not_stopped(
                 name,
-                format!("it cannot be opened to read its state: Win32 error {error}"),
+                format!("it cannot be opened to stop it: Win32 error {error}"),
             ))
         }
     };
@@ -328,46 +300,15 @@ pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
     if state(&service)? == SERVICE_STOPPED {
         return Ok(());
     }
-    let end = Instant::now() + STOP_WITHIN;
-    let mut outstanding = Some(send_stop(name));
+    let first_request = Instant::now();
     let mut accepted = false;
     let mut last_refusal = None;
     loop {
-        if let Some(receiver) = &outstanding {
-            match receiver.try_recv() {
-                Err(mpsc::TryRecvError::Empty) => {}
-                Err(mpsc::TryRecvError::Disconnected) => outstanding = None,
-                Ok(result) => {
-                    outstanding = None;
-                    match result {
-                        Ok(()) => accepted = true,
-                        // It cannot accept the control in its state, did not
-                        // answer the control in time, or has just stopped.
-                        Err(
-                            error @ (ERROR_SERVICE_CANNOT_ACCEPT_CTRL
-                            | ERROR_INVALID_SERVICE_CONTROL
-                            | ERROR_SERVICE_REQUEST_TIMEOUT
-                            | ERROR_SERVICE_NOT_ACTIVE),
-                        ) => {
-                            accepted = false;
-                            last_refusal = Some(error);
-                        }
-                        Err(error) => {
-                            return Err(not_stopped(
-                                name,
-                                format!("the stop request failed: Win32 error {error}"),
-                            ))
-                        }
-                    }
-                }
-            }
-        }
-        let read_at = Instant::now();
         let current = state(&service)?;
-        if current == SERVICE_STOPPED && read_at < end {
+        if current == SERVICE_STOPPED {
             return Ok(());
         }
-        if Instant::now() >= end {
+        if first_request.elapsed() >= STOP_WITHIN {
             let refusal = last_refusal
                 .map(|error| format!(", its last stop request refused with Win32 error {error}"))
                 .unwrap_or_default();
@@ -382,8 +323,27 @@ pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
         // A service that accepted the stop is stopping; one that has not
         // yet accepted it, or is back in a state other than STOP_PENDING,
         // is sent the control again.
-        if outstanding.is_none() && (!accepted || current != SERVICE_STOP_PENDING) {
-            outstanding = Some(send_stop(name));
+        if !accepted || current != SERVICE_STOP_PENDING {
+            match service.control_stop() {
+                Ok(()) => accepted = true,
+                // It cannot accept the control in its state, did not answer
+                // the control in time, or has just stopped.
+                Err(
+                    error @ (ERROR_SERVICE_CANNOT_ACCEPT_CTRL
+                    | ERROR_INVALID_SERVICE_CONTROL
+                    | ERROR_SERVICE_REQUEST_TIMEOUT
+                    | ERROR_SERVICE_NOT_ACTIVE),
+                ) => {
+                    accepted = false;
+                    last_refusal = Some(error);
+                }
+                Err(error) => {
+                    return Err(not_stopped(
+                        name,
+                        format!("the stop request failed: Win32 error {error}"),
+                    ))
+                }
+            }
         }
         std::thread::sleep(POLL);
     }
@@ -391,8 +351,8 @@ pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
 
 /// Item 8: the failure actions of the service `name`: a restart after 60, 120
 /// and 300 seconds, the count reset after 86400 seconds, and the
-/// failure-actions flag set to false, so that a flag set earlier is cleared;
-/// a reboot message or command set earlier is deleted. A failure is 40.
+/// failure-actions flag set to false, so that a flag set earlier is cleared.
+/// A failure is 40.
 pub fn set_failure_actions(scm: &Manager, name: &str) -> Result<(), Refusal> {
     let failed = |what: &str, error: u32| {
         Refusal::new(
@@ -410,17 +370,14 @@ pub fn set_failure_actions(scm: &Manager, name: &str) -> Result<(), Refusal> {
         Type: SC_ACTION_RESTART,
         Delay: delay,
     });
-    // An empty string deletes a reboot message or command set earlier; a
-    // null pointer would leave it.
-    let (mut reboot_message, mut command) = ([0u16], [0u16]);
     let failure_actions = SERVICE_FAILURE_ACTIONSW {
         dwResetPeriod: FAILURE_RESET_SECONDS,
-        lpRebootMsg: reboot_message.as_mut_ptr(),
-        lpCommand: command.as_mut_ptr(),
+        lpRebootMsg: std::ptr::null_mut(),
+        lpCommand: std::ptr::null_mut(),
         cActions: actions.len() as u32,
         lpsaActions: actions.as_mut_ptr(),
     };
-    // SAFETY: the structure, its strings and its actions live for the call.
+    // SAFETY: the structure and the actions it points to live for the call.
     let ok = unsafe {
         ChangeServiceConfig2W(
             service.0,
