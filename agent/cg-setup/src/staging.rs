@@ -1,5 +1,7 @@
 //! Preflight's staging and its reversal (SPEC-024 Amendment 2026-11-10,
-//! items 5 and 7, within item 3 of the Amendment 2026-11-09).
+//! items 5 and 7, within item 3 of the Amendment 2026-11-09), with the
+//! Amendment 2026-11-11's record rewritten after the stop (point 1), the
+//! reversal's start (point 2) and a refusal whose removal fails (point 3).
 //!
 //! `<P>` and the data root are held open from before anything under `<P>` is
 //! removed or created until the attempt ends: opened without following a
@@ -14,18 +16,20 @@
 //! The order is the directories, `setup-attempt.json`, the staged anchor and
 //! the staged configuration; a removal takes the staged files, the record,
 //! then the data root and `<P>`, each directory only if the record names it
-//! and it is empty. The `Watch` is told of each step, so that the tests point
+//! and it is empty. The record is written once more at most, after the stop,
+//! when the stop found the service running and the record says otherwise.
+//! The `Watch` is told of each step, so that the tests point
 //! the setup at a temporary root and inject a failure at each one.
 
 use std::collections::BTreeSet;
-use std::io::Read as _;
+use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use cg_agent::custody::{self, Handle, Kind, Policy, Principal, Shape};
 use cg_agent::service::layout::{classify_names, HostState, Names};
 use cg_agent::service::{InstalledPaths, READ_LIMIT};
-use windows_sys::Win32::Foundation::GENERIC_READ;
+use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
 use windows_sys::Win32::Storage::FileSystem::{
     DELETE, FILE_ATTRIBUTE_DIRECTORY, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
     FILE_SHARE_READ, FILE_SHARE_WRITE, READ_CONTROL,
@@ -122,6 +126,8 @@ pub enum Step {
     RemoveEarlier(Name),
     /// Creating the record, or the staged file of that name.
     Write(Name),
+    /// Rewriting the record after the stop, `service_running` true.
+    RewriteRecord,
     /// The reversal's reading of the record.
     ReadRecord,
     /// Removing what a record names, that name.
@@ -194,6 +200,22 @@ impl Fault {
             }
             Fault::Failed(reason) => own_state(reason),
         }
+    }
+}
+
+/// The text of a refusal's line, without its `cg-setup: ` prefix.
+fn text_of(refusal: &Refusal) -> &str {
+    refusal
+        .line
+        .strip_prefix("cg-setup: ")
+        .unwrap_or(&refusal.line)
+}
+
+/// A refusal of the reversal's: 40, whatever code it came with.
+fn own_state_of(refusal: Refusal) -> Refusal {
+    Refusal {
+        code: OWN_STATE,
+        ..refusal
     }
 }
 
@@ -359,6 +381,76 @@ impl Attempt {
             },
         }
     }
+
+    /// The Amendment 2026-11-11, point 1, after item 6's stop, which
+    /// `found_running` and `stopped` report: when the stop's first reading
+    /// found the service running and the record says otherwise, the record is
+    /// rewritten, `service_running` true, before a refusal removes what it
+    /// names. A rewrite that fails is 40, or, with the stop's 31, keeps 31 and
+    /// is named in its line. Either refusal removes what the record names
+    /// (item 5) before this returns.
+    pub fn after_stop(
+        self,
+        setup: &Setup<'_>,
+        found_running: bool,
+        stopped: Result<(), Refusal>,
+    ) -> Result<Attempt, Refusal> {
+        let mut attempt = self;
+        let rewritten = if found_running && !attempt.record.service_running {
+            let record = Record {
+                service_running: true,
+                ..attempt.record.clone()
+            };
+            let rewritten = setup
+                .watch
+                .at(Step::RewriteRecord)
+                .and_then(|()| rewrite_record(setup, &record));
+            if rewritten.is_ok() {
+                attempt.record = record;
+            }
+            rewritten
+        } else {
+            Ok(())
+        };
+        let refusal = match (stopped, rewritten) {
+            (Ok(()), Ok(())) => return Ok(attempt),
+            (Err(refusal), Ok(())) => refusal,
+            (Ok(()), Err(reason)) => {
+                own_state(&format!("the record could not be rewritten: {reason}"))
+            }
+            (Err(refusal), Err(reason)) => Refusal {
+                code: refusal.code,
+                line: format!(
+                    "{}; and the record could not be rewritten: {reason}",
+                    refusal.line
+                ),
+            },
+        };
+        Err(attempt.refuse(setup, refusal))
+    }
+}
+
+/// The Amendment 2026-11-11, point 1: write `record` whole over the record,
+/// opened without following a reparse point and sharing nothing, through the
+/// data root held, checked as item 8 opens it, its end set at the new length.
+fn rewrite_record(setup: &Setup<'_>, record: &Record) -> Result<(), String> {
+    let path = Name::Record.path(&setup.paths);
+    let handle = custody::open_existing(
+        &path,
+        GENERIC_WRITE | READ_CONTROL | FILE_READ_ATTRIBUTES,
+        0,
+        setup.wait,
+    )?
+    .ok_or_else(|| format!("{} does not exist", path.display()))?;
+    custody::check_shape(&handle, &path, Kind::File)?;
+    custody::check_security(&handle, &path, &setup.custody.staged)?;
+    let bytes = record.to_bytes();
+    let mut file = handle.into_file();
+    file.seek(SeekFrom::Start(0))
+        .and_then(|_| file.write_all(&bytes))
+        .and_then(|()| file.set_len(bytes.len() as u64))
+        .and_then(|()| file.sync_all())
+        .map_err(|e| format!("write {}: {e}", path.display()))
 }
 
 /// Item 5, after items 3 and 4, on every route but a migration's: hold `<P>`
@@ -466,15 +558,53 @@ pub fn read_record(setup: &Setup<'_>) -> Result<Option<Record>, String> {
 pub enum Reversal {
     /// Nothing changed, and why.
     Unchanged(String),
-    /// What the record named is removed; the product service is to be
-    /// started with no argument when `start` is true.
-    Removed { start: bool },
+    /// A record that passed its checks: what it named is removed, or the
+    /// removal stopped at `failed` (40); the product service is to be started
+    /// with no argument when `start` is true, the record's
+    /// `service_running`, also after a removal that failed (the Amendment
+    /// 2026-11-11, point 2).
+    Removed {
+        start: bool,
+        failed: Option<Refusal>,
+    },
+}
+
+impl Reversal {
+    /// The reversal's end (the Amendment 2026-11-11, point 2): `start`, made
+    /// only when the record asks for it, after the removals; then 40 for a
+    /// start that failed, its line naming any removal that failed too, 40
+    /// for a removal that failed, and exit 0 otherwise.
+    pub fn finish(self, start: impl FnOnce() -> Result<(), Refusal>) -> Result<(), Refusal> {
+        let Reversal::Removed {
+            start: true,
+            failed,
+        } = self
+        else {
+            return match self {
+                Reversal::Removed {
+                    failed: Some(failed),
+                    ..
+                } => Err(failed),
+                _ => Ok(()),
+            };
+        };
+        match (start(), failed) {
+            (Ok(()), None) => Ok(()),
+            (Ok(()), Some(failed)) => Err(failed),
+            (Err(refused), None) => Err(own_state_of(refused)),
+            (Err(refused), Some(failed)) => Err(Refusal {
+                code: OWN_STATE,
+                line: format!("{}; and {}", own_state_of(refused).line, text_of(&failed)),
+            }),
+        }
+    }
 }
 
 /// Item 7, `cg-setup reverse`: read the host's state as preflight does,
 /// then, where preflight would have staged, remove what the record names.
-/// Exit 0 is `Ok`; a host whose names cannot be read, a record that fails
-/// its checks and a removal that fails are 40.
+/// A host whose names cannot be read and a record that fails its checks are
+/// 40, and start nothing; with a record that passes them, a removal that
+/// fails is 40 in `Reversal::Removed`, whose start `Reversal::finish` makes.
 pub fn reverse(setup: &Setup<'_>) -> Result<Reversal, Refusal> {
     let paths = &setup.paths;
     let unreadable =
@@ -512,11 +642,13 @@ pub fn reverse(setup: &Setup<'_>) -> Result<Reversal, Refusal> {
     match read {
         Ok(None) => unchanged("there is no record"),
         Ok(Some(record)) => {
-            remove_named(setup, &record, product_root, data_root)
-                .map_err(|fault| own_state(fault.reason()))?;
-            Ok(Reversal::Removed {
-                start: record.service_running,
-            })
+            // The record's service_running is taken before any removal, and
+            // holds when a removal fails (the Amendment 2026-11-11, point 2).
+            let start = record.service_running;
+            let failed = remove_named(setup, &record, product_root, data_root)
+                .err()
+                .map(|fault| own_state(fault.reason()));
+            Ok(Reversal::Removed { start, failed })
         }
         Err(reason) => {
             // Each name is tried: a refused record keeps nothing, and only a

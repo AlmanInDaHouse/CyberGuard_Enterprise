@@ -1,6 +1,8 @@
 //! The setup's client of the service control manager (SPEC-024 Amendment
-//! 2026-11-10, items 3, 6 and 8): the product service's conflict check and
-//! whether it runs, its stop, its failure actions and its start.
+//! 2026-11-10, items 3, 6, 7 and 8, with the Amendment 2026-11-11, points 1
+//! and 2): the product service's conflict check and whether it runs, its
+//! stop and what the stop first read, its failure actions, its start, and
+//! the reversal's start.
 //!
 //! Each call takes the service's name: the machine's is `PRODUCT_SERVICE`,
 //! and the tests name services of their own. Each one opens the service with
@@ -12,8 +14,8 @@ use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_SERVICE_CONTROL,
-    ERROR_SERVICE_CANNOT_ACCEPT_CTRL, ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_NOT_ACTIVE,
-    ERROR_SERVICE_REQUEST_TIMEOUT,
+    ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_CANNOT_ACCEPT_CTRL, ERROR_SERVICE_DOES_NOT_EXIST,
+    ERROR_SERVICE_NOT_ACTIVE, ERROR_SERVICE_REQUEST_TIMEOUT,
 };
 use windows_sys::Win32::System::Services::{
     ChangeServiceConfig2W, CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW,
@@ -298,27 +300,70 @@ fn send_stop(name: &str) -> mpsc::Receiver<Result<(), u32>> {
     receiver
 }
 
+/// What item 6's stop did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stop {
+    /// Whether its first reading found the service in a state other than
+    /// `STOPPED`, `STOP_PENDING` included (the Amendment 2026-11-11, point
+    /// 1). A service that does not exist, or whose state could not be read,
+    /// was not found so.
+    pub found_running: bool,
+    /// The service proved `STOPPED`, or 31.
+    pub result: Result<(), Refusal>,
+}
+
 /// Item 6: send the service `name`, if it is not `STOPPED`, the stop control,
 /// and prove it `STOPPED` within `STOP_WITHIN` of the first request, sending
 /// the control again while the service cannot accept it. A service still in
 /// another state at the end is 31; a service that does not exist needs no
-/// stop.
+/// stop. It reports whether its first reading found the service in a state
+/// other than `STOPPED`, also with 31 (the Amendment 2026-11-11, point 1).
 ///
 /// The state is read every `POLL` through a handle for the status alone, and
 /// only a reading taken before the end proves `STOPPED`. Each control is sent
 /// by `send_stop`, one at a time; a control still outstanding at the end is
 /// left to finish on its own.
-pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
+pub fn stop(scm: &Manager, name: &str) -> Stop {
     let service = match scm.service(name, SERVICE_QUERY_STATUS) {
-        Ok(None) => return Ok(()),
+        Ok(None) => {
+            return Stop {
+                found_running: false,
+                result: Ok(()),
+            }
+        }
         Ok(Some(service)) => service,
         Err(error) => {
-            return Err(not_stopped(
-                name,
-                format!("it cannot be opened to read its state: Win32 error {error}"),
-            ))
+            return Stop {
+                found_running: false,
+                result: Err(not_stopped(
+                    name,
+                    format!("it cannot be opened to read its state: Win32 error {error}"),
+                )),
+            }
         }
     };
+    match service.status() {
+        Err(error) => Stop {
+            found_running: false,
+            result: Err(not_stopped(
+                name,
+                format!("its state cannot be read: Win32 error {error}"),
+            )),
+        },
+        Ok(status) if status.dwCurrentState == SERVICE_STOPPED => Stop {
+            found_running: false,
+            result: Ok(()),
+        },
+        Ok(_) => Stop {
+            found_running: true,
+            result: prove_stopped(name, &service),
+        },
+    }
+}
+
+/// Item 6 after a first reading other than `STOPPED`: the stop requests and
+/// the readings until `STOPPED` or the end.
+fn prove_stopped(name: &str, service: &Service) -> Result<(), Refusal> {
     let state = |service: &Service| {
         service
             .status()
@@ -330,9 +375,6 @@ pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
                 )
             })
     };
-    if state(&service)? == SERVICE_STOPPED {
-        return Ok(());
-    }
     let end = Instant::now() + STOP_WITHIN;
     let mut outstanding = Some(send_stop(name));
     let mut accepted = false;
@@ -368,7 +410,7 @@ pub fn stop(scm: &Manager, name: &str) -> Result<(), Refusal> {
             }
         }
         let read_at = Instant::now();
-        let current = state(&service)?;
+        let current = state(service)?;
         if current == SERVICE_STOPPED && read_at < end {
             return Ok(());
         }
@@ -480,4 +522,43 @@ pub fn start(scm: &Manager, name: &str, arguments: &[String]) -> Result<(), Refu
         return Err(refused(last_error()));
     }
     Ok(())
+}
+
+/// The reversal's start (the Amendment 2026-11-10, item 7, with the Amendment
+/// 2026-11-11, point 2): the service `name` started with no argument when it
+/// is `STOPPED`. One in another state needs no start, as one that the SCM
+/// reports already running does by the start; `Ok(true)` when this call
+/// started it. A state that cannot be read and a start the SCM refuses, a
+/// service that does not exist included, are 40: the reversal's failure, not
+/// 41, which holds only after the MSI committed.
+pub fn start_if_stopped(scm: &Manager, name: &str) -> Result<bool, Refusal> {
+    let failed = |what: &str, error: u32| {
+        Refusal::new(
+            OWN_STATE,
+            format!("the reversal could not start the service {name}: {what}: Win32 error {error}"),
+        )
+    };
+    let service = match scm.service(name, SERVICE_QUERY_STATUS | SERVICE_START) {
+        Ok(Some(service)) => service,
+        Ok(None) => return Err(failed("open", ERROR_SERVICE_DOES_NOT_EXIST)),
+        Err(error) => return Err(failed("open", error)),
+    };
+    let state = service
+        .status()
+        .map_err(|error| failed("its state cannot be read", error))?
+        .dwCurrentState;
+    if state != SERVICE_STOPPED {
+        return Ok(false);
+    }
+    // SAFETY: no argument vector.
+    if unsafe { StartServiceW(service.0, 0, std::ptr::null()) } == 0 {
+        return match last_error() {
+            ERROR_SERVICE_ALREADY_RUNNING => Ok(false),
+            error => Err(failed(
+                "the service control manager refused the start",
+                error,
+            )),
+        };
+    }
+    Ok(true)
 }

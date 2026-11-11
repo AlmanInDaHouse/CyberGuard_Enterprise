@@ -1,8 +1,10 @@
 //! The setup's client of the service control manager against real services
 //! (SPEC-024 Amendment 2026-11-10, items 3, 6 and 8): the conflict check
-//! (26) and `service_running`, the stop within 75 seconds (31), the failure
+//! (26) and `service_running`, the stop within 75 seconds (31) and what its
+//! first reading found (the Amendment 2026-11-11, point 1), the failure
 //! actions with their flag set to false, the start with its arguments (41
-//! when refused), and configure's observer (42 to 44, item 8's outcome).
+//! when refused), the reversal's start (40 when refused, point 2), and
+//! configure's observer (42 to 44, item 8's outcome).
 //!
 //! These tests create, start, stop and delete Windows services, so they build
 //! only with the test-only `scm-tests` feature and run only in rust-ci's
@@ -30,7 +32,7 @@ use std::time::{Duration, Instant};
 use cg_agent::service::migration::{Choice, Request};
 use cg_setup::codes;
 use cg_setup::observer::{self, LogPosition, HEARTBEAT_LINE, IDENTITY_LINE, OBSERVE_WITHIN};
-use cg_setup::scm::{self, Manager, Product, Route};
+use cg_setup::scm::{self, Manager, Product, Route, Stop};
 use cg_setup::service::{migration_arguments, product_command_line, start_arguments};
 use cg_setup::Refusal;
 use windows_sys::Win32::Foundation::{
@@ -558,6 +560,14 @@ fn assert_refused(result: Result<impl std::fmt::Debug, Refusal>, code: u8, fragm
     }
 }
 
+/// What `scm::stop` reports for a service proved `STOPPED`.
+fn stopped(found_running: bool) -> Stop {
+    Stop {
+        found_running,
+        result: Ok(()),
+    }
+}
+
 fn fingerprint(digit: char) -> String {
     format!("sha256:{}", digit.to_string().repeat(64))
 }
@@ -618,8 +628,8 @@ fn package_scm_no_product_service_is_no_conflict_and_needs_no_stop() {
     }
     assert_eq!(
         scm::stop(&manager(), &name),
-        Ok(()),
-        "a service that does not exist needs no stop"
+        stopped(false),
+        "a service that does not exist needs no stop, and was not found running"
     );
 }
 
@@ -770,6 +780,39 @@ fn package_scm_service_running_in_every_state_but_stopped() {
 
 // --- Item 6: the stop --------------------------------------------------------------
 
+/// The Amendment 2026-11-11, point 1: the stop's first reading. A service
+/// `STOP_PENDING` is found running, as one `START_PENDING` is; one that
+/// has stopped since is not.
+fn package_scm_the_stop_reports_its_first_reading() {
+    let files = Controllable::new(serde_json::json!({ "stop_ms": 8000 }));
+    let service = TestService::controllable(&files);
+    service.start();
+    service.wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    service.control_stop().expect("STOP");
+    service.wait_for(SERVICE_STOP_PENDING, Duration::from_secs(5));
+    assert_eq!(
+        scm::stop(&manager(), &service.name),
+        stopped(true),
+        "STOP_PENDING is found running"
+    );
+    assert_eq!(service.state(), SERVICE_STOPPED);
+    assert_eq!(
+        scm::stop(&manager(), &service.name),
+        stopped(false),
+        "STOPPED since"
+    );
+
+    let files = Controllable::new(serde_json::json!({ "start_pending_ms": 8000 }));
+    let service = TestService::controllable(&files);
+    service.start();
+    service.wait_for(SERVICE_START_PENDING, Duration::from_secs(5));
+    assert_eq!(
+        scm::stop(&manager(), &service.name),
+        stopped(true),
+        "START_PENDING is found running"
+    );
+}
+
 /// A running service that accepts the stop is proved `STOPPED`; one already
 /// `STOPPED` needs none.
 fn package_scm_stop_proves_a_running_service_stopped() {
@@ -777,13 +820,13 @@ fn package_scm_stop_proves_a_running_service_stopped() {
     let service = TestService::controllable(&files);
     assert_eq!(
         scm::stop(&manager(), &service.name),
-        Ok(()),
-        "already STOPPED"
+        stopped(false),
+        "already STOPPED: no stop, and not found running"
     );
     service.start();
     service.wait_for(SERVICE_RUNNING, Duration::from_secs(20));
     let started = Instant::now();
-    assert_eq!(scm::stop(&manager(), &service.name), Ok(()));
+    assert_eq!(scm::stop(&manager(), &service.name), stopped(true));
     let took = started.elapsed();
     assert_eq!(
         service.state(),
@@ -817,7 +860,11 @@ fn package_scm_stop_sends_the_control_again_while_the_service_cannot_accept_it()
             "{behaviour}: the service cannot accept the stop yet"
         );
         let started = Instant::now();
-        assert_eq!(scm::stop(&manager(), &service.name), Ok(()), "{behaviour}");
+        assert_eq!(
+            scm::stop(&manager(), &service.name),
+            stopped(true),
+            "{behaviour}"
+        );
         let took = started.elapsed();
         assert_eq!(service.state(), SERVICE_STOPPED, "{behaviour}");
         assert!(
@@ -839,7 +886,7 @@ fn package_scm_the_stop_waits_75_seconds_and_no_more() {
     let started = Instant::now();
     assert_eq!(
         scm::stop(&manager(), &service.name),
-        Ok(()),
+        stopped(true),
         "a 65-second stop"
     );
     let took = started.elapsed();
@@ -857,10 +904,11 @@ fn package_scm_the_stop_waits_75_seconds_and_no_more() {
     service.start();
     service.wait_for(SERVICE_RUNNING, Duration::from_secs(20));
     let started = Instant::now();
-    let result = scm::stop(&manager(), &service.name);
+    let stop = scm::stop(&manager(), &service.name);
     let took = started.elapsed();
+    assert!(stop.found_running, "31, and found running");
     assert_refused(
-        result,
+        stop.result,
         codes::NOT_STOPPED,
         &[
             &service.name,
@@ -889,10 +937,11 @@ fn package_scm_the_stop_bound_holds_while_a_control_blocks() {
     service.start();
     service.wait_for(SERVICE_RUNNING, Duration::from_secs(20));
     let started = Instant::now();
-    let result = scm::stop(&manager(), &service.name);
+    let stop = scm::stop(&manager(), &service.name);
     let took = started.elapsed();
+    assert!(stop.found_running, "31, and found running");
     assert_refused(
-        result,
+        stop.result,
         codes::NOT_STOPPED,
         &[&service.name, "75 seconds after the first stop request"],
     );
@@ -1010,6 +1059,61 @@ fn package_scm_a_start_the_scm_refuses_is_41() {
         &[&absent, "Win32 error 1060"],
     );
     assert_eq!(files.starts().len(), 1, "only the one start ran");
+}
+
+// --- Item 7: the reversal's start ---------------------------------------------------
+
+/// The Amendment 2026-11-11, point 2: the reversal starts a `STOPPED`
+/// service with no argument; a service in another state needs no start, and
+/// gets none.
+fn package_scm_the_reversals_start_starts_a_stopped_service_with_no_argument() {
+    let files = Controllable::new(serde_json::json!({ "stop_ms": 8000 }));
+    let service = TestService::controllable(&files);
+    assert_eq!(scm::start_if_stopped(&manager(), &service.name), Ok(true));
+    service.wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    assert_eq!(
+        files.starts(),
+        vec![Vec::<String>::new()],
+        "one start, with no argument"
+    );
+
+    assert_eq!(
+        scm::start_if_stopped(&manager(), &service.name),
+        Ok(false),
+        "RUNNING needs no start"
+    );
+    service.control_stop().expect("STOP");
+    service.wait_for(SERVICE_STOP_PENDING, Duration::from_secs(5));
+    assert_eq!(
+        scm::start_if_stopped(&manager(), &service.name),
+        Ok(false),
+        "STOP_PENDING needs no start"
+    );
+    service.wait_for(SERVICE_STOPPED, Duration::from_secs(20));
+    assert_eq!(files.starts().len(), 1, "no start but the first");
+}
+
+/// The Amendment 2026-11-11, point 2: a start the SCM refuses is 40, not 41:
+/// a disabled service, and one that does not exist.
+fn package_scm_a_reversals_start_the_scm_refuses_is_40() {
+    let files = Controllable::new(serde_json::json!({}));
+    let disabled = TestService::create(&Spec {
+        start_type: SERVICE_DISABLED,
+        ..files.spec()
+    });
+    assert_refused(
+        scm::start_if_stopped(&manager(), &disabled.name),
+        codes::OWN_STATE,
+        &[&disabled.name, "reversal", "Win32 error 1058"],
+    );
+    assert!(files.starts().is_empty());
+
+    let absent = unused_name();
+    assert_refused(
+        scm::start_if_stopped(&manager(), &absent),
+        codes::OWN_STATE,
+        &[&absent, "reversal", "Win32 error 1060"],
+    );
 }
 
 // --- The observer (item 8's outcome) -------------------------------------------------
@@ -1243,6 +1347,10 @@ const TESTS: &[(&str, fn())] = &[
         package_scm_stop_proves_a_running_service_stopped,
     ),
     (
+        "package_scm_the_stop_reports_its_first_reading",
+        package_scm_the_stop_reports_its_first_reading,
+    ),
+    (
         "package_scm_stop_sends_the_control_again_while_the_service_cannot_accept_it",
         package_scm_stop_sends_the_control_again_while_the_service_cannot_accept_it,
     ),
@@ -1257,6 +1365,14 @@ const TESTS: &[(&str, fn())] = &[
     (
         "package_scm_the_failure_actions_are_set_and_their_flag_cleared",
         package_scm_the_failure_actions_are_set_and_their_flag_cleared,
+    ),
+    (
+        "package_scm_the_reversals_start_starts_a_stopped_service_with_no_argument",
+        package_scm_the_reversals_start_starts_a_stopped_service_with_no_argument,
+    ),
+    (
+        "package_scm_a_reversals_start_the_scm_refuses_is_40",
+        package_scm_a_reversals_start_the_scm_refuses_is_40,
     ),
     (
         "package_scm_the_start_passes_its_arguments_or_none",
