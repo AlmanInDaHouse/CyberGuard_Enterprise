@@ -701,7 +701,7 @@ fn package_scm_each_difference_from_the_products_configuration_is_26() {
 
 /// A service whose configuration the setup cannot read is 26; one whose
 /// configuration is the product's but whose state it cannot read is 40.
-fn package_scm_a_configuration_that_cannot_be_read_is_26() {
+fn package_scm_an_unreadable_configuration_is_26_and_an_unreadable_state_40() {
     let files = Controllable::new(serde_json::json!({}));
     let service = TestService::controllable(&files);
     // SYSTEM alone may open it; this test's handle was opened before.
@@ -1028,8 +1028,8 @@ const TESTS: &[(&str, fn())] = &[
         package_scm_each_difference_from_the_products_configuration_is_26,
     ),
     (
-        "package_scm_a_configuration_that_cannot_be_read_is_26",
-        package_scm_a_configuration_that_cannot_be_read_is_26,
+        "package_scm_an_unreadable_configuration_is_26_and_an_unreadable_state_40",
+        package_scm_an_unreadable_configuration_is_26_and_an_unreadable_state_40,
     ),
     (
         "package_scm_service_running_in_every_state_but_stopped",
@@ -1077,8 +1077,8 @@ const VALUE_OPTIONS: &[&str] = &[
 ];
 
 /// The tests a libtest command line selects: its filters, `--skip`,
-/// `--exact`, and `--ignored` (none of these tests is ignored). `None` for
-/// `--list`, which lists them instead.
+/// `--exact`, and `--ignored` (none of these tests is ignored); `--list`
+/// lists them instead of running them.
 struct Selection {
     filters: Vec<String>,
     skips: Vec<String>,
