@@ -2031,6 +2031,130 @@ dependency of `cg-agent` or privilege is added, and no operator input. #152
 and #153 close with the code that implements these points. Manuel approved
 this text on 2026-11-11, in chat: "Sí, apruebo". Status stays **Accepted**.
 
+## Amendment 2026-11-11 (second): the reversals that start nothing, and two codes
+
+**What surfaced it.** The third text review of the Amendment 2026-11-11
+(#155), and the review of its implementation (pull request #110).
+
+- The reversal of the Amendment 2026-11-10, item 7, starts the product
+  service only from a record that passes item 8's checks of the record
+  (the Amendment 2026-11-11, point 2). The reversals that start nothing
+  include:
+  - one that changes nothing and exits 0: on an untrusted state, a
+    migration in progress, a console layout, a host with no data root, a
+    `<P>` or data root that fails to be held or checked as item 5 says, or
+    no record;
+  - one that changes nothing and exits 40, on a host whose names cannot be
+    read;
+  - one that reads a record failing item 8's checks of the record, which a
+    record that cannot be opened or read also does, removes the staged
+    files and the record by their names, and exits 40.
+
+  Where preflight found the product service running and stopped it, each
+  of these leaves it stopped. The disclosed cases of the Amendment
+  2026-11-10's *Effect*, as the Amendment 2026-11-11 widened them, name
+  some of them: the reversal that reads the partial record a crash left
+  (the Amendment 2026-11-11, point 1), and those after a preflight that
+  exits 31, or cannot rewrite its record, after its stop request, or that
+  took the migration route. None names another as leaving the service
+  stopped.
+- Point 1 of the Amendment 2026-11-11 makes a rewrite that fails 40, and
+  item 6 makes a service not proved stopped 31. A preflight whose stop is
+  31 and whose rewrite then fails meets both, and no text orders them.
+- Configure deletes the record after the start (the Amendment 2026-11-09,
+  item 5). No text gives the code of a deletion that fails after a start
+  the SCM accepted: every cause of configure's 40 comes before the start.
+  Nor does any text say whether a start the SCM refuses (41) deletes it.
+
+Manuel chose on 2026-11-11, in chat, each in the recommended option: to
+disclose those reversals rather than have them start the service; 31 for
+the stop and the rewrite; and the outcome's code for the deletion.
+
+**Amendment.** Below, items 5 to 9 without a date are those of the
+Amendment 2026-11-10.
+
+1. **No start without a record that passes its checks (#155).** A reversal
+   starts the product service only as the Amendment 2026-11-11, point 2,
+   says. Every other reversal starts nothing, whatever preflight found: it
+   has read no record that passes item 8's checks of the record, so it
+   holds no reading of the service's state before preflight's stop. Item
+   7's "fails that check", for `<P>` and the data root, includes one that
+   cannot be opened to be held.
+2. **The disclosed cases.**
+   - The third disclosed case of the Amendment 2026-11-10's *Effect*, as
+     the Amendment 2026-11-11 widened it, widens again to every reversal of
+     point 1; to a reversal that ends, by a crash or a kill, before its
+     start; and to a reversal whose start fails, which is 40 (the
+     Amendment 2026-11-11, point 2). Such a reversal may leave stopped a
+     product service that preflight stopped, until something starts it
+     again: a later setup's start, an administrator, or, while its start
+     type is automatic, as the product configures it, Windows at the next
+     restart.
+   - The fourth disclosed case widens to every reversal of point 1 that
+     changes nothing: it leaves any staged files, readable by SYSTEM and
+     Administrators alone, until a setup that is not a migration's passes
+     its checks there.
+   - The first disclosed case widens to a record configure leaves: before
+     its start (its 40 and 45), at a start the SCM refuses (41), or after
+     a start it accepted (point 4). Until a later preflight that is not a
+     migration's removes it (item 5), a reversal that reads it starts the
+     service when it says the service was running, though an
+     administrator may have stopped it since.
+   - Where a reversal of point 1 follows a preflight that stopped the
+     service, it comes from what the disclosed cases already name, or from
+     one of these between preflight and the reversal:
+     - a change to `<P>`, the data root or the record by an account that
+       administers the host, within the threat model's "elevated
+       administration is not a threat boundary";
+     - an ordinary user's lever that the threat model names: a read-handle
+       opportunistic lock on `<P>`, or, on a host that was migrated, an
+       entry of a file transaction or a handle opened before the
+       migration's restriction (its Amendments 2026-11-05 and 2026-11-07),
+       whose effect on a reversal its Amendment 2026-11-11 adds;
+     - an open, a listing, a check or a read that fails with no change:
+       another process's handle that excludes the setup's, such as an
+       antivirus's or a backup's, an open that waits on another process
+       longer than the setup waits, or a failure of Windows.
+
+     Beyond these levers, the record's own DACL admits SYSTEM and
+     Administrators alone, `<P>`, as it passes item 5's check, gives an
+     ordinary user no access but its attributes, and the data root none.
+3. **31 for the stop and the rewrite.** A preflight whose stop is 31 and
+   whose rewrite (the Amendment 2026-11-11, point 1) then fails exits 31,
+   its line naming the rewrite's failure too, as a refusal whose removal
+   fails keeps its own code (the Amendment 2026-11-11, point 3). Point 1's
+   40 holds for a rewrite that fails after a stop that proved the service
+   `STOPPED`.
+4. **The record after the start.** Configure deletes the record only after
+   a start the SCM accepted; a start it refuses (41) leaves it. A deletion
+   that fails after a start the SCM accepted does not change configure's
+   code: it exits with the outcome's, 0, 42, 43 or 44, and writes one line
+   that names the outcome, if it is not 0, and the record left, with 0 too.
+   A record left is the next preflight's, as one that configure's 40 or 45
+   leaves is (item 5, and point 2's widening of the first disclosed case).
+
+**Effect.** Item 7 changes by point 1's reading of a hold; its sentence on
+a record a crash left behind is read with point 2's widening of the first
+disclosed case to the records configure leaves. The Amendment 2026-11-10's *Effect* gains point 2's widening of its
+first, third and fourth cases; its second is unchanged. That *Effect*
+places its cases with the setup's administrator. Point 2's ordinary user's
+levers are the threat model's, which its Amendment 2026-11-11 extends to
+the reversal, and its failures with no change are not administration. A
+reversal of point 1 reports these by its exit and, for 40, its line,
+neither of which says that the service was left stopped; one that changes nothing exits 0
+with no line. The operator reads the failure of the setup
+whose rollback it is, not that the service was left stopped. The Amendment
+2026-11-11, point 1, gains point 3's order. The Amendment 2026-11-09's
+item 5 deletes the record only after a start the SCM accepted (point 4). The Amendment 2026-11-09's item
+7 changes accordingly: its 0 may come with a line on standard error, the
+record left (point 4), and its codes from 42 to 44 keep their meaning with
+that line. Item 9's one line on standard error is also written with 0 in
+that case. No ADR changes; the threat model gains its Amendment 2026-11-11. No dependency of
+`cg-agent` or privilege is added, and no operator input. Debt #155 closes
+with this amendment. Points 3 and 4 hold in the code that lands with it:
+point 3 in the staging, point 4 in the verbs. Manuel approved this text on
+2026-11-11, in chat: "Sí, apruebo". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.

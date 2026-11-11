@@ -403,6 +403,18 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 
 **Effect on other sections.** None is restated. The clause of debt #87 that names "the configuration and anchor owned by SYSTEM" is met by the setup and the service together: the setup stages, and the service makes them SYSTEM's.
 
+## Amendment 2026-11-11 (SPEC-024): a reversal that leaves the agent stopped
+
+**Status.** Proposed by Claude Code on 2026-11-11 with SPEC-024's Amendment 2026-11-11 (second), after its fourth text review, and ratified by Manuel on 2026-11-11, in chat, with it: "Sí, apruebo". It adds to §1 and restates nothing. The threat model remains `Accepted`.
+
+**Context.** SPEC-024's setup stops the product service in preflight. If the MSI fails, Burn runs the reversal, which starts the service again only from a record that passes its checks (SPEC-024's Amendment 2026-11-11, point 2, and its Amendment 2026-11-11 (second), point 1). A reversal that changes nothing, or that cannot read the record, starts nothing.
+
+**Amendment.**
+
+- **§1 Agent, Denial of Service**, add to the entry on the data directory: the ordinary user's levers that the Amendments 2026-11-05 and 2026-11-07 name, a read-handle opportunistic lock on `%ProgramData%\CyberGuard` and, on a host that was migrated, an entry of a file transaction or a handle opened before the migration's restriction, can also make a setup's reversal change nothing, or fail with 40 before any start, after a preflight that stopped the agent. The agent then stays stopped until a later setup on that host starts it, an administrator starts it, or, while its start type is automatic, Windows starts it at the next restart. The setup whose rollback it is has failed already, and the operator reads that failure; the stopped agent is not reported apart from it (SPEC-024's Amendment 2026-11-11 (second), *Effect*).
+
+**Effect on other sections.** None is restated.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
