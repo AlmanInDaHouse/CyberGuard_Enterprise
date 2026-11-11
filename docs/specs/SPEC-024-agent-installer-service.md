@@ -1954,6 +1954,83 @@ its checks there. Manuel chose item 1's floor on 2026-11-10, in chat: "a, suelo 
 build 17763". He approved this text on 2026-11-10, in chat: "Sí, apruebo". Status stays
 **Accepted**.
 
+## Amendment 2026-11-11: the stop's reading in the record, the reversal's start and the observer's readings
+
+**What surfaced it.** C5's libraries (`docs/handoff-session-62.md` and
+`docs/handoff-session-63.md`) and the review of configure's observer
+(pull request #106) found four readings that the Amendment
+2026-11-10 leaves open or settles against its own intent:
+
+- `service_running` is read at item 3's check, and the record is written
+  before item 6's stop. A product service started between the two, by an
+  administrator or by a restart its failure actions schedule, is stopped
+  while the record says it was not running, and the reversal leaves it
+  stopped (#153).
+- A reversal whose deletion fails after the record's removal exits 40 and
+  starts nothing, though the record had found the service running (#152).
+- A refusal after the record whose removal then fails keeps the refusal's
+  code; item 5 does not say so (#152).
+- After a start the SCM accepted, a product service whose state cannot be
+  read, or that no longer exists, has no code in item 8.
+
+Manuel chose the four readings on 2026-11-11, in chat.
+
+**Amendment.** Below, items 3 to 9 without a date are those of the
+Amendment 2026-11-10, and the numbered points are this amendment's.
+
+1. **The stop's reading (#153).** Item 6's stop reports whether its first
+   reading found the product service in a state other than `STOPPED`,
+   `STOP_PENDING` included. When it did and the record's `service_running`
+   is false, preflight rewrites the record, its `service_running` true and
+   the rest unchanged, after the stop and before any removal of item 5
+   that a refusal after the stop makes. It opens the record without
+   following a reparse point and sharing nothing, through the data root
+   held as item 5 says, checks it as item 8 opens the record (a regular
+   file with one link, and its security), and writes it whole through that
+   handle, its end set at the new length. This is the one write to a record
+   after item 5 creates it. A rewrite that fails is 40, after item 5's
+   removal. A crash leaves the record that says false, the one that says
+   true, or a partial record that fails item 8's checks, which a later
+   reversal removes without a start: the first disclosed case of the
+   Amendment 2026-11-10's *Effect*. The rewrite goes one way: a record that
+   says true stays true when the stop finds the service `STOPPED`, and the
+   reversal starts it, as item 3 had found it running.
+2. **The reversal's start (#152).** With a record that passes item 8's
+   checks, the reversal takes `service_running` from it before it removes
+   anything. When that is true, it starts the product service with no
+   argument after item 5's removals, also when they stopped at one that
+   failed or left a directory under a name; that removal is then 40, its
+   line naming it. A product service in a state other than `STOPPED` needs no start. A
+   start the SCM refuses is 40, the reversal's failure, its line naming it
+   and any removal that failed.
+3. **A removal that fails after a refusal (#152).** A refusal or failure
+   after the record whose removal (item 5) then fails keeps its own code.
+   Its line names the removal's failure too. What is left is the next
+   preflight's, under item 5.
+4. **The observer's readings.** After a start the SCM accepted, a product
+   service whose state configure cannot read, or that no longer exists, is
+   44, its line saying so. At the end of the 60 seconds, a state other than
+   `STOPPED` and `RUNNING` is 43, `PAUSED` included. A log position that
+   cannot be recorded before the start is 40: configure starts nothing and
+   leaves the record, as for item 8's other checks.
+
+**Effect.** Item 5 gains point 1's rewrite and point 3's code. Item 6's
+stop gains its reading. Item 7's reversal starts the service as point 2
+says. Item 8's outcome gains point 4's readings. The Amendment
+2026-11-09's item 7 changes accordingly: its 44 also covers a state
+configure cannot read after the start and a service that no longer exists,
+its 43 any state at the end but `STOPPED` and `RUNNING`, and its 40 a log
+position that cannot be recorded and a start the reversal makes and the
+SCM refuses. The third disclosed case of the Amendment 2026-11-10's
+*Effect* also covers a preflight that exits 31, or whose record cannot be
+rewritten, after its stop request, and, on the migration route, which
+writes no record, a product service started after item 3's check: such a
+preflight may leave stopped a service it stopped, until the setup runs
+again. The other disclosed cases are unchanged. No ADR changes. No
+dependency of `cg-agent` or privilege is added, and no operator input. #152
+and #153 close with the code that implements these points. Manuel approved
+this text on 2026-11-11, in chat: "Sí, apruebo". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
