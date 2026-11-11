@@ -128,8 +128,10 @@ pub enum Step {
     Write(Name),
     /// Rewriting the record after the stop, `service_running` true.
     RewriteRecord,
-    /// The reversal's reading of the record.
+    /// The reversal's or configure's reading of the record.
     ReadRecord,
+    /// Configure's check of the staged file of that name.
+    CheckStaged(Name),
     /// Removing what a record names, that name.
     Remove(Name),
 }
@@ -524,6 +526,21 @@ pub fn stage(
 /// names the record and why it fails.
 pub fn read_record(setup: &Setup<'_>) -> Result<Option<Record>, String> {
     let path = Name::Record.path(&setup.paths);
+    let Some(bytes) = read_checked(setup, Name::Record)? else {
+        return Ok(None);
+    };
+    Record::parse(&bytes)
+        .map(Some)
+        .map_err(|reason| format!("{} is refused: {reason}", path.display()))
+}
+
+/// The file `name`, opened as item 6.4 of the Amendment 2026-11-09 opens a
+/// staged file: without following a reparse point, a regular file with one
+/// link, the staged files' owner and protected DACL, at most 16 MiB, through
+/// a handle that excludes writers, which it returns unread. `Ok(None)` when
+/// it is absent.
+fn open_checked(setup: &Setup<'_>, name: Name) -> Result<Option<Handle>, String> {
+    let path = name.path(&setup.paths);
     let Some(handle) = custody::open_existing(
         &path,
         GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
@@ -542,15 +559,99 @@ pub fn read_record(setup: &Setup<'_>) -> Result<Option<Record>, String> {
             path.display()
         ));
     }
+    Ok(Some(handle))
+}
+
+/// The file `name`, opened by `open_checked` and read whole through that
+/// handle.
+fn read_checked(setup: &Setup<'_>, name: Name) -> Result<Option<Vec<u8>>, String> {
+    let path = name.path(&setup.paths);
+    let Some(handle) = open_checked(setup, name)? else {
+        return Ok(None);
+    };
     let mut bytes = Vec::new();
     handle
         .into_file()
         .take(READ_LIMIT + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("read {}: {e}", path.display()))?;
-    Record::parse(&bytes)
-        .map(Some)
-        .map_err(|reason| format!("{} is refused: {reason}", path.display()))
+    Ok(Some(bytes))
+}
+
+/// What configure holds (item 8): `<P>` and the data root, held as item 5
+/// holds them until it is dropped, and the record that passed its checks.
+#[must_use = "configure holds <P> and the data root until it ends"]
+pub struct Configured {
+    _product_root: Handle,
+    _data_root: Handle,
+    record: Record,
+}
+
+impl std::fmt::Debug for Configured {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Configured")
+            .field("record", &self.record)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Configured {
+    pub fn record(&self) -> &Record {
+        &self.record
+    }
+
+    /// Configure's deletion of the record, after the start (the Amendment
+    /// 2026-11-09, item 5): through a handle opened without following it, in
+    /// the data root held. A failure is 40.
+    pub fn delete_record(&self, setup: &Setup<'_>) -> Result<(), Refusal> {
+        remove_file(setup, Name::Record, Step::Remove(Name::Record)).map_err(|fault| {
+            own_state(&format!(
+                "the record could not be deleted: {}",
+                fault.reason()
+            ))
+        })
+    }
+}
+
+/// Item 8, on a route other than a migration's, before configure reads
+/// anything else: hold `<P>` and the data root as item 5 does, read the
+/// record with its checks and, when its fingerprints are not empty (a route
+/// that staged), check each staged file as item 6.4 of the Amendment
+/// 2026-11-09 opens it, without reading it: configure has no token in hand
+/// (that amendment, item 5). Every failure is 40, removes nothing, and leaves
+/// the record for the next preflight.
+pub fn configure(setup: &Setup<'_>) -> Result<Configured, Refusal> {
+    let refuse = |reason: &str| own_state(reason);
+    let (product_root, _) =
+        hold(setup, Name::ProductRoot, false).map_err(|f| refuse(f.reason()))?;
+    let (data_root, _) = hold(setup, Name::DataRoot, false).map_err(|f| refuse(f.reason()))?;
+    let record = setup
+        .watch
+        .at(Step::ReadRecord)
+        .and_then(|()| read_record(setup))
+        .map_err(|reason| refuse(&reason))?
+        .ok_or_else(|| {
+            refuse(&format!(
+                "there is no record {}: run the setup again",
+                Name::Record.path(&setup.paths).display()
+            ))
+        })?;
+    if !record.fingerprints.is_empty() {
+        for name in [Name::StagedAnchor, Name::StagedConfig] {
+            let path = name.path(&setup.paths);
+            setup
+                .watch
+                .at(Step::CheckStaged(name))
+                .and_then(|()| open_checked(setup, name))
+                .map_err(|reason| refuse(&reason))?
+                .ok_or_else(|| refuse(&format!("{} does not exist", path.display())))?;
+        }
+    }
+    Ok(Configured {
+        _product_root: product_root,
+        _data_root: data_root,
+        record,
+    })
 }
 
 /// What the reversal did.

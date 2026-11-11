@@ -5,7 +5,8 @@
 //! reversal, and the client of the service control manager that checks,
 //! stops, configures and starts the product service, the installed binary's
 //! version, and configure's observer of the started service (the Amendment
-//! 2026-11-10, items 3 to 8).
+//! 2026-11-10, items 3 to 8); and the command line and the verbs that run
+//! them in order (item 9), which `src/main.rs` dispatches.
 //!
 //! It enables no privilege and does not adjust its token (ADR-0010
 //! §Compliance). The host's state is the service's own reading,
@@ -13,6 +14,8 @@
 //! data directories, and the configuration it generates passes the checks the
 //! service's adoption applies to it, through the same code.
 
+#[cfg(windows)]
+pub mod cli;
 pub mod codes;
 pub mod inputs;
 #[cfg(windows)]
@@ -27,6 +30,8 @@ pub mod service;
 pub mod staged;
 #[cfg(windows)]
 pub mod staging;
+#[cfg(windows)]
+pub mod verbs;
 pub mod version;
 
 pub use codes::Refusal;

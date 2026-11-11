@@ -429,4 +429,163 @@ mod windows {
             .expect("run mklink");
         assert!(status.success(), "mklink /J {}", link.display());
     }
+
+    /// A copy of this test executable at `path`, with a version resource of
+    /// file version `numbers` and `ProductVersion` `product_version`, as the
+    /// agent's build writes one: an installed binary for the verbs' version
+    /// checks. The copy runs as this executable does.
+    pub fn versioned_copy(path: &Path, numbers: [u16; 4], product_version: &str) {
+        use windows_sys::Win32::System::LibraryLoader::{
+            BeginUpdateResourceW, EndUpdateResourceW, UpdateResourceW,
+        };
+        std::fs::copy(std::env::current_exe().expect("this executable"), path)
+            .expect("copy this executable");
+        let resource = version_resource(numbers, product_version);
+        let wpath: Vec<u16> = path
+            .as_os_str()
+            .to_string_lossy()
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        // SAFETY: the path lives for the call; the update handle is ended
+        // below, and the resource lives until then.
+        unsafe {
+            let update = BeginUpdateResourceW(wpath.as_ptr(), 0);
+            assert!(!update.is_null(), "BeginUpdateResourceW");
+            let ok = UpdateResourceW(
+                update,
+                // RT_VERSION, MAKEINTRESOURCE(16), name 1, U.S. English.
+                std::ptr::without_provenance(16),
+                std::ptr::without_provenance(1),
+                0x0409,
+                resource.as_ptr().cast(),
+                resource.len() as u32,
+            );
+            assert!(ok != 0, "UpdateResourceW");
+            assert!(EndUpdateResourceW(update, 0) != 0, "EndUpdateResourceW");
+        }
+    }
+
+    fn version_resource(numbers: [u16; 4], product_version: &str) -> Vec<u8> {
+        fn pad4(out: &mut Vec<u8>) {
+            while !out.len().is_multiple_of(4) {
+                out.push(0);
+            }
+        }
+        fn block(key: &str, value: Option<&[u8]>, text: bool, children: &[Vec<u8>]) -> Vec<u8> {
+            let mut out = vec![0u8; 6];
+            for unit in key.encode_utf16().chain(Some(0)) {
+                out.extend_from_slice(&unit.to_le_bytes());
+            }
+            pad4(&mut out);
+            let length = value.map_or(0, |bytes| {
+                out.extend_from_slice(bytes);
+                if text {
+                    bytes.len() / 2
+                } else {
+                    bytes.len()
+                }
+            });
+            for child in children {
+                pad4(&mut out);
+                out.extend_from_slice(child);
+            }
+            let total = out.len() as u16;
+            out[0..2].copy_from_slice(&total.to_le_bytes());
+            out[2..4].copy_from_slice(&(length as u16).to_le_bytes());
+            out[4..6].copy_from_slice(&u16::from(text || value.is_none()).to_le_bytes());
+            out
+        }
+        let utf16 = |text: &str| -> Vec<u8> {
+            text.encode_utf16()
+                .chain(Some(0))
+                .flat_map(u16::to_le_bytes)
+                .collect()
+        };
+        let [a, b, c, d] = numbers.map(u32::from);
+        let (ms, ls) = ((a << 16) | b, (c << 16) | d);
+        let fixed: Vec<u8> = [
+            0xFEEF_04BD,
+            0x0001_0000,
+            ms,
+            ls,
+            ms,
+            ls,
+            0x0000_003F,
+            0,
+            0x0004_0004,
+            1,
+            0,
+            0,
+            0,
+        ]
+        .iter()
+        .flat_map(|v: &u32| v.to_le_bytes())
+        .collect();
+        let product = utf16(product_version);
+        let strings = [block("ProductVersion", Some(&product), true, &[])];
+        let table = block("040904B0", None, true, &strings);
+        let string_file_info = block("StringFileInfo", None, true, &[table]);
+        let translation = [0x09u8, 0x04, 0xB0, 0x04];
+        let var = block("Translation", Some(&translation), false, &[]);
+        let var_file_info = block("VarFileInfo", None, true, &[var]);
+        block(
+            "VS_VERSION_INFO",
+            Some(&fixed),
+            false,
+            &[string_file_info, var_file_info],
+        )
+    }
+
+    /// The string `key` of the U.S. English, UTF-16 table of the version
+    /// resource of `path`, if it has one.
+    pub fn version_string(path: &Path, key: &str) -> Option<String> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileVersionInfoExW, GetFileVersionInfoSizeExW, VerQueryValueW, FILE_VER_GET_NEUTRAL,
+        };
+        let wide = |text: &str| -> Vec<u16> { text.encode_utf16().chain(Some(0)).collect() };
+        let wpath = wide(&path.to_string_lossy());
+        let mut ignored = 0u32;
+        // SAFETY: a NUL-terminated path.
+        let size = unsafe {
+            GetFileVersionInfoSizeExW(FILE_VER_GET_NEUTRAL, wpath.as_ptr(), &mut ignored)
+        };
+        if size == 0 {
+            return None;
+        }
+        let mut block = vec![0u8; size as usize];
+        // SAFETY: the buffer holds `size` bytes.
+        if unsafe {
+            GetFileVersionInfoExW(
+                FILE_VER_GET_NEUTRAL,
+                wpath.as_ptr(),
+                0,
+                size,
+                block.as_mut_ptr().cast(),
+            )
+        } == 0
+        {
+            return None;
+        }
+        let sub_block = wide(&format!("\\StringFileInfo\\040904B0\\{key}"));
+        let mut pointer: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut length = 0u32;
+        // SAFETY: the block GetFileVersionInfoExW wrote; the value lies in it,
+        // `length` characters long, its terminator included.
+        unsafe {
+            if VerQueryValueW(
+                block.as_ptr().cast(),
+                sub_block.as_ptr(),
+                &mut pointer,
+                &mut length,
+            ) == 0
+                || pointer.is_null()
+            {
+                return None;
+            }
+            let units = std::slice::from_raw_parts(pointer as *const u16, length as usize);
+            let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
+            Some(String::from_utf16_lossy(&units[..end]))
+        }
+    }
 }

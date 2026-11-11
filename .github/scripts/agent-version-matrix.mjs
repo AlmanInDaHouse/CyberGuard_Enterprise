@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const TESTS = ["--test", "install_ac_014_version", "--test", "enroll_ac_003_request_contents"];
+const SETUP_TESTS = ["--test", "package_setup_executable", "--", "version"];
 const MALFORMED = ["", "v7.8.9", "7.8", "07.8.9"];
 const FIXTURES = ["7.8.9", "7.8.10"];
 const BUILD_ERROR = "CG_RELEASE_VERSION must be X.Y.Z";
@@ -91,6 +92,13 @@ for (const value of [undefined, ...FIXTURES, undefined]) {
   const r = cargo(["test", "--locked", "--no-fail-fast", "-p", "cg-agent", ...TESTS], value, false);
   console.log(`${r.status === 0 ? "PASS" : "FAIL"} version tests ${label}`);
   if (r.status !== 0) {
+    failed += 1;
+  }
+  // SPEC-024 Amendment 2026-11-10, item 9: cg-setup.exe's version resource and
+  // --version are the agent's, from the same input, rebuilt when it changes.
+  const s = cargo(["test", "--locked", "--no-fail-fast", "-p", "cg-setup", ...SETUP_TESTS], value, false);
+  console.log(`${s.status === 0 ? "PASS" : "FAIL"} setup version tests ${label}`);
+  if (s.status !== 0) {
     failed += 1;
   }
 }
