@@ -355,7 +355,7 @@ pub fn stop(scm: &Manager, name: &str) -> Stop {
             result: Ok(()),
         },
         Ok(_) => Stop {
-            found_running: true,
+            found_running: false, // PROBE: the reading is not reported
             result: prove_stopped(name, &service),
         },
     }
@@ -532,6 +532,11 @@ pub fn start(scm: &Manager, name: &str, arguments: &[String]) -> Result<(), Refu
 /// service that does not exist included, are 40: the reversal's failure, not
 /// 41, which holds only after the MSI committed.
 pub fn start_if_stopped(scm: &Manager, name: &str) -> Result<bool, Refusal> {
+    // PROBE: the reversal's start starts nothing and refuses nothing.
+    if !name.is_empty() {
+        let _ = scm;
+        return Ok(false);
+    }
     let failed = |what: &str, error: u32| {
         Refusal::new(
             OWN_STATE,
