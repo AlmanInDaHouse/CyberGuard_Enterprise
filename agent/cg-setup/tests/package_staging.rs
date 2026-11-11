@@ -1410,6 +1410,13 @@ fn package_staging_the_rewrite_checks_the_record_as_configure_opens_it() {
         .after_stop(&setup(&root, &quiet), true, Ok(()))
         .expect_err("40");
     assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(
+        refusal
+            .line
+            .contains("allows access to a principal other than"),
+        "{}",
+        refusal.line
+    );
 
     // A directory under the record's name.
     let root = Root::bare();
@@ -1423,25 +1430,33 @@ fn package_staging_the_rewrite_checks_the_record_as_configure_opens_it() {
     assert!(path(&root, Name::Record).is_dir());
 }
 
-/// Point 1: the record is opened sharing nothing, so a reader that holds it
-/// open, sharing everything, makes the rewrite fail (40) instead of reading
-/// a record half written.
+/// Point 1: the record is opened sharing nothing, so a handle that holds it
+/// open for reading, for writing or for deletion, sharing everything, makes
+/// the rewrite fail (40): no one reads a record half written, writes it
+/// meanwhile, or renames or deletes it under the rewrite.
 #[test]
 fn package_staging_the_rewrite_shares_nothing() {
     use std::os::windows::fs::OpenOptionsExt as _;
-    let root = Root::bare();
-    let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
-    let reader = std::fs::OpenOptions::new()
-        .read(true)
-        .share_mode(7)
-        .open(path(&root, Name::Record))
-        .expect("a reader sharing everything");
-    let refusal = attempt
-        .after_stop(&setup(&root, &quiet), true, Ok(()))
-        .expect_err("40");
-    drop(reader);
-    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
-    assert!(refusal.line.contains(RECORD), "{}", refusal.line);
+    use windows_sys::Win32::Storage::FileSystem::DELETE;
+    type Open = fn(&mut std::fs::OpenOptions) -> &mut std::fs::OpenOptions;
+    let holders: [(&str, Open); 3] = [
+        ("reading", |options| options.read(true)),
+        ("writing", |options| options.write(true)),
+        ("deleting", |options| options.access_mode(DELETE)),
+    ];
+    for (what, open) in holders {
+        let root = Root::bare();
+        let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+        let holder = open(std::fs::OpenOptions::new().share_mode(7))
+            .open(path(&root, Name::Record))
+            .unwrap_or_else(|e| panic!("a handle {what}, sharing everything: {e}"));
+        let refusal = attempt
+            .after_stop(&setup(&root, &quiet), true, Ok(()))
+            .expect_err("40");
+        drop(holder);
+        assert_eq!(refusal.code, codes::OWN_STATE, "{what}: {}", refusal.line);
+        assert!(refusal.line.contains(RECORD), "{what}: {}", refusal.line);
+    }
 }
 
 /// Point 2: the reversal's end. The start is made only when the record asks
@@ -1451,7 +1466,8 @@ fn package_staging_the_rewrite_shares_nothing() {
 fn package_reversal_finish_starts_only_when_the_record_asks() {
     use std::cell::Cell;
     let removal = || Some(Refusal::new(codes::OWN_STATE, "the removal failed"));
-    let refused = || Err(Refusal::new(codes::OWN_STATE, "the start was refused"));
+    // A start that fails with another code is the reversal's 40 all the same.
+    let refused = || Err(Refusal::new(codes::START_REFUSED, "the start was refused"));
     let removed = |start: bool, failed: Option<Refusal>| Reversal::Removed { start, failed };
     type Case = (
         Reversal,
