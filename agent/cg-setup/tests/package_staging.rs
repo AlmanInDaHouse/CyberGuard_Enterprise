@@ -524,7 +524,10 @@ fn package_staging_held_directories_cannot_be_renamed() {
     drop(attempt);
     assert_eq!(
         reverse(&setup(&root, &try_renaming)),
-        Ok(Reversal::Removed { start: false })
+        Ok(Reversal::Removed {
+            start: false,
+            failed: None
+        })
     );
     let renamed = renamed.into_inner().unwrap();
     assert_eq!(renamed.len(), 4, "{renamed:?}");
@@ -783,7 +786,10 @@ fn package_reversal_removes_what_the_record_names_and_says_whether_to_start() {
         let recorder = Recorder::new();
         assert_eq!(
             reverse(&setup(&root, &recorder)),
-            Ok(Reversal::Removed { start: running })
+            Ok(Reversal::Removed {
+                start: running,
+                failed: None
+            })
         );
         assert_eq!(
             recorder.steps(),
@@ -807,7 +813,10 @@ fn package_reversal_removes_what_the_record_names_and_says_whether_to_start() {
     drop(stage(&setup(&root, &quiet), None, true).unwrap());
     assert_eq!(
         reverse(&setup(&root, &quiet)),
-        Ok(Reversal::Removed { start: true })
+        Ok(Reversal::Removed {
+            start: true,
+            failed: None
+        })
     );
     assert_eq!(
         program_data(&root),
@@ -824,7 +833,10 @@ fn package_reversal_removes_what_the_record_names_and_says_whether_to_start() {
     std::fs::create_dir(root.paths.data_root.join("logs")).unwrap();
     assert_eq!(
         reverse(&setup(&root, &quiet)),
-        Ok(Reversal::Removed { start: false })
+        Ok(Reversal::Removed {
+            start: false,
+            failed: None
+        })
     );
     assert_eq!(
         program_data(&root),
@@ -889,17 +901,34 @@ fn package_reversal_of_a_record_that_fails_its_checks_removes_the_staged_files_a
     assert!(!exists(&path(&root, Name::StagedConfig)));
 }
 
+/// The removal a record that passes its checks asks for, stopped: 40, and the
+/// record's `service_running` still taken (the Amendment 2026-11-11, point 2).
+fn removal_failed(reversal: Result<Reversal, Refusal>, start: bool) -> Refusal {
+    match reversal {
+        Ok(Reversal::Removed {
+            start: asked,
+            failed: Some(failed),
+        }) => {
+            assert_eq!(asked, start, "the record's service_running");
+            assert_eq!(failed.code, codes::OWN_STATE, "{}", failed.line);
+            failed
+        }
+        other => panic!("a removal that failed, with start {start}: {other:?}"),
+    }
+}
+
 #[test]
 fn package_reversal_a_directory_under_a_named_file_or_a_failed_deletion_is_40() {
-    let root = Root::bare();
-    staged_host(&root, true);
-    std::fs::remove_file(path(&root, Name::StagedAnchor)).unwrap();
-    std::fs::create_dir(path(&root, Name::StagedAnchor)).unwrap();
-    let refusal = reverse(&setup(&root, &quiet)).expect_err("40");
-    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
-    assert!(path(&root, Name::StagedAnchor).is_dir());
-    // The record stays while a staged name does.
-    assert!(exists(&path(&root, Name::Record)));
+    for running in [true, false] {
+        let root = Root::bare();
+        staged_host(&root, running);
+        std::fs::remove_file(path(&root, Name::StagedAnchor)).unwrap();
+        std::fs::create_dir(path(&root, Name::StagedAnchor)).unwrap();
+        removal_failed(reverse(&setup(&root, &quiet)), running);
+        assert!(path(&root, Name::StagedAnchor).is_dir());
+        // The record stays while a staged name does.
+        assert!(exists(&path(&root, Name::Record)));
+    }
 
     for at in [
         Step::Remove(Name::StagedConfig),
@@ -908,13 +937,8 @@ fn package_reversal_a_directory_under_a_named_file_or_a_failed_deletion_is_40() 
     ] {
         let root = Root::bare();
         staged_host(&root, true);
-        let refusal = reverse(&setup(&root, &failing_at(at))).expect_err("40");
-        assert_eq!(refusal.code, codes::OWN_STATE, "{at:?}: {}", refusal.line);
-        assert!(
-            refusal.line.contains("injected failure"),
-            "{}",
-            refusal.line
-        );
+        let failed = removal_failed(reverse(&setup(&root, &failing_at(at))), true);
+        assert!(failed.line.contains("injected failure"), "{}", failed.line);
         assert!(exists(&root.paths.data_root), "{at:?}");
     }
 }
@@ -1047,12 +1071,11 @@ fn package_reversal_a_failure_at_each_step() {
     for (index, at) in order.into_iter().enumerate() {
         let root = Root::bare();
         staged_host(&root, true);
-        let refusal = reverse(&setup(&root, &failing_at(Step::Remove(at)))).expect_err("40");
-        assert_eq!(refusal.code, codes::OWN_STATE, "{at:?}: {}", refusal.line);
+        let failed = removal_failed(reverse(&setup(&root, &failing_at(Step::Remove(at)))), true);
         assert!(
-            refusal.line.contains("injected failure"),
-            "{}",
-            refusal.line
+            failed.line.contains("injected failure"),
+            "{at:?}: {}",
+            failed.line
         );
         for (other, name) in order.into_iter().enumerate() {
             assert_eq!(
@@ -1141,5 +1164,370 @@ fn package_reversal_a_held_product_root_that_fails_the_check_changes_nothing() {
     assert!(matches!(reversal, Reversal::Unchanged(_)), "{reversal:?}");
     for name in [Name::StagedConfig, Name::StagedAnchor, Name::Record] {
         assert!(exists(&path(&root, name)), "{name:?}");
+    }
+}
+
+// --- The Amendment 2026-11-11: the stop's reading and the reversal's start ---------
+
+/// The record as the staging wrote it, `service_running` set as given.
+fn record_bytes(root: &Root, service_running: bool) -> Vec<u8> {
+    let record = read_record(&setup(root, &quiet))
+        .expect("a record that passes its checks")
+        .expect("a record");
+    Record {
+        service_running,
+        ..record
+    }
+    .to_bytes()
+}
+
+/// Point 1: a stop whose first reading found the service running rewrites a
+/// record that says otherwise, whole, its end at the new length, with its
+/// security, on the route that stages and on the one that starts; the
+/// reversal then asks for the start.
+#[test]
+fn package_staging_the_stops_reading_rewrites_the_record_to_running() {
+    for stages in [true, false] {
+        let what = if stages {
+            "the route that stages"
+        } else {
+            "the route that starts"
+        };
+        let root = if stages { Root::bare() } else { Root::empty() };
+        let staged = Staged::new();
+        if !stages {
+            root.touch("agent.toml");
+        }
+        let recorder = Recorder::new();
+        let attempt = stage(
+            &setup(&root, &recorder),
+            stages.then(|| staged.files()),
+            false,
+        )
+        .unwrap();
+        let written = std::fs::read(path(&root, Name::Record)).unwrap();
+        assert_eq!(written, record_bytes(&root, false), "{what}");
+        let staged_steps = recorder.steps().len();
+
+        let attempt = attempt
+            .after_stop(&setup(&root, &recorder), true, Ok(()))
+            .unwrap_or_else(|refusal| panic!("{what}: {}", refusal.line));
+        assert!(attempt.record().service_running, "{what}");
+        assert_eq!(
+            recorder.steps()[staged_steps..],
+            [Step::RewriteRecord],
+            "{what}"
+        );
+        drop(attempt);
+        let rewritten = std::fs::read(path(&root, Name::Record)).unwrap();
+        assert_eq!(
+            rewritten,
+            record_bytes(&root, true),
+            "{what}: rewritten whole"
+        );
+        assert!(
+            rewritten.len() < written.len(),
+            "{what}: true is shorter than false, and the end moved"
+        );
+        assert!(has_final_security(&root, Name::Record), "{what}");
+        assert_eq!(
+            reverse(&setup(&root, &quiet)),
+            Ok(Reversal::Removed {
+                start: true,
+                failed: None
+            }),
+            "{what}"
+        );
+    }
+}
+
+/// Point 1: the rewrite goes one way. A record that says true stays true when
+/// the stop found the service `STOPPED`, and one the stop's reading agrees
+/// with is not written again.
+#[test]
+fn package_staging_the_rewrite_goes_one_way() {
+    for (recorded, found_running) in [(true, false), (true, true), (false, false)] {
+        let root = Root::bare();
+        let recorder = Recorder::new();
+        let attempt = stage(
+            &setup(&root, &recorder),
+            Some(Staged::new().files()),
+            recorded,
+        )
+        .unwrap();
+        let before = std::fs::read(path(&root, Name::Record)).unwrap();
+        let staged_steps = recorder.steps().len();
+        let attempt = attempt
+            .after_stop(&setup(&root, &recorder), found_running, Ok(()))
+            .unwrap();
+        let case = format!("recorded {recorded}, found running {found_running}");
+        assert_eq!(attempt.record().service_running, recorded, "{case}");
+        assert!(recorder.steps()[staged_steps..].is_empty(), "{case}");
+        drop(attempt);
+        assert_eq!(
+            std::fs::read(path(&root, Name::Record)).unwrap(),
+            before,
+            "{case}"
+        );
+    }
+}
+
+/// Point 1: a rewrite that fails is 40, after item 5's removal; with the
+/// stop's 31 the code stays 31 and the line names both.
+#[test]
+fn package_staging_a_rewrite_that_fails_is_40_after_the_removal() {
+    let not_stopped = Refusal::new(codes::NOT_STOPPED, "the service was not proved stopped");
+    for (stopped, code) in [
+        (Ok(()), codes::OWN_STATE),
+        (Err(not_stopped), codes::NOT_STOPPED),
+    ] {
+        let root = Root::bare();
+        let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+        let refusal = attempt
+            .after_stop(
+                &setup(&root, &failing_at(Step::RewriteRecord)),
+                true,
+                stopped.clone(),
+            )
+            .expect_err("refused");
+        assert_eq!(refusal.code, code, "{stopped:?}: {}", refusal.line);
+        assert!(
+            refusal.line.contains("injected failure at RewriteRecord"),
+            "{}",
+            refusal.line
+        );
+        if stopped.is_err() {
+            assert!(
+                refusal.line.contains("not proved stopped"),
+                "{}",
+                refusal.line
+            );
+        }
+        assert_eq!(
+            refusal.line.matches("cg-setup: ").count(),
+            1,
+            "one line, one prefix: {}",
+            refusal.line
+        );
+        assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
+    }
+}
+
+/// Point 1 with the stop's 31, and point 3: the record is rewritten before the
+/// refusal's removal, so a removal that then fails leaves a record that says
+/// true, and the reversal asks for the start; the refusal keeps 31.
+#[test]
+fn package_staging_a_31_rewrites_the_record_before_its_removal() {
+    let root = Root::bare();
+    let recorder = Recorder::new();
+    let attempt = stage(&setup(&root, &recorder), Some(Staged::new().files()), false).unwrap();
+    let staged_steps = recorder.steps().len();
+    let failing = |step: Step| {
+        recorder.at(step)?;
+        failing_at(Step::Remove(Name::StagedAnchor))(step)
+    };
+    let refusal = attempt
+        .after_stop(
+            &setup(&root, &failing),
+            true,
+            Err(Refusal::new(codes::NOT_STOPPED, "not stopped")),
+        )
+        .expect_err("31");
+    assert_eq!(refusal.code, codes::NOT_STOPPED, "{}", refusal.line);
+    assert!(
+        refusal.line.contains("injected failure"),
+        "{}",
+        refusal.line
+    );
+    assert_eq!(
+        recorder.steps()[staged_steps..],
+        [
+            Step::RewriteRecord,
+            Step::Remove(Name::StagedConfig),
+            Step::Remove(Name::StagedAnchor),
+        ]
+    );
+    assert!(
+        read_record(&setup(&root, &quiet))
+            .unwrap()
+            .expect("the record stays while a staged file does")
+            .service_running
+    );
+    assert_eq!(
+        reverse(&setup(&root, &quiet)),
+        Ok(Reversal::Removed {
+            start: true,
+            failed: None
+        })
+    );
+}
+
+/// Point 1: the record is rewritten only as configure opens it: not through a
+/// reparse point, not when it is hard-linked, open to users or a directory.
+/// Each is 40, and what lies beyond the record's name is not written.
+#[test]
+fn package_staging_the_rewrite_checks_the_record_as_configure_opens_it() {
+    // A junction under the record's name.
+    let root = Root::bare();
+    let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+    let elsewhere = root.operator.join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("kept"), b"not the setup's").unwrap();
+    std::fs::remove_file(path(&root, Name::Record)).unwrap();
+    junction(&path(&root, Name::Record), &elsewhere);
+    let refusal = attempt
+        .after_stop(&setup(&root, &quiet), true, Ok(()))
+        .expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(refusal.line.contains("reparse point"), "{}", refusal.line);
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 1);
+    assert_eq!(
+        std::fs::read(elsewhere.join("kept")).unwrap(),
+        b"not the setup's"
+    );
+
+    // A hard link: the other name keeps what it held.
+    let root = Root::bare();
+    let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+    let other = root.paths.data_root.join("another-name");
+    std::fs::hard_link(path(&root, Name::Record), &other).unwrap();
+    let before = std::fs::read(&other).unwrap();
+    let refusal = attempt
+        .after_stop(&setup(&root, &quiet), true, Ok(()))
+        .expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(refusal.line.contains("hard-linked"), "{}", refusal.line);
+    assert_eq!(std::fs::read(&other).unwrap(), before);
+
+    // Readable by users.
+    let root = Root::bare();
+    let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+    set_dacl(
+        &path(&root, Name::Record),
+        &format!("{}(A;;FR;;;BU)", private_file_sddl()),
+    );
+    let refusal = attempt
+        .after_stop(&setup(&root, &quiet), true, Ok(()))
+        .expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(
+        refusal
+            .line
+            .contains("allows access to a principal other than"),
+        "{}",
+        refusal.line
+    );
+
+    // A directory under the record's name.
+    let root = Root::bare();
+    let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+    std::fs::remove_file(path(&root, Name::Record)).unwrap();
+    std::fs::create_dir(path(&root, Name::Record)).unwrap();
+    let refusal = attempt
+        .after_stop(&setup(&root, &quiet), true, Ok(()))
+        .expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(path(&root, Name::Record).is_dir());
+}
+
+/// Point 1: the record is opened sharing nothing, so a handle that holds it
+/// open for reading, for writing or for deletion, sharing everything, makes
+/// the rewrite fail (40): no one reads a record half written, writes it
+/// meanwhile, or renames or deletes it under the rewrite.
+#[test]
+fn package_staging_the_rewrite_shares_nothing() {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use windows_sys::Win32::Storage::FileSystem::DELETE;
+    type Open = fn(&mut std::fs::OpenOptions) -> &mut std::fs::OpenOptions;
+    let holders: [(&str, Open); 3] = [
+        ("reading", |options| options.read(true)),
+        ("writing", |options| options.write(true)),
+        ("deleting", |options| options.access_mode(DELETE)),
+    ];
+    for (what, open) in holders {
+        let root = Root::bare();
+        let attempt = stage(&setup(&root, &quiet), Some(Staged::new().files()), false).unwrap();
+        let holder = open(std::fs::OpenOptions::new().share_mode(7))
+            .open(path(&root, Name::Record))
+            .unwrap_or_else(|e| panic!("a handle {what}, sharing everything: {e}"));
+        let refusal = attempt
+            .after_stop(&setup(&root, &quiet), true, Ok(()))
+            .expect_err("40");
+        drop(holder);
+        assert_eq!(refusal.code, codes::OWN_STATE, "{what}: {}", refusal.line);
+        assert!(refusal.line.contains(RECORD), "{what}: {}", refusal.line);
+    }
+}
+
+/// Point 2: the reversal's end. The start is made only when the record asks
+/// for it, once, after the removals, also after a removal that failed; a
+/// start that fails is 40, its line naming the removal that failed too.
+#[test]
+fn package_reversal_finish_starts_only_when_the_record_asks() {
+    use std::cell::Cell;
+    let removal = || Some(Refusal::new(codes::OWN_STATE, "the removal failed"));
+    // A start that fails with another code is the reversal's 40 all the same.
+    let refused = || Err(Refusal::new(codes::START_REFUSED, "the start was refused"));
+    let removed = |start: bool, failed: Option<Refusal>| Reversal::Removed { start, failed };
+    type Case = (
+        Reversal,
+        Result<(), Refusal>,
+        usize,
+        Option<Vec<&'static str>>,
+    );
+    let cases: Vec<Case> = vec![
+        (Reversal::Unchanged("why".into()), Ok(()), 0, None),
+        (removed(false, None), Ok(()), 0, None),
+        (
+            removed(false, removal()),
+            Ok(()),
+            0,
+            Some(vec!["the removal failed"]),
+        ),
+        (removed(true, None), Ok(()), 1, None),
+        (
+            removed(true, removal()),
+            Ok(()),
+            1,
+            Some(vec!["the removal failed"]),
+        ),
+        (
+            removed(true, None),
+            refused(),
+            1,
+            Some(vec!["the start was refused"]),
+        ),
+        (
+            removed(true, removal()),
+            refused(),
+            1,
+            Some(vec!["the start was refused", "the removal failed"]),
+        ),
+    ];
+    for (reversal, start, calls, expected) in cases {
+        let case = format!("{reversal:?} with a start {start:?}");
+        let made = Cell::new(0);
+        let result = reversal.finish(|| {
+            made.set(made.get() + 1);
+            start.clone()
+        });
+        assert_eq!(made.get(), calls, "{case}: starts made");
+        match (result, expected) {
+            (Ok(()), None) => {}
+            (Err(refusal), Some(fragments)) => {
+                assert_eq!(refusal.code, codes::OWN_STATE, "{case}: {}", refusal.line);
+                assert_eq!(
+                    refusal.line.matches("cg-setup: ").count(),
+                    1,
+                    "{case}: one line, one prefix: {}",
+                    refusal.line
+                );
+                assert!(refusal.line.starts_with("cg-setup: "), "{}", refusal.line);
+                for fragment in fragments {
+                    assert!(refusal.line.contains(fragment), "{case}: {}", refusal.line);
+                }
+            }
+            (result, expected) => panic!("{case}: {result:?}, expected {expected:?}"),
+        }
     }
 }
