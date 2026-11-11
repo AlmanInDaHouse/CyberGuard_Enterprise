@@ -81,7 +81,7 @@ impl Manager {
 
     /// The service named `name`, opened for `access`: `Ok(None)` when no
     /// such service exists, the Win32 error otherwise.
-    fn service(&self, name: &str, access: u32) -> Result<Option<Service>, u32> {
+    pub(crate) fn service(&self, name: &str, access: u32) -> Result<Option<Service>, u32> {
         let wname = wide(name);
         // SAFETY: the name lives for the call.
         let handle = unsafe { OpenServiceW(self.0, wname.as_ptr(), access) };
@@ -103,7 +103,7 @@ impl Drop for Manager {
 }
 
 /// A handle to a service, closed on drop.
-struct Service(SC_HANDLE);
+pub(crate) struct Service(SC_HANDLE);
 
 impl Drop for Service {
     fn drop(&mut self) {
@@ -153,7 +153,7 @@ impl Service {
         }
     }
 
-    fn status(&self) -> Result<SERVICE_STATUS_PROCESS, u32> {
+    pub(crate) fn status(&self) -> Result<SERVICE_STATUS_PROCESS, u32> {
         // SAFETY: an all-zero SERVICE_STATUS_PROCESS is a valid value.
         let mut status: SERVICE_STATUS_PROCESS = unsafe { std::mem::zeroed() };
         let mut needed = 0u32;
