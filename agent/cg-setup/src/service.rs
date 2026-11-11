@@ -89,9 +89,14 @@ pub fn not_the_products(found: &Configuration, binary: &Path, config: &Path) -> 
     }
 }
 
-/// The start arguments of the adoption (the Amendment 2026-11-09, item 6):
-/// `--adopt-staged-config` once, then each fingerprint.
-pub fn adoption_arguments(fingerprints: &BTreeSet<String>) -> Vec<String> {
+/// Configure's start arguments on a route other than a migration's (item 8):
+/// with the record's fingerprints, the adoption's (the Amendment 2026-11-09,
+/// item 6), `--adopt-staged-config` once, then each fingerprint; with an
+/// empty list, none.
+pub fn start_arguments(fingerprints: &BTreeSet<String>) -> Vec<String> {
+    if fingerprints.is_empty() {
+        return Vec::new();
+    }
     std::iter::once(ADOPT.to_string())
         .chain(
             fingerprints
