@@ -256,12 +256,19 @@ fn package_observer_only_a_json_lines_message_counts() {
             "{}\n",
             serde_json::json!({ "fields": { "message": [IDENTITY_LINE] } })
         ),
-        format!("{}\n", serde_json::json!([{ "fields": { "message": IDENTITY_LINE } }])),
+        format!(
+            "{}\n",
+            serde_json::json!([{ "fields": { "message": IDENTITY_LINE } }])
+        ),
     ];
     for text in &near_misses {
         logs.append(ACTIVE, text);
     }
-    assert_seen(&mut reader, Seen::Neither, "no line whose message is the text");
+    assert_seen(
+        &mut reader,
+        Seen::Neither,
+        "no line whose message is the text",
+    );
     logs.append(
         ACTIVE,
         &format!(
@@ -269,7 +276,11 @@ fn package_observer_only_a_json_lines_message_counts() {
             serde_json::json!({ "fields": { "message": IDENTITY_LINE } })
         ),
     );
-    assert_seen(&mut reader, Seen::Identity, "a JSON line whose message it is");
+    assert_seen(
+        &mut reader,
+        Seen::Identity,
+        "a JSON line whose message it is",
+    );
 }
 
 #[test]
@@ -319,7 +330,11 @@ fn package_observer_follows_the_recorded_file_through_rotation() {
     // has moved to the rotating file and then to an archive.
     logs.append(ACTIVE, &line(IDENTITY_LINE));
     logs.rotate_polling(&mut reader);
-    assert_seen(&mut reader, Seen::Identity, "the recorded file, now archive 1");
+    assert_seen(
+        &mut reader,
+        Seen::Identity,
+        "the recorded file, now archive 1",
+    );
     logs.append(ACTIVE, &line(HEARTBEAT_LINE));
     assert_seen(&mut reader, Seen::Both, "then the new active file");
 }
@@ -450,7 +465,10 @@ fn package_observer_follows_the_agents_own_rotation() {
     drop(log);
 
     assert!(!failed.load(Ordering::SeqCst), "the log never failed");
-    assert!(polls > 1, "the reader polled while the log rotated: {polls}");
+    assert!(
+        polls > 1,
+        "the reader polled while the log rotated: {polls}"
+    );
     for n in 1..=3 {
         let size = std::fs::metadata(logs.dir.join(archive_name(n)))
             .unwrap_or_else(|e| panic!("archive {n}: {e}"))

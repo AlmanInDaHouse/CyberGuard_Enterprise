@@ -30,9 +30,9 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use cg_agent::service::rotation::{archive_name, ACTIVE, ARCHIVES, ROTATING};
 use serde::Deserialize;
 use windows_sys::core::PWSTR;
-use cg_agent::service::rotation::{archive_name, ACTIVE, ARCHIVES, ROTATING};
 use windows_sys::Win32::Foundation::{
     ERROR_CALL_NOT_IMPLEMENTED, ERROR_SERVICE_SPECIFIC_ERROR, NO_ERROR,
 };

@@ -1020,7 +1020,12 @@ fn earlier_log() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let both: String = [IDENTITY_LINE, HEARTBEAT_LINE]
         .iter()
-        .map(|message| format!("{}\n", serde_json::json!({ "fields": { "message": message } })))
+        .map(|message| {
+            format!(
+                "{}\n",
+                serde_json::json!({ "fields": { "message": message } })
+            )
+        })
         .collect();
     for name in ["agent.1.jsonl", "agent.jsonl"] {
         std::fs::write(dir.path().join(name), &both).expect("an earlier run's log");
@@ -1031,10 +1036,7 @@ fn earlier_log() -> tempfile::TempDir {
 /// Start a controllable service with `behaviour`, whose log is in `log_dir`,
 /// after recording the log's position, and observe it: the outcome and how
 /// long it took from the start request.
-fn observed(
-    behaviour: serde_json::Value,
-    log_dir: &Path,
-) -> (Result<(), Refusal>, Duration) {
+fn observed(behaviour: serde_json::Value, log_dir: &Path) -> (Result<(), Refusal>, Duration) {
     let mut behaviour = behaviour;
     behaviour["log_dir"] = serde_json::Value::String(log_dir.display().to_string());
     let files = Controllable::new(behaviour);
