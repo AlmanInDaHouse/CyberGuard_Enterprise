@@ -22,6 +22,8 @@
 //! line has the product's form. The tests read the SCM with their own
 //! bindings, not the client's.
 
+#[path = "../fixtures/mod.rs"]
+mod fixtures;
 mod service;
 
 use std::collections::BTreeSet;
@@ -29,11 +31,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use cg_agent::service::migration::{Choice, Request};
+use cg_agent::service::migration::{Choice, Request as MigrationRequest};
 use cg_setup::codes;
 use cg_setup::observer::{self, LogPosition, HEARTBEAT_LINE, IDENTITY_LINE, OBSERVE_WITHIN};
+use cg_setup::preflight::Request;
 use cg_setup::scm::{self, Manager, Product, Route, Stop};
 use cg_setup::service::{migration_arguments, product_command_line, start_arguments};
+use cg_setup::staging::{read_record, Name, Setup, SetupCustody, Step, Watch};
+use cg_setup::verbs::{self, Machine};
+use cg_setup::version::{numeric, SETUP_VERSION};
 use cg_setup::Refusal;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, LocalFree, ERROR_SERVICE_DOES_NOT_EXIST,
@@ -1007,7 +1013,7 @@ fn package_scm_the_start_passes_its_arguments_or_none() {
     let files = Controllable::new(serde_json::json!({}));
     let service = TestService::controllable(&files);
     let fingerprints: BTreeSet<String> = [fingerprint('a'), fingerprint('b')].into();
-    let migration = Request {
+    let migration = MigrationRequest {
         choice: Choice::Keep,
         fingerprints: [fingerprint('c')].into(),
     };
@@ -1113,6 +1119,305 @@ fn package_scm_a_reversals_start_the_scm_refuses_is_40() {
         scm::start_if_stopped(&manager(), &absent),
         codes::OWN_STATE,
         &[&absent, "reversal", "Win32 error 1060"],
+    );
+}
+
+// --- The verbs (item 9) -------------------------------------------------------------
+
+/// A temporary host for the verbs, with a product service of the product's
+/// configuration: its command line names the host's installed binary, a copy
+/// of this test executable with this package's version, and the host's
+/// `agent.toml`, which holds the service's behaviour. The host is pending
+/// (`agent.toml` and no identity); the service's log is the host's.
+struct VerbsHost {
+    // Dropped first: the service is stopped and deleted before its files.
+    service: TestService,
+    root: fixtures::Root,
+    binary: PathBuf,
+    arguments: PathBuf,
+}
+
+fn verbs_host(behaviour: serde_json::Value, start_type: u32) -> VerbsHost {
+    let root = fixtures::Root::empty();
+    let binary = root.operator.join("cg-agent.exe");
+    let [x, y, z] = numeric(SETUP_VERSION).expect("X.Y.Z");
+    fixtures::versioned_copy(&binary, [x, y, z, 0], SETUP_VERSION);
+    let arguments = root.operator.join("arguments.jsonl");
+    // The agent creates its log directory; the test service writes into one.
+    std::fs::create_dir(root.paths.data_root.join("logs")).expect("the log directory");
+    let mut behaviour = behaviour;
+    behaviour["record"] = serde_json::Value::String(arguments.display().to_string());
+    behaviour["log_dir"] =
+        serde_json::Value::String(root.paths.data_root.join("logs").display().to_string());
+    std::fs::write(&root.paths.config, behaviour.to_string()).expect("write the behaviour");
+    let service = TestService::create(&Spec {
+        service_type: SERVICE_WIN32_OWN_PROCESS,
+        start_type,
+        account: None,
+        command_line: product_command_line(&binary, &root.paths.config),
+    });
+    VerbsHost {
+        service,
+        root,
+        binary,
+        arguments,
+    }
+}
+
+impl VerbsHost {
+    fn machine<'a>(&self, watch: &'a (dyn Watch + 'a)) -> Machine<'a> {
+        Machine {
+            host: self.root.host.clone(),
+            setup: Setup {
+                paths: self.root.paths.clone(),
+                custody: SetupCustody {
+                    directories: fixtures::test_policy(false),
+                    staged: fixtures::test_policy(true),
+                    directory_sddl: fixtures::closed_directory_sddl(),
+                    file_sddl: fixtures::private_file_sddl(),
+                },
+                wait: fixtures::WAIT,
+                watch,
+            },
+            service: self.service.name.clone(),
+            binary: self.binary.clone(),
+        }
+    }
+
+    /// The start arguments each start received, in order.
+    fn starts(&self) -> Vec<Vec<String>> {
+        match std::fs::read_to_string(&self.arguments) {
+            Ok(text) => text
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("a JSON array per start"))
+                .collect(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => panic!("read {}: {e}", self.arguments.display()),
+        }
+    }
+
+    fn record(&self) -> PathBuf {
+        self.root.paths.data_root.join("setup-attempt.json")
+    }
+
+    /// A bootstrap for this host, and its fingerprints.
+    fn bootstrap(&self) -> (Request, BTreeSet<String>) {
+        let certificate = fixtures::certificate("verbs.example.test");
+        let anchor = self.root.anchor(&[&certificate]);
+        let file = self.root.bootstrap(&fixtures::bootstrap_text(
+            anchor.to_str().expect("a Unicode path"),
+            &[&certificate.fingerprint],
+        ));
+        (
+            Request {
+                bootstrap: Some(file),
+                ..Request::default()
+            },
+            BTreeSet::from([certificate.fingerprint]),
+        )
+    }
+}
+
+fn unwatched(_: Step) -> Result<(), String> {
+    Ok(())
+}
+
+/// The two lines, in order, after `RUNNING`.
+fn operational() -> serde_json::Value {
+    serde_json::json!({
+        "log": [{ "line": IDENTITY_LINE }, { "line": HEARTBEAT_LINE }],
+    })
+}
+
+/// #153 end to end (the Amendment 2026-11-11, point 1): the product service
+/// is `STOPPED` at item 3's check and started before the record is written;
+/// preflight's stop finds it running, proves it `STOPPED` and rewrites the
+/// record, and the reversal starts it again with no argument.
+fn package_scm_verbs_preflight_records_a_service_started_after_its_check() {
+    let host = verbs_host(serde_json::json!({ "stop_ms": 2000 }), SERVICE_DEMAND_START);
+    let name = host.service.name.clone();
+    let start_it = move |step: Step| {
+        if step == Step::Write(Name::Record) {
+            scm::start(&manager(), &name, &[]).expect("a start between the check and the stop");
+        }
+        Ok(())
+    };
+    let preflight = host.machine(&start_it);
+    assert_eq!(verbs::preflight(&preflight, &Request::default()), Ok(()));
+    assert_eq!(
+        host.service.state(),
+        SERVICE_STOPPED,
+        "preflight stopped it"
+    );
+    let record = read_record(&preflight.setup)
+        .expect("a record that passes its checks")
+        .expect("a record");
+    assert!(
+        record.service_running,
+        "the stop's reading rewrote the record"
+    );
+    assert_eq!(host.starts(), vec![Vec::<String>::new()]);
+
+    assert_eq!(verbs::reverse(&host.machine(&unwatched)), Ok(()));
+    host.service
+        .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    assert_eq!(
+        host.starts(),
+        vec![Vec::<String>::new(), Vec::new()],
+        "the reversal's start, with no argument"
+    );
+    assert!(!host.record().exists(), "the reversal removed the record");
+}
+
+/// A running product service: preflight records it running and stops it; a
+/// reversal starts it; one whose record found it stopped starts nothing.
+fn package_scm_verbs_preflight_stops_a_running_service_and_the_reversal_starts_it() {
+    let host = verbs_host(serde_json::json!({ "stop_ms": 2000 }), SERVICE_DEMAND_START);
+    host.service.start();
+    host.service
+        .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    let (request, _) = host.bootstrap();
+    assert_eq!(
+        verbs::preflight(&host.machine(&unwatched), &request),
+        Ok(())
+    );
+    assert_eq!(host.service.state(), SERVICE_STOPPED);
+    assert_eq!(verbs::reverse(&host.machine(&unwatched)), Ok(()));
+    host.service
+        .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    assert_eq!(host.starts().len(), 2);
+    assert!(!host.root.paths.staged_config().exists());
+
+    host.service.control_stop().expect("STOP");
+    host.service
+        .wait_for(SERVICE_STOPPED, Duration::from_secs(20));
+    // The route that starts: the record alone, which finds it stopped.
+    assert_eq!(
+        verbs::preflight(&host.machine(&unwatched), &Request::default()),
+        Ok(())
+    );
+    assert_eq!(verbs::reverse(&host.machine(&unwatched)), Ok(()));
+    assert_eq!(
+        host.starts().len(),
+        2,
+        "a service found stopped stays stopped"
+    );
+    assert_eq!(host.service.state(), SERVICE_STOPPED);
+}
+
+/// Configure on the route that staged: the failure actions set, the start
+/// with the record's fingerprints as the adoption's arguments, the record
+/// deleted, and the outcome observed: operational once the two lines appear.
+fn package_scm_verbs_configure_starts_with_the_records_fingerprints_and_observes() {
+    let host = verbs_host(operational(), SERVICE_DEMAND_START);
+    let (request, fingerprints) = host.bootstrap();
+    assert_eq!(
+        verbs::preflight(&host.machine(&unwatched), &request),
+        Ok(())
+    );
+    let started = Instant::now();
+    assert_eq!(
+        verbs::configure(&host.machine(&unwatched), &Request::default()),
+        Ok(())
+    );
+    assert!(
+        started.elapsed() < OBSERVE_WITHIN,
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(host.starts(), vec![start_arguments(&fingerprints)]);
+    assert!(!host.record().exists(), "configure deleted the record");
+    let (reset, actions, _, _) = host.service.failure_actions();
+    assert_eq!(
+        (reset, actions),
+        (
+            86_400,
+            vec![
+                (SC_ACTION_RESTART, 60_000),
+                (SC_ACTION_RESTART, 120_000),
+                (SC_ACTION_RESTART, 300_000),
+            ]
+        )
+    );
+    assert!(!host.service.failure_actions_flag());
+}
+
+/// The Amendment 2026-11-11 (second), point 4: a deletion of the record that
+/// fails after the start keeps the outcome's code, its one line naming the
+/// record left, with 0 too; and a service that stops is 42 whether or not the
+/// record was deleted.
+fn package_scm_verbs_configure_a_record_left_keeps_the_outcomes_code() {
+    let fail_deletion = |step: Step| {
+        if step == Step::Remove(Name::Record) {
+            Err("injected failure of the record's deletion".to_string())
+        } else {
+            Ok(())
+        }
+    };
+    for (behaviour, code) in [
+        (operational(), codes::OPERATIONAL),
+        (
+            serde_json::json!({ "stop_with": 13 }),
+            codes::SERVICE_STOPPED,
+        ),
+    ] {
+        for deletion_fails in [true, false] {
+            let host = verbs_host(behaviour.clone(), SERVICE_DEMAND_START);
+            let (request, _) = host.bootstrap();
+            assert_eq!(
+                verbs::preflight(&host.machine(&unwatched), &request),
+                Ok(())
+            );
+            let configure = if deletion_fails {
+                host.machine(&fail_deletion)
+            } else {
+                host.machine(&unwatched)
+            };
+            let outcome = verbs::configure(&configure, &Request::default());
+            let case = format!("{behaviour}, the deletion fails: {deletion_fails}: {outcome:?}");
+            assert_eq!(host.record().exists(), deletion_fails, "{case}");
+            match outcome {
+                Ok(()) => assert!(code == codes::OPERATIONAL && !deletion_fails, "{case}"),
+                Err(refusal) => {
+                    assert_eq!(refusal.code, code, "{case}");
+                    assert_eq!(refusal.line.matches("cg-setup: ").count(), 1, "{case}");
+                    assert_eq!(
+                        refusal.line.contains("injected failure"),
+                        deletion_fails,
+                        "{case}"
+                    );
+                    if code == codes::SERVICE_STOPPED {
+                        assert!(refusal.line.contains("stopped after its start"), "{case}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A start the SCM refuses is 41, after the failure actions; the record
+/// stays for the next preflight.
+fn package_scm_verbs_configure_a_refused_start_is_41_and_leaves_the_record() {
+    let host = verbs_host(operational(), SERVICE_DISABLED);
+    let (request, _) = host.bootstrap();
+    assert_eq!(
+        verbs::preflight(&host.machine(&unwatched), &request),
+        Ok(())
+    );
+    let refusal = verbs::configure(&host.machine(&unwatched), &Request::default()).expect_err("41");
+    assert_eq!(refusal.code, codes::START_REFUSED, "{}", refusal.line);
+    assert!(
+        refusal.line.contains("Win32 error 1058"),
+        "{}",
+        refusal.line
+    );
+    assert!(host.record().exists(), "the record stays");
+    assert!(host.starts().is_empty());
+    assert!(!host.service.failure_actions_flag());
+    assert_eq!(
+        host.service.failure_actions().0,
+        86_400,
+        "the failure actions came first"
     );
 }
 
@@ -1373,6 +1678,26 @@ const TESTS: &[(&str, fn())] = &[
     (
         "package_scm_a_reversals_start_the_scm_refuses_is_40",
         package_scm_a_reversals_start_the_scm_refuses_is_40,
+    ),
+    (
+        "package_scm_verbs_preflight_records_a_service_started_after_its_check",
+        package_scm_verbs_preflight_records_a_service_started_after_its_check,
+    ),
+    (
+        "package_scm_verbs_preflight_stops_a_running_service_and_the_reversal_starts_it",
+        package_scm_verbs_preflight_stops_a_running_service_and_the_reversal_starts_it,
+    ),
+    (
+        "package_scm_verbs_configure_starts_with_the_records_fingerprints_and_observes",
+        package_scm_verbs_configure_starts_with_the_records_fingerprints_and_observes,
+    ),
+    (
+        "package_scm_verbs_configure_a_record_left_keeps_the_outcomes_code",
+        package_scm_verbs_configure_a_record_left_keeps_the_outcomes_code,
+    ),
+    (
+        "package_scm_verbs_configure_a_refused_start_is_41_and_leaves_the_record",
+        package_scm_verbs_configure_a_refused_start_is_41_and_leaves_the_record,
     ),
     (
         "package_scm_the_start_passes_its_arguments_or_none",

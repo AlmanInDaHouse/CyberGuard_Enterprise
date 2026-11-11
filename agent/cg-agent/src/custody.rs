@@ -57,7 +57,9 @@ use windows_sys::Win32::System::SystemInformation::{
     ComputerNamePhysicalDnsHostname, GetComputerNameExW,
 };
 use windows_sys::Win32::System::IO::CancelSynchronousIo;
-use windows_sys::Win32::UI::Shell::{FOLDERID_ProgramData, SHGetKnownFolderPath};
+use windows_sys::Win32::UI::Shell::{
+    FOLDERID_ProgramData, FOLDERID_ProgramFiles, SHGetKnownFolderPath,
+};
 use zeroize::Zeroizing;
 
 /// The ACE types a checked DACL may hold (winnt.h); any other is refused.
@@ -168,17 +170,27 @@ pub(crate) fn last_error() -> u32 {
 
 /// `%ProgramData%`, from the OS.
 pub fn program_data() -> Result<PathBuf, String> {
+    known_folder(&FOLDERID_ProgramData, "%ProgramData%")
+}
+
+/// `%ProgramFiles%`, from the OS: the 64-bit folder, for a 64-bit process
+/// (SPEC-024 Amendment 2026-11-10: the installed binary's directory).
+pub fn program_files() -> Result<PathBuf, String> {
+    known_folder(&FOLDERID_ProgramFiles, "%ProgramFiles%")
+}
+
+/// The known folder `id`, from the OS; `name` is how a failure names it.
+fn known_folder(id: &windows_sys::core::GUID, name: &str) -> Result<PathBuf, String> {
     let mut raw: PWSTR = std::ptr::null_mut();
     // SAFETY: a known-folder id and an out-pointer the call fills with a
     // CoTaskMemAlloc'd string, freed below.
-    let hr =
-        unsafe { SHGetKnownFolderPath(&FOLDERID_ProgramData, 0, std::ptr::null_mut(), &mut raw) };
+    let hr = unsafe { SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut raw) };
     if hr < 0 || raw.is_null() {
         if !raw.is_null() {
             // SAFETY: the string the call allocated.
             unsafe { CoTaskMemFree(raw.cast()) };
         }
-        return Err(format!("resolve %ProgramData%: HRESULT {hr:#010x}"));
+        return Err(format!("resolve {name}: HRESULT {hr:#010x}"));
     }
     // SAFETY: a NUL-terminated wide string from the call.
     let path = unsafe {
