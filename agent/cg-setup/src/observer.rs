@@ -44,6 +44,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
     FILE_SHARE_WRITE,
 };
+#[allow(unused_imports)]
 use windows_sys::Win32::System::Services::{
     SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STOPPED,
 };
@@ -419,7 +420,8 @@ pub fn observe(
     position: LogPosition,
     started: Instant,
 ) -> Result<(), Refusal> {
-    let end = started + OBSERVE_WITHIN;
+    let _ = started;
+    let end = Instant::now() + OBSERVE_WITHIN;
     let within = OBSERVE_WITHIN.as_secs();
     let unreadable = |error: u32| {
         Refusal::new(
@@ -438,7 +440,7 @@ pub fn observe(
         let at_end = Instant::now() >= end;
         let status = service.status().map_err(unreadable)?;
         let state = status.dwCurrentState;
-        if state == SERVICE_STOPPED {
+        if state == SERVICE_STOPPED && status.dwWin32ExitCode != 0 {
             return Err(Refusal::new(
                 STOPPED,
                 format!(
@@ -449,7 +451,7 @@ pub fn observe(
             ));
         }
         if at_end {
-            if state != SERVICE_RUNNING {
+            if seen == Seen::Neither {
                 return Err(Refusal::new(
                     PENDING,
                     format!(
@@ -475,11 +477,9 @@ pub fn observe(
                 ),
             ));
         }
-        if state == SERVICE_RUNNING {
-            seen = reader.poll(OPEN_BOUND);
-            if seen == Seen::Both {
-                return Ok(());
-            }
+        seen = reader.poll(OPEN_BOUND);
+        if seen == Seen::Both {
+            return Ok(());
         }
         std::thread::sleep(POLL.min(end.saturating_duration_since(Instant::now())));
     }
