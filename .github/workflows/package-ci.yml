@@ -3,19 +3,31 @@ name: package-ci
 # SPEC-024 Amendment 2026-11-01, point 1: the pins of the agent's Windows package. Each nuget
 # package is restored by its pinned version and checked against its recorded hash before
 # anything loads it; WiX's EULA ID is checked to be the one Manuel accepted. A hosted Windows
-# runner, the venue of §Test scenarios' "Packaging CI" line.
+# runner, the venue of §Test scenarios' "Packaging CI" line. The host job runs the real
+# `cg-setup` against this disposable runner (the Amendment 2026-11-10, *Tests*), so the
+# agent's sources and the Rust toolchain are among the paths.
 
 on:
   push:
     branches: [main]
     paths:
       - "deploy/windows/**"
+      - "agent/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
       - ".github/scripts/check-licences.mjs"
       - ".github/scripts/licences-allowed.json"
       - ".github/workflows/package-ci.yml"
   pull_request:
     paths:
       - "deploy/windows/**"
+      - "agent/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
       - ".github/scripts/check-licences.mjs"
       - ".github/scripts/licences-allowed.json"
       - ".github/workflows/package-ci.yml"
@@ -68,3 +80,26 @@ jobs:
       - name: Check the tool's build and EULA ID
         working-directory: deploy/windows
         run: node pins/verify-pins.mjs --tool
+
+  # SPEC-024 Amendment 2026-11-10, *Tests*: the real `cg-setup`, `preflight` then `reverse`,
+  # against this runner's %ProgramData%, under a token with no privilege but
+  # SeChangeNotifyPrivilege. Built only with cg-setup's test-only `host-tests` feature, here
+  # alone; the test fails without acting outside a GitHub-hosted runner.
+  host:
+    name: cg-setup against the host
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain (reads rust-toolchain.toml)
+        # v1.17.0, by its commit.
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          rustflags: ""
+
+      - name: "cargo test, cg-setup against the host (host-tests)"
+        run: cargo test -p cg-setup --features host-tests --no-fail-fast --test package_setup_host -- --test-threads=1
