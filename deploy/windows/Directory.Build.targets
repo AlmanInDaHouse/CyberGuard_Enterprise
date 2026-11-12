@@ -18,6 +18,6 @@
     <Error Condition=" '$(CheckedProductVersion)' != '$(CG_RELEASE_VERSION)' "
            Text="CG_RELEASE_VERSION=$(CG_RELEASE_VERSION) is not the version the release check printed ($(CheckedProductVersion))." />
     <Error Condition=" '$(AgentExe)' == '' or !Exists('$(AgentExe)') "
-           Text="AgentExe names no file: the package carries the agent's release executable, built with the same CG_RELEASE_VERSION." />
+           Text="AgentExe names no file: the package carries the agent's release executable." />
   </Target>
 </Project>

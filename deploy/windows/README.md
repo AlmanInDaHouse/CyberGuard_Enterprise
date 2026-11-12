@@ -32,6 +32,10 @@ dotnet build --no-incremental msi/CyberGuardAgent.wixproj -c Release -p:AgentExe
 ```
 
 The MSI is written to `msi/bin/Release/cyberguard-agent-<version>-x64.msi`. Building it installs
-nothing. It is installed only through the setup; `package-ci`'s `msi` job installs it on a hosted
-runner with the setup's property and refuses every other route (`agent/cg-setup/tests/package_msi_host.rs`).
+nothing. Its launch conditions admit an installation only with the setup chain's property
+`CG_SETUP_CHAIN=1`, or on an installed product, and only per machine; `package-ci`'s `msi` job
+installs it on a hosted runner with that property and sees a direct installation, a direct major
+upgrade and a per-user installation refused (`agent/cg-setup/tests/package_msi_host.rs`). The
+build does not compare the agent's own version with `CG_RELEASE_VERSION`: that comparison is the
+release's (install_ac_015), which is not built yet.
 `test/msi-version-matrix.mjs` checks that its build refuses a version outside the release's form.

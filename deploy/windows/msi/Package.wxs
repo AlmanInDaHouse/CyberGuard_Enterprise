@@ -2,7 +2,8 @@
   The agent's MSI: SPEC-024 §Data contracts §1 to §3 and its Amendment 2026-11-09, item 4. It
   installs the agent's release executable and the product service, and creates nothing under
   %ProgramData%\CyberGuard: the setup's cg-setup stages the configuration there, and the service
-  adopts it. It is installed only through the setup.
+  adopts it. Its launch conditions admit the setup's chain, an installed product and a per-machine
+  installation alone (SPEC-024 Amendment 2026-11-12, point 1).
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <!-- One upgrade family across releases (§Data contracts §1); a lower version is refused. -->
@@ -16,8 +17,9 @@
                   DowngradeErrorMessage="A newer version of CyberGuard Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <!-- Admitted only when the setup runs it, which passes this property, or when it is already
-         installed: a direct msiexec installation or major upgrade is refused. -->
+    <!-- Admitted when the setup's chain passes this property, or on an installed product: a
+         direct msiexec installation or major upgrade without it is refused. It guards against a
+         mistaken installation, not an elevated administrator, who can pass it. -->
     <Property Id="CG_SETUP_CHAIN" Secure="yes" />
     <Launch Condition="Installed OR CG_SETUP_CHAIN = &quot;1&quot;"
             Message="CyberGuard Agent is installed by its setup, cyberguard-agent-$(var.ProductVersion)-x64-setup.exe, not by this package alone." />

@@ -50,8 +50,8 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_APPEND_DATA, FILE_DELETE_CHILD,
     FILE_EXECUTE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_LIST_DIRECTORY,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_DATA, OPEN_EXISTING,
-    WRITE_DAC, WRITE_OWNER,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
+    FILE_WRITE_EA, OPEN_EXISTING, WRITE_DAC, WRITE_OWNER,
 };
 use windows_sys::Win32::System::Services::{
     CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceConfig2W, QueryServiceConfigW,
@@ -235,17 +235,35 @@ impl Host {
         }
     }
 
-    /// `msiexec` with `arguments`, quiet, without a restart, and its verbose
-    /// log under `name`: its exit code and its log. Another installation in
+    /// `msiexec` with `verb` (`/i` or `/x`) on `msi` and `properties`, quiet,
+    /// without a restart, and its verbose log under `name`: its exit code and
+    /// its log. msiexec parses its own command line, so it is passed as
+    /// written (`raw_arg`): a property such as `ALLUSERS=""` reaches it empty.
+    /// Each `/i` is recorded for `Drop`, refused or not, so that one a launch
+    /// condition should have refused is removed too. Another installation in
     /// progress (1618) is waited for, up to five minutes.
-    fn msiexec(&self, name: &str, arguments: &[&OsStr]) -> (i32, String) {
+    fn msiexec(
+        &mut self,
+        name: &str,
+        verb: &str,
+        msi: &Path,
+        properties: &[&str],
+    ) -> (i32, String) {
+        use std::os::windows::process::CommandExt as _;
+        if verb == "/i" && !self.installed.iter().any(|known| known == msi) {
+            self.installed.push(msi.to_path_buf());
+        }
         let log = self.logs.join(format!("{}-{name}.log", self.test));
+        let mut command_line = format!("{verb} \"{}\"", msi.display());
+        for property in properties {
+            command_line.push(' ');
+            command_line.push_str(property);
+        }
+        command_line.push_str(&format!(" /qn /norestart /l*v \"{}\"", log.display()));
         let mut code = ERROR_INSTALL_ALREADY_RUNNING;
         for _ in 0..10 {
             code = Command::new("msiexec.exe")
-                .args(arguments)
-                .args(["/qn", "/norestart", "/l*v"])
-                .arg(&log)
+                .raw_arg(&command_line)
                 .status()
                 .expect("run msiexec")
                 .code()
@@ -272,20 +290,12 @@ impl Host {
 
     /// Install `msi` as the setup does: with the property its chain passes.
     fn install_as_the_setup(&mut self, name: &str, msi: &Path) {
-        self.installed.push(msi.to_path_buf());
-        let (code, log) = self.msiexec(
-            name,
-            &[
-                OsStr::new("/i"),
-                msi.as_os_str(),
-                OsStr::new("CG_SETUP_CHAIN=1"),
-            ],
-        );
+        let (code, log) = self.msiexec(name, "/i", msi, &["CG_SETUP_CHAIN=1"]);
         assert_eq!(code, 0, "{name}: msiexec exits 0\n{}", tail(&log));
     }
 
     fn uninstall(&mut self, name: &str, msi: &Path) {
-        let (code, log) = self.msiexec(name, &[OsStr::new("/x"), msi.as_os_str()]);
+        let (code, log) = self.msiexec(name, "/x", msi, &[]);
         assert_eq!(code, 0, "{name}: msiexec exits 0\n{}", tail(&log));
         self.installed.retain(|installed| installed != msi);
     }
@@ -293,19 +303,12 @@ impl Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
+        // Newest first; a package that is not installed answers 1605.
         for msi in std::mem::take(&mut self.installed).into_iter().rev() {
-            let log = self.logs.join(format!("{}-cleanup.log", self.test));
-            match Command::new("msiexec.exe")
-                .arg("/x")
-                .arg(&msi)
-                .args(["/qn", "/norestart", "/l*v"])
-                .arg(&log)
-                .status()
-            {
-                Ok(status) => eprintln!("cleanup: msiexec /x {}: {status}", msi.display()),
-                Err(error) => eprintln!("cleanup: msiexec /x {}: {error}", msi.display()),
-            }
+            let (code, _) = self.msiexec("cleanup", "/x", &msi, &[]);
+            eprintln!("cleanup: msiexec /x {}: exit {code}", msi.display());
         }
+        self.installed.clear();
         if exists(&self.paths.product_root) {
             if let Err(error) = std::fs::remove_dir_all(&self.paths.product_root) {
                 eprintln!("remove {}: {error}", self.paths.product_root.display());
@@ -1056,6 +1059,8 @@ fn ordinary_access_problems(token: &Token, who: &str, paths: &Paths) -> Vec<Stri
         for (name, right) in [
             ("FILE_WRITE_DATA", FILE_WRITE_DATA),
             ("FILE_APPEND_DATA", FILE_APPEND_DATA),
+            ("FILE_WRITE_ATTRIBUTES", FILE_WRITE_ATTRIBUTES),
+            ("FILE_WRITE_EA", FILE_WRITE_EA),
             ("DELETE", DELETE),
             ("WRITE_DAC", WRITE_DAC),
             ("WRITE_OWNER", WRITE_OWNER),
@@ -1214,9 +1219,9 @@ fn per_user_program_files() -> PathBuf {
 /// and installs nothing.
 #[test]
 fn package_msi_a_direct_installation_is_refused() {
-    let host = Host::take("direct");
+    let mut host = Host::take("direct");
     let msi = input("CG_TEST_MSI");
-    let (code, log) = host.msiexec("install", &[OsStr::new("/i"), msi.as_os_str()]);
+    let (code, log) = host.msiexec("install", "/i", &msi, &[]);
     assert_eq!(
         code,
         ERROR_INSTALL_FAILURE,
@@ -1236,20 +1241,17 @@ fn package_msi_a_direct_installation_is_refused() {
 /// profile, is refused and installs nothing, with the setup's property too.
 #[test]
 fn package_msi_a_per_user_installation_is_refused() {
-    let host = Host::take("per-user");
+    let mut host = Host::take("per-user");
     let msi = input("CG_TEST_MSI");
     let cases: [(&str, &[&str]); 2] = [
         ("allusers-2", &["ALLUSERS=2", "MSIINSTALLPERUSER=1"]),
-        ("allusers-empty", &["ALLUSERS=\"\""]),
+        ("allusers-empty", &[r#"ALLUSERS="""#]),
     ];
     for (name, properties) in cases {
-        let mut arguments = vec![
-            OsStr::new("/i"),
-            msi.as_os_str(),
-            OsStr::new("CG_SETUP_CHAIN=1"),
-        ];
-        arguments.extend(properties.iter().map(OsStr::new));
-        let (code, log) = host.msiexec(name, &arguments);
+        let properties: Vec<&str> = std::iter::once("CG_SETUP_CHAIN=1")
+            .chain(properties.iter().copied())
+            .collect();
+        let (code, log) = host.msiexec(name, "/i", &msi, &properties);
         assert_eq!(
             code,
             ERROR_INSTALL_FAILURE,
@@ -1276,7 +1278,7 @@ fn package_msi_a_direct_major_upgrade_is_refused() {
     host.install_as_the_setup("install", &msi);
     let installed = std::fs::read(&host.paths.binary).expect("the installed binary");
 
-    let (code, log) = host.msiexec("upgrade", &[OsStr::new("/i"), next.as_os_str()]);
+    let (code, log) = host.msiexec("upgrade", "/i", &next, &[]);
     assert_eq!(
         code,
         ERROR_INSTALL_FAILURE,
@@ -1300,9 +1302,15 @@ fn package_msi_a_direct_major_upgrade_is_refused() {
     );
     let manager = Manager::open().expect("the SCM, for connecting");
     assert_eq!(
-        product_service(&manager),
-        Product::Present { running: false },
-        "its service stays"
+        scm::check_product_service(
+            &manager,
+            PRODUCT_SERVICE,
+            &host.paths.binary,
+            &host.paths.config,
+            Route::Other,
+        ),
+        Ok(Product::Present { running: false }),
+        "its service stays, the product's"
     );
     drop(manager);
     host.uninstall("uninstall", &msi);
