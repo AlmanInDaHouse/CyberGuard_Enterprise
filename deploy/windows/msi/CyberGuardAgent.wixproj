@@ -11,6 +11,10 @@
   <PropertyGroup>
     <OutputType>Package</OutputType>
     <OutputName>cyberguard-agent-$(ProductVersion)-x64</OutputName>
-    <DefineConstants>ProductVersion=$(ProductVersion);AgentExe=$(AgentExe)</DefineConstants>
+    <DefineConstants>ProductVersion=$(ProductVersion);AgentExe=$(AgentExe);CgInjectFailure=$(CgInjectFailure)</DefineConstants>
+    <!-- ICE61 warns that the upgrade removes a product of the same version: the MSI upgrades a
+         second build of its own version as it upgrades a lower one (SPEC-024 Amendment
+         2026-11-12 (second), point 9), so this one validation is suppressed, alone. -->
+    <SuppressIces>ICE61</SuppressIces>
   </PropertyGroup>
 </Project>

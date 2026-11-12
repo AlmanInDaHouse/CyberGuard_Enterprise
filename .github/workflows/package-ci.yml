@@ -169,22 +169,30 @@ jobs:
       - name: The MSI refuses a version outside the release's form
         run: node deploy/windows/test/msi-version-matrix.mjs target/release/cg-agent.exe
 
-      - name: Build the MSI, and the same package at a higher version
+      - name: Build the MSI, the same package at a higher version, and its test build
         working-directory: deploy/windows
         run: |
           $exe = (Resolve-Path ../../target/release/cg-agent.exe).Path
-          foreach ($v in "$env:CG_RELEASE_VERSION", "1.2.4") {
+          $fixture = $env:CG_RELEASE_VERSION
+          foreach ($v in $fixture, "1.2.4") {
             $env:CG_RELEASE_VERSION = $v
             $out = Join-Path $env:RUNNER_TEMP "msi-$v"
             dotnet build --no-incremental msi/CyberGuardAgent.wixproj -c Release "-p:AgentExe=$exe" "-p:OutputPath=$out/"
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }
+          # The test build, whose deferred action fails inside the transaction (SPEC-024
+          # Amendment 2026-11-12 (second), *Tests*); the test reads that it alone has one.
+          $env:CG_RELEASE_VERSION = $fixture
+          $out = Join-Path $env:RUNNER_TEMP "msi-failing"
+          dotnet build --no-incremental msi/CyberGuardAgent.wixproj -c Release "-p:AgentExe=$exe" "-p:CgInjectFailure=1" "-p:OutputPath=$out/"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: "cargo test, the MSI on the host (host-tests)"
         run: |
           $v = $env:CG_RELEASE_VERSION
           $env:CG_TEST_MSI = Join-Path (Join-Path $env:RUNNER_TEMP "msi-$v") "cyberguard-agent-$v-x64.msi"
           $env:CG_TEST_MSI_NEXT = Join-Path (Join-Path $env:RUNNER_TEMP "msi-1.2.4") "cyberguard-agent-1.2.4-x64.msi"
+          $env:CG_TEST_MSI_FAILING = Join-Path (Join-Path $env:RUNNER_TEMP "msi-failing") "cyberguard-agent-$v-x64.msi"
           $env:CG_TEST_AGENT_EXE = (Resolve-Path target/release/cg-agent.exe).Path
           $env:CG_TEST_MSI_LOGS = Join-Path $env:RUNNER_TEMP "msiexec-logs"
           cargo test -p cg-setup --features host-tests --no-fail-fast --test package_msi_host -- --test-threads=1

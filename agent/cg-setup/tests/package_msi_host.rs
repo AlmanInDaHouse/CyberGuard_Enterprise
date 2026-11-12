@@ -23,7 +23,8 @@
 //!
 //! Its inputs come from the job: `CG_TEST_MSI`, the MSI built with
 //! `CG_RELEASE_VERSION`, which this test is built with too;
-//! `CG_TEST_MSI_NEXT`, the same package at a higher version; and
+//! `CG_TEST_MSI_NEXT`, the same package at a higher version;
+//! `CG_TEST_MSI_FAILING`, its test build that fails inside its transaction;
 //! `CG_TEST_AGENT_EXE`, the raw executable the MSI carries; and
 //! `CG_TEST_MSI_LOGS`, if set, where msiexec's logs go. The service's access
 //! is read as §Data contracts §3 words it, by its effect on an ordinary
@@ -505,5 +506,22 @@ fn package_msi_installs_the_product_service_and_binary_and_uninstalls_them() {
         b"kept",
         "the uninstallation leaves {}",
         paths.product_root.display()
+    );
+}
+
+/// The Amendment 2026-11-12 (second), *Tests*: the MSI carries no custom
+/// action; only its test build, which fails inside its transaction, carries
+/// one. Reading the packages' databases installs nothing.
+#[test]
+fn package_msi_only_the_test_build_carries_a_custom_action() {
+    assert_eq!(
+        custom_actions(&input("CG_TEST_MSI")),
+        Vec::<String>::new(),
+        "the release build has no custom action"
+    );
+    assert_eq!(
+        custom_actions(&input("CG_TEST_MSI_FAILING")),
+        ["CgInjectedFailure"],
+        "the test build has its one"
     );
 }

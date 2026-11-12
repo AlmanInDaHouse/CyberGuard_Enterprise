@@ -12,8 +12,10 @@
            Compressed="yes" InstallerVersion="500">
 
     <!-- The previous product is removed early in the new transaction, so that a failure rolls
-         its removal back. -->
-    <MajorUpgrade Schedule="afterInstallInitialize"
+         its removal back. A product of the same version from another build is upgraded as a
+         lower one is, so that the later build replaces the earlier inside its own transaction
+         (SPEC-024 Amendment 2026-11-12 (second), point 9). -->
+    <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of CyberGuard Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
@@ -64,5 +66,17 @@
     <Feature Id="Agent">
       <ComponentRef Id="AgentExe" />
     </Feature>
+
+<?if $(var.CgInjectFailure) = "1" ?>
+    <!-- Test builds only (package-ci, -p:CgInjectFailure=1): a deferred action that fails inside
+         the transaction, after the files and the service, so that Windows Installer rolls the
+         installation back (the Amendment 2026-11-12 (second), *Tests*). A release build has no
+         custom action, which package-ci checks. -->
+    <CustomAction Id="CgInjectedFailure" Directory="AgentFolder" ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c exit 1"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="CgInjectedFailure" Before="InstallFinalize" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+<?endif?>
   </Package>
 </Wix>

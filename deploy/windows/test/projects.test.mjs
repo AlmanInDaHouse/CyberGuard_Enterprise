@@ -78,3 +78,32 @@ test("the MSI's targets check the version and the agent before WiX compiles", ()
   assert.match(targets, /\.github\\scripts\\release-version\.mjs/);
   assert.match(targets, /Exists\('\$\(AgentExe\)'\)/);
 });
+
+// SPEC-024 Amendment 2026-11-12 (second), point 9 and *Tests*: the MSI upgrades a second build of
+// its own version, with ICE61 alone suppressed; its one custom action is the test build's, behind
+// the CgInjectFailure define, so that a release build has none.
+test("the MSI upgrades its own version and carries a custom action only in its test build", () => {
+  const wxs = read("msi/Package.wxs");
+  const upgrade = wxs.match(/<MajorUpgrade\b[^>]*\/>/g);
+  assert.equal(upgrade?.length, 1, "one MajorUpgrade");
+  assert.match(upgrade[0], /\bSchedule="afterInstallInitialize"/);
+  assert.match(upgrade[0], /\bAllowSameVersionUpgrades="yes"/);
+  const guarded = /<\?if \$\(var\.CgInjectFailure\) = "1" \?>([\s\S]*?)<\?endif\?>/g;
+  const blocks = [...wxs.matchAll(guarded)];
+  assert.equal(blocks.length, 1, "one block behind the test define");
+  assert.match(blocks[0][1], /<CustomAction Id="CgInjectedFailure"[^>]*\bExecute="deferred"/);
+  const outside = wxs.replace(guarded, "");
+  assert.doesNotMatch(outside, /<CustomAction\b|<Custom\b|<\?if\b|<\?ifdef\b|<\?define\b|<\?include\b/,
+    "no custom action, condition or definition outside that block");
+  const project = read("msi/CyberGuardAgent.wixproj");
+  assert.match(project, /<DefineConstants>[^<]*;CgInjectFailure=\$\(CgInjectFailure\)<\/DefineConstants>/);
+  assert.deepEqual(
+    [...project.matchAll(/<SuppressIces>([^<]*)<\/SuppressIces>/g)].map((m) => m[1]),
+    ["ICE61"],
+    "ICE61 alone is suppressed",
+  );
+  for (const file of [...projects(), "Directory.Build.props", "Directory.Build.targets"]) {
+    assert.doesNotMatch(read(file), /SuppressAllWarnings|SuppressSpecificWarnings|SuppressValidation|<NoWarn>/,
+      `${file} suppresses no other warning or validation`);
+  }
+});
