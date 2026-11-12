@@ -4,10 +4,11 @@ name: package-ci
 # package is restored by its pinned version and checked against its recorded hash before
 # anything loads it; WiX's EULA ID is checked to be the one Manuel accepted. A hosted Windows
 # runner, the venue of §Test scenarios' "Packaging CI" line. The host job runs the real
-# `cg-setup` against this disposable runner (the Amendment 2026-11-10, *Tests*), and the msi
+# `cg-setup` against this disposable runner (the Amendment 2026-11-10, *Tests*), the msi
 # job builds the agent's MSI and installs it there (the Amendment 2026-11-09, item 4 and
-# *Tests*), so the agent's sources, the Rust toolchain and the release's version check are
-# among the paths.
+# *Tests*), and the bundle job builds the setup and runs it there (the Amendment 2026-11-12
+# (second), *Tests*), so the agent's sources, the Rust toolchain and the release's version check
+# are among the paths.
 
 on:
   push:
@@ -205,5 +206,116 @@ jobs:
         with:
           name: msiexec-logs
           path: ${{ runner.temp }}/msiexec-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # SPEC-024 Amendment 2026-11-12 (second), with its *Tests*: the setup built at the fixture
+  # release version, at a higher one, at the higher one with the test build of the MSI that fails
+  # inside its transaction, and a second time at the fixture version; its build's refusals of a
+  # version outside the release's form or of packages of another version; then installed,
+  # refused, upgraded, restored, rebuilt, repaired and uninstalled on this runner against
+  # cg-agent's test servers. The test builds only with cg-setup's test-only `host-tests` feature,
+  # here alone, and fails without acting outside a GitHub-hosted runner.
+  bundle:
+    name: The setup on the host
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      # The fixture release version: the setup, its packages and the test are built with it.
+      CG_RELEASE_VERSION: "1.2.3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Install Rust toolchain (reads rust-toolchain.toml)
+        # v1.17.0, by its commit.
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          rustflags: ""
+
+      - name: Set up the pinned .NET SDK
+        # v6.1.0, by its commit.
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: deploy/windows/global.json
+
+      - name: Restore the pinned packages
+        working-directory: deploy/windows
+        run: dotnet restore pins/Pins.csproj
+
+      - name: Check each package against its recorded hash
+        working-directory: deploy/windows
+        run: node pins/verify-pins.mjs
+
+      - name: Restore the wix tool
+        working-directory: deploy/windows
+        run: dotnet tool restore
+
+      - name: Check the tool's build and EULA ID
+        working-directory: deploy/windows
+        run: node pins/verify-pins.mjs --tool
+
+      # Each setup carries the agent, the MSI and cg-setup.exe of its own version; the fixture's
+      # is built last, so that target/release holds it for the matrix below.
+      - name: Build the setups
+        run: |
+          $t = $env:RUNNER_TEMP
+          $fixture = $env:CG_RELEASE_VERSION
+          function Build-Setup($v, $tag, $fail) {
+            $env:CG_RELEASE_VERSION = $v
+            cargo build --release -p cg-agent -p cg-setup
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $bin = Join-Path $t "bin-$tag"
+            New-Item -ItemType Directory -Force $bin | Out-Null
+            Copy-Item target/release/cg-agent.exe, target/release/cg-setup.exe $bin
+            Push-Location deploy/windows
+            $msiOut = Join-Path $t "msi-$tag"
+            dotnet build --no-incremental msi/CyberGuardAgent.wixproj -c Release "-p:AgentExe=$bin\cg-agent.exe" "-p:CgInjectFailure=$fail" "-p:OutputPath=$msiOut/"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $setupOut = Join-Path $t "setup-$tag"
+            dotnet build --no-incremental bundle/CyberGuardSetup.wixproj -c Release "-p:Msi=$msiOut\cyberguard-agent-$v-x64.msi" "-p:SetupExe=$bin\cg-setup.exe" "-p:OutputPath=$setupOut/"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            Pop-Location
+          }
+          Build-Setup "1.2.4" "next" ""
+          Build-Setup "1.2.4" "failing" "1"
+          Build-Setup $fixture "rebuilt" ""
+          Build-Setup $fixture "current" ""
+
+      - name: The setup's build refuses another version or its packages' other versions
+        run: node deploy/windows/test/bundle-version-matrix.mjs target/release/cg-agent.exe target/release/cg-setup.exe $env:CG_RELEASE_VERSION
+
+      - name: "cargo test, the setup on the host (host-tests)"
+        run: |
+          $t = $env:RUNNER_TEMP
+          $v = $env:CG_RELEASE_VERSION
+          $env:CG_TEST_SETUP = Join-Path $t "setup-current\cyberguard-agent-$v-x64-setup.exe"
+          $env:CG_TEST_SETUP_NEXT = Join-Path $t "setup-next\cyberguard-agent-1.2.4-x64-setup.exe"
+          $env:CG_TEST_SETUP_FAILING = Join-Path $t "setup-failing\cyberguard-agent-1.2.4-x64-setup.exe"
+          $env:CG_TEST_SETUP_REBUILT = Join-Path $t "setup-rebuilt\cyberguard-agent-$v-x64-setup.exe"
+          $env:CG_TEST_MSI = Join-Path $t "msi-current\cyberguard-agent-$v-x64.msi"
+          $env:CG_TEST_MSI_FAILING = Join-Path $t "msi-failing\cyberguard-agent-1.2.4-x64.msi"
+          $env:CG_TEST_AGENT_EXE = Join-Path $t "bin-current\cg-agent.exe"
+          $env:CG_TEST_SETUP_EXE = Join-Path $t "bin-current\cg-setup.exe"
+          $env:CG_TEST_BURN_LOGS = Join-Path $t "burn-logs"
+          cargo test -p cg-setup --features host-tests --no-fail-fast --test package_bundle_host -- --test-threads=1
+          exit $LASTEXITCODE
+
+      # Burn's and Windows Installer's logs, which hold no secret: the test asserts that the
+      # token is in none of them.
+      - name: Burn's logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: burn-logs
+          path: ${{ runner.temp }}/burn-logs
           if-no-files-found: ignore
           retention-days: 7

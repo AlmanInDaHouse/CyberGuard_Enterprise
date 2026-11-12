@@ -13,7 +13,7 @@ The setup's elevated code, `cg-setup.exe` ([SPEC-024](../../docs/specs/SPEC-024-
 - `version`: the installed binary's version resource, the downgrade (29), and configure's check that it is this package's, 45 with a rename onto it held for the next restart and 40 otherwise (items 4 and 8).
 - `preflight`: the host's state, read by `cg_agent::service::layout::classify` with the service's directory policy, the route each state and request allow, and the codes those checks reach, 22 to 25, 27, 28, 30, and 40 when the host cannot be read (items 3 and 7); `platform`: codes 20 and 21; `codes`: every exit code of item 7.
 
-The wiring of preflight, configure and `reverse` into the executable and its verbs lands next (SPEC-024 Amendment 2026-11-10, items 8 and 9). Its tests that run it against the host run only in `package-ci`, never on a development host.
+The executable runs preflight, configure and `reverse` as its verbs (SPEC-024 Amendment 2026-11-10, items 8 and 9), as the setup's chain runs them (`deploy/windows/bundle/`). Its tests that run it, the MSI or the setup against the host run only in `package-ci`, never on a development host; `tests/package_host/` holds what the MSI's and the setup's share.
 
 ## Test
 

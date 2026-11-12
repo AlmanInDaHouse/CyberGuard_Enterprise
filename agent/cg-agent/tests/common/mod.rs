@@ -514,6 +514,9 @@ struct TlsMockState {
     attempts: Arc<Mutex<Vec<MockAttempt>>>,
     seen_nonces: Mutex<HashSet<String>>,
     agent_pubkey: [u8; 32],
+    /// When set, envelopes are verified under the key a [`TlsEnrollMock`] last certified,
+    /// read at each request, instead of `agent_pubkey`.
+    enrolled_key: Option<Arc<Mutex<Option<[u8; 32]>>>>,
     /// When set, every envelope is answered with this status (simulates a
     /// server-side rejection, e.g. timestamp skew — AC-005).
     reject_status: Option<u16>,
@@ -634,6 +637,27 @@ impl TlsMockServer {
         Self::start_keyed(pki, TlsMockMode::Normal, None, None, port, agent_pubkey).await
     }
 
+    /// Start a Normal TLS mock on `port` (0 = any) that verifies envelopes under the key
+    /// `enroll` last certified, whenever that happens, and whose `responder` may force the
+    /// status of any envelope: the heartbeat server of an agent that enrolls during the test.
+    pub async fn start_for_enrolled(
+        pki: &TlsTestPki,
+        enroll: &TlsEnrollMock,
+        port: u16,
+        responder: Option<Responder>,
+    ) -> Self {
+        Self::start_with_key_source(
+            pki,
+            TlsMockMode::Normal,
+            None,
+            responder,
+            port,
+            pki.agent_pubkey,
+            Some(enroll.last_key.clone()),
+        )
+        .await
+    }
+
     async fn start_inner(
         pki: &TlsTestPki,
         mode: TlsMockMode,
@@ -652,6 +676,27 @@ impl TlsMockServer {
         port: u16,
         agent_pubkey: [u8; 32],
     ) -> Self {
+        Self::start_with_key_source(
+            pki,
+            mode,
+            reject_status,
+            responder,
+            port,
+            agent_pubkey,
+            None,
+        )
+        .await
+    }
+
+    async fn start_with_key_source(
+        pki: &TlsTestPki,
+        mode: TlsMockMode,
+        reject_status: Option<u16>,
+        responder: Option<Responder>,
+        port: u16,
+        agent_pubkey: [u8; 32],
+        enrolled_key: Option<Arc<Mutex<Option<[u8; 32]>>>>,
+    ) -> Self {
         let received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let attempts: Arc<Mutex<Vec<MockAttempt>>> = Arc::new(Mutex::new(Vec::new()));
         let acceptor = TlsAcceptor::from(Arc::new(build_server_config(pki, mode)));
@@ -665,6 +710,7 @@ impl TlsMockServer {
             attempts: attempts.clone(),
             seen_nonces: Mutex::new(HashSet::new()),
             agent_pubkey,
+            enrolled_key,
             reject_status,
             responder,
         });
@@ -761,6 +807,8 @@ pub struct TlsEnrollMock {
     certificate_override: Arc<Mutex<Option<String>>>,
     certificate_suffix: Arc<Mutex<String>>,
     connections: Arc<AtomicUsize>,
+    /// The agent key the last successful enrollment certified.
+    last_key: Arc<Mutex<Option<[u8; 32]>>>,
     _task: JoinHandle<()>,
 }
 
@@ -771,6 +819,7 @@ struct EnrollState {
     certificate_override: Arc<Mutex<Option<String>>>,
     certificate_suffix: Arc<Mutex<String>>,
     issuer: Arc<Issuer>,
+    last_key: Arc<Mutex<Option<[u8; 32]>>>,
 }
 
 impl TlsEnrollMock {
@@ -794,6 +843,7 @@ impl TlsEnrollMock {
         let certificate_override: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let certificate_suffix: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
         let connections = Arc::new(AtomicUsize::new(0));
+        let last_key: Arc<Mutex<Option<[u8; 32]>>> = Arc::new(Mutex::new(None));
         let state = Arc::new(EnrollState {
             enroll_received: enroll_received.clone(),
             enroll_plan: enroll_plan.clone(),
@@ -801,6 +851,7 @@ impl TlsEnrollMock {
             certificate_override: certificate_override.clone(),
             certificate_suffix: certificate_suffix.clone(),
             issuer: pki.issuer.clone(),
+            last_key: last_key.clone(),
         });
 
         let counted = connections.clone();
@@ -830,6 +881,7 @@ impl TlsEnrollMock {
             certificate_override,
             certificate_suffix,
             connections,
+            last_key,
             _task: task,
         }
     }
@@ -976,6 +1028,7 @@ fn answer_enroll(body: &[u8], state: &EnrollState) -> (u16, Value) {
     match (pubkey, certificate_override) {
         (Some(_), Some(certificate)) => (code, enroll_response(&certificate)),
         (Some(key), None) => {
+            *state.last_key.lock().expect("last_key lock") = Some(key);
             let suffix = state
                 .certificate_suffix
                 .lock()
@@ -1032,7 +1085,14 @@ fn verify_and_accept(envelope: &Value, state: &TlsMockState) -> u16 {
         Ok(c) => c,
         Err(_) => return 400,
     };
-    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&state.agent_pubkey) {
+    let agent_pubkey = match &state.enrolled_key {
+        Some(enrolled) => match *enrolled.lock().expect("enrolled key lock") {
+            Some(key) => key,
+            None => return 401,
+        },
+        None => state.agent_pubkey,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&agent_pubkey) {
         Ok(k) => k,
         Err(_) => return 400,
     };
