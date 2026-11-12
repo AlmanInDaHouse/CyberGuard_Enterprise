@@ -1,0 +1,23 @@
+<Project>
+  <!--
+    SPEC-024 §Data contracts §1: packaging rejects a version outside MSI's limits rather than
+    truncating it or inventing one, and a development build is not a release package. The version
+    comes from CG_RELEASE_VERSION, the agent's build input, and is checked by the release's own
+    check, .github/scripts/release-version.mjs, before WiX runs.
+  -->
+  <Target Name="CheckProductVersion"
+          BeforeTargets="CoreCompile"
+          Condition=" '$(MSBuildProjectExtension)' == '.wixproj' ">
+    <Error Condition=" '$(CG_RELEASE_VERSION)' == '' "
+           Text="CG_RELEASE_VERSION is not set: the package is built only for a release version X.Y.Z." />
+    <Exec Command="node &quot;$(MSBuildThisFileDirectory)..\..\.github\scripts\release-version.mjs&quot; &quot;v$(CG_RELEASE_VERSION)&quot;"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="CheckedProductVersion" />
+    </Exec>
+    <Error Condition=" '$(CheckedProductVersion)' != '$(CG_RELEASE_VERSION)' "
+           Text="CG_RELEASE_VERSION=$(CG_RELEASE_VERSION) is not the version the release check printed ($(CheckedProductVersion))." />
+    <Error Condition=" '$(AgentExe)' == '' or !Exists('$(AgentExe)') "
+           Text="AgentExe names no file: the package carries the agent's release executable, built with the same CG_RELEASE_VERSION." />
+  </Target>
+</Project>

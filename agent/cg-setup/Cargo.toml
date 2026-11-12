@@ -25,9 +25,10 @@ path = "src/lib.rs"
 [features]
 scm-tests = []
 # Test-only (the Amendment 2026-11-10, *Tests*, under the Amendment
-# 2026-11-09's): enables the test target that runs the real `cg-setup`
-# against the host. It runs only in package-ci, on a disposable GitHub-hosted
-# runner; rust-ci, `cargo test --all` and the elevated gate do not build it.
+# 2026-11-09's): enables the test targets that run the real `cg-setup`
+# against the host and that install the agent's MSI on it. They run only in
+# package-ci, on a disposable GitHub-hosted runner; rust-ci, `cargo test
+# --all` and the elevated gate do not build them.
 host-tests = []
 
 # No libtest harness: the SCM starts this same test executable as the service
@@ -41,6 +42,11 @@ harness = false
 # preflight then reverse under the machine's %ProgramData%.
 [[test]]
 name = "package_setup_host"
+required-features = ["host-tests"]
+
+# The agent's MSI installed, refused and uninstalled on the machine.
+[[test]]
+name = "package_msi_host"
 required-features = ["host-tests"]
 
 # No new third-party crate (SPEC-024 Amendment 2026-11-09, item 1): each one
@@ -76,7 +82,11 @@ tempfile = "3"
 # The tests' certificates, as cg-agent's tests make theirs.
 rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
 
+# The tests' standard user (NetUserAdd), and the message table FormatMessageW
+# renders; features of the existing binding, which cg-agent's tests enable too.
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.59", features = [
+    "Win32_NetworkManagement_NetManagement",
     "Win32_Security_Authorization",
+    "Win32_System_Diagnostics_Debug",
 ] }

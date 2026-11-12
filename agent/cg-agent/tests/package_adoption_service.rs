@@ -495,8 +495,10 @@ fn package_adoption_the_staged_files_and_the_start_right_are_denied_to_others() 
     );
 
     // The test process, the runner's built-in Administrator: the positive
-    // control, so that a denial is the service's doing. That the product's
-    // service has this default DACL is the MSI's to assert.
+    // control, so that a denial is the service's doing. This test service has
+    // Windows' default DACL; that the product's service, with the MSI's own
+    // (SPEC-024 Amendment 2026-11-12, point 2), denies the right too is the
+    // MSI's test's to assert (agent/cg-setup/tests/package_msi_host.rs).
     assert_eq!(open_service_to_start_as_this_process(&service.name), Ok(()));
     for (who, token) in [("standard user", user.token()), ("filtered", &filtered)] {
         assert_eq!(

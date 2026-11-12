@@ -1,0 +1,66 @@
+<!--
+  The agent's MSI: SPEC-024 §Data contracts §1 to §3 and its Amendment 2026-11-09, item 4. It
+  installs the agent's release executable and the product service, and creates nothing under
+  %ProgramData%\CyberGuard: the setup's cg-setup stages the configuration there, and the service
+  adopts it. It is installed only through the setup.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- One upgrade family across releases (§Data contracts §1); a lower version is refused. -->
+  <Package Name="CyberGuard Agent" Manufacturer="CyberGuard" Version="$(var.ProductVersion)"
+           UpgradeCode="AF9D0A74-7206-49F9-B391-645F1C1F05AD" Scope="perMachine"
+           Compressed="yes" InstallerVersion="500">
+
+    <!-- The previous product is removed early in the new transaction, so that a failure rolls
+         its removal back. -->
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of CyberGuard Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Admitted only when the setup runs it, which passes this property, or when it is already
+         installed: a direct msiexec installation or major upgrade is refused. -->
+    <Property Id="CG_SETUP_CHAIN" Secure="yes" />
+    <Launch Condition="Installed OR CG_SETUP_CHAIN = &quot;1&quot;"
+            Message="CyberGuard Agent is installed by its setup, cyberguard-agent-$(var.ProductVersion)-x64-setup.exe, not by this package alone." />
+    <!-- Per machine only: a per-user context would move ProgramFiles64Folder into the user's own
+         profile, under a LocalSystem service. -->
+    <Launch Condition="ALLUSERS = 1 AND NOT MSIINSTALLPERUSER"
+            Message="CyberGuard Agent is installed per machine only." />
+
+    <!-- The fixed binary path (§Data contracts §2), under the folder Windows reports. The
+         directories' ids are not public properties, so no command line moves them. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="ProductFolder" Name="CyberGuard">
+        <Directory Id="AgentFolder" Name="Agent">
+          <Component Id="AgentExe" Guid="625894A2-2E34-41A3-B15D-407A6AC45566">
+            <File Id="cg_agent_exe" Source="$(var.AgentExe)" Name="cg-agent.exe" KeyPath="yes" />
+
+            <!-- §Data contracts §3: own process, automatic start, LocalSystem; the quoted
+                 binary, then the service flag and the quoted fixed configuration path.
+                 Only SYSTEM and Administrators may change, start, stop or delete it; Windows'
+                 default access for interactive and service users, without its user-defined
+                 control, lets them query it. The setup's configure starts it and sets its
+                 failure actions (the Amendment 2026-11-09, items 5 and 8). -->
+            <ServiceInstall Id="AgentService" Name="CyberGuardAgent" DisplayName="CyberGuard Agent"
+                            Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes"
+                            Arguments="--service --config &quot;[CommonAppDataFolder]CyberGuard\agent\agent.toml&quot;">
+              <PermissionEx Sddl="D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLORC;;;IU)(A;;CCLCSWLORC;;;SU)" />
+            </ServiceInstall>
+            <ServiceControl Id="AgentServiceControl" Name="CyberGuardAgent"
+                            Stop="both" Remove="uninstall" Wait="yes" />
+
+            <!-- The Application log's source, whose messages are cg-agent.exe's message table
+                 (entries 1000 to 1003). -->
+            <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\CyberGuardAgent">
+              <RegistryValue Name="EventMessageFile" Type="expandable" Value="[#cg_agent_exe]" />
+              <RegistryValue Name="TypesSupported" Type="integer" Value="7" />
+            </RegistryKey>
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Agent">
+      <ComponentRef Id="AgentExe" />
+    </Feature>
+  </Package>
+</Wix>

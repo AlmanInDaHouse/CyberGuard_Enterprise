@@ -1,0 +1,16 @@
+<Project Sdk="WixToolset.Sdk">
+  <!--
+    The agent's MSI (SPEC-024 §Data contracts §1 and §3, its Amendment 2026-11-09, item 4). Built
+    with CG_RELEASE_VERSION set and AgentExe naming the agent's release executable built with it:
+
+      dotnet build msi/CyberGuardAgent.wixproj -c Release -p:AgentExe=<cg-agent.exe>
+
+    from deploy/windows, after the pins are restored and verified (README.md). It takes no
+    extension, so its packages.lock.json locks no package.
+  -->
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <OutputName>cyberguard-agent-$(ProductVersion)-x64</OutputName>
+    <DefineConstants>ProductVersion=$(ProductVersion);AgentExe=$(AgentExe)</DefineConstants>
+  </PropertyGroup>
+</Project>
