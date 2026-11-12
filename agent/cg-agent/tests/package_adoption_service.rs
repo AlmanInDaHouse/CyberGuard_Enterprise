@@ -2,9 +2,10 @@
 //! 2026-11-09, item 6) by a real Windows service run as LocalSystem, a
 //! precondition of the package's criteria (install_ac_001, install_ac_011): a
 //! start with the arguments adopts and enrolls; one without leaves the staged
-//! files; the arguments are refused on an enrolled host and on a console
-//! layout; and a filtered administrator and a standard user reach neither the
-//! staged files nor the service's start right.
+//! files; the arguments are refused on an enrolled host, on a console layout
+//! and, with code 10 before any change, while another instance holds the
+//! instance lock; and a filtered administrator and a standard user reach
+//! neither the staged files nor the service's start right.
 //!
 //! These tests create, start, stop and delete Windows services and run the
 //! agent as SYSTEM, so they build only with the test-only `scm-tests` feature
@@ -28,6 +29,7 @@ mod scm;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use cg_agent::instance_lock::{self, LockOutcome};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use scm::*;
@@ -52,6 +54,22 @@ fn staged_config(root: &FixedDataRoot) -> PathBuf {
 
 fn staged_anchor(root: &FixedDataRoot) -> PathBuf {
     root.paths.data_root.join("server-ca.pem.setup")
+}
+
+/// The names in `directory`, as the runner's Administrator lists them.
+fn names_in(directory: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("list {}: {error}", directory.display()))
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort_unstable();
+    names
 }
 
 /// `<P>` and the data root as item 3 leaves them.
@@ -338,6 +356,93 @@ fn package_adoption_the_arguments_on_a_console_layout_are_code_2() {
 
     kept.iter()
         .for_each(|file| file.assert_unchanged("a console layout"));
+}
+
+/// Step 2 with the real lock: while another instance holds it, a start with
+/// the arguments is code 10 during `START_PENDING`, with SPEC-024 §1's line,
+/// before any change: the staged files keep their bytes and security, the
+/// directories their owner, DACL and names, no `agent.toml` is made and the
+/// file log is not opened. Once the lock is released, the same start adopts, so the refusal
+/// was the lock's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn package_adoption_a_held_lock_is_code_10_before_any_change() {
+    let pki = common::generate_test_pki(common::TEST_AGENT_ID);
+    let enroll = common::TlsEnrollMock::start(&pki, common::TlsMockMode::Normal).await;
+    let port = reserve_port();
+    let root = directories_as_the_setup_leaves_them();
+    stage(
+        &root,
+        &enroll.base_url,
+        &format!("https://127.0.0.1:{port}"),
+        &pki.trust_anchor_pem,
+    );
+    let kept = staged_files(&root);
+    let directories = [&root.paths.product_root, &root.paths.data_root].map(|directory| {
+        (
+            directory.clone(),
+            owner_and_dacl(directory),
+            names_in(directory),
+        )
+    });
+    let service = TestService::create(&service_args(&root.paths.config));
+    let trust = trust_arguments(&pki.trust_anchor_pem);
+    let mut arguments = vec![ADOPT];
+    arguments.extend(trust.iter().map(String::as_str));
+
+    let held = match instance_lock::acquire() {
+        LockOutcome::Acquired(lock) => lock,
+        other => panic!("the runner's Administrator takes the lock: {other:?}"),
+    };
+    refused_with_arguments(
+        &service,
+        &arguments,
+        10,
+        &["cg-agent: another CyberGuard agent instance is running on this host"],
+    );
+    drop(held);
+
+    kept.iter()
+        .for_each(|file| file.assert_unchanged("a held lock"));
+    for (directory, security, names) in &directories {
+        assert_eq!(
+            &names_in(directory),
+            names,
+            "a held lock: {} keeps its names",
+            directory.display()
+        );
+        assert_eq!(
+            &owner_and_dacl(directory),
+            security,
+            "a held lock: {} keeps its owner and DACL",
+            directory.display()
+        );
+    }
+    assert!(
+        !privileged_exists(&root.paths.config) && !privileged_exists(&root.paths.trust_anchor),
+        "a held lock: nothing was adopted"
+    );
+    assert!(
+        !privileged_exists(&root.paths.data_root.join("logs")),
+        "a held lock: the file log is not opened before the adoption"
+    );
+    assert_eq!(
+        enroll.enroll_received_count(),
+        0,
+        "a held lock: no enrollment"
+    );
+
+    // The control: the lock released, the same start adopts.
+    service.start_with(&arguments).expect("start");
+    service.wait_for(SERVICE_RUNNING, Duration::from_secs(60));
+    assert!(
+        !privileged_exists(&staged_config(&root))
+            && !privileged_exists(&staged_anchor(&root))
+            && privileged_exists(&root.paths.config)
+            && privileged_exists(&root.paths.trust_anchor),
+        "with the lock released the staged files are adopted"
+    );
+    service.control_stop().expect("STOP");
+    service.wait_for(SERVICE_STOPPED, STOP_DEADLINE + Duration::from_secs(15));
 }
 
 /// The amendment's *Tests*: a filtered administrator's and a standard user's
