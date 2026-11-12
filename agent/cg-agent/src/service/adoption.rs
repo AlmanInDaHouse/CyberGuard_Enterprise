@@ -227,7 +227,8 @@ pub fn adopt(
 ) -> Result<(), Stop> {
     let paths = &environment.paths;
     read_names(environment)?;
-    lock()?;
+    // PROBE M1: the adoption without the lock.
+    let _ = &lock;
     let names = read_names(environment)?;
 
     // Item 2.1's condition, met before anything is read through it.
