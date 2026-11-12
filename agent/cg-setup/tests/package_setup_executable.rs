@@ -1,7 +1,9 @@
 //! `cg-setup.exe` itself (SPEC-024 Amendment 2026-11-10, items 1 and 9):
 //! `--version`; a command line Burn did not form, 40 after the floor; each
 //! verb's first checks, the platform and then the elevation; and its version
-//! resource, the agent's with its own file name and no message table.
+//! resource, the agent's with its own file name and no message table; and
+//! the system directory as the only place its imports load from (the
+//! Amendment 2026-11-12 (second), point 10).
 //!
 //! No test here lets a verb act on this host: a verb runs only under a
 //! token whose Administrators group is for deny only, a filtered token
@@ -364,4 +366,19 @@ fn package_setup_executable_carries_the_agents_version_resource() {
     unsafe { windows_sys::Win32::Foundation::FreeLibrary(module) };
     assert!(version, "the version resource is found this way");
     assert!(!messages, "cg-setup.exe carries no message table");
+}
+
+/// SPEC-024 Amendment 2026-11-12 (second), point 10: Burn runs cg-setup
+/// elevated from its package cache with the system's temporary folder as the
+/// working directory, so the loader takes the system libraries it imports
+/// from the system directory alone (`LOAD_LIBRARY_SEARCH_SYSTEM32`), which
+/// its build sets in the image's load configuration.
+#[test]
+fn package_setup_executable_loads_its_imports_from_the_system_directory() {
+    const LOAD_LIBRARY_SEARCH_SYSTEM32: u16 = 0x0800;
+    assert_eq!(
+        fixtures::dependent_load_flags(Path::new(EXE)),
+        Some(LOAD_LIBRARY_SEARCH_SYSTEM32),
+        "cg-setup.exe's DependentLoadFlags"
+    );
 }

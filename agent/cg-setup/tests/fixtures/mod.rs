@@ -537,6 +537,40 @@ mod windows {
         )
     }
 
+    /// The `DependentLoadFlags` of the PE32+ image at `path`, the flags the
+    /// loader applies to the DLLs it loads for the image's imports, from the
+    /// load configuration directory; `None` without that directory or with
+    /// one too short to hold the field.
+    pub fn dependent_load_flags(path: &Path) -> Option<u16> {
+        let bytes = std::fs::read(path).expect("read the executable");
+        let u16_at = |at: usize| u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap());
+        let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        let pe = u32_at(0x3C);
+        assert_eq!(&bytes[pe..pe + 4], b"PE\0\0", "the PE signature");
+        let count = usize::from(u16_at(pe + 6));
+        let optional = pe + 24;
+        assert_eq!(u16_at(optional), 0x20B, "a PE32+ image");
+        let sections = optional + usize::from(u16_at(pe + 20));
+        // IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG, the eleventh data directory.
+        let rva = u32_at(optional + 112 + 10 * 8);
+        if rva == 0 {
+            return None;
+        }
+        let at = (0..count)
+            .map(|i| sections + i * 40)
+            .find_map(|section| {
+                let start = u32_at(section + 12);
+                let size = u32_at(section + 8).max(u32_at(section + 16));
+                (start..start + size)
+                    .contains(&rva)
+                    .then(|| rva - start + u32_at(section + 20))
+            })
+            .unwrap_or_else(|| panic!("RVA {rva:#x} is in no section"));
+        // IMAGE_LOAD_CONFIG_DIRECTORY64: its own size first, then
+        // DependentLoadFlags at offset 78.
+        (u32_at(at) >= 80).then(|| u16_at(at + 78))
+    }
+
     /// The string `key` of the U.S. English, UTF-16 table of the version
     /// resource of `path`, if it has one.
     pub fn version_string(path: &Path, key: &str) -> Option<String> {
