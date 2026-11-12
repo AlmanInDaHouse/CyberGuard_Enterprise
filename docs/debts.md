@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 57** at Session 67's close, the count `docs/handoff-session-67.md` states
-(Session 67 landed SPEC-024 Amendment 2026-11-12 and the MSI with `package-ci`'s install tests, C6, narrowed #87 and opened #156 and #157).
+**Open: 57** at Session 68's close, the count `docs/handoff-session-68.md` states
+(Session 68 landed SPEC-024 Amendment 2026-11-12 (second), the setup bundle's contract, and settled #156 and #157, which close with the bundle's code).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 67's close, `docs/handoff-session-67.md#how-session-68-resumes`);
+Session N resumes* (at Session 68's close, `docs/handoff-session-68.md#how-session-69-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -89,8 +89,8 @@ Session N resumes* (at Session 67's close, `docs/handoff-session-67.md#how-sessi
 | 149 | `ubuntu-latest` serves Ubuntu 26.04, where the dashboard's `next build` dies with `kill EACCES` under deploy-ci's plain `docker build`; its images job is pinned to `ubuntu-24.04` (`ae4110c`), while `release.yml` stays on `ubuntu-latest`, exercised there only by the release dry run's buildx container builder, and `docs/specs/SPEC-023-production-deployment.md:342` still names `ubuntu-latest` | `handoff-session-59.md#debts` | Reopens when the cause is known, or before C8 changes `release.yml`: the fix or a pin for both, and SPEC-023's line. |
 | 150 | `cg-setup`'s reads of its inputs, as an elevated administrator: a reparse point in a parent of the bootstrap file's path is followed, so a file on a volume an ordinary user controls can pass the owner and DACL check; the remote check runs after the open (an SMB session first) and names only the multiple UNC provider's volumes; a read handle opened before the operator tightened the DACL is not seen; the anchor's source follows links and may be remote, and `SECURITY_SQOS_PRESENT`'s bit is `FILE_FLAG_OPEN_NO_RECALL`'s, so a dehydrated cloud placeholder is refused (25) | `handoff-session-60.md#debts` | C10: the runbook creates the bootstrap file and the anchor in a local directory only SYSTEM and Administrators can reach, with protection before the token, and keeps the anchor a local file; reopens if C5 reads either again. |
 | 154 | `install_ac_009_a_held_lock_stops_the_service_with_code_10` failed once in rust-ci's Windows job (probe #105): the unrelated ETW session was not found after the refused instance stopped; it passed in the three runs after; cause not diagnosed | `handoff-session-64.md#debts` | The next run that fails it, or a sweep that records the session's `logman` output on failure. |
-| 156 | An uninstallation while the product service takes longer than Windows Installer's 30 seconds to stop: the MSI alone stops it on uninstall (SPEC-024 Amendment 2026-11-12, point 4), the service's stop deadline being 60 seconds | `handoff-session-67.md#debts` | C7: read on a hosted runner with the bundle, then settled before the bundle lands; a `cg-setup` stop step would amend the Amendment 2026-11-09's item 1 and is Manuel's. |
-| 157 | Two builds of the same version get two ProductCodes, and `MajorUpgrade` neither upgrades nor refuses the second, which would share the component and the service | `handoff-session-67.md#debts` | C7, with the repair tests: `AllowSameVersionUpgrades` or one ProductCode per version. |
+| 156 | An uninstallation while the product service takes longer than Windows Installer's 30 seconds to stop: the MSI alone stops it on uninstall (SPEC-024 Amendment 2026-11-12, point 4), the service's stop deadline being 60 seconds | `handoff-session-67.md#debts`; `handoff-session-68.md#debts` | Settled by the reading (SPEC-024 Amendment 2026-11-12 (second), point 7, approved by Manuel, `fe05912`: Windows Installer waited 55.6 s on the stop, no `cg-setup` step); closes with the bundle's code and its test (S69). |
+| 157 | Two builds of the same version get two ProductCodes, and `MajorUpgrade` neither upgrades nor refuses the second, which would share the component and the service | `handoff-session-67.md#debts`; `handoff-session-68.md#debts` | Settled for `AllowSameVersionUpgrades` (SPEC-024 Amendment 2026-11-12 (second), point 9, Manuel's choice, `fe05912`); closes with the bundle's code and its test (S69). |
 
 ## Closed
 
