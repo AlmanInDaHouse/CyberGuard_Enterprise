@@ -2489,6 +2489,70 @@ for the restart's codes; `AllowSameVersionUpgrades` for #157; the restore declar
 tested; and the launch route with its disclosures. He approved this text on 2026-11-12, in
 chat: "apruebo". Status stays **Accepted**.
 
+## Amendment 2026-11-12 (third): the setup's failure page
+
+**What surfaced it.** C7's code (`docs/handoff-session-68.md#how-session-69-resumes`). Point 8
+of the Amendment 2026-11-12 (second) has the setup's window show "a failure page that names the
+exit code and Burn's log rather than the system text of the code". WiX's standard bootstrapper
+application at `v7.0.1` fills its failure page from the run's final result, or from a bundle
+condition's message, of which this setup has none. No variable of Burn or of that application
+holds a step's exit code. The one control that shows the result writes it as an HRESULT followed
+by the system's text for it, and Burn fails an executable package that exits N with
+`HRESULT_FROM_WIN32(N)`, so for cg-setup's codes that text is another error's. Showing the code
+in decimal, or the result without that text, would take a library of the project's own inside the
+setup (a `BAFunctions` library),
+which the Amendment 2026-11-09's item 1, "WiX's unmodified Burn engine and standard bootstrapper
+application", excludes.
+
+**Amendment.**
+
+1. **The failure page.** It names Burn's log, by its path and by a link that opens it, and two of
+   the log's lines where the failure's code is, each found by the text it contains after the
+   prefix Burn puts at the start of every line (`[process:thread][time]` and the message's
+   identifier, such as `i319:`):
+   - "Applied execute package: (step), result:", the step being `Preflight`, `Agent` or
+     `Configure`, with a result other than `0x0`, names the step that failed, cg-setup's or the
+     MSI. For those three only the step's own run writes it: a reversal's line reads "Applied
+     rollback package", a restore's "Applied rollback package" or, when the restore fails, "Applied
+     non-vital package", and the line of an older setup an upgrade removes names that setup's code
+     in braces. A step the run cancels writes it too, with the cancellation's result, which is not
+     the step's own outcome;
+   - "Apply complete, result:", written as the page shows, carries the run's result, and is the
+     line for a failure no step reports, such as Burn's 1638, a declined elevation or a payload
+     refused before any step runs.
+
+   A failure before Burn's "Apply begin" line writes neither. When `setup.exe` exits, after its
+   window has closed, Burn writes its last line, unless the run then restarts the computer, "Exit code: 0x(code), restarting:", which carries the code
+   it exits with in hexadecimal, restart codes included (`0xbc2` is 3010, `0xbc9` 3017): it is
+   the log's record of the code on either route, and the page cannot name it while it shows.
+
+   The first two carry HRESULTs. When one starts with `0x8007`, its last four hexadecimal digits
+   are the code: `0x8007001e` is cg-setup's 30, `0x80070643` Windows Installer's 1603 and
+   `0x80070666` Burn's 1638. Any other is itself the code `setup.exe` exits with, such as
+   `0x80091007` for a payload whose digest does not match, unless point 4's restart codes apply.
+   A declined elevation is reported, by Burn's source at `v7.0.1`, as a cancellation, and
+   `setup.exe` exits 1602, not 1223: point 4 of the second amendment's "1223 a declined elevation
+   prompt", which it marks as not read, is to read 1602. The runbook (C10) is to explain each code
+   in decimal and in hexadecimal. The page has no control that shows the system's text of the code.
+   In the interactive route, the standard bootstrapper application can still show a message box
+   with Windows Installer's own message during the MSI's step, or with the system's text for an
+   error Burn reports outside a step's exit code; the page itself does not. On the unattended route
+   the code reaches the operator as `setup.exe`'s exit code itself.
+2. **No image.** The window shows no image. The standard bootstrapper application's payloads,
+   which the project's theme and texts replace in part, still carry WiX's default logo, so the
+   setup holds that file without showing it.
+
+**Tests.** The setup's test in `package-ci` (the second amendment's *Tests*) reads, on each run, Burn's last line "Exit code: 0x(code)" equal to `setup.exe`'s exit code, and, where a step fails, that step's "Applied execute package" line with `0x8007` and the step's code. The theme's texts are checked by the package's tests. The window, its failure page and a declined elevation stay with the isolated machine, as the second amendment's *Tests* have a real elevation prompt.
+
+**Effect.** Point 8's "a failure page that names the exit code and Burn's log rather than the
+system text of the code" reads as point 1 says, and its "no image" as point 2 says; its other
+sentences stand; the second amendment's point 4 reads 1602 for a declined elevation, as point 1
+says. The runbook of C10 gains point 1's lines and the codes in hexadecimal. No ADR
+changes, and no dependency, privilege or operator input is added. Manuel chose point 1 on
+2026-11-12, in chat ("Log y línea"), over the application's own text of the code and over a
+library of the project's own. He approved this text on 2026-11-13, in chat: "Apruebo". Status stays
+**Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
