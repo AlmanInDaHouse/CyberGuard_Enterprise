@@ -35,7 +35,11 @@ The MSI is written to `msi/bin/Release/cyberguard-agent-<version>-x64.msi`. Buil
 nothing. Its launch conditions admit an installation only with the setup chain's property
 `CG_SETUP_CHAIN=1`, or on an installed product, and only per machine; `package-ci`'s `msi` job
 installs it on a hosted runner with that property and sees a direct installation, a direct major
-upgrade and a per-user installation refused (`agent/cg-setup/tests/package_msi_host.rs`). The
+upgrade and a per-user installation refused (`agent/cg-setup/tests/package_msi_host.rs`). It
+upgrades a second build of its own version as it upgrades a lower one (SPEC-024 Amendment
+2026-11-12 (second), point 9), with ICE61, the validation that warns of it, suppressed alone.
+`-p:CgInjectFailure=1` makes a test build whose deferred action fails inside the transaction;
+a release build has no custom action, which the job reads. The
 build does not compare the agent's own version with `CG_RELEASE_VERSION`: that comparison is the
 release's (install_ac_015), which is not built yet.
 `test/msi-version-matrix.mjs` checks that its build refuses a version outside the release's form.

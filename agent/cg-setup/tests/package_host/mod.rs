@@ -1031,3 +1031,74 @@ pub fn owner_of(path: &Path) -> String {
     };
     sddl.strip_prefix("O:").unwrap_or(&sddl).to_string()
 }
+
+// --- Windows Installer's databases ---------------------------------------------------
+
+/// An MSI handle, closed on drop.
+struct MsiHandle(u32);
+
+impl Drop for MsiHandle {
+    fn drop(&mut self) {
+        if self.0 != 0 {
+            // SAFETY: a handle this value owns, closed once.
+            unsafe {
+                windows_sys::Win32::System::ApplicationInstallationAndServicing::MsiCloseHandle(
+                    self.0,
+                )
+            };
+        }
+    }
+}
+
+/// The first column of each row `query` selects from the database `msi`,
+/// opened read-only.
+fn msi_query(msi: &Path, query: &str) -> Vec<String> {
+    use windows_sys::Win32::System::ApplicationInstallationAndServicing::{
+        MsiDatabaseOpenViewW, MsiOpenDatabaseW, MsiRecordGetStringW, MsiViewExecute, MsiViewFetch,
+        MSIDBOPEN_READONLY,
+    };
+    const ERROR_NO_MORE_ITEMS: u32 = 259;
+    let path = wide(msi.as_os_str());
+    let mut database = MsiHandle(0);
+    // SAFETY: a NUL-terminated path and an out-handle, owned below.
+    let error = unsafe { MsiOpenDatabaseW(path.as_ptr(), MSIDBOPEN_READONLY, &mut database.0) };
+    assert_eq!(error, 0, "MsiOpenDatabaseW {}", msi.display());
+    let query_text = wide(OsStr::new(query));
+    let mut view = MsiHandle(0);
+    // SAFETY: an open database, a NUL-terminated query and an out-handle.
+    let error = unsafe { MsiDatabaseOpenViewW(database.0, query_text.as_ptr(), &mut view.0) };
+    assert_eq!(error, 0, "MsiDatabaseOpenViewW {query}");
+    // SAFETY: an open view with no parameters.
+    let error = unsafe { MsiViewExecute(view.0, 0) };
+    assert_eq!(error, 0, "MsiViewExecute {query}");
+    let mut rows = Vec::new();
+    loop {
+        let mut record = MsiHandle(0);
+        // SAFETY: an executed view and an out-handle.
+        let error = unsafe { MsiViewFetch(view.0, &mut record.0) };
+        if error == ERROR_NO_MORE_ITEMS {
+            break;
+        }
+        assert_eq!(error, 0, "MsiViewFetch {query}");
+        let mut text = vec![0u16; 256];
+        let mut length = text.len() as u32;
+        // SAFETY: a fetched record and a buffer of `length` units.
+        let error = unsafe { MsiRecordGetStringW(record.0, 1, text.as_mut_ptr(), &mut length) };
+        assert_eq!(error, 0, "MsiRecordGetStringW {query}");
+        rows.push(String::from_utf16_lossy(&text[..length as usize]));
+    }
+    rows
+}
+
+/// The custom actions of the MSI at `msi`, by name: none when it has no
+/// `CustomAction` table.
+pub fn custom_actions(msi: &Path) -> Vec<String> {
+    let tables = msi_query(
+        msi,
+        "SELECT `Name` FROM `_Tables` WHERE `Name` = 'CustomAction'",
+    );
+    if tables.is_empty() {
+        return Vec::new();
+    }
+    msi_query(msi, "SELECT `Action` FROM `CustomAction`")
+}

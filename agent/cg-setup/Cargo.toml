@@ -82,11 +82,13 @@ tempfile = "3"
 # The tests' certificates, as cg-agent's tests make theirs.
 rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
 
-# The tests' standard user (NetUserAdd), and the message table FormatMessageW
-# renders; features of the existing binding, which cg-agent's tests enable too.
+# The tests' standard user (NetUserAdd), the message table FormatMessageW
+# renders, and the MSI's tables read through msi.dll; features of the existing
+# binding.
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_NetworkManagement_NetManagement",
     "Win32_Security_Authorization",
+    "Win32_System_ApplicationInstallationAndServicing",
     "Win32_System_Diagnostics_Debug",
 ] }
