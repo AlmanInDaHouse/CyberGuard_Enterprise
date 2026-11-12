@@ -216,10 +216,15 @@ jobs:
   # refused, upgraded, restored, rebuilt, repaired and uninstalled on this runner against
   # cg-agent's test servers. The test builds only with cg-setup's test-only `host-tests` feature,
   # here alone, and fails without acting outside a GitHub-hosted runner.
+  # PROBE, never lands: each leg applies one mutant and must turn the setup's host test red.
   bundle:
-    name: The setup on the host
+    name: "PROBE mutant: ${{ matrix.mutant }}"
     runs-on: windows-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mutant: [injected-failure-off, no-chain-property, configure-not-permanent, guard]
     env:
       # The fixture release version: the setup, its packages and the test are built with it.
       CG_RELEASE_VERSION: "1.2.3"
@@ -263,6 +268,23 @@ jobs:
         working-directory: deploy/windows
         run: node pins/verify-pins.mjs --tool
 
+      - name: "PROBE: apply the mutant"
+        run: |
+          $m = "${{ matrix.mutant }}"
+          $bundle = "deploy/windows/bundle/Bundle.wxs"
+          $text = Get-Content $bundle -Raw
+          if ($m -eq "no-chain-property") {
+            $new = $text.Replace('<MsiProperty Name="CG_SETUP_CHAIN" Value="1" />', '')
+          } elseif ($m -eq "configure-not-permanent") {
+            $new = $text.Replace('Vital="yes" Permanent="yes" DetectCondition=""', 'Vital="yes" Permanent="no" DetectCondition="1 = 0" UninstallArguments="--mutant"')
+          } else {
+            $new = $text
+          }
+          if ($m -ne "injected-failure-off" -and $m -ne "guard" -and $new -eq $text) { "the mutant did not apply"; exit 1 }
+          Set-Content -Path $bundle -Value $new -NoNewline
+          "PROBE mutant $m applied"
+          git diff --stat
+
       # Each setup carries the agent, the MSI and cg-setup.exe of its own version; the fixture's
       # is built last, so that target/release holds it for the matrix below.
       - name: Build the setups
@@ -286,7 +308,7 @@ jobs:
             Pop-Location
           }
           Build-Setup "1.2.4" "next" ""
-          Build-Setup "1.2.4" "failing" "1"
+          if ("${{ matrix.mutant }}" -eq "injected-failure-off") { Build-Setup "1.2.4" "failing" "" } else { Build-Setup "1.2.4" "failing" "1" }
           Build-Setup $fixture "rebuilt" ""
           Build-Setup $fixture "current" ""
 
@@ -306,6 +328,7 @@ jobs:
           $env:CG_TEST_AGENT_EXE = Join-Path $t "bin-current\cg-agent.exe"
           $env:CG_TEST_SETUP_EXE = Join-Path $t "bin-current\cg-setup.exe"
           $env:CG_TEST_BURN_LOGS = Join-Path $t "burn-logs"
+          if ("${{ matrix.mutant }}" -eq "guard") { $env:RUNNER_ENVIRONMENT = "self-hosted"; "PROBE: RUNNER_ENVIRONMENT=$env:RUNNER_ENVIRONMENT" }
           cargo test -p cg-setup --features host-tests --no-fail-fast --test package_bundle_host -- --test-threads=1
           exit $LASTEXITCODE
 
@@ -315,7 +338,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: burn-logs
+          name: burn-logs-${{ matrix.mutant }}
           path: ${{ runner.temp }}/burn-logs
           if-no-files-found: ignore
           retention-days: 7
