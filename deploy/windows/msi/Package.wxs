@@ -64,5 +64,17 @@
     <Feature Id="Agent">
       <ComponentRef Id="AgentExe" />
     </Feature>
+
+<?if $(var.CgInjectFailure) = "1" ?>
+    <!-- Test builds only (package-ci, -p:CgInjectFailure=1): a deferred action that fails inside
+         the transaction, after the files and the service, so that Windows Installer rolls the
+         installation back (install_ac_011's injected failure). A release build has no custom
+         action. -->
+    <CustomAction Id="CgInjectedFailure" Directory="AgentFolder" ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c exit 1"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="CgInjectedFailure" Before="InstallFinalize" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+<?endif?>
   </Package>
 </Wix>

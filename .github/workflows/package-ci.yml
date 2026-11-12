@@ -199,3 +199,91 @@ jobs:
           path: ${{ runner.temp }}/msiexec-logs
           if-no-files-found: ignore
           retention-days: 7
+
+  # PROBE, never lands: the setup bundle's readings for C7 (docs/handoff-session-67.md). It builds
+  # the agent, cg-setup, the MSI and the setup at 1.2.4 and 1.2.3, a 1.2.4 setup whose MSI fails
+  # inside its transaction, and a second 1.2.3 build, then runs the readings, which print facts
+  # and cannot fail the job.
+  bundle:
+    name: The setup on the host (probe readings)
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Install Rust toolchain (reads rust-toolchain.toml)
+        # v1.17.0, by its commit.
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          rustflags: ""
+
+      - name: Set up the pinned .NET SDK
+        # v6.1.0, by its commit.
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: deploy/windows/global.json
+
+      - name: Restore and check the pins
+        working-directory: deploy/windows
+        run: |
+          dotnet restore pins/Pins.csproj
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          node pins/verify-pins.mjs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Build the setups
+        run: |
+          $t = $env:RUNNER_TEMP
+          function Build-Setup($v, $tag, $fail) {
+            $env:CG_RELEASE_VERSION = $v
+            cargo build --release -p cg-agent -p cg-setup
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $bin = Join-Path $t "bin-$tag"
+            New-Item -ItemType Directory -Force $bin | Out-Null
+            Copy-Item target/release/cg-agent.exe, target/release/cg-setup.exe $bin
+            Push-Location deploy/windows
+            $msiOut = Join-Path $t "msi-$tag"
+            dotnet build --no-incremental msi/CyberGuardAgent.wixproj -c Release "-p:AgentExe=$bin\cg-agent.exe" "-p:CgInjectFailure=$fail" "-p:OutputPath=$msiOut/"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $setupOut = Join-Path $t "setup-$tag"
+            dotnet build --no-incremental bundle/CyberGuardSetup.wixproj -c Release "-p:Msi=$msiOut\cyberguard-agent-$v-x64.msi" "-p:SetupExe=$bin\cg-setup.exe" "-p:OutputPath=$setupOut/"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            Pop-Location
+          }
+          Build-Setup "1.2.4" "next" "0"
+          Build-Setup "1.2.4" "failing" "1"
+          Build-Setup "1.2.3" "rebuilt" "0"
+          Build-Setup "1.2.3" "current" "0"
+          Get-ChildItem $t -Recurse -Include *.exe, *.msi | Where-Object { $_.FullName -match 'setup-|msi-' } | ForEach-Object { "{0} {1}" -f $_.FullName, (Get-FileHash $_.FullName).Hash }
+
+      - name: "PROBE readings (cannot fail the job)"
+        continue-on-error: true
+        run: |
+          $t = $env:RUNNER_TEMP
+          $env:CG_RELEASE_VERSION = "1.2.3"
+          $env:CG_TEST_SETUP = Join-Path $t "setup-current\cyberguard-agent-1.2.3-x64-setup.exe"
+          $env:CG_TEST_SETUP_NEXT = Join-Path $t "setup-next\cyberguard-agent-1.2.4-x64-setup.exe"
+          $env:CG_TEST_SETUP_FAILING = Join-Path $t "setup-failing\cyberguard-agent-1.2.4-x64-setup.exe"
+          $env:CG_TEST_SETUP_REBUILT = Join-Path $t "setup-rebuilt\cyberguard-agent-1.2.3-x64-setup.exe"
+          $env:CG_TEST_MSI_NEXT = Join-Path $t "msi-next\cyberguard-agent-1.2.4-x64.msi"
+          $env:CG_TEST_BURN_LOGS = Join-Path $t "burn-logs"
+          cargo test -p cg-setup --features host-tests --no-fail-fast --test package_bundle_host -- --test-threads=1 --nocapture
+          "PROBE readings exit: $LASTEXITCODE"
+
+      - name: Burn's logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: burn-logs
+          path: ${{ runner.temp }}/burn-logs
+          if-no-files-found: ignore
+          retention-days: 7

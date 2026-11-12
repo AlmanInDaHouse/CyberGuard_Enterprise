@@ -23,7 +23,11 @@
     </Exec>
     <Error Condition=" '$(CheckedProductVersion)' != '$(CG_RELEASE_VERSION)' "
            Text="CG_RELEASE_VERSION=$(CG_RELEASE_VERSION) is not the version the release check printed ($(CheckedProductVersion))." />
-    <Error Condition=" '$(AgentExe)' == '' or !Exists('$(AgentExe)') "
+    <Error Condition=" '$(OutputType)' == 'Package' and ('$(AgentExe)' == '' or !Exists('$(AgentExe)')) "
            Text="AgentExe names no file: the package carries the agent's release executable." />
+    <Error Condition=" '$(OutputType)' == 'Bundle' and ('$(Msi)' == '' or !Exists('$(Msi)')) "
+           Text="Msi names no file: the setup carries the agent's MSI." />
+    <Error Condition=" '$(OutputType)' == 'Bundle' and ('$(SetupExe)' == '' or !Exists('$(SetupExe)')) "
+           Text="SetupExe names no file: the setup carries cg-setup.exe." />
   </Target>
 </Project>

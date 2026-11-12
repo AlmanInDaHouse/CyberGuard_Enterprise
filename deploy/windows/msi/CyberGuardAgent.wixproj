@@ -11,6 +11,6 @@
   <PropertyGroup>
     <OutputType>Package</OutputType>
     <OutputName>cyberguard-agent-$(ProductVersion)-x64</OutputName>
-    <DefineConstants>ProductVersion=$(ProductVersion);AgentExe=$(AgentExe)</DefineConstants>
+    <DefineConstants>ProductVersion=$(ProductVersion);AgentExe=$(AgentExe);CgInjectFailure=$(CgInjectFailure)</DefineConstants>
   </PropertyGroup>
 </Project>

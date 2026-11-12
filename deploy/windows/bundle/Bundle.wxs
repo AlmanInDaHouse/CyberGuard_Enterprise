@@ -1,0 +1,43 @@
+<!--
+  The agent's setup, cyberguard-agent-<version>-x64-setup.exe (SPEC-024 §Data contracts §1, its
+  Amendment 2026-11-09, items 1 and 2, the Amendment 2026-11-10, items 7 and 9, and the Amendment
+  2026-11-12, point 1): WiX's unmodified Burn engine and standard bootstrapper application. Its
+  chain runs cg-setup preflight, the MSI with the chain's property, a vital rollback boundary, then
+  cg-setup configure; Burn rolls preflight back with cg-setup reverse. Burn carries no secret: the
+  bundle variables name a file and the migration's choices, never the token.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <!-- One upgrade family of setups across releases. -->
+  <Bundle Name="CyberGuard Agent" Manufacturer="CyberGuard" Version="$(var.ProductVersion)"
+          UpgradeCode="B3D1FE6C-5F20-4E58-9B7A-3A7C8E1D4F10">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <!-- The unattended route's inputs (the Amendment 2026-11-09, item 2), none persisted. -->
+    <Variable Name="CG_BOOTSTRAP" Type="string" Value="" bal:Overridable="yes" />
+    <Variable Name="CG_MIGRATE_LEGACY" Type="string" Value="" bal:Overridable="yes" />
+    <Variable Name="CG_TRUST_ANCHORS" Type="string" Value="" bal:Overridable="yes" />
+
+    <Chain>
+      <!-- Detected absent, so it runs on every install, repair and upgrade, and on uninstall
+           not at all; Burn's rollback of it is the reversal. -->
+      <ExePackage Id="Preflight" CacheId="cg-setup-preflight-$(var.ProductVersion)" PerMachine="yes"
+                  Vital="yes" DetectCondition="1 = 0"
+                  SourceFile="$(var.SetupExe)" Name="preflight\cg-setup.exe"
+                  InstallArguments="preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot;"
+                  UninstallArguments="reverse" />
+      <MsiPackage Id="Agent" SourceFile="$(var.Msi)" Vital="yes">
+        <MsiProperty Name="CG_SETUP_CHAIN" Value="1" />
+      </MsiPackage>
+      <RollbackBoundary Id="Committed" Vital="yes" />
+      <!-- Permanent and detected by no condition: it runs on every install, repair and upgrade,
+           and nothing rolls it back or uninstalls it. -->
+      <ExePackage Id="Configure" CacheId="cg-setup-configure-$(var.ProductVersion)" PerMachine="yes"
+                  Vital="yes" Permanent="yes" DetectCondition=""
+                  SourceFile="$(var.SetupExe)" Name="configure\cg-setup.exe"
+                  InstallArguments="configure --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot;" />
+    </Chain>
+  </Bundle>
+</Wix>
