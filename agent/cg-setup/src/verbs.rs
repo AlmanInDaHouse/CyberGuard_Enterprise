@@ -193,6 +193,10 @@ pub fn configure(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal
 /// 2026-11-11, point 2): the removal the record names, then, when the record
 /// found the service running, its start with no argument.
 pub fn reverse(machine: &Machine<'_>) -> Result<(), Refusal> {
+    // PROBE M-b: a reversal that changes nothing.
+    if std::env::var_os("S66_NEVER").is_none() {
+        return Ok(());
+    }
     staging::reverse(&machine.setup)?.finish(|| {
         let scm = Manager::open()?;
         scm::start_if_stopped(&scm, &machine.service).map(drop)
