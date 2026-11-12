@@ -4,7 +4,9 @@
 //! table. Its version is the agent's build-time input, so that `cg-setup
 //! --version` and the resource agree with `cg_agent::AGENT_VERSION`; without
 //! the input, `<Cargo package version>-dev` is cg-setup's own, which a test
-//! holds equal to the agent's.
+//! holds equal to the agent's. Its link also sets the image's
+//! `DependentLoadFlags` to the system directory alone (the Amendment
+//! 2026-11-12 (second), point 10).
 
 use std::env;
 use std::path::PathBuf;
@@ -15,6 +17,16 @@ mod build_resource;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../cg-agent/build_resource.rs");
+    // The Amendment 2026-11-12 (second), point 10: Burn runs cg-setup elevated
+    // from its package cache, with the system's temporary folder as the
+    // working directory, so the loader takes the system libraries it imports
+    // from the system directory alone (LOAD_LIBRARY_SEARCH_SYSTEM32), with or
+    // without a version.
+    let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let abi = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if os == "windows" && abi == "msvc" {
+        println!("cargo:rustc-link-arg-bin=cg-setup=/DEPENDENTLOADFLAG:0x800");
+    }
     let Some((text, numbers)) = build_resource::version() else {
         return;
     };
