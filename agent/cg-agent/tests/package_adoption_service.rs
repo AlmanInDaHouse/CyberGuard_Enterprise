@@ -56,6 +56,22 @@ fn staged_anchor(root: &FixedDataRoot) -> PathBuf {
     root.paths.data_root.join("server-ca.pem.setup")
 }
 
+/// The names in `directory`, as the runner's Administrator lists them.
+fn names_in(directory: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("list {}: {error}", directory.display()))
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort_unstable();
+    names
+}
+
 /// `<P>` and the data root as item 3 leaves them.
 fn directories_as_the_setup_leaves_them() -> FixedDataRoot {
     let root = FixedDataRoot::plant();
@@ -344,9 +360,9 @@ fn package_adoption_the_arguments_on_a_console_layout_are_code_2() {
 
 /// Step 2 with the real lock: while another instance holds it, a start with
 /// the arguments is code 10 during `START_PENDING`, with SPEC-024 §1's line,
-/// before any change: the staged files and the directories keep their
-/// bytes and security, no `agent.toml` is made and the file log is not
-/// opened. Once the lock is released, the same start adopts, so the refusal
+/// before any change: the staged files keep their bytes and security, the
+/// directories their owner, DACL and names, no `agent.toml` is made and the
+/// file log is not opened. Once the lock is released, the same start adopts, so the refusal
 /// was the lock's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn package_adoption_a_held_lock_is_code_10_before_any_change() {
@@ -361,8 +377,13 @@ async fn package_adoption_a_held_lock_is_code_10_before_any_change() {
         &pki.trust_anchor_pem,
     );
     let kept = staged_files(&root);
-    let directories = [&root.paths.product_root, &root.paths.data_root]
-        .map(|directory| (directory.clone(), owner_and_dacl(directory)));
+    let directories = [&root.paths.product_root, &root.paths.data_root].map(|directory| {
+        (
+            directory.clone(),
+            owner_and_dacl(directory),
+            names_in(directory),
+        )
+    });
     let service = TestService::create(&service_args(&root.paths.config));
     let trust = trust_arguments(&pki.trust_anchor_pem);
     let mut arguments = vec![ADOPT];
@@ -382,7 +403,13 @@ async fn package_adoption_a_held_lock_is_code_10_before_any_change() {
 
     kept.iter()
         .for_each(|file| file.assert_unchanged("a held lock"));
-    for (directory, security) in &directories {
+    for (directory, security, names) in &directories {
+        assert_eq!(
+            &names_in(directory),
+            names,
+            "a held lock: {} keeps its names",
+            directory.display()
+        );
         assert_eq!(
             &owner_and_dacl(directory),
             security,
