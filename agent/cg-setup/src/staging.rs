@@ -76,7 +76,8 @@ impl SetupCustody {
                 protected: true,
             },
             directory_sddl: "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)".to_string(),
-            file_sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)".to_string(),
+            // PROBE M-a: staged files owned by SYSTEM, which needs SeRestorePrivilege.
+            file_sddl: "O:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)".to_string(),
         }
     }
 }

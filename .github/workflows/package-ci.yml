@@ -40,53 +40,9 @@ env:
   DOTNET_NOLOGO: "1"
 
 jobs:
-  pins:
-    name: Pins, hashes and the EULA ID
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Set up Node 22
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          package-manager-cache: false
-
-      - name: Set up the pinned .NET SDK
-        # v6.1.0, by its commit.
-        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
-        with:
-          global-json-file: deploy/windows/global.json
-
-      - name: Package tests
-        run: node --test "deploy/windows/test/*.test.mjs"
-
-      - name: Restore the pinned packages
-        working-directory: deploy/windows
-        run: dotnet restore pins/Pins.csproj
-
-      - name: Check each package against its recorded hash
-        working-directory: deploy/windows
-        run: node pins/verify-pins.mjs
-
-      - name: Restore the wix tool
-        working-directory: deploy/windows
-        run: dotnet tool restore
-
-      - name: Check the tool's build and EULA ID
-        working-directory: deploy/windows
-        run: node pins/verify-pins.mjs --tool
-
-  # SPEC-024 Amendment 2026-11-10, *Tests*: the real `cg-setup`, `preflight` then `reverse`,
-  # against this runner's %ProgramData%, under a token with no privilege but
-  # SeChangeNotifyPrivilege. Built only with cg-setup's test-only `host-tests` feature, here
-  # alone; the test fails without acting outside a GitHub-hosted runner.
+  # PROBE (S66, closed without landing): cg-setup's host test against M-a, staged files owned by SYSTEM.
   host:
-    name: cg-setup against the host
+    name: probe (host)
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -101,5 +57,17 @@ jobs:
         with:
           rustflags: ""
 
-      - name: "cargo test, cg-setup against the host (host-tests)"
+      - name: "probe: the guard refuses outside a hosted runner, without acting"
+        continue-on-error: true
+        env:
+          RUNNER_ENVIRONMENT: self-hosted
+        run: cargo test -p cg-setup --features host-tests --no-fail-fast --test package_setup_host -- --test-threads=1
+
+      - name: "probe: nothing was created by the refused run"
+        continue-on-error: true
+        run: |
+          if (Test-Path "$env:ProgramDataCyberGuard") { Write-Output "PROBE: ProgramDataCyberGuard EXISTS"; exit 1 } else { Write-Output "PROBE: ProgramDataCyberGuard absent" }
+
+      - name: "probe: package_setup_host"
+        continue-on-error: true
         run: cargo test -p cg-setup --features host-tests --no-fail-fast --test package_setup_host -- --test-threads=1
