@@ -216,8 +216,10 @@ jobs:
   # refused, upgraded, restored, rebuilt, repaired and uninstalled on this runner against
   # cg-agent's test servers. The test builds only with cg-setup's test-only `host-tests` feature,
   # here alone, and fails without acting outside a GitHub-hosted runner.
+  # PROBE, never lands: the steps' CacheId back to the version alone; the second-build test
+  # must turn red.
   bundle:
-    name: The setup on the host
+    name: "PROBE mutant: cache-id-per-version"
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -263,6 +265,16 @@ jobs:
         working-directory: deploy/windows
         run: node pins/verify-pins.mjs --tool
 
+      - name: "PROBE: apply the mutant"
+        run: |
+          $bundle = "deploy/windows/bundle/Bundle.wxs"
+          $text = Get-Content $bundle -Raw
+          $new = $text.Replace('-$(var.ProductVersion)-$(var.BuildId)"', '-$(var.ProductVersion)"')
+          if ($new -eq $text) { "the mutant did not apply"; exit 1 }
+          Set-Content -Path $bundle -Value $new -NoNewline
+          "PROBE mutant cache-id-per-version applied"
+          git diff
+
       # Each setup carries the agent, the MSI and cg-setup.exe of its own version; the fixture's
       # is built last, so that target/release holds it for the matrix below.
       - name: Build the setups
@@ -306,7 +318,7 @@ jobs:
           $env:CG_TEST_AGENT_EXE = Join-Path $t "bin-current\cg-agent.exe"
           $env:CG_TEST_SETUP_EXE = Join-Path $t "bin-current\cg-setup.exe"
           $env:CG_TEST_BURN_LOGS = Join-Path $t "burn-logs"
-          cargo test -p cg-setup --features host-tests --no-fail-fast --test package_bundle_host -- --test-threads=1
+          cargo test -p cg-setup --features host-tests --no-fail-fast --test package_bundle_host -- --test-threads=1 package_bundle_a_second_build
           exit $LASTEXITCODE
 
       # Burn's and Windows Installer's logs, which hold no secret: the test asserts that the
@@ -315,7 +327,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: burn-logs
+          name: burn-logs-cache-id
           path: ${{ runner.temp }}/burn-logs
           if-no-files-found: ignore
           retention-days: 7
