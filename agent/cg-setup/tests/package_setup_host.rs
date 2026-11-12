@@ -15,8 +15,11 @@
 //! `%ProgramData%\CyberGuard` or `%ProgramFiles%\CyberGuard` exists; `Host`
 //! removes what the run left on every exit path.
 //!
-//! The paths, the SDDLs and the record's keys are spelled from the SPEC, not
-//! from `cg-setup`'s code.
+//! The paths, the security and the record's keys are spelled from the SPEC,
+//! not from `cg-setup`'s code: the security as the Amendment 2026-11-09,
+//! item 3, states it, owner Administrators and a protected DACL for SYSTEM
+//! and Administrators alone, not the access masks or inheritance flags the
+//! setup chooses.
 #![cfg(windows)]
 
 mod fixtures;
@@ -36,11 +39,6 @@ const EXE: &str = env!("CARGO_BIN_EXE_cg-setup");
 
 /// The product service (SPEC-024 Amendment 2026-11-10).
 const PRODUCT_SERVICE: &str = "CyberGuardAgent";
-
-/// The Amendment 2026-11-09, item 3: `<P>` and the data root as the setup
-/// creates them, and each staged file and the record.
-const DIRECTORY_ACES: [&str; 2] = ["(A;OICI;FA;;;BA)", "(A;OICI;FA;;;SY)"];
-const FILE_ACES: [&str; 2] = ["(A;;FA;;;BA)", "(A;;FA;;;SY)"];
 
 /// The privilege the token keeps.
 const CHANGE_NOTIFY: &str = "SeChangeNotifyPrivilege";
@@ -430,8 +428,9 @@ fn owner_and_dacl(path: &Path) -> String {
     }
 }
 
-/// Owner Administrators and a protected DACL of exactly `aces`, in any order.
-fn assert_security(path: &Path, aces: [&str; 2]) {
+/// The Amendment 2026-11-09, item 3: owner Administrators and a protected
+/// DACL whose entries all allow, SYSTEM and Administrators alone, each named.
+fn assert_security(path: &Path) {
     let sddl = owner_and_dacl(path);
     let (owner, dacl) = sddl
         .strip_prefix("O:")
@@ -449,9 +448,25 @@ fn assert_security(path: &Path, aces: [&str; 2]) {
         "{}: a protected DACL: {sddl}",
         path.display()
     );
-    let found: BTreeSet<String> = list.split_inclusive(')').map(str::to_string).collect();
-    let expected: BTreeSet<String> = aces.iter().map(|ace| ace.to_string()).collect();
-    assert_eq!(found, expected, "{}: {sddl}", path.display());
+    let mut trustees = BTreeSet::new();
+    for ace in list.split_inclusive(')') {
+        let fields: Vec<&str> = ace
+            .trim_matches(|c| c == '(' || c == ')')
+            .split(';')
+            .collect();
+        assert!(
+            fields.len() == 6 && fields[0] == "A",
+            "{}: an allow entry: {ace} in {sddl}",
+            path.display()
+        );
+        trustees.insert(fields[5].to_string());
+    }
+    assert_eq!(
+        trustees,
+        BTreeSet::from(["BA".to_string(), "SY".to_string()]),
+        "{}: SYSTEM and Administrators alone: {sddl}",
+        path.display()
+    );
 }
 
 /// Read a file as the runner's Administrator.
@@ -494,10 +509,10 @@ fn package_setup_host_preflight_then_reverse_with_no_privilege() {
     let run = run_as(&token, &["preflight", &bootstrap_argument]);
     assert_eq!(run.code, 0, "preflight: {run:?}");
     for directory in [&paths.product_root, &paths.data_root] {
-        assert_security(directory, DIRECTORY_ACES);
+        assert_security(directory);
     }
     for file in [&paths.staged_anchor, &paths.staged_config, &paths.record] {
-        assert_security(file, FILE_ACES);
+        assert_security(file);
     }
     let staged: Vec<Vec<u8>> = pem::parse_many(read(&paths.staged_anchor))
         .expect("the staged anchor is PEM")
@@ -521,7 +536,11 @@ fn package_setup_host_preflight_then_reverse_with_no_privilege() {
         Some(TOKEN),
         "the token is staged"
     );
-    assert!(config.get("setup").is_none(), "no setup table: {config:?}");
+    assert!(
+        config.get("setup").is_none(),
+        "no setup table: {:?}",
+        config.keys().collect::<Vec<_>>()
+    );
     let record: serde_json::Value =
         serde_json::from_slice(&read(&paths.record)).expect("the record is JSON");
     let created: BTreeSet<&str> = record["created"]
