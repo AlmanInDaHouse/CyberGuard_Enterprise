@@ -227,6 +227,8 @@ pub fn adopt(
 ) -> Result<(), Stop> {
     let paths = &environment.paths;
     read_names(environment)?;
+    // PROBE M2: a name created under the data root before the lock.
+    let _ = std::fs::write(paths.data_root.join("s66-probe-extra"), b"x");
     lock()?;
     let names = read_names(environment)?;
 
