@@ -24,6 +24,11 @@ path = "src/lib.rs"
 # of the library reads it.
 [features]
 scm-tests = []
+# Test-only (the Amendment 2026-11-10, *Tests*, under the Amendment
+# 2026-11-09's): enables the test target that runs the real `cg-setup`
+# against the host. It runs only in package-ci, on a disposable GitHub-hosted
+# runner; rust-ci, `cargo test --all` and the elevated gate do not build it.
+host-tests = []
 
 # No libtest harness: the SCM starts this same test executable as the service
 # the tests control, with the product's command line form, and its own
@@ -32,6 +37,11 @@ scm-tests = []
 name = "package_setup_service"
 required-features = ["scm-tests"]
 harness = false
+
+# preflight then reverse under the machine's %ProgramData%.
+[[test]]
+name = "package_setup_host"
+required-features = ["host-tests"]
 
 # No new third-party crate (SPEC-024 Amendment 2026-11-09, item 1): each one
 # below is already a dependency of cg-agent, at the same requirement.
