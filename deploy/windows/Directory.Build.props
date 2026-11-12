@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    The WiX projects of the agent's package (SPEC-024 Amendment 2026-11-01, point 1). pins/Pins.csproj
+    is not one: it restores the pins before anything loads them, and has nothing to lock.
+  -->
+  <PropertyGroup Condition=" '$(MSBuildProjectExtension)' == '.wixproj' ">
+    <!-- Manuel accepted WiX v7's OSMF EULA (ID wix7) and its fee for the project on 2026-11-01. -->
+    <AcceptEula>wix7</AcceptEula>
+    <!-- Each project's packages.lock.json is committed, and a restore that would change it fails. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode>true</RestoreLockedMode>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The release version, from the agent's own build input (§Data contracts §1). -->
+    <ProductVersion>$(CG_RELEASE_VERSION)</ProductVersion>
+  </PropertyGroup>
+</Project>
