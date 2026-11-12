@@ -191,12 +191,13 @@ pub unsafe fn from_wide_nul(text: *const u16) -> String {
 pub enum Value {
     Text(String),
     Number(u32),
+    Lines(Vec<String>),
 }
 
 pub fn registry_value(key: &str, name: &str) -> Option<Value> {
     use windows_sys::Win32::System::Registry::{
-        RegGetValueW, HKEY_LOCAL_MACHINE, REG_DWORD, REG_EXPAND_SZ, REG_SZ, RRF_NOEXPAND,
-        RRF_RT_ANY, RRF_SUBKEY_WOW6464KEY,
+        RegGetValueW, HKEY_LOCAL_MACHINE, REG_DWORD, REG_EXPAND_SZ, REG_MULTI_SZ, REG_SZ,
+        RRF_NOEXPAND, RRF_RT_ANY, RRF_SUBKEY_WOW6464KEY,
     };
     let (key, name) = (wide(OsStr::new(key)), wide(OsStr::new(name)));
     let mut kind = 0u32;
@@ -230,6 +231,19 @@ pub fn registry_value(key: &str, name: &str) -> Option<Value> {
         REG_DWORD => Some(Value::Number(u32::from_le_bytes(
             buffer[..4].try_into().expect("a DWORD"),
         ))),
+        REG_MULTI_SZ => {
+            let units: Vec<u16> = buffer
+                .chunks_exact(2)
+                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .collect();
+            Some(Value::Lines(
+                String::from_utf16_lossy(&units)
+                    .split('\0')
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+            ))
+        }
         other => panic!("{name:?}: registry type {other}"),
     }
 }
@@ -315,6 +329,50 @@ pub fn registered_versions() -> Vec<String> {
             other => panic!("{key}: DisplayVersion {other:?}"),
         })
         .collect()
+}
+
+/// A machine-wide installed program named `PRODUCT_NAME`: its key under
+/// `UNINSTALL_KEY` (a product code or a setup's code), its version, whether
+/// it is hidden from the list a user sees (`SystemComponent`), and the
+/// upgrade code a setup registers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Program {
+    pub key: String,
+    pub version: String,
+    pub hidden: bool,
+    pub bundle_upgrade_code: Option<String>,
+}
+
+/// Every machine-wide installed program named `PRODUCT_NAME`, by key.
+pub fn programs() -> Vec<Program> {
+    let Some(uninstall) = Key::open(UNINSTALL_KEY) else {
+        return Vec::new();
+    };
+    let mut found: Vec<Program> = uninstall
+        .subkeys()
+        .into_iter()
+        .filter_map(|subkey| {
+            let key = format!(r"{UNINSTALL_KEY}\{subkey}");
+            if registry_value(&key, "DisplayName") != Some(Value::Text(PRODUCT_NAME.to_string())) {
+                return None;
+            }
+            Some(Program {
+                version: match registry_value(&key, "DisplayVersion") {
+                    Some(Value::Text(version)) => version,
+                    other => panic!("{key}: DisplayVersion {other:?}"),
+                },
+                hidden: registry_value(&key, "SystemComponent") == Some(Value::Number(1)),
+                bundle_upgrade_code: match registry_value(&key, "BundleUpgradeCode") {
+                    Some(Value::Lines(codes)) => codes.into_iter().next(),
+                    Some(Value::Text(code)) => Some(code),
+                    _ => None,
+                },
+                key: subkey,
+            })
+        })
+        .collect();
+    found.sort_by(|a, b| a.key.cmp(&b.key));
+    found
 }
 
 // --- The service ---------------------------------------------------------------------
@@ -415,6 +473,87 @@ pub fn failure_actions(service: &ServiceHandle) -> u32 {
     assert_ne!(ok, 0, "QueryServiceConfig2W: Win32 error {}", last_error());
     // SAFETY: the call wrote a SERVICE_FAILURE_ACTIONSW.
     unsafe { (*buffer.as_ptr().cast::<SERVICE_FAILURE_ACTIONSW>()).cActions }
+}
+
+/// The service's state and the process running it (0 when none).
+pub fn service_process(service: &ServiceHandle) -> (u32, u32) {
+    use windows_sys::Win32::System::Services::{
+        QueryServiceStatusEx, SC_STATUS_PROCESS_INFO, SERVICE_STATUS_PROCESS,
+    };
+    // SAFETY: an all-zero SERVICE_STATUS_PROCESS is valid.
+    let mut status: SERVICE_STATUS_PROCESS = unsafe { std::mem::zeroed() };
+    let mut needed = 0u32;
+    // SAFETY: the out-buffer is one SERVICE_STATUS_PROCESS of the size passed.
+    let ok = unsafe {
+        QueryServiceStatusEx(
+            service.0,
+            SC_STATUS_PROCESS_INFO,
+            (&mut status as *mut SERVICE_STATUS_PROCESS).cast(),
+            std::mem::size_of::<SERVICE_STATUS_PROCESS>() as u32,
+            &mut needed,
+        )
+    };
+    assert_ne!(ok, 0, "QueryServiceStatusEx: Win32 error {}", last_error());
+    (status.dwCurrentState, status.dwProcessId)
+}
+
+/// A service's failure actions: the period after which the failure count
+/// resets, and the delay of each action, every one a restart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailureActions {
+    pub reset_seconds: u32,
+    pub restarts_ms: Vec<u32>,
+}
+
+/// The service's failure actions; an action other than a restart fails.
+pub fn failure_actions_of(service: &ServiceHandle) -> FailureActions {
+    use windows_sys::Win32::System::Services::{SC_ACTION, SC_ACTION_RESTART};
+    let mut needed = 0u32;
+    // SAFETY: a size query.
+    unsafe {
+        QueryServiceConfig2W(
+            service.0,
+            SERVICE_CONFIG_FAILURE_ACTIONS,
+            std::ptr::null_mut(),
+            0,
+            &mut needed,
+        )
+    };
+    let mut buffer = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+    // SAFETY: a buffer of at least `needed` bytes, 8-byte aligned.
+    let ok = unsafe {
+        QueryServiceConfig2W(
+            service.0,
+            SERVICE_CONFIG_FAILURE_ACTIONS,
+            buffer.as_mut_ptr().cast(),
+            (buffer.len() * 8) as u32,
+            &mut needed,
+        )
+    };
+    assert_ne!(ok, 0, "QueryServiceConfig2W: Win32 error {}", last_error());
+    // SAFETY: the call wrote a SERVICE_FAILURE_ACTIONSW whose actions lie in
+    // the buffer.
+    unsafe {
+        let actions = &*buffer.as_ptr().cast::<SERVICE_FAILURE_ACTIONSW>();
+        let list: &[SC_ACTION] = if actions.lpsaActions.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(actions.lpsaActions, actions.cActions as usize)
+        };
+        FailureActions {
+            reset_seconds: actions.dwResetPeriod,
+            restarts_ms: list
+                .iter()
+                .map(|action| {
+                    assert_eq!(
+                        action.Type, SC_ACTION_RESTART,
+                        "every failure action is a restart"
+                    );
+                    action.Delay
+                })
+                .collect(),
+        }
+    }
 }
 
 pub fn service_state(service: &ServiceHandle) -> u32 {
@@ -1101,4 +1240,17 @@ pub fn custom_actions(msi: &Path) -> Vec<String> {
         return Vec::new();
     }
     msi_query(msi, "SELECT `Action` FROM `CustomAction`")
+}
+
+/// A log Windows Installer or Burn wrote: UTF-16 when it starts with a BOM.
+pub fn text_of(bytes: &[u8]) -> String {
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
 }

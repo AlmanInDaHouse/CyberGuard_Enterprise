@@ -3,7 +3,9 @@
     SPEC-024 §Data contracts §1: packaging rejects a version outside MSI's limits rather than
     truncating it or inventing one, and a development build is not a release package. The version
     comes from CG_RELEASE_VERSION, the agent's build input, and is checked by the release's own
-    check, .github/scripts/release-version.mjs, before WiX runs.
+    check, .github/scripts/release-version.mjs, before WiX runs. The MSI carries the agent's
+    release executable; the setup carries the MSI and cg-setup.exe, each of that version (its
+    Amendment 2026-11-12 (second), point 1).
   -->
   <Target Name="CheckProductVersion"
           BeforeTargets="CoreCompile"
@@ -23,7 +25,101 @@
     </Exec>
     <Error Condition=" '$(CheckedProductVersion)' != '$(CG_RELEASE_VERSION)' "
            Text="CG_RELEASE_VERSION=$(CG_RELEASE_VERSION) is not the version the release check printed ($(CheckedProductVersion))." />
-    <Error Condition=" '$(AgentExe)' == '' or !Exists('$(AgentExe)') "
+    <Error Condition=" '$(OutputType)' == 'Package' and ('$(AgentExe)' == '' or !Exists('$(AgentExe)')) "
            Text="AgentExe names no file: the package carries the agent's release executable." />
+    <Error Condition=" '$(OutputType)' == 'Bundle' and ('$(Msi)' == '' or !Exists('$(Msi)')) "
+           Text="Msi names no file: the setup carries the agent's MSI." />
+    <Error Condition=" '$(OutputType)' == 'Bundle' and ('$(SetupExe)' == '' or !Exists('$(SetupExe)')) "
+           Text="SetupExe names no file: the setup carries cg-setup.exe." />
+    <CgPackageVersions Condition=" '$(OutputType)' == 'Bundle' " Msi="$(Msi)" SetupExe="$(SetupExe)">
+      <Output TaskParameter="MsiVersion" PropertyName="CheckedMsiVersion" />
+      <Output TaskParameter="SetupExeVersion" PropertyName="CheckedSetupExeVersion" />
+    </CgPackageVersions>
+    <Error Condition=" '$(OutputType)' == 'Bundle' and '$(CheckedMsiVersion)' != '$(CG_RELEASE_VERSION)' "
+           Text="Msi is version $(CheckedMsiVersion), not CG_RELEASE_VERSION=$(CG_RELEASE_VERSION): the setup carries the MSI of its own version." />
+    <Error Condition=" '$(OutputType)' == 'Bundle' and '$(CheckedSetupExeVersion)' != '$(CG_RELEASE_VERSION)' "
+           Text="SetupExe is version $(CheckedSetupExeVersion), not CG_RELEASE_VERSION=$(CG_RELEASE_VERSION): the setup carries cg-setup.exe of its own version." />
   </Target>
+
+  <!--
+    The versions of the setup's packages: the MSI's ProductVersion, read from its Property table
+    through msi.dll with the database opened read-only, and cg-setup.exe's ProductVersion string,
+    from its version resource (SPEC-024 Amendment 2026-11-10, item 9).
+  -->
+  <UsingTask TaskName="CgPackageVersions"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Msi ParameterType="System.String" Required="true" />
+      <SetupExe ParameterType="System.String" Required="true" />
+      <MsiVersion ParameterType="System.String" Output="true" />
+      <SetupExeVersion ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Class" Language="cs">
+<![CDATA[
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
+
+public class CgPackageVersions : Task
+{
+    [Required] public string Msi { get; set; }
+    [Required] public string SetupExe { get; set; }
+    [Output] public string MsiVersion { get; set; }
+    [Output] public string SetupExeVersion { get; set; }
+
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    static extern uint MsiOpenDatabaseW(string path, IntPtr persist, out IntPtr database);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    static extern uint MsiDatabaseOpenViewW(IntPtr database, string query, out IntPtr view);
+    [DllImport("msi.dll")]
+    static extern uint MsiViewExecute(IntPtr view, IntPtr record);
+    [DllImport("msi.dll")]
+    static extern uint MsiViewFetch(IntPtr view, out IntPtr record);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    static extern uint MsiRecordGetStringW(IntPtr record, uint field, StringBuilder value, ref uint length);
+    [DllImport("msi.dll")]
+    static extern uint MsiCloseHandle(IntPtr handle);
+
+    public override bool Execute()
+    {
+        SetupExeVersion = FileVersionInfo.GetVersionInfo(SetupExe).ProductVersion ?? "";
+        IntPtr database = IntPtr.Zero, view = IntPtr.Zero, record = IntPtr.Zero;
+        try
+        {
+            // MSIDBOPEN_READONLY is 0.
+            if (MsiOpenDatabaseW(Msi, IntPtr.Zero, out database) != 0
+                || MsiDatabaseOpenViewW(database, "SELECT `Value` FROM `Property` WHERE `Property` = 'ProductVersion'", out view) != 0
+                || MsiViewExecute(view, IntPtr.Zero) != 0
+                || MsiViewFetch(view, out record) != 0)
+            {
+                Log.LogError("Msi " + Msi + ": its ProductVersion could not be read.");
+                return false;
+            }
+            var value = new StringBuilder(64);
+            uint length = (uint)value.Capacity;
+            if (MsiRecordGetStringW(record, 1, value, ref length) != 0)
+            {
+                Log.LogError("Msi " + Msi + ": its ProductVersion could not be read.");
+                return false;
+            }
+            MsiVersion = value.ToString();
+            return true;
+        }
+        finally
+        {
+            if (record != IntPtr.Zero) MsiCloseHandle(record);
+            if (view != IntPtr.Zero) MsiCloseHandle(view);
+            if (database != IntPtr.Zero) MsiCloseHandle(database);
+        }
+    }
+}
+]]>
+      </Code>
+    </Task>
+  </UsingTask>
 </Project>

@@ -1,0 +1,56 @@
+<!--
+  The agent's setup, cyberguard-agent-<version>-x64-setup.exe (SPEC-024 §Data contracts §1, its
+  Amendment 2026-11-09, items 1 and 2, and its Amendment 2026-11-12 (second), point 1): WiX's
+  unmodified Burn engine and standard bootstrapper application, with the project's own theme
+  (point 8). Its chain runs cg-setup preflight, the MSI with the chain's property, a vital rollback
+  boundary, then cg-setup configure; Burn rolls preflight back with cg-setup reverse. Burn carries
+  no secret: the bundle variables name a file and the migration's choices, never the token. The
+  setup has no condition or search of its own: preflight decides.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <!-- One upgrade family of setups across releases, its version the release version. The
+       publisher and the copyright are provisional (SPEC-024 Amendment 2026-11-12, point 5). -->
+  <Bundle Name="CyberGuard Agent" Manufacturer="CyberGuard" Copyright="Copyright (c) CyberGuard"
+          Version="$(var.ProductVersion)" UpgradeCode="B3D1FE6C-5F20-4E58-9B7A-3A7C8E1D4F10">
+    <!-- The standard bootstrapper application with the project's theme: no licence to accept (an
+         empty LicenseUrl hides it), no image, no cancellation while the chain applies, and a
+         failure page that names Burn's log (theme/). -->
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl=""
+          ThemeFile="$(sys.SOURCEFILEDIR)theme\CyberGuardTheme.xml"
+          LocalizationFile="$(sys.SOURCEFILEDIR)theme\CyberGuardTheme.wxl"
+          SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <!-- The unattended route's inputs (the Amendment 2026-11-09, item 2), none persisted: a
+         repair or an uninstallation from the registered setup passes none. -->
+    <Variable Name="CG_BOOTSTRAP" Type="string" Value="" bal:Overridable="yes" />
+    <Variable Name="CG_MIGRATE_LEGACY" Type="string" Value="" bal:Overridable="yes" />
+    <Variable Name="CG_TRUST_ANCHORS" Type="string" Value="" bal:Overridable="yes" />
+
+    <Chain>
+      <!-- Each step's cache folder is this build's own (BuildId): a second build of the version
+           removes the first, whose uncache would otherwise delete the folder of the same name.
+           Detected absent, so that it runs on every install, repair and upgrade and on
+           uninstall not at all; Burn's rollback of it is the reversal (point 2). -->
+      <ExePackage Id="Preflight" CacheId="cg-setup-preflight-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
+                  Vital="yes" DetectCondition="1 = 0"
+                  SourceFile="$(var.SetupExe)" Name="preflight\cg-setup.exe"
+                  InstallArguments="preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot;"
+                  UninstallArguments="reverse" />
+      <!-- The MSI, admitted by its launch conditions with the chain's property (the Amendment
+           2026-11-12, point 1). -->
+      <MsiPackage Id="Agent" SourceFile="$(var.Msi)" Vital="yes">
+        <MsiProperty Name="CG_SETUP_CHAIN" Value="1" />
+      </MsiPackage>
+      <RollbackBoundary Id="Committed" Vital="yes" />
+      <!-- Permanent and detected by no condition: it runs on every install, repair and upgrade,
+           and nothing rolls it back or uninstalls it. -->
+      <ExePackage Id="Configure" CacheId="cg-setup-configure-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
+                  Vital="yes" Permanent="yes" DetectCondition=""
+                  SourceFile="$(var.SetupExe)" Name="configure\cg-setup.exe"
+                  InstallArguments="configure --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot;" />
+    </Chain>
+  </Bundle>
+</Wix>
