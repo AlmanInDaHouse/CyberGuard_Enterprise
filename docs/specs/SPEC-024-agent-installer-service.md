@@ -2155,6 +2155,143 @@ with this amendment. Points 3 and 4 hold in the code that lands with it:
 point 3 in the staging, point 4 in the verbs. Manuel approved this text on
 2026-11-11, in chat: "Sí, apruebo". Status stays **Accepted**.
 
+## Amendment 2026-11-12: the MSI's launch conditions, the service's security and the uninstallation's stop
+
+**What surfaced it.** C6, the MSI (`docs/handoff-session-59.md#how-session-60-resumes`),
+and the review of its plan, before any of its code landed:
+
+- Item 4 of the Amendment 2026-11-09 has the MSI "installed only through the
+  setup", admitted "only when the setup runs it or when it is already
+  installed". Windows Installer cannot tell Burn's call from an administrator's
+  `msiexec`: whatever the setup passes, a command line can pass too.
+- `ALLUSERS` and `MSIINSTALLPERUSER` are public properties of every MSI.
+  `ALLUSERS=2` with `MSIINSTALLPERUSER=1` selects a per-user installation, in
+  which `ProgramFiles64Folder` is a folder of the installing user's own
+  profile; an empty `ALLUSERS` selects a per-user installation too.
+- §Data contracts §3 says who may change, start, stop or delete the service, but
+  not the security the MSI gives it. Windows' default security for a new service
+  also lets interactive and service users send it user-defined controls.
+- Item 1 runs no `cg-setup` step on uninstall, so there the MSI alone stops the
+  service, waiting at most 30 seconds (Windows Installer's `ServiceControl`
+  table), while the service's stop deadline is 60 seconds (§Operational §3).
+
+**Amendment.** `<ProgramFiles>` is the folder the OS reports, as in the Amendment
+2026-11-10.
+
+1. **The launch conditions.** The setup's chain passes the MSI property
+   `CG_SETUP_CHAIN=1` on every action. The MSI's launch conditions admit an
+   installation only when `CG_SETUP_CHAIN` is `1` or the product is already
+   installed (`Installed`, which a repair or an uninstallation is), and only
+   per machine (`ALLUSERS` is `1` and `MSIINSTALLPERUSER` is not set). A
+   `msiexec` that does not meet them is refused, with Windows Installer's 1603,
+   and changes nothing. The property carries no secret and is no operator
+   input: the runbook names no route that passes it, and the tests pass it to
+   install the MSI without the bundle. It stops a mistaken direct installation,
+   not an elevated administrator, who can pass it, or run a direct repair, and
+   so run the MSI without preflight and configure; that is within §Data
+   contracts §2's "Elevated administrative maintenance remains possible; it is
+   not a threat boundary".
+2. **The service's security.** The MSI gives the product service an explicit
+   DACL (Windows Installer's `MsiLockPermissionsEx`), not Windows' default:
+   SYSTEM and Administrators with the rights Windows' default gives them, and
+   interactive and service users (`IU`, `SU`) the rights to query its
+   configuration and status, enumerate its dependents, interrogate it and read
+   its security, which is Windows' default for them without
+   `SERVICE_USER_DEFINED_CONTROL`; no other entry. Its SDDL is
+   `D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLORC;;;IU)(A;;CCLCSWLORC;;;SU)`.
+   This is §Data contracts §3's "Only SYSTEM and elevated Administrators may
+   change, start, stop or delete the service; ordinary users may query status",
+   and install_ac_001's "an ordinary user cannot change its
+   control/configuration", of which a user-defined control is one. An account
+   logged on neither interactively nor as a service cannot query it, as under
+   Windows' default.
+3. **The binary's directories.** The MSI's directories are not public
+   properties, so no command line moves them. The MSI sets no security on
+   `<ProgramFiles>\CyberGuard\Agent` or the binary: they inherit what their
+   parent gives. When the MSI creates `<ProgramFiles>\CyberGuard`, that is what
+   `<ProgramFiles>` gives, and §Data contracts §2's binary policy holds. An
+   existing one, a console installation's (`docs/operations/install.md`) or one
+   an administrator made, keeps its own, and neither the MSI nor preflight
+   checks it: only an administrator can create it there or set its security,
+   and one who grants others write access to it has chosen that, within the
+   boundary of point 1. The policy holds there as far as that security keeps
+   it.
+4. **The uninstallation's stop.** The MSI stops the product service on
+   uninstall and on its removal by a major upgrade, waiting up to Windows
+   Installer's 30 seconds; on an install, repair or upgrade through the setup,
+   preflight has already proved
+   it `STOPPED` (the Amendment 2026-11-10, item 6). **Open:** an uninstallation while the service takes
+   longer to stop. What Windows Installer then does is read on a hosted runner
+   with the bundle (C7), and settled before the bundle lands. Its options are
+   an uninstallation that fails and is retried, or a `cg-setup` step that stops
+   the service first, which would amend item 1 and is Manuel's.
+5. **The publisher's name.** The MSI's manufacturer, and the setup's, is
+   `CyberGuard`, provisionally: it reopens with ADR-0022's Open question 1, whose
+   signing certificate names a publisher, and in any case before the first
+   release.
+
+**Tests.** `package-ci` builds the MSI at a fixture release version, and the
+same package at a higher one; it installs the first on its hosted runner with
+`msiexec` and `CG_SETUP_CHAIN=1`, as the setup will, and uninstalls it. It
+asserts:
+
+- the service's configuration as §Data contracts §3 states it, which the
+  setup's check also reads as the product's (the Amendment 2026-11-10, item 3),
+  and point 2's DACL;
+- the rights to start, stop, pause or continue the service, send it a
+  user-defined control, change its configuration, delete it, or change its DACL
+  or owner, and changes to its registry key and to the Application log
+  source's, denied to a standard local user the test creates and logs on
+  interactively, and to a filtered administrator's token, each of which may
+  query the service's status, a positive control;
+- their effective access to the binary and its directories;
+- the raw executable carried byte for byte, at this package's version;
+- the source's message file, and nothing under `%ProgramData%\CyberGuard`;
+- the uninstallation's removals, which leave a file the test put under
+  `%ProgramData%\CyberGuard`.
+
+A direct installation and a direct major upgrade without the property, and a
+per-user installation with it, are refused. The MSI's build refuses a version
+outside the release's form (the Amendment 2026-10-31) or MSI's limits (§Data
+contracts §1). These tests follow the Amendment 2026-11-09's *Tests*:
+`package-ci` alone, seen red first on a probe pull request. They are a Cargo
+test target of `cg-setup`, built only with its test-only `host-tests` feature,
+which installs the product service and creates a local account of its own.
+The Amendment 2026-11-10's *Tests*, which send `cg-setup`'s tests that create
+or delete a service to rust-ci's Windows job, do not reach it; the Amendment
+2026-11-01, point 4, is `cg-agent`'s and leaves the package's tests to the
+"Packaging CI" line already. It fails without acting outside a GitHub-hosted
+runner, or when a product service, `%ProgramData%\CyberGuard`,
+`%ProgramFiles%\CyberGuard` or a product of the MSI's upgrade family already
+exists, and on every exit path removes what it installed and created and the
+account. Repair and extraction, which that line also names, are tested with the
+bundle (C7).
+
+**Effect.** Point 1 supersedes item 4's "It is installed only through the setup"
+and "admits it only when the setup runs it" where they differ, and adds the
+per-machine condition; item 4's "a direct `msiexec` installation or major
+upgrade is refused" reads as one that does not pass the setup's property, and
+its other sentences stand. §Data contracts §3's service access gains point 2's
+DACL, and its "ordinary users may query status" holds for interactive and
+service logons. By scope, point 3 narrows §Data contracts §2's binary row,
+install_ac_001's "an ordinary user cannot change its ... binary" and
+install_ac_011's "Downgrade, unsafe pre-existing paths and incompatible state are
+refused" for an existing
+`<ProgramFiles>\CyberGuard`, and §Operational §1's "untrusted/pre-existing data
+directory ... or reparse-point destination" does not reach it. Nor does
+§Operational §1's "Resolve and check paths with handles ... reject hard-linked
+destination files too" reach the MSI's own writes under `<ProgramFiles>`:
+Windows Installer makes them as SYSTEM, into directories only administrators
+can change when the MSI creates them, and into an existing one as point 3 says.
+§Operational §4's default uninstall gains point 4's open case. By scope, the
+*Tests* narrow the venue of the Amendment 2026-11-10's *Tests*. No ADR changes, and no dependency of `cg-agent`,
+privilege or operator input is added: `CG_SETUP_CHAIN` is the chain's. Point 1
+restates part of item 4, which Manuel chose on 2026-11-09 with items 2, 3 and
+7; point 4 leaves open what may amend item 1, his choice of the same day;
+points 2, 3 and 5 and the *Tests*' venue bear on the security posture, the
+product's name and the tests' venue. He approved the whole
+amendment on 2026-11-12, in chat: "Apruebo tal cual". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
