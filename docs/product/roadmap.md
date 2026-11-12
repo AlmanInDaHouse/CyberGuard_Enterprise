@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-65.md](../handoff-session-65.md)).
+([handoff-session-66.md](../handoff-session-66.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -444,8 +444,11 @@ This dependency-ordered document supersedes both for planning.
   (second) and the threat model's Amendment 2026-11-11, approved by Manuel
   (`52443e3`, #155), the Amendment 2026-11-11 in the libraries (`4856d9d`)
   and `cg-setup.exe` with its verbs (`4ca972e`), CI ALL GREEN
-  (`docs/handoff-session-65.md`). The rest of C5 (the SCM test of code 10
-  with the real lock, and the host test), the
+  (`docs/handoff-session-65.md`). S66 landed the rest of C5: the SCM test
+  of the adoption's code 10 with the real lock (`976d1c5`) and `package-ci`'s
+  host test, the real `cg-setup` `preflight` then `reverse` under a token
+  with no privilege (`83402db`), CI ALL GREEN
+  (`docs/handoff-session-66.md`). The
   MSI and the bundle (install_ac_001/011/015, with #87's half; the wizard in
   C7) follow.
   The phase is four SPECs, in this order:
