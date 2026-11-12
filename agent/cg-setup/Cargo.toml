@@ -49,6 +49,13 @@ required-features = ["host-tests"]
 name = "package_msi_host"
 required-features = ["host-tests"]
 
+# The agent's setup, the bundle, installed, upgraded, repaired and
+# uninstalled on the machine against cg-agent's test enrollment and heartbeat
+# servers.
+[[test]]
+name = "package_bundle_host"
+required-features = ["host-tests"]
+
 # No new third-party crate (SPEC-024 Amendment 2026-11-09, item 1): each one
 # below is already a dependency of cg-agent, at the same requirement.
 [dependencies]
@@ -81,6 +88,18 @@ windows-sys = { version = "0.59", features = [
 tempfile = "3"
 # The tests' certificates, as cg-agent's tests make theirs.
 rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
+# cg-agent's test enrollment and heartbeat servers (`../cg-agent/tests/common`),
+# which the setup's host test runs the bundle against; each one at cg-agent's
+# own requirement, so that no crate enters Cargo.lock and none reaches an
+# executable (SPEC-024 Amendment 2026-11-12 (second), *Tests*; Manuel,
+# 2026-11-12).
+axum = "0.7"
+base64 = "0.22"
+ed25519-dalek = { version = "2.1", features = ["zeroize", "pkcs8"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging"] }
+serde_jcs = "0.1"
+tokio = { version = "1.42", features = ["full", "macros", "test-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 
 # The tests' standard user (NetUserAdd), the message table FormatMessageW
 # renders, and the MSI's tables read through msi.dll; features of the existing

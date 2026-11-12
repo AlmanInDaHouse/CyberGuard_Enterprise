@@ -429,12 +429,19 @@ dependencies = [
 name = "cg-setup"
 version = "0.1.0"
 dependencies = [
+ "axum 0.7.9",
+ "base64",
  "cg-agent",
+ "ed25519-dalek",
  "pem",
  "rcgen",
+ "rustls",
  "serde",
+ "serde_jcs",
  "serde_json",
  "tempfile",
+ "tokio",
+ "tokio-rustls",
  "toml",
  "uuid",
  "windows-sys 0.59.0",

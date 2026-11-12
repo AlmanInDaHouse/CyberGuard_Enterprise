@@ -1,0 +1,24 @@
+<Project Sdk="WixToolset.Sdk">
+  <!--
+    The agent's setup (SPEC-024 §Data contracts §1, its Amendment 2026-11-09, item 1, and its
+    Amendment 2026-11-12 (second)): WiX's Burn engine and standard bootstrapper application, whose
+    chain runs cg-setup preflight, the MSI, a vital rollback boundary and cg-setup configure, with
+    the project's theme (theme/). Built with CG_RELEASE_VERSION set, after the MSI and cg-setup.exe
+    of that version, which Directory.Build.targets checks:
+
+      dotnet build bundle/CyberGuardSetup.wixproj -c Release -p:Msi=<msi> -p:SetupExe=<cg-setup.exe>
+
+    from deploy/windows, after the pins are restored and verified (README.md).
+  -->
+  <PropertyGroup>
+    <OutputType>Bundle</OutputType>
+    <OutputName>cyberguard-agent-$(ProductVersion)-x64-setup</OutputName>
+    <DefineConstants>ProductVersion=$(ProductVersion);Msi=$(Msi);SetupExe=$(SetupExe)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.BootstrapperApplications.wixext" Version="[7.0.1]" />
+    <!-- The theme's texts are a payload of the bootstrapper application, not a localization of
+         the build, which the SDK would otherwise make of every .wxl under the project. -->
+    <EmbeddedResource Remove="theme\CyberGuardTheme.wxl" />
+  </ItemGroup>
+</Project>

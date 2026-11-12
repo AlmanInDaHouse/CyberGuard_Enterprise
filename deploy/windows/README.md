@@ -43,3 +43,25 @@ a release build has no custom action, which the job reads. The
 build does not compare the agent's own version with `CG_RELEASE_VERSION`: that comparison is the
 release's (install_ac_015), which is not built yet.
 `test/msi-version-matrix.mjs` checks that its build refuses a version outside the release's form.
+
+## The setup
+
+`bundle/` is the agent's setup, `cyberguard-agent-<version>-x64-setup.exe` (SPEC-024 Amendments
+2026-11-09, items 1 and 2, and 2026-11-12 (second) and (third)): WiX's Burn engine and standard
+bootstrapper application with the project's theme (`bundle/theme/`), whose chain runs `cg-setup`
+preflight, the MSI with `CG_SETUP_CHAIN=1`, a vital rollback boundary and `cg-setup` configure.
+`Directory.Build.targets` checks, before WiX compiles, that the MSI and `cg-setup.exe` it carries
+are of the release version. After the MSI is built, with `cg-setup.exe` built at the same version:
+
+```sh
+export CG_RELEASE_VERSION=1.2.3
+cargo build --release -p cg-agent -p cg-setup
+cd deploy/windows
+dotnet build --no-incremental bundle/CyberGuardSetup.wixproj -c Release -p:Msi=<msi> -p:SetupExe=<repo>/target/release/cg-setup.exe
+```
+
+The setup is written to `bundle/bin/Release/cyberguard-agent-<version>-x64-setup.exe`. Building it
+installs nothing; running it installs the agent, so it runs only in `package-ci`'s `bundle` job, on
+a hosted runner (`agent/cg-setup/tests/package_bundle_host.rs`), never on a development host.
+`test/bundle-version-matrix.mjs` checks that its build refuses a version outside the release's form
+and packages of another version.
