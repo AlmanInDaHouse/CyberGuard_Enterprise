@@ -87,9 +87,9 @@ jobs:
       # disposable runner, one at a time. Their red evidence was the probe pull
       # requests #80 and #82 (install_ac_007, install_ac_010), #84
       # (install_ac_002/004/005), the migration's probe (install_ac_013) and
-      # the adoption's (package_adoption_service), and #105 (install_ac_010's
-      # heartbeat line), closed without landing (CLAUDE.md compensating
-      # control 1).
+      # the adoption's (package_adoption_service), #105 (install_ac_010's
+      # heartbeat line) and #114 (the adoption's code 10 with the real lock),
+      # closed without landing (CLAUDE.md compensating control 1).
       - name: "cargo test, the SCM and SYSTEM tests (scm-tests)"
         run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_007_service --test install_ac_004_custody_service --test install_ac_013_migration --test package_adoption_service -- --test-threads=1
 
