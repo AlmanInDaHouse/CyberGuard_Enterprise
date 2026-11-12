@@ -2292,6 +2292,203 @@ points 2, 3 and 5 and the *Tests*' venue bear on the security posture, the
 product's name and the tests' venue. He approved the whole
 amendment on 2026-11-12, in chat: "Apruebo tal cual". Status stays **Accepted**.
 
+## Amendment 2026-11-12 (second): the setup bundle
+
+**What surfaced it.** C7, the setup (`docs/handoff-session-67.md#how-session-68-resumes`):
+an audit of this SPEC against the source of WiX's Burn engine and standard bootstrapper
+application at `v7.0.1`, then the probe pull request #123 (`766d4f8`, closed without
+landing), whose job built the setup at 1.2.3 and 1.2.4, a 1.2.4 whose MSI fails inside its
+transaction and a second build of 1.2.3, and ran each against cg-agent's test enrollment and
+heartbeat servers on a hosted runner (run 43299813902, its job log and its `burn-logs`
+artifact):
+
+- Point 4 of the Amendment 2026-11-12 leaves open the uninstallation while the service takes
+  longer than 30 seconds to stop (#156).
+- Item 7 of the Amendment 2026-11-09 makes cg-setup's code `setup.exe`'s. The standard
+  bootstrapper application replaces it when Windows Installer asks for a restart.
+- Item 1 of that amendment has Burn run the reversal when the MSI fails. Burn also runs it when
+  preflight itself fails, and it runs the installed older setup again when an upgrade fails.
+- Its item 7 has "a downgrade Windows Installer finds first" yield 1638. It is Burn that finds
+  it, from the installed setup's version.
+- Two builds of one version get two product codes, and the MSI neither upgrades nor refuses
+  the second (#157).
+- Burn starts cg-setup with no standard handles, so the line of the Amendment 2026-11-10's
+  item 9 reaches no log.
+
+**Amendment.** Below, the setup is `cyberguard-agent-<version>-x64-setup.exe`, the
+installed setup is one of its upgrade family that Burn has registered, items without a date
+are those of the Amendment 2026-11-09, and "read" marks what the probe showed; the rest is
+Burn's source at `v7.0.1`.
+
+1. **The chain as built.** Item 1's chain is Burn's: preflight, an `ExePackage` per machine,
+   vital, detected absent so that it runs on every install, repair and upgrade, whose
+   rollback runs cg-setup's `reverse`; the MSI with `CG_SETUP_CHAIN=1` on every action; a
+   vital rollback boundary; configure, an `ExePackage` per machine, vital and permanent, detected
+   by no condition so that it too runs on every install, repair and upgrade (read), which
+   nothing rolls back or uninstalls. The bundle variables of item 2 are the only variables
+   the command line sets; they are not persisted, so a repair or an uninstallation from the
+   registered setup passes none, and each reaches cg-setup in quotes. Burn does not escape a
+   quote inside a value, so a value that holds one breaks out of its quotes, and an option it
+   adds is one cg-setup's command line already has, which it refuses (40; read). Burn ignores an attempt to
+   set any other (read: `WixBundleUILevel`). The setup is one upgrade family across releases,
+   its version the release version; it carries its packages inside it and verifies each one
+   before any runs; it registers one entry in the installed programs, its own, the MSI's being
+   hidden (read). It has no condition or search of its own: preflight decides.
+2. **The reversal's reach.** Burn runs preflight's rollback, `reverse`, after a failure of
+   preflight itself or of the MSI, that is before the rollback boundary, preflight's own
+   refusal included (read: after 22, 25, 30, 40 and the MSI's 1603). After the boundary it
+   does not: a failure of configure runs no reversal (read: after 44), as the Amendment
+   2026-11-10's third disclosed case already has it. The reversal reads the host as that
+   amendment's item 7 says. After a refusal of preflight before its record it finds no record
+   of this attempt, since preflight removes an earlier record only after the checks of that
+   amendment's items 3 and 4 and writes its own after them; after a refusal after its record
+   whose removal failed (the Amendment 2026-11-11, point 3), it reads this attempt's record.
+   It may find one that an earlier configure or a crash left, which it reads as the first
+   disclosed case says (the Amendment 2026-11-11 (second), point 2): it removes what that
+   record names, as that item 7 does, and starts the service if the record found it running.
+   That reversal is a new path to that case, which before this amendment a refusal of
+   preflight did not take.
+3. **The restore of the installed setup.** When an upgrade fails, Burn runs the installed older
+   setup again, quietly and with no bundle variable, after the newer setup's rollback: its
+   preflight, its MSI unless Burn finds it installed or superseded, and its configure. The
+   older setup's cg-setup applies its own contract to the host, and `setup.exe` exits with the
+   newer setup's failing code whatever the restore does, unless point 4's restart codes
+   apply. Read:
+   - the newer MSI failing inside its transaction (1603), and the newer preflight refusing an
+     enrolled host's new input (30): the older version is installed and its agent `RUNNING`,
+     with point 2's DACL of the Amendment 2026-11-12 and item 8's failure actions;
+   - the newer configure failing (44), the newer MSI having committed: the older preflight
+     refuses the downgrade (29) before it changes anything, the newer agent runs, and both
+     setups stay registered. The retry is the newer setup, as for any of 41 to 44.
+
+   So a newer setup's refusal, 20 to 31, is not the end of the run on an upgrade: the older
+   chain follows it, which may stop and start the agent, set its failure actions and start a
+   service an administrator had left stopped. The restore after the other failures of an
+   upgrade (configure's 40, 41, 42, 43 and 45, and the other refusals of preflight) is not
+   read; its outcome is what the older setup's checks give on the host the failure left. After
+   a 45, whose rename onto the binary waits for a restart, the older binary is still in
+   place, so the older preflight does not refuse the downgrade and its configure may start
+   the older binary under the newer package until that restart.
+4. **The exit codes.** Item 7 changes thus. When Windows Installer asks for a restart in this
+   run, which Burn suppresses (`REBOOT=ReallySuppress`), `setup.exe` exits 3010 if the chain
+   succeeded and 3017 if it failed, whatever cg-setup's code; the step's own code is then in
+   Burn's log, and a configure's 45 in such a run reaches the operator as 3017. A 45 in a run
+   where Windows Installer asked for none, such as a rename an earlier run left pending, stays
+   45. 1638 is Burn's refusal of a setup older than the installed setup, before any package
+   runs (read). Preflight's 29 is an installed agent newer than the setup on a host that
+   passes item 3's states, such as one installed without a newer setup (not read: on the
+   probe's fresh host with no input, item 3's 22 came first), or the older setup's own
+   preflight in point 3's restore (read). 1602 is a cancellation and 1223 a declined elevation
+   prompt (neither read: the runner has no prompt). Windows Installer's own codes pass through
+   as item 7 says. During an upgrade or a repair, Windows Installer's Restart Manager closes
+   the applications that hold the installed binary open (read: it closed the probe's own
+   process), so that only one it cannot close leaves a restart pending; an administrator's
+   console agent run from the installed binary is one it closes. The runbook lists
+   these codes with 20 to 45, and its unattended command keeps item 2's `-norestart`.
+5. **cg-setup's line.** Burn starts cg-setup with no standard handles and records only its exit
+   code, so the line of the Amendment 2026-11-10, item 9, is written to no log when the setup
+   runs it (read: no log of the probe held one). Under the setup, the exit code and the
+   runbook's table are what the operator reads; the line is read when cg-setup runs alone. By
+   scope, this narrows the Amendment 2026-11-11 (second)'s "for 40, its line" and its point 4's
+   line with 0 to that use.
+6. **A cancellation.** The setup's window offers no cancellation while it applies the chain
+   (point 8), but the window can still be closed, which cancels; the unattended route has no
+   window. Burn does not wait for a running cg-setup when the run is cancelled: it goes on to
+   its rollback. A configure so left goes on after `setup.exe` exits 1602, and its outcome
+   reaches no one but its effect on the host. A preflight so left runs alongside the reversal
+   of its own rollback, and whatever the order of their steps, the service may be left
+   stopped, and the staged files and record left or removed, until something starts the
+   service again: a later setup's start, an administrator, or, while its start type is
+   automatic, Windows at the next restart. A cancellation during preflight is thus a cause
+   beside those of the Amendment 2026-11-11 (second)'s point 2, whatever record the reversal
+   reads, and the first, third and fourth disclosed cases of the Amendment 2026-11-10's
+   *Effect*, as the Amendment 2026-11-11 (second) widened them, widen to it. A
+   cancellation is the elevated administrator's own action, not an ordinary user's lever.
+7. **The uninstallation's stop (#156).** Point 4 of the Amendment 2026-11-12 is read: Windows
+   Installer waited on the service's stop past its 30 seconds while the agent reported
+   `STOP_PENDING`, which the agent's 60-second deadline bounds (§Operational §3). With a
+   request timeout of 55 seconds and a final request that never answered, Windows Installer's
+   stop of the service took 55.6 seconds by its log, the whole uninstallation 56.8 seconds,
+   and it exited 0, the service and the binary removed; with the agent's default request
+   timeout of 10 seconds, which the configuration the setup writes leaves, the stop took 10.6
+   seconds and the uninstallation 11.9. A service that stops reporting progress is not read;
+   the agent's deadline ends its stop. No cg-setup step is added, and item 1's "on uninstall
+   neither" stands. This supersedes point 4's "waiting up to Windows Installer's 30 seconds"
+   and its open case.
+8. **The setup's window.** Its window is the standard bootstrapper application's, with the
+   project's own theme: no licence to accept, no image, no cancellation while the chain
+   applies, and a failure page that names the exit code and Burn's log rather than the system
+   text of the code, which for cg-setup's codes is another error's. Its publisher is
+   `CyberGuard` and its copyright `Copyright (c) CyberGuard`, both provisional with point 5 of
+   the Amendment 2026-11-12, as Manuel chose. Item 1's wizard is unchanged.
+9. **Two builds of one version (#157).** The MSI is to upgrade a product of its family and its
+   own version as it upgrades a lower one, so that the later build replaces the earlier inside
+   its own transaction. A release is built once from its tag; a second build of a version is
+   a rebuild of it. Without that, read on the probe's MSI: Burn treats an installed setup of
+   the same version from another build as one it upgrades, and one setup and one MSI were
+   left, the agent running, with no new enrollment, but the earlier MSI was removed after the
+   later one committed, outside its transaction. A repair runs the same build again (read:
+   `-repair` restored a changed binary, the start type and the failure actions, with no new
+   enrollment).
+10. **The setup's launch.** The runbook's unattended route starts the setup from an elevated
+    administrator's console or as SYSTEM, as a deployment tool does. Started without
+    elevation, Burn copies its engine into the starting user's temporary folder before the
+    elevation prompt, where that user's other processes can reach it; started elevated, it
+    does not. The interactive route, which an administrator starts from their own desktop,
+    keeps that residual, which the runbook discloses. Started as SYSTEM, Burn writes its log
+    under `%SystemRoot%\SystemTemp`, which admits SYSTEM and Administrators alone (read, on
+    the runner's Windows; on the floor's builds, which may lack that folder, it is read on the
+    isolated machine). cg-setup,
+    which Burn runs elevated from its package cache with that folder as the working
+    directory, is to load the system libraries it imports from the system directory only,
+    which its build sets.
+
+**Tests.** `package-ci` builds the setup at a fixture release version and at a higher one,
+a higher one whose MSI fails inside its transaction, and a second build of the first, and
+runs a Cargo test target of `cg-setup`, built only with its test-only `host-tests` feature,
+against cg-agent's test enrollment and heartbeat servers. It asserts: a fresh installation
+operational (0), with the token found nowhere but the bootstrap file and the staged and
+adopted configuration, in Burn's and Windows Installer's logs, the temporary folders, the
+package cache, Windows Installer's cache, the registry's installation, uninstallation,
+`RunOnce`, service and current-user keys and the latest entries of the Application, System and
+PowerShell logs; refusals that pass through with the reversal run, and a configure failure
+without it; an upgrade, a downgrade refused with 1638, and the restores of point 3 it read; the
+same version of point 9; a repair; an uninstallation with a final request that never answers
+and a request timeout of 55 seconds; an uninstallation and a reinstallation with no new
+enrollment; the extracted payloads' digests equal to the raw executables'; a setup whose
+payload was changed refused before preflight runs; and cg-setup's system-directory loading.
+The MSI that fails is a test build with one deferred action that fails; the release MSI has
+none, which the job checks. These tests follow the Amendment 2026-11-12's *Tests*:
+`package-ci` alone, seen red first on a probe pull request. The servers are cg-agent's test
+code, which `cg-setup`'s tests take with their crates as dev-dependencies at cg-agent's own
+requirements, so no package enters the lock file, `cg-setup`'s entry gains those
+dependencies, and none reaches an executable (Manuel's choice of 2026-11-12). The failing MSI
+is evidence in `package-ci` beside, not instead of, the interrupted installations of §Test
+scenarios' "Disposable Windows VM" line, which stay with the isolated machine, as do a real
+elevation prompt, a cancellation and the floor's builds.
+
+**Effect.** Item 1's "if the MSI fails, Burn's rollback runs preflight's reversal" widens to
+point 2, and its chain gains point 3's restore; "WiX's unmodified Burn engine and standard
+bootstrapper application" holds with point 8's theme, which is data, not code. Item 7 changes
+by point 4: its "refused before the MSI" holds for the newer setup's own steps, which on an
+upgrade point 3's restore follows, and its "a downgrade Windows Installer finds first is 1638"
+reads as point 4 says. The Amendment 2026-11-10's item 9 is narrowed by point 5, and its first,
+third and fourth disclosed cases, as the Amendment 2026-11-11 (second) widened them, widen
+again to points 2 and 6. Point 4 of the Amendment 2026-11-12 is superseded by point 7 where
+they differ, and #156 closes with the bundle's code. §Data contracts §1's "a higher version
+replaces the installed product, and a lower one is refused" gains point 9: an equal one
+replaces it too, and #157 closes with the bundle's code. §Operational §4's "Do not restart the
+computer automatically; surface a required reboot separately" holds through point 4's 3010 and
+3017. §Operational §1's "Validate ... before changing the host" excepts Burn's registration
+and cache, as item 3 says, and, on an upgrade, point 3's restore. No ADR changes, and no
+dependency of `cg-agent`, privilege or operator input is added; the setup's launch route and
+its residuals bear on the threat model, which is amended with this text (its Amendment
+2026-11-12). Manuel chose, on 2026-11-12 in chat, each in the recommended option: the window
+of point 8; the test servers as dev-dependencies; #156 settled by the reading; item 7 amended
+for the restart's codes; `AllowSameVersionUpgrades` for #157; the restore declared and
+tested; and the launch route with its disclosures. He approved this text on 2026-11-12, in
+chat: "apruebo". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
