@@ -117,9 +117,13 @@ jobs:
   # cg-setup's test-only `host-tests` feature, here alone, and fails without acting outside a
   # GitHub-hosted runner.
   msi:
-    name: The MSI on the host
+    name: The MSI on the host (probe ${{ matrix.mutant }})
     runs-on: windows-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mutant: [none, no-chain, no-per-machine, default-dacl, no-event-source, creates-data, unquoted-config, demand-start, loose-directory, service-kept, guard]
     env:
       # The fixture release version: the agent, the MSI and the test are built with it.
       CG_RELEASE_VERSION: "1.2.3"
@@ -169,6 +173,10 @@ jobs:
       - name: The MSI refuses a version outside the release's form
         run: node deploy/windows/test/msi-version-matrix.mjs target/release/cg-agent.exe
 
+      - name: PROBE apply the mutant
+        if: matrix.mutant != 'guard'
+        run: pwsh -NoProfile -File deploy/windows/test/probe-mutants.ps1 -Mutant ${{ matrix.mutant }}
+
       - name: Build the MSI, and the same package at a higher version
         working-directory: deploy/windows
         run: |
@@ -181,21 +189,28 @@ jobs:
           }
 
       - name: "cargo test, the MSI on the host (host-tests)"
+        continue-on-error: true
         run: |
+          if ("${{ matrix.mutant }}" -eq "guard") { $env:RUNNER_ENVIRONMENT = "self-hosted"; Write-Host "PROBE RUNNER_ENVIRONMENT=$env:RUNNER_ENVIRONMENT" }
           $v = $env:CG_RELEASE_VERSION
           $env:CG_TEST_MSI = Join-Path (Join-Path $env:RUNNER_TEMP "msi-$v") "cyberguard-agent-$v-x64.msi"
           $env:CG_TEST_MSI_NEXT = Join-Path (Join-Path $env:RUNNER_TEMP "msi-1.2.4") "cyberguard-agent-1.2.4-x64.msi"
           $env:CG_TEST_AGENT_EXE = (Resolve-Path target/release/cg-agent.exe).Path
           $env:CG_TEST_MSI_LOGS = Join-Path $env:RUNNER_TEMP "msiexec-logs"
           cargo test -p cg-setup --features host-tests --no-fail-fast --test package_msi_host -- --test-threads=1
-          exit $LASTEXITCODE
+          $code = $LASTEXITCODE
+          Write-Host "PROBE test exit $code"
+          Write-Host "PROBE ProgramFiles CyberGuard present: $(Test-Path (Join-Path $env:ProgramFiles 'CyberGuard'))"
+          Write-Host "PROBE ProgramData CyberGuard present: $(Test-Path (Join-Path $env:ProgramData 'CyberGuard'))"
+          Write-Host "PROBE service present: $([bool](Get-Service CyberGuardAgent -ErrorAction SilentlyContinue))"
+          exit $code
 
       # msiexec's verbose logs, which hold no secret: the MSI carries none.
       - name: msiexec's logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: msiexec-logs
+          name: msiexec-logs-${{ matrix.mutant }}
           path: ${{ runner.temp }}/msiexec-logs
           if-no-files-found: ignore
           retention-days: 7
