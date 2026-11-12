@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-66.md](../handoff-session-66.md)).
+([handoff-session-67.md](../handoff-session-67.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -448,9 +448,12 @@ This dependency-ordered document supersedes both for planning.
   of the adoption's code 10 with the real lock (`976d1c5`) and `package-ci`'s
   host test, the real `cg-setup` `preflight` then `reverse` under a token
   with no privilege (`83402db`), CI ALL GREEN
-  (`docs/handoff-session-66.md`). The
-  MSI and the bundle (install_ac_001/011/015, with #87's half; the wizard in
-  C7) follow.
+  (`docs/handoff-session-66.md`). S67 landed C6: SPEC-024 Amendment
+  2026-11-12, approved by Manuel (`8431aad`: the MSI's launch conditions, the
+  service's DACL, the uninstallation's stop left open), and the MSI with
+  `package-ci`'s install tests (`b96918c`, install_ac_001's MSI half, #87's
+  MSI half), CI ALL GREEN (`docs/handoff-session-67.md`). The bundle
+  (install_ac_011/015, the rest of #87; the wizard) follows in C7.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
