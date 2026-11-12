@@ -48,7 +48,7 @@
               <PermissionEx Sddl="D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLORC;;;IU)(A;;CCLCSWLORC;;;SU)" />
             </ServiceInstall>
             <ServiceControl Id="AgentServiceControl" Name="CyberGuardAgent"
-                            Stop="both" Remove="uninstall" Wait="yes" />
+                            Stop="uninstall" Remove="uninstall" Wait="yes" />
 
             <!-- The Application log's source, whose messages are cg-agent.exe's message table
                  (entries 1000 to 1003). -->

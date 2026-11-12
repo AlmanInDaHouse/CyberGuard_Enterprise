@@ -51,7 +51,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_APPEND_DATA, FILE_DELETE_CHILD,
     FILE_EXECUTE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_LIST_DIRECTORY,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
-    FILE_WRITE_EA, OPEN_EXISTING, WRITE_DAC, WRITE_OWNER,
+    FILE_WRITE_EA, OPEN_EXISTING, READ_CONTROL, WRITE_DAC, WRITE_OWNER,
 };
 use windows_sys::Win32::System::Services::{
     CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceConfig2W, QueryServiceConfigW,
@@ -519,6 +519,7 @@ struct ServiceConfig {
     start_type: u32,
     command_line: String,
     account: String,
+    display_name: String,
 }
 
 fn service_config(service: &ServiceHandle) -> ServiceConfig {
@@ -545,6 +546,7 @@ fn service_config(service: &ServiceHandle) -> ServiceConfig {
             start_type: config.dwStartType,
             command_line: from_wide_nul(config.lpBinaryPathName),
             account: from_wide_nul(config.lpServiceStartName),
+            display_name: from_wide_nul(config.lpDisplayName),
         }
     }
 }
@@ -1206,6 +1208,12 @@ fn assert_nothing_installed(paths: &Paths, per_user: &Path) {
     );
     assert!(!key_exists(UPGRADE_CODE_KEY), "no product registered");
     assert!(registered_versions().is_empty(), "no program listed");
+    assert!(!key_exists(EVENT_SOURCE_KEY), "no Application log source");
+    assert!(
+        !exists(&paths.product_root),
+        "nothing under {}",
+        paths.product_root.display()
+    );
 }
 
 /// The per-user program folder of the account the test runs as, where a
@@ -1363,8 +1371,12 @@ fn package_msi_installs_the_product_service_and_binary_and_uninstalls_them() {
     }
 
     // The service (§Data contracts §3).
-    let service = open_service(PRODUCT_SERVICE, SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS)
-        .unwrap_or_else(|error| panic!("open {PRODUCT_SERVICE}: Win32 error {error}"));
+    // READ_CONTROL, to read its DACL below.
+    let service = open_service(
+        PRODUCT_SERVICE,
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL,
+    )
+    .unwrap_or_else(|error| panic!("open {PRODUCT_SERVICE}: Win32 error {error}"));
     let config = service_config(&service);
     let expected = format!(
         "\"{}\" --service --config \"{}\"",
@@ -1377,14 +1389,17 @@ fn package_msi_installs_the_product_service_and_binary_and_uninstalls_them() {
             config.start_type,
             config.account.as_str(),
             config.command_line.as_str(),
+            config.display_name.as_str(),
         ),
         (
             SERVICE_WIN32_OWN_PROCESS,
             SERVICE_AUTO_START,
             "LocalSystem",
             expected.as_str(),
+            "CyberGuard Agent",
         ),
-        "own process, automatic, LocalSystem, the quoted binary and configuration"
+        "own process, automatic, LocalSystem, the quoted binary and configuration, \
+         its display name"
     );
     let manager = Manager::open().expect("the SCM, for connecting");
     assert_eq!(
