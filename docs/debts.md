@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 57** at Session 70's close, the count `docs/handoff-session-70.md` states
-(Session 70 landed SPEC-024 Amendment 2026-11-13, the wizard's contract, and the fix of RUSTSEC-2026-0538, closed none and opened #159).
+**Open: 58** at Session 71's close, the count `docs/handoff-session-71.md` states
+(Session 71 landed the wizard's code against SPEC-024 Amendment 2026-11-13, closed none and opened #160).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 70's close, `docs/handoff-session-70.md#how-session-71-resumes`);
+Session N resumes* (at Session 71's close, `docs/handoff-session-71.md#how-session-72-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -90,6 +90,7 @@ Session N resumes* (at Session 70's close, `docs/handoff-session-70.md#how-sessi
 | 150 | `cg-setup`'s reads of its inputs, as an elevated administrator: a reparse point in a parent of the bootstrap file's path is followed, so a file on a volume an ordinary user controls can pass the owner and DACL check; the remote check runs after the open (an SMB session first) and names only the multiple UNC provider's volumes; a read handle opened before the operator tightened the DACL is not seen; the anchor's source follows links and may be remote, and `SECURITY_SQOS_PRESENT`'s bit is `FILE_FLAG_OPEN_NO_RECALL`'s, so a dehydrated cloud placeholder is refused (25) | `handoff-session-60.md#debts` | C10: the runbook creates the bootstrap file and the anchor in a local directory only SYSTEM and Administrators can reach, with protection before the token, and keeps the anchor a local file; reopens if C5 reads either again. |
 | 154 | `install_ac_009_a_held_lock_stops_the_service_with_code_10` failed once in rust-ci's Windows job (probe #105): the unrelated ETW session was not found after the refused instance stopped; it passed in the three runs after; cause not diagnosed | `handoff-session-64.md#debts` | The next run that fails it, or a sweep that records the session's `logman` output on failure. |
 | 158 | A release build given `-p:CgInjectFailure=1` would carry the MSI's test-build custom action, which fails inside the transaction; `package-ci` checks only the MSIs it builds | `handoff-session-69.md#debts` | C8: the release job builds the MSI without the define and checks that the MSI it publishes has no custom action. |
+| 160 | The token's copies made by the generated configuration's checks are not zeroed: `cg_agent::service::check_staged_config` parses the configuration twice (`config::load_from_str`, `toml::Value`), and the strings holding the token are freed unzeroed, once per bootstrap file since C4 and once per wizard's submission since Session 71 | `handoff-session-71.md#debts` | C10: the runbook's disclosure that the token may stay in `cg-setup`'s memory until it exits (SPEC-024 Amendment 2026-11-13, point 6) names these copies with the control's; reopens if the agent's configuration gains a zeroed secret type for `enrollment.token`. |
 | 159 | `cargo audit`'s three allowed warnings have no debt: RUSTSEC-2026-0440 (`astral-tokio-tar`, unmaintained), RUSTSEC-2026-0486 (`rustix` 1.1.4, unsound) and RUSTSEC-2026-0386 (`tokio`, unsound), recorded since Sessions 60 and 64 in handoffs alone | `handoff-session-70.md#debts` | The next session that touches `Cargo.lock`, or C8 before the release: move each within its declared range (`docs/security/dependency-review.md`, *When the run is red*), read which the agent compiles, and put any that cannot move to Manuel. |
 
 ## Closed
