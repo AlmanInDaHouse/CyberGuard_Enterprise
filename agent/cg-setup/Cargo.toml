@@ -72,7 +72,8 @@ zeroize = "1.8"
 # control manager (Win32_System_Services), the renames Windows holds for
 # the next restart (Win32_System_Registry), and NtQueryInformationProcess for
 # the process that started the setup (Wdk_System_Threading, whose structure
-# Win32_System_Kernel enables).
+# Win32_System_Kernel enables), and the wizard's dialog
+# (Win32_UI_WindowsAndMessaging, user32 alone).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Wdk_System_SystemServices",
@@ -86,6 +87,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Services",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]
@@ -106,12 +108,13 @@ tokio = { version = "1.42", features = ["full", "macros", "test-util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 
 # The tests' standard user (NetUserAdd), the message table FormatMessageW
-# renders, and the MSI's tables read through msi.dll; features of the existing
-# binding.
+# renders, the MSI's tables read through msi.dll, and the clipboard's
+# sequence number the dialog's test reads; features of the existing binding.
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_NetworkManagement_NetManagement",
     "Win32_Security_Authorization",
     "Win32_System_ApplicationInstallationAndServicing",
+    "Win32_System_DataExchange",
     "Win32_System_Diagnostics_Debug",
 ] }

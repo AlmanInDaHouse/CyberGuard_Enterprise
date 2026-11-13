@@ -13,6 +13,7 @@ use cg_agent::custody;
 use cg_agent::service::InstalledPaths;
 
 use crate::codes::{Refusal, OPERATIONAL, OWN_STATE};
+use crate::dialog::SystemWizard;
 use crate::observer::{self, LogPosition};
 use crate::preflight::{self, decide_again, parse_migration, take_fields, Host, Plan, Request};
 use crate::scm::{self, Manager, Product, Route};
@@ -33,15 +34,15 @@ pub struct Machine<'a> {
     /// The installed binary, `<ProgramFiles>\CyberGuard\Agent\cg-agent.exe`.
     pub binary: PathBuf,
     /// The wizard, which shows only with the setup's full window (the
-    /// Amendment 2026-11-13, point 1); a machine without one takes that
-    /// window as none.
+    /// Amendment 2026-11-13, point 1); a machine without one, as the tests
+    /// may have it, takes that window as none.
     pub wizard: Option<&'a dyn Wizard>,
 }
 
 impl Machine<'static> {
     /// The machine's: the fixed paths under the `%ProgramData%` and
-    /// `%ProgramFiles%` the OS reports, and the product service. A folder
-    /// Windows does not report is 40 (item 2).
+    /// `%ProgramFiles%` the OS reports, the product service, and the setup's
+    /// wizard. A folder Windows does not report is 40 (item 2).
     pub fn system() -> Result<Self, Refusal> {
         let host = Host::system()?;
         let program_files = custody::program_files().map_err(|reason| {
@@ -52,7 +53,7 @@ impl Machine<'static> {
             host,
             service: PRODUCT_SERVICE.to_string(),
             binary: installed_binary(&program_files),
-            wizard: None,
+            wizard: Some(&SystemWizard),
         })
     }
 }

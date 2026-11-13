@@ -7,8 +7,8 @@
 //! version, and configure's observer of the started service (the Amendment
 //! 2026-11-10, items 3 to 8); and the command line and the verbs that run
 //! them in order (item 9), which `src/main.rs` dispatches; and the wizard's
-//! decision, its fields and the process that started the setup (the
-//! Amendment 2026-11-13).
+//! decision, its fields, the process that started the setup and its dialog
+//! (the Amendment 2026-11-13).
 //!
 //! It enables no privilege and does not adjust its token (ADR-0010
 //! §Compliance). The host's state is the service's own reading,
@@ -19,6 +19,8 @@
 #[cfg(windows)]
 pub mod cli;
 pub mod codes;
+#[cfg(windows)]
+pub mod dialog;
 pub mod inputs;
 #[cfg(windows)]
 pub mod observer;
