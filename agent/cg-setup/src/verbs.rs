@@ -100,9 +100,17 @@ pub fn preflight(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal
         Plan::Start | Plan::Stage(_) | Plan::Ask(_) => Route::Other,
     };
     let scm = Manager::open()?;
-    let product = check(machine, &scm, route)?;
+    // PROBE: no reading of the service before the dialog.
+    let product = match plan {
+        Plan::Ask(_) => {
+            version::downgrade(&machine.binary, own_numeric())?;
+            Product::Absent
+        }
+        _ => check(machine, &scm, route)?,
+    };
     let (plan, product) = match (plan, machine.wizard) {
-        (Plan::Ask(offer), Some(wizard)) => ask(machine, wizard, &scm, offer)?,
+        // PROBE: the first reading kept after the dialog.
+        (Plan::Ask(offer), Some(wizard)) => (ask(machine, wizard, &scm, offer)?.0, product),
         (Plan::Ask(_), None) => return Err(inconsistent("a wizard to ask on a machine with none")),
         (plan, _) => (plan, product),
     };
@@ -178,7 +186,10 @@ fn ask(
         machine.host.wait,
     );
     let again = decide_again(&state, choice)?;
-    let product = check(machine, scm, Route::Other)?;
+    // PROBE: no second reading of the service.
+    let _ = scm;
+    version::downgrade(&machine.binary, own_numeric())?;
+    let product = Product::Absent;
     let plan = match (again, staged) {
         (Again::Stage, Some(staged)) => Plan::Stage(staged),
         (Again::Start, None) => Plan::Start,
