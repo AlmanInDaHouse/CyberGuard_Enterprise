@@ -143,7 +143,8 @@ test("the setup's chain is preflight, the MSI with the chain's property, a vital
   assert.equal(preflight.get("CacheId"), "cg-setup-preflight-$(var.ProductVersion)-$(var.BuildId)", "this build's own cache folder");
   assert.equal(
     preflight.get("InstallArguments"),
-    "preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot;",
+    "preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot; --ui=&quot;[WixBundleUILevel]&quot;",
+    "the setup's window, for the wizard (SPEC-024 Amendment 2026-11-13, point 1)",
   );
 
   const msi = element(chain, "MsiPackage");

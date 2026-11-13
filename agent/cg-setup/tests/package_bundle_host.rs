@@ -11,7 +11,11 @@
 //! reinstallation with no new enrollment; the payloads it carries, the raw
 //! executables, and a changed payload refused before preflight runs; and
 //! cg-setup's system-directory loading. Only the test build of the MSI carries
-//! a custom action.
+//! a custom action. The wizard (the Amendment 2026-11-13): quiet and passive
+//! runs ask nothing; with the setup's full window, driven by its controls'
+//! messages, a cancelled wizard is 22 with the reversal run, an installation
+//! through it is operational with the token in none of those places, and a
+//! pending host's configuration is kept or replaced.
 //!
 //! The test installs the product on the machine, so it builds only with the
 //! test-only `host-tests` feature and runs only in `package-ci`, on a
@@ -182,17 +186,32 @@ impl Servers {
         cg_agent::service::anchor::fingerprint(&der)
     }
 
-    /// A bootstrap file only SYSTEM and Administrators can reach, with the
-    /// canary as its token and `fingerprint` as its list (§Data contracts §3).
-    fn bootstrap_with(&self, name: &str, fingerprint: &str) -> PathBuf {
+    /// The anchor's source, in the operator's directory.
+    fn anchor(&self) -> PathBuf {
         let anchor = self.operator.path().join("server-ca.pem");
         if !anchor.exists() {
             std::fs::write(&anchor, &self.pki.trust_anchor_pem).expect("the anchor's source");
         }
+        anchor
+    }
+
+    /// A bootstrap file only SYSTEM and Administrators can reach, with the
+    /// canary as its token and `fingerprint` as its list (§Data contracts §3).
+    fn bootstrap_with(&self, name: &str, fingerprint: &str) -> PathBuf {
+        self.bootstrap_file(name, &self.enroll().base_url, fingerprint)
+    }
+
+    /// `bootstrap_with` to the enrollment server at `url`.
+    fn bootstrap_to(&self, name: &str, url: &str) -> PathBuf {
+        self.bootstrap_file(name, url, &self.fingerprint())
+    }
+
+    fn bootstrap_file(&self, name: &str, url: &str, fingerprint: &str) -> PathBuf {
+        let anchor = self.anchor();
         let text = format!(
             "[server]\nurl = {}\nheartbeat_url = {}\ntrust_anchor_path = {}\n\n\
              [enrollment]\ntoken = {}\n\n[setup]\ntrust_anchor_sha256 = [{}]\n",
-            fixtures::quoted(&self.enroll().base_url),
+            fixtures::quoted(url),
             fixtures::quoted(&self.heartbeat().base_url),
             fixtures::quoted(anchor.to_str().expect("a UTF-8 path")),
             fixtures::quoted(&self.canary),
@@ -440,20 +459,66 @@ impl Host {
     /// `<test>-<name>`: Burn names each package's and related bundle's log
     /// after its own.
     fn setup(&mut self, name: &str, setup: &Path, arguments: &[&str]) -> Outcome {
+        self.run(name, setup, arguments, "-quiet", |_| {})
+    }
+
+    /// `setup` with its full window, which `drive` is given once it shows
+    /// (the Amendment 2026-11-13).
+    fn windowed(&mut self, name: &str, setup: &Path, drive: impl FnOnce(ui::Window)) -> Outcome {
+        self.run(name, setup, &[], "", |_| {
+            drive(ui::wait(ui::SETUP, Duration::from_secs(90)))
+        })
+    }
+
+    /// `setup` with `arguments` and `mode` (`-quiet`, `-passive`, or none
+    /// for its full window), without a restart, `during` given its process ID
+    /// while it runs. A failure in `during` ends the setup and `cg-setup`, so
+    /// that the cleanup runs.
+    fn run(
+        &mut self,
+        name: &str,
+        setup: &Path,
+        arguments: &[&str],
+        mode: &str,
+        during: impl FnOnce(u32),
+    ) -> Outcome {
         if !self.ran.iter().any(|known| known == setup) {
             self.ran.push(setup.to_path_buf());
         }
         let stem = format!("{}-{name}", self.test);
         let log = self.logs.join(format!("{stem}.log"));
         let started = Instant::now();
-        let code = Command::new(setup)
+        let mut child = Command::new(setup)
             .args(arguments)
-            .args(["-quiet", "-norestart", "-log"])
+            .args([mode].into_iter().filter(|mode| !mode.is_empty()))
+            .args(["-norestart", "-log"])
             .arg(&log)
-            .status()
-            .expect("run the setup")
-            .code()
-            .expect("the setup's exit code");
+            .spawn()
+            .expect("run the setup");
+        let driven = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| during(child.id())));
+        let end = |child: &mut std::process::Child| {
+            let _ = child.kill();
+            let _ = Command::new("taskkill.exe")
+                .args(["/F", "/T", "/IM", "cg-setup.exe"])
+                .status();
+            let _ = child.wait();
+        };
+        if let Err(panic) = driven {
+            end(&mut child);
+            std::panic::resume_unwind(panic);
+        }
+        let deadline = Instant::now() + Duration::from_secs(900);
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("the setup's state") {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                end(&mut child);
+                panic!("{stem}: the setup still runs after 15 minutes");
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        };
+        let code = status.code().expect("the setup's exit code");
         let took = started.elapsed();
         let mut logs = vec![(format!("{stem}.log"), read_log(&log))];
         let mut others: Vec<(String, String)> = std::fs::read_dir(&self.logs)
@@ -1094,6 +1159,9 @@ fn package_bundle_refusals_pass_through_with_the_reversal() {
         );
         assert!(!exists(&host.paths.product_root), "{name}: no data root");
         if name == "ui-level" {
+            // The setup's window as Burn set it, not the variable given
+            // (SPEC-024 Amendment 2026-11-13, point 1).
+            assert_ui_level(&outcome, "2");
             assert!(
                 burn.iter().any(|line| {
                     line
@@ -1576,6 +1644,421 @@ fn package_bundle_only_the_test_msi_carries_a_custom_action() {
         [INJECTED_FAILURE],
         "the test MSI has its one"
     );
+}
+
+// --- The wizard (SPEC-024 Amendment 2026-11-13) --------------------------------------
+
+/// The setup's window and the wizard's dialog, driven by their controls'
+/// messages from this process, as pull request #127 drove the setup's.
+mod ui {
+    use std::time::{Duration, Instant};
+
+    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumChildWindows, FindWindowW, GetDlgItem, GetWindowLongPtrW, GetWindowTextW,
+        IsWindowVisible, PostMessageW, SendMessageTimeoutW, BM_CLICK, BN_CLICKED, GWL_STYLE,
+        SMTO_ABORTIFHUNG, WM_COMMAND, WM_SETTEXT, WS_DISABLED,
+    };
+
+    /// The setup's window, the standard bootstrapper application's with the
+    /// project's caption.
+    pub const SETUP: &str = "CyberGuard Agent Setup";
+
+    /// A window of another process, as this one holds it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Window(pub isize);
+
+    impl Window {
+        pub fn hwnd(self) -> HWND {
+            self.0 as HWND
+        }
+    }
+
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(Some(0)).collect()
+    }
+
+    pub fn text(window: Window) -> String {
+        let mut buffer = [0u16; 512];
+        // SAFETY: the buffer holds 512 units.
+        let length = unsafe { GetWindowTextW(window.hwnd(), buffer.as_mut_ptr(), 512) };
+        String::from_utf16_lossy(&buffer[..length.max(0) as usize])
+    }
+
+    fn visible(window: Window) -> bool {
+        // SAFETY: any handle.
+        unsafe { IsWindowVisible(window.hwnd()) != 0 }
+    }
+
+    /// The visible top-level window titled `title`, if there is one.
+    pub fn find(title: &str) -> Option<Window> {
+        let title = wide(title);
+        // SAFETY: a null class and a title that lives for the call.
+        let window = Window(unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) } as isize);
+        (window.0 != 0 && visible(window)).then_some(window)
+    }
+
+    /// Wait for `title`'s window, up to `timeout`.
+    pub fn wait(title: &str, timeout: Duration) -> Window {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(window) = find(title) {
+                return window;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no window titled {title:?} within {timeout:?}"
+            );
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    }
+
+    unsafe extern "system" fn collect(window: HWND, list: LPARAM) -> BOOL {
+        // SAFETY: `list` is the Vec `children` passes, for the call.
+        unsafe { (*(list as *mut Vec<isize>)).push(window as isize) };
+        1
+    }
+
+    fn children(parent: Window) -> Vec<Window> {
+        let mut list: Vec<isize> = Vec::new();
+        // SAFETY: the callback writes into `list`, which outlives the call.
+        unsafe {
+            EnumChildWindows(
+                parent.hwnd(),
+                Some(collect),
+                std::ptr::addr_of_mut!(list) as LPARAM,
+            )
+        };
+        list.into_iter().map(Window).collect()
+    }
+
+    /// The visible and enabled button of `parent` among `texts`, waited for up
+    /// to `timeout`.
+    pub fn button(parent: Window, texts: &[&str], timeout: Duration) -> Window {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let found = children(parent).into_iter().find(|child| {
+                // SAFETY: any handle.
+                visible(*child)
+                    && unsafe { GetWindowLongPtrW(child.hwnd(), GWL_STYLE) } as u32 & WS_DISABLED
+                        == 0
+                    && texts.contains(&text(*child).as_str())
+            });
+            if let Some(button) = found {
+                return button;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no button {texts:?} on {:?} within {timeout:?}; its controls: {:?}",
+                text(parent),
+                children(parent)
+                    .into_iter()
+                    .filter(|c| visible(*c))
+                    .map(text)
+                    .collect::<Vec<_>>()
+            );
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    }
+
+    /// A click on a button of the setup's window.
+    pub fn click(button: Window) {
+        // SAFETY: a posted message carries no pointer.
+        unsafe { PostMessageW(button.hwnd(), BM_CLICK, 0, 0) };
+    }
+
+    /// The dialog's control `id`, given `text`.
+    pub fn set(dialog: Window, id: i32, text: &str) {
+        let text = wide(text);
+        let mut result = 0usize;
+        // SAFETY: WM_SETTEXT's string is marshalled to the dialog's process
+        // and lives for the call.
+        let sent = unsafe {
+            SendMessageTimeoutW(
+                GetDlgItem(dialog.hwnd(), id),
+                WM_SETTEXT,
+                0,
+                text.as_ptr() as LPARAM,
+                SMTO_ABORTIFHUNG,
+                10_000,
+                &mut result,
+            )
+        };
+        assert_ne!(sent, 0, "WM_SETTEXT to control {id}");
+    }
+
+    /// The dialog's button `id`, clicked as its own command.
+    pub fn command(dialog: Window, id: i32) {
+        let wparam = (id as u32 as usize & 0xFFFF) | ((BN_CLICKED as usize) << 16);
+        // SAFETY: a posted message; the control's handle is a value.
+        let control = unsafe { GetDlgItem(dialog.hwnd(), id) } as LPARAM;
+        // SAFETY: as above.
+        unsafe { PostMessageW(dialog.hwnd(), WM_COMMAND, wparam, control) };
+    }
+}
+
+/// Whether the wizard's dialog showed, sampled while a run goes on.
+struct DialogWatch {
+    running: Arc<AtomicBool>,
+    thread: std::thread::JoinHandle<bool>,
+}
+
+impl DialogWatch {
+    fn start() -> Self {
+        let running = Arc::new(AtomicBool::new(true));
+        let thread = {
+            let running = running.clone();
+            std::thread::spawn(move || {
+                let mut seen = false;
+                while running.load(Ordering::SeqCst) {
+                    seen |= ui::find(cg_setup::dialog::TITLE).is_some();
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                seen
+            })
+        };
+        DialogWatch { running, thread }
+    }
+
+    /// Whether the dialog was seen.
+    fn stop(self) -> bool {
+        self.running.store(false, Ordering::SeqCst);
+        self.thread.join().expect("the watch")
+    }
+}
+
+/// The wizard's fields for `servers`, the canary as the token, its
+/// server's URL `url`.
+fn wizard_fields(servers: &Servers, url: &str) -> Vec<(i32, String)> {
+    use cg_setup::dialog::{
+        ID_ANCHOR_PATH, ID_FINGERPRINTS, ID_HEARTBEAT_URL, ID_SERVER_URL, ID_TOKEN,
+    };
+    let anchor = servers.anchor();
+    vec![
+        (ID_SERVER_URL, url.to_string()),
+        (ID_HEARTBEAT_URL, servers.heartbeat().base_url.clone()),
+        (
+            ID_ANCHOR_PATH,
+            anchor.to_str().expect("a UTF-8 path").to_string(),
+        ),
+        (ID_FINGERPRINTS, format!("{}\r\n", servers.fingerprint())),
+        (ID_TOKEN, servers.canary.clone()),
+    ]
+}
+
+/// The setup's first page's button, Install on a host with no setup
+/// registered, Repair on one with this setup registered.
+fn start_applying(window: ui::Window) {
+    ui::click(ui::button(
+        window,
+        &["&Install", "&Repair"],
+        Duration::from_secs(60),
+    ));
+}
+
+/// The dialog, once preflight shows it.
+fn wait_dialog() -> ui::Window {
+    ui::wait(cg_setup::dialog::TITLE, Duration::from_secs(180))
+}
+
+/// The setup's last page closed, its success or its failure.
+fn close_last_page(window: ui::Window) {
+    ui::click(ui::button(window, &["&Close"], Duration::from_secs(300)));
+}
+
+/// Preflight's command line as Burn ran it, with `--ui="<level>"`.
+fn assert_ui_level(outcome: &Outcome, level: &str) {
+    let ui = format!(r#"--ui="{level}""#);
+    assert!(
+        outcome.burn().iter().any(|line| line
+            .starts_with("i301: Applying execute package: Preflight, ")
+            && line.contains(&ui)),
+        "preflight ran with {ui}\n{}",
+        outcome.summary()
+    );
+}
+
+/// Nothing registered, cached, installed or created.
+fn assert_nothing_left(host: &Host, name: &str) {
+    assert!(programs().is_empty(), "{name}: {:?}", programs());
+    assert!(cached().is_empty(), "{name}: {:?}", cached());
+    assert!(
+        open_service(PRODUCT_SERVICE, SERVICE_QUERY_STATUS).is_err(),
+        "{name}: no service"
+    );
+    assert!(!exists(&host.paths.product_root), "{name}: no data root");
+}
+
+/// The wizard (SPEC-024 Amendment 2026-11-13, *Tests*): quiet and passive
+/// runs are 22 with no dialog; a cancelled wizard is 22 with the reversal
+/// run; a fresh installation through it is operational, with the token in
+/// none of the places the Amendment 2026-11-12 (second)'s *Tests* list.
+#[test]
+fn package_bundle_the_wizard_installs_and_its_cancellation_is_22() {
+    let setups = setups();
+    let mut host = Host::take("wizard");
+    let servers = Servers::start();
+
+    for (name, mode, level) in [("quiet", "-quiet", "2"), ("passive", "-passive", "3")] {
+        let watch = DialogWatch::start();
+        let outcome = host.run(name, &setups.current, &[], mode, |_| {});
+        assert!(!watch.stop(), "{name}: no dialog");
+        assert_eq!(outcome.code, 22, "{name}\n{}", outcome.summary());
+        assert_ui_level(&outcome, level);
+        assert_eq!(exits(&outcome.burn(), "Preflight"), [22, 0], "{name}");
+        assert_nothing_left(&host, name);
+    }
+
+    // Cancelled, with the token typed: 22, the reversal run, nothing left.
+    let outcome = host.windowed("cancelled", &setups.current, |window| {
+        start_applying(window);
+        let dialog = wait_dialog();
+        for (id, text) in wizard_fields(&servers, &servers.enroll().base_url) {
+            ui::set(dialog, id, &text);
+        }
+        ui::command(dialog, cg_setup::dialog::ID_CANCEL);
+        close_last_page(window);
+    });
+    assert_eq!(outcome.code, 22, "{}", outcome.summary());
+    assert_ui_level(&outcome, "4");
+    assert_failed_step(&outcome, "Preflight", 22);
+    assert_eq!(
+        exits(&outcome.burn(), "Preflight"),
+        [22, 0],
+        "preflight, then its reversal\n{}",
+        outcome.summary()
+    );
+    assert!(
+        applied(&outcome.burn(), "rollback", "Preflight"),
+        "Burn ran the reversal\n{}",
+        outcome.summary()
+    );
+    assert_eq!(
+        results(&outcome.burn(), "rollback", "Preflight"),
+        ["0x0"],
+        "the reversal succeeded"
+    );
+    assert_nothing_left(&host, "cancelled");
+    assert_eq!(servers.enrollments(), 0, "no enrollment");
+    let hits = canary_hits(&servers, &host.paths, &host.logs);
+    assert!(
+        hits.is_empty(),
+        "the token typed before the cancellation found: {hits:?}"
+    );
+
+    // Through the wizard: operational, the token in none of the places.
+    let outcome = host.windowed("install", &setups.current, |window| {
+        start_applying(window);
+        let dialog = wait_dialog();
+        for (id, text) in wizard_fields(&servers, &servers.enroll().base_url) {
+            ui::set(dialog, id, &text);
+        }
+        ui::command(dialog, cg_setup::dialog::ID_SUBMIT);
+        close_last_page(window);
+    });
+    assert_eq!(outcome.code, 0, "operational\n{}", outcome.summary());
+    assert_ui_level(&outcome, "4");
+    assert_eq!(servers.enrollments(), 1, "one enrollment");
+    assert!(servers.online() >= 1, "an online heartbeat came");
+    assert_operational_service("an installation through the wizard");
+    assert!(
+        servers
+            .enroll()
+            .enroll_received()
+            .iter()
+            .any(|request| request.to_string().contains(&servers.canary)),
+        "the enrollment carried the token typed in the wizard"
+    );
+    let hits = canary_hits(&servers, &host.paths, &host.logs);
+    assert!(
+        hits.is_empty(),
+        "the token found after the installation: {hits:?}"
+    );
+}
+
+/// A pending host (the Amendment 2026-11-13, point 2): an installation whose
+/// agent could not enroll leaves `agent.toml` and no identity; the wizard
+/// offers to keep it, which stages nothing and starts the service on it as
+/// it is, or to replace it, which installs the agent operational.
+#[test]
+fn package_bundle_the_wizard_keeps_or_replaces_a_pending_hosts_configuration() {
+    let setups = setups();
+    let mut host = Host::take("pending");
+    let servers = Servers::start();
+
+    // An enrollment server no one listens on: configure fails after the MSI
+    // committed, and the host is pending.
+    let unreachable = "https://127.0.0.1:9";
+    let bootstrap = servers.bootstrap_to("unreachable.toml", unreachable);
+    let outcome = host.setup(
+        "unenrolled",
+        &setups.current,
+        &[&format!("CG_BOOTSTRAP={}", bootstrap.display())],
+    );
+    assert!(
+        (41..=45).contains(&outcome.code),
+        "configure fails, the MSI kept\n{}",
+        outcome.summary()
+    );
+    assert!(exists(&host.paths.config), "agent.toml adopted");
+    assert!(
+        !exists(&host.paths.config.with_file_name("identity")),
+        "no identity: a pending host"
+    );
+    let kept = std::fs::read(&host.paths.config).expect("agent.toml");
+
+    // Kept: preflight takes no input, and configure starts the service on
+    // the configuration as it was, which still cannot enroll.
+    let outcome = host.windowed("keep", &setups.current, |window| {
+        start_applying(window);
+        let dialog = wait_dialog();
+        ui::command(dialog, cg_setup::dialog::ID_KEEP);
+        close_last_page(window);
+    });
+    assert_ui_level(&outcome, "4");
+    assert_eq!(
+        exits(&outcome.burn(), "Preflight"),
+        [0],
+        "preflight kept the configuration\n{}",
+        outcome.summary()
+    );
+    assert!(
+        (41..=45).contains(&outcome.code),
+        "the kept configuration still cannot enroll\n{}",
+        outcome.summary()
+    );
+    assert_eq!(
+        std::fs::read(&host.paths.config).expect("agent.toml"),
+        kept,
+        "the configuration is kept as it was"
+    );
+    assert!(!exists(&PathBuf::from(format!(
+        "{}.setup",
+        host.paths.config.display()
+    ))));
+    assert_eq!(servers.enrollments(), 0, "no enrollment");
+
+    // Replaced: operational on the new input.
+    let outcome = host.windowed("replace", &setups.current, |window| {
+        start_applying(window);
+        let dialog = wait_dialog();
+        for (id, text) in wizard_fields(&servers, &servers.enroll().base_url) {
+            ui::set(dialog, id, &text);
+        }
+        ui::command(dialog, cg_setup::dialog::ID_SUBMIT);
+        close_last_page(window);
+    });
+    assert_eq!(outcome.code, 0, "operational\n{}", outcome.summary());
+    assert_ui_level(&outcome, "4");
+    assert_eq!(servers.enrollments(), 1, "one enrollment");
+    assert_operational_service("a pending host's configuration replaced");
+    assert_ne!(
+        std::fs::read(&host.paths.config).expect("agent.toml"),
+        kept,
+        "the configuration is the new input's"
+    );
+    let hits = canary_hits(&servers, &host.paths, &host.logs);
+    assert!(hits.is_empty(), "the token found: {hits:?}");
 }
 
 /// The byte range of the setup's last attached container, its payloads',

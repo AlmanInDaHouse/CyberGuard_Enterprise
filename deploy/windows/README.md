@@ -50,7 +50,9 @@ release's (install_ac_015), which is not built yet.
 2026-11-09, items 1 and 2, and 2026-11-12 (second) and (third)): WiX's Burn engine and standard
 bootstrapper application with the project's theme (`bundle/theme/`), whose chain runs `cg-setup`
 preflight, the MSI with `CG_SETUP_CHAIN=1`, a vital rollback boundary and `cg-setup` configure.
-`Directory.Build.targets` checks, before WiX compiles, that the MSI and `cg-setup.exe` it carries
+Preflight is told the setup's window, `--ui="[WixBundleUILevel]"`: only with the full window, on a
+fresh or pending host given no bootstrap file or migration variable, does it show the wizard
+(SPEC-024 Amendment 2026-11-13, points 1 to 3); with `-quiet` or `-passive` it asks nothing. `Directory.Build.targets` checks, before WiX compiles, that the MSI and `cg-setup.exe` it carries
 are of the release version. After the MSI is built, with `cg-setup.exe` built at the same version:
 
 ```sh

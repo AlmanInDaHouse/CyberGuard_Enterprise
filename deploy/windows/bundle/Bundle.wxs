@@ -33,11 +33,14 @@
       <!-- Each step's cache folder is this build's own (BuildId): a second build of the version
            removes the first, whose uncache would otherwise delete the folder of the same name.
            Detected absent, so that it runs on every install, repair and upgrade and on
-           uninstall not at all; Burn's rollback of it is the reversal (point 2). -->
+           uninstall not at all; Burn's rollback of it is the reversal (point 2). Preflight is
+           told the setup's window, WixBundleUILevel, which -quiet and -passive lower and a
+           variable on the command line cannot set: the wizard shows only with the full window
+           (the Amendment 2026-11-13, point 1). -->
       <ExePackage Id="Preflight" CacheId="cg-setup-preflight-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
                   Vital="yes" DetectCondition="1 = 0"
                   SourceFile="$(var.SetupExe)" Name="preflight\cg-setup.exe"
-                  InstallArguments="preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot;"
+                  InstallArguments="preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot; --ui=&quot;[WixBundleUILevel]&quot;"
                   UninstallArguments="reverse" />
       <!-- The MSI, admitted by its launch conditions with the chain's property (the Amendment
            2026-11-12, point 1). -->
