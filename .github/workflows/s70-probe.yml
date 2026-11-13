@@ -1,0 +1,57 @@
+name: s70-probe
+
+# PROBE ONLY (Session 70, never lands): the setup's window and cancellation on a hosted runner.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CG_RELEASE_VERSION: "1.2.3"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          rustflags: ""
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: deploy/windows/global.json
+      - name: Restore and check the pins
+        working-directory: deploy/windows
+        run: |
+          dotnet restore pins/Pins.csproj
+          node pins/verify-pins.mjs
+          dotnet tool restore
+          node pins/verify-pins.mjs --tool
+      - name: Build the setup
+        run: |
+          $t = $env:RUNNER_TEMP
+          $v = $env:CG_RELEASE_VERSION
+          cargo build --release -p cg-agent -p cg-setup
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $bin = Join-Path $t "bin"
+          New-Item -ItemType Directory -Force $bin | Out-Null
+          Copy-Item target/release/cg-agent.exe, target/release/cg-setup.exe $bin
+          Push-Location deploy/windows
+          dotnet build --no-incremental msi/CyberGuardAgent.wixproj -c Release "-p:AgentExe=$bin\cg-agent.exe" "-p:CgInjectFailure=" "-p:OutputPath=$t\msi/"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dotnet build --no-incremental bundle/CyberGuardSetup.wixproj -c Release "-p:Msi=$t\msi\cyberguard-agent-$v-x64.msi" "-p:SetupExe=$bin\cg-setup.exe" "-p:OutputPath=$t\setup/"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Probe
+        run: |
+          $v = $env:CG_RELEASE_VERSION
+          ./deploy/windows/test/s70-probe.ps1 -Setup "$env:RUNNER_TEMP\setup\cyberguard-agent-$v-x64-setup.exe" -Out "$env:RUNNER_TEMP\probe"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: probe
+          path: ${{ runner.temp }}/probe
+          retention-days: 7

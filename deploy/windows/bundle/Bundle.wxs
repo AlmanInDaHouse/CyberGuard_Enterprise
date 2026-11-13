@@ -37,7 +37,7 @@
       <ExePackage Id="Preflight" CacheId="cg-setup-preflight-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
                   Vital="yes" DetectCondition="1 = 0"
                   SourceFile="$(var.SetupExe)" Name="preflight\cg-setup.exe"
-                  InstallArguments="preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot;"
+                  InstallArguments="preflight --bootstrap=&quot;[CG_BOOTSTRAP]&quot; --migrate-legacy=&quot;[CG_MIGRATE_LEGACY]&quot; --trust-anchors=&quot;[CG_TRUST_ANCHORS]&quot; --ui=&quot;[WixBundleUILevel]&quot;"
                   UninstallArguments="reverse" />
       <!-- The MSI, admitted by its launch conditions with the chain's property (the Amendment
            2026-11-12, point 1). -->

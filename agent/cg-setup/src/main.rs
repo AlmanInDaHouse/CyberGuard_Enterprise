@@ -11,8 +11,14 @@ use std::process::ExitCode;
 
 use cg_setup::Refusal;
 
+#[cfg(windows)]
+mod probe;
+
 fn main() -> ExitCode {
-    let arguments: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    #[allow(unused_mut)]
+    let mut arguments: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    #[cfg(windows)]
+    probe::run(&mut arguments);
     match run(&arguments) {
         Ok(()) => ExitCode::SUCCESS,
         // A line with code 0 is configure's record left behind an
