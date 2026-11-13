@@ -2553,6 +2553,194 @@ changes, and no dependency, privilege or operator input is added. Manuel chose p
 library of the project's own. He approved this text on 2026-11-13, in chat: "Apruebo". Status stays
 **Accepted**.
 
+## Amendment 2026-11-13: the setup's wizard
+
+**What surfaced it.** The wizard (`docs/handoff-session-69.md#how-session-70-resumes`). Item 1 of
+the Amendment 2026-11-09 makes the interactive input "a Win32 dialog of the same executable with a
+masked field, feeding the same validation and staging", and leaves its window from a Burn child to
+the isolated machine, and §Data contracts §3 lists what the wizard takes. No text says when the
+dialog shows, how it takes those inputs, what a cancellation exits with, or how `cg-setup` knows
+that the setup has a window; item 3's "a bootstrap or the wizard's
+input is required (22)" is the only state that names it. An audit of Burn's source at `v7.0.1`,
+then the probe pull request #127 (closed without landing; run 43445276014, its job log), which
+built the setup with `cg-setup` recording what its window saw and ran it on a hosted runner
+quietly, passively, with its window to its end, and with its window closed while preflight held,
+found:
+
+- Burn starts `cg-setup` from its elevated process with no window state of its own, on the
+  interactive desktop (`WinSta0\Default`, read), and waits for it with no timeout. Neither Burn nor
+  the standard bootstrapper application asks for the foreground or makes a window topmost.
+- `WixBundleUILevel`, which Burn sets once from the setup's command line and which a variable on
+  that command line cannot set (the Amendment 2026-11-12 (second), point 1, read), reaches a
+  package's arguments formatted: `2` with `-quiet`, `3` with `-passive`, `4` with the full window
+  (read).
+- Closing the setup's window while preflight runs cancels the run. Burn abandons the running
+  `cg-setup`, records preflight's result as `0x80070642`, and skips its rollback ("Skipping
+  rollback of package: Preflight due to abandoning its process", read): no reversal runs. The
+  Amendment 2026-11-12 (second), point 6, has "a preflight so left runs alongside the reversal of
+  its own rollback", which is wrong. The setup's window then stays on its last page, and the
+  elevated Burn process that started `cg-setup` stays running while it shows (read, for the 150
+  seconds the probe held).
+
+**Amendment.** Items without a date are those of the Amendment 2026-11-09.
+
+1. **The signal.** Preflight's arguments gain `--ui=[WixBundleUILevel]`, at most once, as item 9 of
+   the Amendment 2026-11-10 takes its options; configure and reverse take no `--ui`. Only the
+   value `4`, the setup's full window, lets the wizard show; any other value, or none, does not, so
+   a quiet or passive setup started from an administrator's desktop asks nothing. This is the
+   setup's window, not its launch: the interactive route of the Amendment 2026-11-12 (second),
+   point 10, is a setup started from an administrator's desktop, with or without its full window,
+   and a setup started elevated has its full window unless `-quiet` or `-passive` is given. The value carries
+   no secret, and the operator does not set it: Burn ignores a command-line variable of that name.
+   The runbook's unattended command is to carry `-quiet` with item 2's `-norestart`, and it is the
+   command for a setup started as SYSTEM or by a deployment tool, so that no dialog waits on a
+   desktop no one sees.
+2. **When the wizard shows.** With the setup's full window, no `CG_BOOTSTRAP` and neither
+   migration variable, on two of item 3's states:
+   - a fresh host ("neither"): the wizard is the input that item 3 requires; without the
+     full window it stays 22;
+   - a pending host (`agent.toml` and no `identity\`): the wizard offers to keep the current
+     configuration, which starts the service with no argument, as that state does without input,
+     or to replace it with new input, which item 3 stages.
+
+   On every other state, and on any route with `CG_BOOTSTRAP` or a migration variable, no wizard
+   shows and item 3 applies as written: a bootstrap file is the input whenever it is given; an
+   enrolled or preserved host starts the service with no argument, or refuses a bootstrap (30); a
+   migration in progress or a console layout is 28 unless the migration route is asked; an
+   untrusted path is 27. The interactive migration is the setup run with `CG_MIGRATE_LEGACY` and
+   `CG_TRUST_ANCHORS` on its command line, as on the unattended route: the wizard does not ask for
+   the choice or the fingerprints, and the Amendment 2026-11-05, item 1's "it asks for the choice
+   and the fingerprints" reads as those variables.
+3. **Its order.** The wizard shows after the state, the conflicting service (26) and the downgrade
+   (29) are read, so that a run they refuse asks nothing. On submission its input is checked as a
+   bootstrap file's is; preflight then checks that the process that started it, which it holds by
+   a handle it opened, on the wizard's route only, after the elevation and before the dialog, to
+   the process that created it and was created before it, is still running (if preflight cannot
+   open that handle, it shows no dialog and exits 40),
+   reads the state, the conflicting service and the downgrade again, and applies item 3 to what it
+   reads as it would to a bootstrap file's input: a host that became enrolled is 30, one that became
+   untrusted 27, a migration in progress or a console layout 28, and a conflicting service or a
+   downgrade 26 or 29, while a fresh host that became pending, or a pending one that became fresh,
+   takes the input. A choice to keep a pending host's configuration takes no input and needs the
+   host still pending: one that became enrolled is 30, and one that became fresh is 22. The
+   record's reading of the service is this second one. Then preflight goes on with the staging,
+   if any, its record and the stop, in the order the Amendment 2026-11-10 gives them.
+4. **What it asks.** The keys item 2 admits, as fields: the server's URL and the heartbeat URL; the
+   trust anchor's absolute path, typed, from which the anchor is read once as
+   `server.trust_anchor_path` is, with no file picker; the fingerprints, one per line, each as
+   `setup.trust_anchor_sha256` takes them; and the token, masked. No field is pre-filled, and no
+   fingerprint is computed from the anchor or offered from it: §Data contracts §3's list obtained
+   independently is the operator's to type, and a mismatch is a failure, not a prompt to trust. The
+   input passes the checks a bootstrap file's passes: its values, the anchor against the
+   fingerprints exactly (25), and the configuration generated from it by the service's checks
+   (24); there is no bootstrap file, so 23 does not apply. A refusal of a field (24) or of the
+   anchor (25) shows in the dialog with the refusal's text, which names a field, the anchor's
+   path or the check the generated configuration failed, and never the token, and the dialog asks again with the fields as they were; any other refusal or failure
+   closes the dialog and exits with its code, as on the unattended route.
+5. **Cancellation and time.** The dialog's cancellation, 15 minutes after it shows with no
+   accepted submission (a refused submission does not restart them), or the exit of the process that started it closes the dialog and exits 22,
+   the code of a run with no input, with nothing changed. After a cancellation or the 15
+   minutes, unless Burn has already abandoned preflight (point 8), Burn runs preflight's reversal, which finds no record of this attempt (the Amendment 2026-11-12 (second),
+   point 2). A submission once that process has exited also exits 22 with nothing changed. Under
+   Burn that process is Burn's elevated process; how long it runs when the setup was started from
+   an administrator's desktop without elevation is the isolated machine's to read. An enrollment
+   token's lifetime is the server's (SPEC-002), and a token that expires while the dialog waits
+   fails after configure starts the service, as any expired token does; the runbook says so.
+6. **The token in the dialog.** A single-line masked field, from which nothing can be copied or cut
+   and which has no control that shows it; pasting into it is allowed. Preflight reads it at each
+   submission into memory it zeroes after use, keeps it in the field while the dialog asks again,
+   and clears the field before the dialog closes. The memory of the field itself, which Windows'
+   control keeps, is not the setup's to zero: the token may stay in `cg-setup`'s process until it
+   exits, which SYSTEM and elevated administrators alone can read. No line, log or argument carries
+   it, as on the unattended route. The field refuses `WM_GETTEXT` from another process, as
+   Windows' masked fields do; the other fields, which hold no secret, do not. The runbook (C10)
+   discloses that a pasted token passes through the clipboard of the administrator's session, its
+   clipboard history and any clipboard synchronisation the session has, that a window of that
+   session can imitate the dialog, that the dialog shows only during the setup's own run, after
+   its elevation, and that the token may stay in `cg-setup`'s memory until it exits; and it
+   reads and records Windows Error Reporting's `LocalDumps` settings for `cg-setup.exe` too, as the
+   Amendment 2026-11-01, point 5, has it do for `cg-agent.exe`, since a dump of `cg-setup`'s
+   process may hold the token. Whether a process of lower integrity in that session can observe
+   the keys typed into the dialog is not read; the isolated machine reads it.
+7. **The window.** A dialog of `cg-setup`'s own, topmost, shown normally, which asks for the
+   foreground and, when Windows refuses it, flashes its taskbar button. The isolated machine reads
+   it from a setup with its full window started from an administrator's desktop, with a real
+   elevation prompt, and the reading item 1 asks for is:
+   the dialog is visible above the setup's window, and it takes the keyboard at once or after one
+   click on it or on its taskbar button. If it does not, item 1's choice reopens for the wizard
+   alone. On the probe's runner, with no one at its console and no elevation prompt, the window was in the
+   foreground at once (read); that is not this reading.
+8. **A cancellation while preflight runs.** The Amendment 2026-11-12 (second), point 6, reads thus:
+   Burn abandons a running preflight and skips its rollback, so no reversal follows it, and the
+   abandoned preflight goes on with no configure and no reversal after it. It may leave the staged
+   files and its record, and the service stopped, until a later setup removes those files and that
+   record (item 3, on any route but a migration's) and starts the service, an administrator starts
+   it, or, while its start type is automatic, Windows does at the next restart. The wizard keeps
+   preflight waiting on the operator for up to point 5's 15 minutes, and it stages and stops only
+   on an accepted submission or a choice to keep: the dialog closes when the process that
+   started it exits, and point 3's check refuses a submission after it, but not while the setup's
+   window shows its last page after the cancellation, when that process was still running on the
+   probe's runner. A submission then stages and stops the service, and a choice to keep stops it,
+   which is not one preflight read as enrolled: on a fresh host there is none, or one an earlier setup installed whose configure failed,
+   with no configuration to run on, and on a pending host it is a service with no identity. Whether a cancelled upgrade of a pending host
+   runs the installed older setup again (the Amendment 2026-11-12 (second), point 3) alongside the
+   abandoned preflight is not read; the probe ran a fresh host. The first, third and fourth
+   disclosed cases of the Amendment 2026-11-10's *Effect*, as the Amendments 2026-11-11 (second)
+   and 2026-11-12 (second) widened them, read with this correction.
+9. **The outcome the operator reads.** §Operational §1's "The wizard distinguishes installed,
+   enrolling, operational and failed" is, under the standard bootstrapper application, the setup's
+   result: the wizard takes the input, and configure's code is `setup.exe`'s (item 7, as the
+   Amendment 2026-11-12 (second), point 4, amends it). The window's success page follows 0 and
+   3010; its
+   failure page names Burn's log and the log's lines where the code is, which it does not show
+   itself (the Amendment 2026-11-12 (third)); and the runbook (C10) says which codes leave the agent
+   installed and enrolling, installed and failed, or not installed, and the safe retry for each.
+   Its "A timeout shows the pending/failure reason and a safe retry procedure" is configure's 43
+   or 44 (the Amendment 2026-11-10, item 8), found through that page in the log, and the
+   runbook's retry.
+
+**Tests.** Unit tests, on every platform: the wizard's fields and a bootstrap file of the same
+values give the same staged configuration, anchor and fingerprints; each refusal of a field names
+the field and never the token; the signal's values; item 2's states with the full window and
+without. A Windows test of the dialog, created hidden in the test's own process and driven by its
+controls' messages, which acts on nothing outside that process, in the local gate and `rust-ci`:
+the token field masked and single-line, refusing copy and cut, and
+empty after a valid submission or
+a close; a refused field shown and asked again; cancellation, an injected timeout and the exit of a
+starting process the test stands in giving 22; a valid submission giving the fields' input. In `package-ci`'s `bundle`
+job, which drives the setup's window by its controls as pull request #127 did and the dialog by its
+controls, seen red first on a probe pull request (the
+Amendment 2026-11-12's *Tests*): a fresh installation through the wizard, operational (0), with the
+token in none of the places the Amendment 2026-11-12 (second)'s *Tests* list; a cancelled wizard, 22, with the
+reversal run; a quiet run, 22, with no dialog; a pending host kept and replaced. The window's
+visibility, foreground and focus from a Burn child with a real elevation prompt, its scaling,
+closing the setup's window while the dialog shows, and what another process of the session reads
+of the keys typed into it stay with the isolated machine.
+
+**Effect.** Item 1's "a Win32 dialog of the same executable with a masked field, feeding the same
+validation and staging" is points 1 to 7, and its test on the isolated machine is point 7's
+reading. Item 3's "neither: a bootstrap or the wizard's input is required (22)" and its pending
+host's "new input replaces the configuration" gain point 2, and its order gains point 3 on the
+wizard's route. Item 7's 22 gains point 5's causes. §Data contracts §3's "UI and unattended inputs
+follow the same validation and secret-handling rules" is point 4 and point 6, whose control memory
+is disclosed, and its "the server trust-anchor PEM" is, in the wizard, point 4's typed path. §Operational §1's four states read as point 9. The Amendment 2026-11-12 (second),
+point 6, is corrected by point 8, and the Amendment 2026-11-05, item 1's "it asks" reads as point
+2 says. The Amendment 2026-11-10, item 9's command line gains point 1's option, which is not
+"any other command line". The Amendment 2026-11-01, point 5's runbook gains point 6's `cg-setup.exe`. install_ac_002's
+input is the wizard. No ADR changes, and no dependency or privilege is added: the
+dialog uses further features of `windows-sys`, a crate `cg-setup` already depends on, and `--ui`
+is Burn's, not the operator's, and carries no secret. The wizard is an operator input surface
+in the setup's elevated process, and the threat model is amended with this text (its Amendment
+2026-11-13). Manuel chose on 2026-11-13, in chat, each in the recommended option: the wizard on a
+pending host with the choice to keep its configuration; 22 for a cancellation; point 7's reading;
+and the starting process's check with the 15 minutes, disclosing what it does not cover after
+pull request #127 showed the setup's process still running on its last page. The dialog's closing when
+that process exits, and the second reading of point 3, are Claude Code's, from the text's review.
+Claude Code proposed, and Manuel's approval of this text decides: the fields of point 4, the
+anchor's path typed with no file picker, the fingerprints never computed from the anchor, and
+pasting allowed into the token's field with the clipboard disclosed. He approved this text on
+2026-11-13, in chat: "si". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
