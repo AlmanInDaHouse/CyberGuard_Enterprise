@@ -3,6 +3,7 @@
 //! anchor, `server-ca.pem.setup`, as the service's adoption takes them in
 //! (item 6.4).
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use cg_agent::service::InstalledPaths;
@@ -85,4 +86,44 @@ pub fn staged_anchor(certificates: &[Vec<u8>]) -> Vec<u8> {
 /// service's line.
 pub fn check_staged(paths: &InstalledPaths, text: &str) -> Result<(), String> {
     cg_agent::service::check_staged_config(paths, &paths.staged_config(), text.as_bytes())
+}
+
+/// What a route that stages takes in, checked: the configuration and the
+/// anchor to stage, and the fingerprints the service is started with. Its
+/// `Debug` writes neither file.
+pub struct Staged {
+    pub config: Zeroizing<String>,
+    pub anchor: Vec<u8>,
+    pub fingerprints: BTreeSet<String>,
+}
+
+impl std::fmt::Debug for Staged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Staged")
+            .field("config", &"<redacted>")
+            .field("anchor_bytes", &self.anchor.len())
+            .field("fingerprints", &self.fingerprints)
+            .finish()
+    }
+}
+
+/// What `inputs` stage, once their anchor's `certificates` matched their
+/// fingerprints: the configuration generated with `agent_id` and
+/// `hostname`, which must pass `check_staged` (the error is its line), and
+/// the anchor of those certificates. A bootstrap file and the wizard's
+/// fields reach the staging through here alike.
+pub fn stage_inputs(
+    paths: &InstalledPaths,
+    inputs: &Inputs,
+    certificates: &[Vec<u8>],
+    agent_id: &str,
+    hostname: &str,
+) -> Result<Staged, String> {
+    let config = staged_config(paths, inputs, agent_id, hostname);
+    check_staged(paths, &config)?;
+    Ok(Staged {
+        config,
+        anchor: staged_anchor(certificates),
+        fingerprints: inputs.fingerprints.clone(),
+    })
 }

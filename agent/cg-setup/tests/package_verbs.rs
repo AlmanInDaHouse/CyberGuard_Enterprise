@@ -8,19 +8,24 @@
 
 mod fixtures;
 
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use cg_setup::codes;
-use cg_setup::preflight::Request;
+use cg_setup::preflight::{Request, Staged};
 use cg_setup::record::{Created, Record};
 use cg_setup::scm::{self, Manager, Product, Route};
 use cg_setup::staging::{self, read_record, Name, Setup, SetupCustody, Step, Watch};
+use cg_setup::starter::{own_creation, Process};
 use cg_setup::verbs::{self, Machine};
 use cg_setup::version::{numeric, SETUP_VERSION};
+use cg_setup::wizard::{asks_again, Answer, Closed, Fields, Offer, Starter, Wizard};
 use cg_setup::Refusal;
+use zeroize::Zeroizing;
 
 use fixtures::{
     bootstrap_text, certificate, closed_directory_sddl, private_file_sddl, test_policy,
@@ -98,6 +103,7 @@ fn machine<'a>(root: &Root, watch: &'a (dyn Watch + 'a), binary: PathBuf) -> Mac
         },
         service: absent_service(),
         binary,
+        wizard: None,
     }
 }
 
@@ -239,6 +245,541 @@ fn package_verbs_preflight_the_routes_that_stage_nothing() {
     assert_eq!(verbs::preflight(&on, &request), Ok(()));
     assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
     assert_eq!(root.tree(), before);
+}
+
+// --- The wizard (SPEC-024 Amendment 2026-11-13) --------------------------------------
+
+/// The process that started the setup, as the tests stand in for it.
+struct FakeStarter(Rc<Cell<bool>>);
+
+impl Starter for FakeStarter {
+    fn running(&self) -> bool {
+        self.0.get()
+    }
+}
+
+type Script<'a> = dyn Fn(&mut dyn FnMut(&Fields) -> Result<Staged, Refusal>, &Cell<bool>) -> Result<Answer, Refusal>
+    + 'a;
+
+/// A wizard whose dialog is `script`: it is given the submission's check and
+/// the starter's state, and answers as the dialog would.
+struct FakeWizard<'a> {
+    holds: bool,
+    running: Rc<Cell<bool>>,
+    offers: RefCell<Vec<Offer>>,
+    script: Box<Script<'a>>,
+}
+
+impl<'a> FakeWizard<'a> {
+    fn new(
+        script: impl Fn(
+                &mut dyn FnMut(&Fields) -> Result<Staged, Refusal>,
+                &Cell<bool>,
+            ) -> Result<Answer, Refusal>
+            + 'a,
+    ) -> Self {
+        FakeWizard {
+            holds: true,
+            running: Rc::new(Cell::new(true)),
+            offers: RefCell::new(Vec::new()),
+            script: Box::new(script),
+        }
+    }
+
+    fn offers(&self) -> Vec<Offer> {
+        self.offers.borrow().clone()
+    }
+}
+
+impl Wizard for FakeWizard<'_> {
+    fn hold_starter(&self) -> Result<Box<dyn Starter>, Refusal> {
+        if self.holds {
+            Ok(Box::new(FakeStarter(self.running.clone())))
+        } else {
+            Err(Refusal::new(
+                codes::OWN_STATE,
+                "the process that started the setup cannot be held: a test",
+            ))
+        }
+    }
+
+    fn ask(
+        &self,
+        offer: Offer,
+        starter: &dyn Starter,
+        take: &mut dyn FnMut(&Fields) -> Result<Staged, Refusal>,
+    ) -> Result<Answer, Refusal> {
+        assert!(starter.running(), "the dialog shows while the starter runs");
+        self.offers.borrow_mut().push(offer);
+        (self.script)(take, &self.running)
+    }
+}
+
+/// The wizard's fields for `root`: an anchor of a new certificate, and its
+/// fingerprint.
+fn wizard_fields(root: &Root) -> (Fields, BTreeSet<String>) {
+    let certificate = certificate("wizard.example.test");
+    let anchor = root.anchor(&[&certificate]);
+    (
+        Fields {
+            server_url: fixtures::ENROLL_URL.to_string(),
+            heartbeat_url: fixtures::HEARTBEAT_URL.to_string(),
+            anchor_path: anchor.to_str().expect("a Unicode path").to_string(),
+            fingerprints: format!("{}\r\n", certificate.fingerprint),
+            token: Zeroizing::new(TOKEN.to_string()),
+        },
+        BTreeSet::from([certificate.fingerprint]),
+    )
+}
+
+fn full_window() -> Request {
+    Request::default().with_ui(Some("4"))
+}
+
+fn with_wizard<'a>(
+    root: &Root,
+    watch: &'a (dyn Watch + 'a),
+    binary: PathBuf,
+    wizard: &'a dyn Wizard,
+) -> Machine<'a> {
+    Machine {
+        wizard: Some(wizard),
+        ..machine(root, watch, binary)
+    }
+}
+
+/// A submission the script accepts.
+fn submit(
+    take: &mut dyn FnMut(&Fields) -> Result<Staged, Refusal>,
+    fields: &Fields,
+) -> Result<Answer, Refusal> {
+    take(fields).map(Answer::Input)
+}
+
+/// A fresh host with the setup's full window: the wizard's input staged as a
+/// bootstrap file's is, the record naming what it created and its
+/// fingerprints.
+#[test]
+fn package_verbs_wizard_a_fresh_host_stages_its_input() {
+    let root = Root::bare();
+    let (fields, fingerprints) = wizard_fields(&root);
+    let wizard = FakeWizard::new(|take, _| submit(take, &fields));
+    let on = with_wizard(&root, &quiet, root.operator.join("absent.exe"), &wizard);
+    assert_eq!(verbs::preflight(&on, &full_window()), Ok(()));
+    assert_eq!(wizard.offers(), vec![Offer::Fresh]);
+    assert_eq!(
+        read_record(&on.setup).unwrap(),
+        Some(Record {
+            created: Created::ALL.into_iter().collect(),
+            fingerprints,
+            service_running: false,
+        })
+    );
+    let config = std::fs::read_to_string(root.paths.staged_config()).unwrap();
+    assert!(config.contains(TOKEN), "the token is staged");
+    assert!(exists(&root.paths.staged_anchor()));
+}
+
+/// A refused field (24) or anchor (25) is the dialog's to show and ask again,
+/// naming the field, the anchor's path or the check, never the token; the
+/// next submission is taken.
+#[test]
+fn package_verbs_wizard_a_refused_field_or_anchor_is_asked_again() {
+    let root = Root::bare();
+    let (fields, _) = wizard_fields(&root);
+    let other = certificate("other.example.test");
+    let refusals = RefCell::new(Vec::new());
+    let wizard = FakeWizard::new(|take, _| {
+        let attempts: Vec<Fields> = vec![
+            Fields {
+                anchor_path: "server-ca.pem".to_string(),
+                ..copy(&fields)
+            },
+            Fields {
+                fingerprints: other.fingerprint.clone(),
+                ..copy(&fields)
+            },
+            Fields {
+                anchor_path: root
+                    .operator
+                    .join("absent.pem")
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                ..copy(&fields)
+            },
+            Fields {
+                server_url: "http://enroll.example.test:8444".to_string(),
+                ..copy(&fields)
+            },
+            Fields {
+                token: Zeroizing::new(String::new()),
+                ..copy(&fields)
+            },
+        ];
+        for attempt in &attempts {
+            let refusal = take(attempt).expect_err("a refused submission");
+            assert!(asks_again(&refusal), "{}", refusal.line);
+            refusals.borrow_mut().push(refusal);
+        }
+        submit(take, &fields)
+    });
+    let on = with_wizard(&root, &quiet, root.operator.join("absent.exe"), &wizard);
+    assert_eq!(verbs::preflight(&on, &full_window()), Ok(()));
+    drop(on);
+    drop(wizard);
+    let refusals = refusals.into_inner();
+    let expected: [(u8, &str); 5] = [
+        (codes::INVALID_INPUT, "server.trust_anchor_path"),
+        (codes::ANCHOR, "server-ca.pem"),
+        (codes::ANCHOR, "absent.pem"),
+        (codes::INVALID_INPUT, "server.url"),
+        (codes::INVALID_INPUT, "enrollment.token"),
+    ];
+    assert_eq!(refusals.len(), expected.len());
+    for (refusal, (code, naming)) in refusals.iter().zip(expected) {
+        assert_eq!(refusal.code, code, "{}", refusal.line);
+        assert!(refusal.line.contains(naming), "{naming}: {}", refusal.line);
+        assert!(!refusal.line.contains("bootstrap file"), "{}", refusal.line);
+        fixtures::assert_clean(&refusal.line);
+    }
+    assert!(exists(&root.paths.staged_config()));
+}
+
+fn copy(fields: &Fields) -> Fields {
+    Fields {
+        server_url: fields.server_url.clone(),
+        heartbeat_url: fields.heartbeat_url.clone(),
+        anchor_path: fields.anchor_path.clone(),
+        fingerprints: fields.fingerprints.clone(),
+        token: fields.token.clone(),
+    }
+}
+
+/// A cancellation, the 15 minutes, the starter's exit, and a submission once
+/// the starter has exited: 22, with nothing changed and no step taken.
+#[test]
+fn package_verbs_wizard_closed_or_a_late_submission_is_22_with_nothing_changed() {
+    for closed in [Closed::Cancelled, Closed::TimedOut, Closed::StarterExited] {
+        let root = Root::bare();
+        let wizard = FakeWizard::new(|_, _| Ok(Answer::Closed(closed)));
+        let recorder = Recorder::new();
+        let on = with_wizard(&root, &recorder, root.operator.join("absent.exe"), &wizard);
+        assert_code(
+            verbs::preflight(&on, &full_window()),
+            codes::NO_INPUT,
+            &["nothing was changed"],
+        );
+        assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+        assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
+    }
+
+    let root = Root::bare();
+    let (fields, _) = wizard_fields(&root);
+    let wizard = FakeWizard::new(|take, running| {
+        running.set(false);
+        submit(take, &fields)
+    });
+    let recorder = Recorder::new();
+    let on = with_wizard(&root, &recorder, root.operator.join("absent.exe"), &wizard);
+    assert_code(
+        verbs::preflight(&on, &full_window()),
+        codes::NO_INPUT,
+        &["the process that started the setup exited"],
+    );
+    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+    assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
+
+    // A pending host's choice to keep, once the starter has exited.
+    let root = Root::empty();
+    root.touch("agent.toml");
+    let before = root.tree();
+    let wizard = FakeWizard::new(|_, running| {
+        running.set(false);
+        Ok(Answer::Keep)
+    });
+    let recorder = Recorder::new();
+    let on = with_wizard(&root, &recorder, root.operator.join("absent.exe"), &wizard);
+    assert_code(
+        verbs::preflight(&on, &full_window()),
+        codes::NO_INPUT,
+        &["the process that started the setup exited"],
+    );
+    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+    assert_eq!(root.tree(), before);
+}
+
+/// The starter that cannot be held: 40, and no dialog.
+#[test]
+fn package_verbs_wizard_a_starter_not_held_is_40_and_no_dialog() {
+    let root = Root::bare();
+    let mut wizard = FakeWizard::new(|_, _| panic!("no dialog shows"));
+    wizard.holds = false;
+    let recorder = Recorder::new();
+    let on = with_wizard(&root, &recorder, root.operator.join("absent.exe"), &wizard);
+    assert_code(
+        verbs::preflight(&on, &full_window()),
+        codes::OWN_STATE,
+        &["the process that started the setup"],
+    );
+    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+    assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
+}
+
+/// An answer the route cannot take, a choice to keep on a fresh host's
+/// offer, is 40 with nothing changed, not a panic of the elevated process.
+#[test]
+fn package_verbs_wizard_an_answer_it_cannot_take_is_40() {
+    let root = Root::bare();
+    let wizard = FakeWizard::new(|_, _| Ok(Answer::Keep));
+    let recorder = Recorder::new();
+    let on = with_wizard(&root, &recorder, root.operator.join("absent.exe"), &wizard);
+    assert_code(
+        verbs::preflight(&on, &full_window()),
+        codes::OWN_STATE,
+        &["inconsistent"],
+    );
+    assert_eq!(wizard.offers(), vec![Offer::Fresh]);
+    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+    assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
+}
+
+/// No dialog without the full window, with a bootstrap file, with a migration
+/// variable, on an enrolled host, or on a machine with no wizard; and none
+/// after a downgrade (29), which is read before it.
+#[test]
+fn package_verbs_wizard_shows_only_where_point_2_says() {
+    let never = || FakeWizard::new(|_, _| panic!("no dialog shows"));
+    let absent = |root: &Root| root.operator.join("absent.exe");
+
+    for ui in [None, Some(""), Some("2"), Some("3")] {
+        let root = Root::bare();
+        let wizard = never();
+        let on = with_wizard(&root, &quiet, absent(&root), &wizard);
+        assert_code(
+            verbs::preflight(&on, &Request::default().with_ui(ui)),
+            codes::NO_INPUT,
+            &["no input"],
+        );
+        assert!(program_data(&root).is_empty(), "{ui:?}");
+    }
+
+    let root = Root::bare();
+    let on = machine(&root, &quiet, absent(&root));
+    assert_code(
+        verbs::preflight(&on, &full_window()),
+        codes::NO_INPUT,
+        &["no input"],
+    );
+
+    let root = Root::bare();
+    let (request, fingerprints) = bootstrap(&root);
+    let wizard = never();
+    let on = with_wizard(&root, &quiet, absent(&root), &wizard);
+    assert_eq!(
+        verbs::preflight(
+            &on,
+            &Request {
+                ui: Some("4".into()),
+                ..request
+            }
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        read_record(&on.setup).unwrap().unwrap().fingerprints,
+        fingerprints
+    );
+
+    let root = Root::bare();
+    let wizard = never();
+    let on = with_wizard(&root, &quiet, absent(&root), &wizard);
+    let migration = Request::new(
+        None,
+        Some("keep"),
+        Some(&format!("sha256:{}", "ab".repeat(32))),
+    )
+    .with_ui(Some("4"));
+    assert_code(
+        verbs::preflight(&on, &migration),
+        codes::CONSOLE_LAYOUT,
+        &["no console installation"],
+    );
+
+    let root = Root::empty();
+    std::fs::create_dir(root.paths.data_root.join("identity")).expect("identity");
+    let wizard = never();
+    let on = with_wizard(&root, &quiet, absent(&root), &wizard);
+    assert_eq!(verbs::preflight(&on, &full_window()), Ok(()));
+    assert!(!exists(&root.paths.staged_config()));
+
+    let root = Root::bare();
+    let [x, y, z, _] = own_numbers();
+    let binary = installed(&root, [x, y, z, 1], "9.9.9");
+    let wizard = never();
+    let recorder = Recorder::new();
+    let on = with_wizard(&root, &recorder, binary, &wizard);
+    assert_code(
+        verbs::preflight(&on, &full_window()),
+        codes::DOWNGRADE,
+        &["a downgrade"],
+    );
+    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+}
+
+/// A pending host: the wizard offers to keep its configuration, which
+/// starts the service with no argument and stages nothing, or to replace it.
+#[test]
+fn package_verbs_wizard_a_pending_host_kept_or_replaced() {
+    let root = Root::empty();
+    root.touch("agent.toml");
+    let wizard = FakeWizard::new(|_, _| Ok(Answer::Keep));
+    let on = with_wizard(&root, &quiet, root.operator.join("absent.exe"), &wizard);
+    assert_eq!(verbs::preflight(&on, &full_window()), Ok(()));
+    assert_eq!(wizard.offers(), vec![Offer::Pending]);
+    assert_eq!(
+        read_record(&on.setup).unwrap(),
+        Some(Record {
+            created: BTreeSet::new(),
+            fingerprints: BTreeSet::new(),
+            service_running: false,
+        })
+    );
+    assert!(!exists(&root.paths.staged_config()));
+
+    let root = Root::empty();
+    root.touch("agent.toml");
+    let (fields, fingerprints) = wizard_fields(&root);
+    let wizard = FakeWizard::new(|take, _| submit(take, &fields));
+    let on = with_wizard(&root, &quiet, root.operator.join("absent.exe"), &wizard);
+    assert_eq!(verbs::preflight(&on, &full_window()), Ok(()));
+    assert_eq!(wizard.offers(), vec![Offer::Pending]);
+    let record = read_record(&on.setup).unwrap().unwrap();
+    assert_eq!(record.fingerprints, fingerprints);
+    assert!(record.created.contains(&Created::StagedConfig));
+    assert!(std::fs::read_to_string(root.paths.staged_config())
+        .unwrap()
+        .contains(TOKEN));
+}
+
+/// Point 3: after the dialog, the state, the conflicting service and the
+/// downgrade are read again, and item 3 applies to what is read as to a
+/// bootstrap file's input; a choice to keep needs the host still pending.
+/// A refusal there changes nothing.
+#[test]
+fn package_verbs_wizard_the_state_is_read_again_after_the_dialog() {
+    type Change = Box<dyn Fn(&Root)>;
+    let identity: Change =
+        Box::new(|root| std::fs::create_dir(root.paths.data_root.join("identity")).unwrap());
+    let migrating: Change = Box::new(|root| std::fs::create_dir(root.paths.staging()).unwrap());
+    let console: Change = Box::new(|root| root.touch("cert.pem"));
+    let untrusted: Change = Box::new(|root| {
+        std::fs::remove_dir(&root.paths.data_root).unwrap();
+        std::fs::remove_dir(&root.paths.product_root).unwrap();
+        root.directories(&fixtures::open_directory_sddl());
+    });
+    let gone: Change =
+        Box::new(|root| std::fs::remove_file(root.paths.data_root.join("agent.toml")).unwrap());
+    let newer: Change = Box::new(|root| {
+        let [x, y, z, _] = own_numbers();
+        versioned_copy(&root.operator.join("cg-agent.exe"), [x, y, z, 1], "9.9.9");
+    });
+
+    // (pending at the start, keep rather than submit, the change, the code)
+    let cases: Vec<(bool, bool, &Change, u8)> = vec![
+        (false, false, &identity, codes::ALREADY_CONFIGURED),
+        (false, false, &migrating, codes::CONSOLE_LAYOUT),
+        (false, false, &console, codes::CONSOLE_LAYOUT),
+        (false, false, &untrusted, codes::UNTRUSTED_PATH),
+        (false, false, &newer, codes::DOWNGRADE),
+        (true, false, &identity, codes::ALREADY_CONFIGURED),
+        (true, true, &identity, codes::ALREADY_CONFIGURED),
+        (true, true, &gone, codes::NO_INPUT),
+        (true, true, &console, codes::CONSOLE_LAYOUT),
+        (true, true, &newer, codes::DOWNGRADE),
+    ];
+    for (index, (pending, keep, change, code)) in cases.into_iter().enumerate() {
+        let root = Root::empty();
+        if pending {
+            root.touch("agent.toml");
+        }
+        let (fields, _) = wizard_fields(&root);
+        let binary = root.operator.join("cg-agent.exe");
+        let wizard = FakeWizard::new(|take, _| {
+            let answer = if keep {
+                Answer::Keep
+            } else {
+                submit(take, &fields)?
+            };
+            change(&root);
+            Ok(answer)
+        });
+        let recorder = Recorder::new();
+        let on = with_wizard(&root, &recorder, binary, &wizard);
+        assert_code(verbs::preflight(&on, &full_window()), code, &[]);
+        assert!(
+            recorder.steps().is_empty(),
+            "{index}: {:?}",
+            recorder.steps()
+        );
+        assert!(!exists(&root.paths.staged_config()), "{index}");
+        assert!(read_record(&on.setup).unwrap_or(None).is_none(), "{index}");
+    }
+
+    // A fresh host that became pending takes the input.
+    let root = Root::empty();
+    let (fields, fingerprints) = wizard_fields(&root);
+    let wizard = FakeWizard::new(|take, _| {
+        let answer = submit(take, &fields);
+        root.touch("agent.toml");
+        answer
+    });
+    let on = with_wizard(&root, &quiet, root.operator.join("absent.exe"), &wizard);
+    assert_eq!(verbs::preflight(&on, &full_window()), Ok(()));
+    assert_eq!(wizard.offers(), vec![Offer::Fresh]);
+    assert_eq!(
+        read_record(&on.setup).unwrap().unwrap().fingerprints,
+        fingerprints
+    );
+
+    // A pending host that became fresh takes the input too.
+    let root = Root::empty();
+    root.touch("agent.toml");
+    let (fields, _) = wizard_fields(&root);
+    let wizard = FakeWizard::new(|take, _| {
+        let answer = submit(take, &fields);
+        std::fs::remove_file(root.paths.data_root.join("agent.toml")).unwrap();
+        answer
+    });
+    let on = with_wizard(&root, &quiet, root.operator.join("absent.exe"), &wizard);
+    assert_eq!(verbs::preflight(&on, &full_window()), Ok(()));
+    assert!(exists(&root.paths.staged_config()));
+}
+
+// --- The process that started the setup --------------------------------------------
+
+/// The test's own starter, cargo or the shell, is held and running; a
+/// process created after this one is refused by its creation time; and a
+/// held process that exits is seen to have exited.
+#[test]
+fn package_verbs_wizard_the_starter_is_held_by_its_creation() {
+    let starter = Process::starter().expect("this test's starter is held");
+    assert!(starter.running());
+
+    let mut child = std::process::Command::new("cmd")
+        .args(["/c", "exit", "0"])
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("cmd");
+    let refused = Process::hold(child.id(), own_creation().unwrap())
+        .expect_err("a process created after this one");
+    assert!(refused.contains("created after this one"), "{refused}");
+
+    let held = Process::hold(child.id(), u64::MAX).expect("the child, held");
+    child.wait().expect("the child exits");
+    assert!(!held.running(), "an exited process does not run");
+
+    assert!(Process::hold(0, u64::MAX).is_err(), "the idle process");
 }
 
 // --- configure ---------------------------------------------------------------------

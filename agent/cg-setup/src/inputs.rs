@@ -158,7 +158,14 @@ fn take_string(document: &mut toml::Table, table: &str, key: &str) -> Result<Str
 /// The bootstrap file's text, validated: the error is the reason, which
 /// names a key or a position, never a value or a line of the file.
 pub fn parse_bootstrap(text: &str) -> Result<Inputs, String> {
-    let mut document: toml::Table = toml::from_str(text).map_err(|e| position(text, &e))?;
+    let document: toml::Table = toml::from_str(text).map_err(|e| position(text, &e))?;
+    parse_table(document)
+}
+
+/// A document of the bootstrap file's keys, validated as the file's is: the
+/// wizard's fields pass through here too (SPEC-024 Amendment 2026-11-13,
+/// point 4). The error names a key, never a value.
+pub(crate) fn parse_table(mut document: toml::Table) -> Result<Inputs, String> {
     let parsed = parse_document(&mut document);
     // The token, if it is still there, and any other string go with the
     // document; the token taken out is zeroed by its own wrapper.

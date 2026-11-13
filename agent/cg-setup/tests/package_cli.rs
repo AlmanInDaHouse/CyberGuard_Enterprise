@@ -48,6 +48,7 @@ fn package_cli_the_verbs_and_their_options() {
             bootstrap: Some(PathBuf::from(r"C:\setup\bootstrap.toml")),
             migrate_legacy: Some("keep".into()),
             trust_anchors: Some("sha256:aa".into()),
+            ui: None,
         })),
         "in any order"
     );
@@ -61,6 +62,7 @@ fn package_cli_the_verbs_and_their_options() {
             bootstrap: None,
             migrate_legacy: Some("remove".into()),
             trust_anchors: Some("sha256:bb".into()),
+            ui: None,
         }))
     );
     // A value may hold '=' and spaces: only the first '=' separates.
@@ -94,6 +96,54 @@ fn package_cli_an_empty_value_is_not_given() {
         ])),
         Ok(Command::Configure(Request::default()))
     );
+}
+
+/// Preflight's `--ui`, the setup's `WixBundleUILevel`, at most once, an empty
+/// value not given; configure and reverse take none (SPEC-024 Amendment
+/// 2026-11-13, point 1). Burn's `--ui="4"` reaches the setup as `--ui=4`.
+#[test]
+fn package_cli_preflight_takes_the_setups_window_once() {
+    for value in ["4", "3", "2", "anything"] {
+        let option = format!("--ui={value}");
+        assert_eq!(
+            parse(&args(&["preflight", &option])),
+            Ok(Command::Preflight(Request {
+                ui: Some(value.into()),
+                ..Request::default()
+            })),
+            "{value}"
+        );
+    }
+    assert_eq!(
+        parse(&args(&[
+            "preflight",
+            "--ui=4",
+            r"--bootstrap=C:\setup\bootstrap.toml",
+        ])),
+        Ok(Command::Preflight(Request {
+            bootstrap: Some(PathBuf::from(r"C:\setup\bootstrap.toml")),
+            ui: Some("4".into()),
+            ..Request::default()
+        }))
+    );
+    assert_eq!(
+        parse(&args(&["preflight", "--ui="])),
+        Ok(Command::Preflight(Request::default()))
+    );
+    assert!(Request::default().with_ui(Some("4")).full_window());
+    assert!(!Request::default().with_ui(Some("3")).full_window());
+    assert!(!Request::default().full_window());
+    for text in [
+        &["preflight", "--ui=4", "--ui=4"][..],
+        &["preflight", "--ui=", "--ui="],
+        &["preflight", "--UI=4"],
+        &["preflight", "--ui"],
+        &["configure", "--ui=4"],
+        &["configure", "--ui="],
+        &["reverse", "--ui=4"],
+    ] {
+        refused(text);
+    }
 }
 
 /// Any other command line is 40.

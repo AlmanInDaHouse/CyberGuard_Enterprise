@@ -69,14 +69,18 @@ zeroize = "1.8"
 
 # The workspace's existing Windows binding: RtlGetVersion and IsWow64Process2
 # for the platform, CheckTokenMembership for the elevation, and the service
-# control manager (Win32_System_Services), and the renames Windows holds for
-# the next restart (Win32_System_Registry).
+# control manager (Win32_System_Services), the renames Windows holds for
+# the next restart (Win32_System_Registry), and NtQueryInformationProcess for
+# the process that started the setup (Wdk_System_Threading, whose structure
+# Win32_System_Kernel enables).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Wdk_System_SystemServices",
+    "Wdk_System_Threading",
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Storage_FileSystem",
+    "Win32_System_Kernel",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_System_Services",

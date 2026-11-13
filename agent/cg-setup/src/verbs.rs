@@ -3,7 +3,8 @@
 //! the order its item gives, on a `Machine`, which names the paths, the
 //! product service and the installed binary. The machine's are the fixed
 //! paths under the folders the OS reports and `CyberGuardAgent`; the tests
-//! point a machine at temporary roots and at test services of their own.
+//! point a machine at temporary roots and at test services of their own, and
+//! give it a wizard of their own.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -13,11 +14,12 @@ use cg_agent::service::InstalledPaths;
 
 use crate::codes::{Refusal, OPERATIONAL, OWN_STATE};
 use crate::observer::{self, LogPosition};
-use crate::preflight::{self, parse_migration, Host, Plan, Request};
-use crate::scm::{self, Manager, Route};
+use crate::preflight::{self, decide_again, parse_migration, take_fields, Host, Plan, Request};
+use crate::scm::{self, Manager, Product, Route};
 use crate::service::{migration_arguments, start_arguments, PRODUCT_SERVICE};
 use crate::staging::{self, Files, Setup};
 use crate::version::{self, numeric, SETUP_VERSION};
+use crate::wizard::{Again, Answer, Choice, Closed, Offer, Wizard};
 
 /// Where the verbs act.
 pub struct Machine<'a> {
@@ -30,6 +32,10 @@ pub struct Machine<'a> {
     pub service: String,
     /// The installed binary, `<ProgramFiles>\CyberGuard\Agent\cg-agent.exe`.
     pub binary: PathBuf,
+    /// The wizard, which shows only with the setup's full window (the
+    /// Amendment 2026-11-13, point 1); a machine without one takes that
+    /// window as none.
+    pub wizard: Option<&'a dyn Wizard>,
 }
 
 impl Machine<'static> {
@@ -46,6 +52,7 @@ impl Machine<'static> {
             host,
             service: PRODUCT_SERVICE.to_string(),
             binary: installed_binary(&program_files),
+            wizard: None,
         })
     }
 }
@@ -78,24 +85,27 @@ fn own_numeric() -> [u16; 3] {
 /// `preflight` (the Amendment 2026-11-09, item 3, with the Amendment
 /// 2026-11-10, items 2 to 6, and the Amendment 2026-11-11, point 1): the
 /// state, the request and, on a route that stages, its inputs; the
-/// conflicting service; the downgrade; on every route but a migration's,
-/// the staging and its record; the stop; then, after it, the record's
-/// rewrite and a refusal's removal.
+/// conflicting service; the downgrade; on the wizard's route, the wizard and
+/// the second reading (the Amendment 2026-11-13, points 2 and 3); on every
+/// route but a migration's, the staging and its record; the stop; then,
+/// after it, the record's rewrite and a refusal's removal.
 pub fn preflight(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal> {
-    let plan = preflight::assess(&machine.host, request)?;
+    let request = match machine.wizard {
+        Some(_) => request.clone(),
+        None => request.clone().with_ui(None),
+    };
+    let plan = preflight::assess(&machine.host, &request)?;
     let route = match plan {
         Plan::Migrate(_) => Route::Migration,
-        Plan::Start | Plan::Stage(_) => Route::Other,
+        Plan::Start | Plan::Stage(_) | Plan::Ask(_) => Route::Other,
     };
     let scm = Manager::open()?;
-    let product = scm::check_product_service(
-        &scm,
-        &machine.service,
-        &machine.binary,
-        &machine.paths().config,
-        route,
-    )?;
-    version::downgrade(&machine.binary, own_numeric())?;
+    let product = check(machine, &scm, route)?;
+    let (plan, product) = match (plan, machine.wizard) {
+        (Plan::Ask(offer), Some(wizard)) => ask(machine, wizard, &scm, offer)?,
+        (Plan::Ask(_), None) => return Err(inconsistent("a wizard to ask on a machine with none")),
+        (plan, _) => (plan, product),
+    };
     let attempt = match &plan {
         // It creates and changes nothing under <P>, and writes no record.
         Plan::Migrate(_) => return scm::stop(&scm, &machine.service).result,
@@ -109,11 +119,72 @@ pub fn preflight(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal
             }),
             product.running(),
         )?,
+        Plan::Ask(_) => return Err(inconsistent("the wizard's answer, which stages or starts")),
     };
     let stop = scm::stop(&scm, &machine.service);
     attempt
         .after_stop(&machine.setup, stop.found_running, stop.result)
         .map(drop)
+}
+
+/// Code 40 for what the wizard's route cannot reach: the elevated process
+/// exits with one of item 7's codes rather than a panic's.
+fn inconsistent(what: &str) -> Refusal {
+    Refusal::new(
+        OWN_STATE,
+        format!("the setup's own state is inconsistent: {what}"),
+    )
+}
+
+/// The conflicting service (26), then the downgrade (29).
+fn check(machine: &Machine<'_>, scm: &Manager, route: Route) -> Result<Product, Refusal> {
+    let product = scm::check_product_service(
+        scm,
+        &machine.service,
+        &machine.binary,
+        &machine.paths().config,
+        route,
+    )?;
+    version::downgrade(&machine.binary, own_numeric())?;
+    Ok(product)
+}
+
+/// The wizard's route (the Amendment 2026-11-13, points 3 to 5): the process
+/// that started the setup held (40), the dialog until an accepted submission
+/// or a choice to keep (22 when it closes otherwise), that process still
+/// running (22), then the state, the conflicting service and the downgrade
+/// read again; the plan and the service the record reads are this second
+/// reading's.
+fn ask(
+    machine: &Machine<'_>,
+    wizard: &dyn Wizard,
+    scm: &Manager,
+    offer: Offer,
+) -> Result<(Plan, Product), Refusal> {
+    let starter = wizard.hold_starter()?;
+    let mut take = |fields: &_| take_fields(&machine.host, fields);
+    let (choice, staged) = match wizard.ask(offer, starter.as_ref(), &mut take)? {
+        Answer::Input(staged) => (Choice::Input, Some(staged)),
+        Answer::Keep if offer == Offer::Pending => (Choice::Keep, None),
+        Answer::Keep => return Err(inconsistent("a choice to keep on a fresh host")),
+        Answer::Closed(closed) => return Err(closed.refusal()),
+    };
+    if !starter.running() {
+        return Err(Closed::StarterExited.refusal());
+    }
+    let state = cg_agent::service::layout::classify(
+        &machine.host.paths,
+        &machine.host.directories,
+        machine.host.wait,
+    );
+    let again = decide_again(&state, choice)?;
+    let product = check(machine, scm, Route::Other)?;
+    let plan = match (again, staged) {
+        (Again::Stage, Some(staged)) => Plan::Stage(staged),
+        (Again::Start, None) => Plan::Start,
+        _ => return Err(inconsistent("the second reading of the wizard's answer")),
+    };
+    Ok((plan, product))
 }
 
 /// `configure` (the Amendment 2026-11-09, items 5, 7 and 8, with the

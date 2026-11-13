@@ -34,12 +34,13 @@ use std::time::{Duration, Instant};
 use cg_agent::service::migration::{Choice, Request as MigrationRequest};
 use cg_setup::codes;
 use cg_setup::observer::{self, LogPosition, HEARTBEAT_LINE, IDENTITY_LINE, OBSERVE_WITHIN};
-use cg_setup::preflight::Request;
+use cg_setup::preflight::{Request, Staged};
 use cg_setup::scm::{self, Manager, Product, Route, Stop};
 use cg_setup::service::{migration_arguments, product_command_line, start_arguments};
 use cg_setup::staging::{read_record, Name, Setup, SetupCustody, Step, Watch};
 use cg_setup::verbs::{self, Machine};
 use cg_setup::version::{numeric, SETUP_VERSION};
+use cg_setup::wizard::{Answer, Fields, Offer, Starter, Wizard};
 use cg_setup::Refusal;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, LocalFree, ERROR_SERVICE_DOES_NOT_EXIST,
@@ -49,16 +50,16 @@ use windows_sys::Win32::Security::Authorization::{
 };
 use windows_sys::Win32::Security::{DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
 use windows_sys::Win32::System::Services::{
-    ChangeServiceConfig2W, CloseServiceHandle, ControlService, CreateServiceW, DeleteService,
-    OpenSCManagerW, OpenServiceW, QueryServiceConfig2W, QueryServiceStatusEx,
-    SetServiceObjectSecurity, StartServiceW, SC_ACTION, SC_ACTION_NONE, SC_ACTION_RESTART,
-    SC_ACTION_RUN_COMMAND, SC_HANDLE, SC_MANAGER_CONNECT, SC_MANAGER_CREATE_SERVICE,
-    SC_STATUS_PROCESS_INFO, SERVICE_ALL_ACCESS, SERVICE_CONFIG_FAILURE_ACTIONS,
-    SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, SERVICE_CONTROL_STOP, SERVICE_DEMAND_START,
-    SERVICE_DISABLED, SERVICE_ERROR_NORMAL, SERVICE_FAILURE_ACTIONSW, SERVICE_FAILURE_ACTIONS_FLAG,
-    SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_START_PENDING, SERVICE_STATUS,
-    SERVICE_STATUS_PROCESS, SERVICE_STOPPED, SERVICE_STOP_PENDING, SERVICE_WIN32_OWN_PROCESS,
-    SERVICE_WIN32_SHARE_PROCESS,
+    ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService,
+    CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW, QueryServiceConfig2W,
+    QueryServiceStatusEx, SetServiceObjectSecurity, StartServiceW, SC_ACTION, SC_ACTION_NONE,
+    SC_ACTION_RESTART, SC_ACTION_RUN_COMMAND, SC_HANDLE, SC_MANAGER_CONNECT,
+    SC_MANAGER_CREATE_SERVICE, SC_STATUS_PROCESS_INFO, SERVICE_ALL_ACCESS,
+    SERVICE_CONFIG_FAILURE_ACTIONS, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, SERVICE_CONTROL_STOP,
+    SERVICE_DEMAND_START, SERVICE_DISABLED, SERVICE_ERROR_NORMAL, SERVICE_FAILURE_ACTIONSW,
+    SERVICE_FAILURE_ACTIONS_FLAG, SERVICE_NO_CHANGE, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
+    SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_PROCESS, SERVICE_STOPPED,
+    SERVICE_STOP_PENDING, SERVICE_WIN32_OWN_PROCESS, SERVICE_WIN32_SHARE_PROCESS,
 };
 use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
 
@@ -1181,6 +1182,7 @@ impl VerbsHost {
             },
             service: self.service.name.clone(),
             binary: self.binary.clone(),
+            wizard: None,
         }
     }
 
@@ -1729,8 +1731,158 @@ fn package_scm_observe_a_state_that_cannot_be_read_after_the_start_is_44() {
 
 // --- The runner ---------------------------------------------------------------------
 
+// --- The wizard's second reading (SPEC-024 Amendment 2026-11-13, point 3) ----
+
+/// A starter that runs.
+struct Running;
+
+impl Starter for Running {
+    fn running(&self) -> bool {
+        true
+    }
+}
+
+/// A wizard that runs `during` while its dialog would show, then answers.
+struct Wizarding<F: Fn() -> Answer>(F);
+
+impl<F: Fn() -> Answer> Wizard for Wizarding<F> {
+    fn hold_starter(&self) -> Result<Box<dyn Starter>, Refusal> {
+        Ok(Box::new(Running))
+    }
+
+    fn ask(
+        &self,
+        _: Offer,
+        _: &dyn Starter,
+        _: &mut dyn FnMut(&Fields) -> Result<Staged, Refusal>,
+    ) -> Result<Answer, Refusal> {
+        Ok((self.0)())
+    }
+}
+
+impl TestService {
+    /// Change its command line.
+    fn set_command_line(&self, command_line: &str) {
+        let command = wide(command_line);
+        // SAFETY: the handle has SERVICE_ALL_ACCESS; the string lives for
+        // the call and every other value is left as it is.
+        let ok = unsafe {
+            ChangeServiceConfigW(
+                self.handle,
+                SERVICE_NO_CHANGE,
+                SERVICE_NO_CHANGE,
+                SERVICE_NO_CHANGE,
+                command.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        assert!(
+            ok != 0,
+            "ChangeServiceConfigW {}: Win32 error {}",
+            self.name,
+            last_error()
+        );
+    }
+}
+
+/// The record's reading of the service is the one after the dialog: a
+/// service started while it showed is recorded running when the record is
+/// written, so the stop finds what the record says and no rewrite follows.
+fn package_scm_verbs_wizard_records_the_service_as_read_after_the_dialog() {
+    // The behaviour file is `agent.toml`: a pending host, which the wizard
+    // offers to keep.
+    let host = verbs_host(serde_json::json!({ "stop_ms": 1000 }), SERVICE_DEMAND_START);
+    let wizard = Wizarding(|| {
+        host.service.start();
+        host.service
+            .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+        Answer::Keep
+    });
+    let steps = std::sync::Mutex::new(Vec::new());
+    let watch = recording(&steps);
+    let machine = Machine {
+        wizard: Some(&wizard),
+        ..host.machine(&watch)
+    };
+    assert_eq!(
+        verbs::preflight(&machine, &Request::default().with_ui(Some("4"))),
+        Ok(())
+    );
+    drop(machine);
+    drop(watch);
+    let steps = steps.into_inner().unwrap();
+    assert!(steps.contains(&Step::Write(Name::Record)), "{steps:?}");
+    assert!(
+        !steps.contains(&Step::RewriteRecord),
+        "the record was written with the second reading: {steps:?}"
+    );
+    let record = read_record(&host.machine(&unwatched).setup)
+        .unwrap()
+        .expect("a record");
+    assert!(record.service_running);
+    assert_eq!(
+        host.service.state(),
+        SERVICE_STOPPED,
+        "preflight stopped it"
+    );
+}
+
+/// A product service that conflicts once the dialog has shown is 26, with
+/// nothing staged and no record.
+fn package_scm_verbs_wizard_a_service_conflicting_after_the_dialog_is_26() {
+    let host = verbs_host(serde_json::json!({}), SERVICE_DEMAND_START);
+    let other = host.root.operator.join("another").join("cg-agent.exe");
+    let wizard = Wizarding(|| {
+        host.service
+            .set_command_line(&product_command_line(&other, &host.root.paths.config));
+        Answer::Keep
+    });
+    let machine = Machine {
+        wizard: Some(&wizard),
+        ..host.machine(&unwatched)
+    };
+    let refusal =
+        verbs::preflight(&machine, &Request::default().with_ui(Some("4"))).expect_err("26");
+    assert_eq!(refusal.code, codes::CONFLICTING_SERVICE, "{}", refusal.line);
+    assert!(!host.record().exists());
+    assert!(!host.root.paths.staged_config().exists());
+}
+
+/// A product service that conflicts before the dialog is 26, and no dialog
+/// shows (point 3: the wizard shows after 26 and 29).
+fn package_scm_verbs_wizard_a_conflicting_service_is_26_before_the_dialog() {
+    let host = verbs_host(serde_json::json!({}), SERVICE_DEMAND_START);
+    let wizard = Wizarding(|| panic!("no dialog shows"));
+    let machine = Machine {
+        wizard: Some(&wizard),
+        binary: host.root.operator.join("another").join("cg-agent.exe"),
+        ..host.machine(&unwatched)
+    };
+    let refusal =
+        verbs::preflight(&machine, &Request::default().with_ui(Some("4"))).expect_err("26");
+    assert_eq!(refusal.code, codes::CONFLICTING_SERVICE, "{}", refusal.line);
+    assert!(!host.record().exists());
+}
+
 /// The tests, in the order they run.
 const TESTS: &[(&str, fn())] = &[
+    (
+        "package_scm_verbs_wizard_a_conflicting_service_is_26_before_the_dialog",
+        package_scm_verbs_wizard_a_conflicting_service_is_26_before_the_dialog,
+    ),
+    (
+        "package_scm_verbs_wizard_records_the_service_as_read_after_the_dialog",
+        package_scm_verbs_wizard_records_the_service_as_read_after_the_dialog,
+    ),
+    (
+        "package_scm_verbs_wizard_a_service_conflicting_after_the_dialog_is_26",
+        package_scm_verbs_wizard_a_service_conflicting_after_the_dialog_is_26,
+    ),
     (
         "package_scm_a_service_of_the_products_configuration_is_no_conflict",
         package_scm_a_service_of_the_products_configuration_is_no_conflict,

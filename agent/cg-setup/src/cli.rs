@@ -2,7 +2,9 @@
 //! runs it with one verb, `preflight`, `configure` or `reverse`, and the
 //! bundle variables of the Amendment 2026-11-09, item 2, as options of the
 //! form `--name=value`, each at most once, an empty value as not given.
-//! `--version` answers the setup's version. Any other command line is 40.
+//! `--version` answers the setup's version. Preflight takes `--ui` too, the
+//! setup's `WixBundleUILevel` (the Amendment 2026-11-13, point 1), which
+//! configure and reverse do not. Any other command line is 40.
 //!
 //! A refusal names the verb and an option's name, never a value: a value is
 //! a bundle variable, which carries no secret, but a misplaced one could.
@@ -17,7 +19,7 @@ use crate::preflight::Request;
 pub enum Command {
     /// `cg-setup --version`.
     Version,
-    /// `cg-setup preflight [--bootstrap=] [--migrate-legacy=] [--trust-anchors=]`.
+    /// `cg-setup preflight [--bootstrap=] [--migrate-legacy=] [--trust-anchors=] [--ui=]`.
     Preflight(Request),
     /// `cg-setup configure [--migrate-legacy=] [--trust-anchors=]`.
     Configure(Request),
@@ -28,6 +30,7 @@ pub enum Command {
 const BOOTSTRAP: &str = "--bootstrap";
 const MIGRATE_LEGACY: &str = "--migrate-legacy";
 const TRUST_ANCHORS: &str = "--trust-anchors";
+const UI: &str = "--ui";
 
 fn refused(reason: impl std::fmt::Display) -> Refusal {
     Refusal::new(
@@ -56,13 +59,14 @@ pub fn parse(arguments: &[OsString]) -> Result<Command, Refusal> {
         "reverse" if options.is_empty() => Ok(Command::Reverse),
         "reverse" => Err(refused("reverse takes nothing")),
         "preflight" => {
-            let [bootstrap, migrate_legacy, trust_anchors] =
-                take(verb, options, [BOOTSTRAP, MIGRATE_LEGACY, TRUST_ANCHORS])?;
-            Ok(Command::Preflight(Request::new(
-                bootstrap,
-                migrate_legacy,
-                trust_anchors,
-            )))
+            let [bootstrap, migrate_legacy, trust_anchors, ui] = take(
+                verb,
+                options,
+                [BOOTSTRAP, MIGRATE_LEGACY, TRUST_ANCHORS, UI],
+            )?;
+            Ok(Command::Preflight(
+                Request::new(bootstrap, migrate_legacy, trust_anchors).with_ui(ui),
+            ))
         }
         "configure" => {
             let [migrate_legacy, trust_anchors] =

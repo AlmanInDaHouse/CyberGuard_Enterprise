@@ -22,12 +22,13 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use zeroize::Zeroizing;
 
-use crate::codes::{
-    Refusal, ALREADY_CONFIGURED, ANCHOR, BOOTSTRAP_ACCESS, CONSOLE_LAYOUT, INVALID_INPUT, NO_INPUT,
-    OWN_STATE, UNTRUSTED_PATH,
+use crate::codes::{Refusal, ANCHOR, BOOTSTRAP_ACCESS, INVALID_INPUT, OWN_STATE};
+use crate::inputs::{parse_bootstrap, Inputs};
+pub use crate::staged::Staged;
+use crate::staged::{placeholder_id, stage_inputs};
+use crate::wizard::{
+    self, full_window, route, route_again, Again, Asked, Fields, Kind, Offer, Route,
 };
-use crate::inputs::parse_bootstrap;
-use crate::staged::{check_staged, placeholder_id, staged_anchor, staged_config};
 
 /// What the setup is asked, from its bundle variables (item 2). An empty
 /// value is a variable not given: Burn expands one that is unset to nothing.
@@ -39,6 +40,9 @@ pub struct Request {
     pub migrate_legacy: Option<String>,
     /// `CG_TRUST_ANCHORS`.
     pub trust_anchors: Option<String>,
+    /// `WixBundleUILevel`, preflight's `--ui` (SPEC-024 Amendment
+    /// 2026-11-13, point 1).
+    pub ui: Option<String>,
 }
 
 fn given(value: Option<&str>) -> Option<&str> {
@@ -56,7 +60,21 @@ impl Request {
             bootstrap: given(bootstrap).map(PathBuf::from),
             migrate_legacy: given(migrate_legacy).map(str::to_string),
             trust_anchors: given(trust_anchors).map(str::to_string),
+            ui: None,
         }
+    }
+
+    /// This request with `--ui`'s value, an empty one not given.
+    pub fn with_ui(self, ui: Option<&str>) -> Self {
+        Request {
+            ui: given(ui).map(str::to_string),
+            ..self
+        }
+    }
+
+    /// The setup has its full window: the wizard may show (point 1).
+    pub fn full_window(&self) -> bool {
+        full_window(self.ui.as_deref())
     }
 
     /// Either migration variable is given.
@@ -107,21 +125,32 @@ pub enum Decision {
     Start,
     /// New input, from this bootstrap file, is staged.
     Stage(PathBuf),
+    /// The wizard shows (SPEC-024 Amendment 2026-11-13, point 2).
+    Ask(Offer),
 }
 
-/// Item 3's table: the state, the first that applies, and the request.
+/// The decision's reading of a host's state.
+pub fn kind(state: &HostState) -> Kind {
+    match state {
+        HostState::Untrusted(reason) => Kind::Untrusted(reason.clone()),
+        HostState::MigrationInProgress => Kind::MigrationInProgress,
+        HostState::ConsoleLayout => Kind::ConsoleLayout,
+        HostState::Enrolled => Kind::Enrolled,
+        HostState::Pending => Kind::Pending,
+        HostState::Fresh => Kind::Fresh,
+    }
+}
+
+/// Item 3's table: the state, the first that applies, and the request, with
+/// the wizard's states when the setup has its full window (point 2).
 pub fn decide(state: &HostState, request: &Request) -> Result<Decision, Refusal> {
-    let migration = |what: &str| -> Result<Decision, Refusal> {
-        if request.bootstrap.is_some() || !request.migration_requested() {
-            return Err(Refusal::new(
-                CONSOLE_LAYOUT,
-                format!(
-                    "{what}: only the migration route continues, with CG_MIGRATE_LEGACY and \
-                     CG_TRUST_ANCHORS and no bootstrap"
-                ),
-            ));
-        }
-        parse_migration(
+    let asked = Asked {
+        bootstrap: request.bootstrap.is_some(),
+        migration: request.migration_requested(),
+        full_window: request.full_window(),
+    };
+    Ok(match route(&kind(state), asked, DEFAULT_REFUSAL)? {
+        Route::Migrate => parse_migration(
             request.migrate_legacy.as_deref(),
             request.trust_anchors.as_deref(),
         )
@@ -131,44 +160,21 @@ pub fn decide(state: &HostState, request: &Request) -> Result<Decision, Refusal>
                 INVALID_INPUT,
                 format!("invalid migration request: {reason}"),
             )
-        })
-    };
-    match state {
-        HostState::Untrusted(reason) => Err(Refusal::new(
-            UNTRUSTED_PATH,
-            format!("an untrusted path: {reason}"),
-        )),
-        HostState::MigrationInProgress => migration(
-            "a migration is in progress, which the service completes with the arguments it \
-             recorded",
+        })?,
+        Route::Start => Decision::Start,
+        Route::Stage => Decision::Stage(
+            request
+                .bootstrap
+                .clone()
+                .expect("item 3 stages a bootstrap file only when one is given"),
         ),
-        HostState::ConsoleLayout => migration(DEFAULT_REFUSAL),
-        _ if request.migration_requested() => Err(Refusal::new(
-            CONSOLE_LAYOUT,
-            "a migration is requested, but this host holds no console installation to migrate",
-        )),
-        HostState::Enrolled => match &request.bootstrap {
-            Some(_) => Err(Refusal::new(
-                ALREADY_CONFIGURED,
-                "the agent is already configured: the data directory holds identity, an \
-                 enrolled or preserved agent, and a bootstrap is not taken; run the setup \
-                 without one to repair or upgrade it",
-            )),
-            None => Ok(Decision::Start),
-        },
-        HostState::Pending => Ok(request
-            .bootstrap
-            .clone()
-            .map_or(Decision::Start, Decision::Stage)),
-        HostState::Fresh => match &request.bootstrap {
-            Some(path) => Ok(Decision::Stage(path.clone())),
-            None => Err(Refusal::new(
-                NO_INPUT,
-                "no input: a new installation needs a bootstrap file (CG_BOOTSTRAP) or the \
-                 wizard's input",
-            )),
-        },
-    }
+        Route::Ask(offer) => Decision::Ask(offer),
+    })
+}
+
+/// Point 3: the state read again after the wizard's `choice`.
+pub fn decide_again(state: &HostState, choice: wizard::Choice) -> Result<Again, Refusal> {
+    route_again(&kind(state), choice, DEFAULT_REFUSAL)
 }
 
 /// What preflight reads, and where. The tests point it at a temporary root,
@@ -217,31 +223,14 @@ fn own_state(reason: String) -> Refusal {
     Refusal::new(OWN_STATE, format!("the host cannot be read: {reason}"))
 }
 
-/// What a route that stages takes in, checked: the configuration and the
-/// anchor to stage, and the fingerprints the service is started with. Its
-/// `Debug` writes neither file.
-pub struct Staged {
-    pub config: Zeroizing<String>,
-    pub anchor: Vec<u8>,
-    pub fingerprints: BTreeSet<String>,
-}
-
-impl std::fmt::Debug for Staged {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Staged")
-            .field("config", &"<redacted>")
-            .field("anchor_bytes", &self.anchor.len())
-            .field("fingerprints", &self.fingerprints)
-            .finish()
-    }
-}
-
 /// Where preflight leaves the request.
 #[derive(Debug)]
 pub enum Plan {
     Migrate(migration::Request),
     Start,
     Stage(Staged),
+    /// The wizard shows, after the conflicting service and the downgrade.
+    Ask(Offer),
 }
 
 /// The bootstrap file's bytes: a regular local file whose owner and DACL
@@ -299,9 +288,8 @@ fn read_source(path: &Path, wait: Duration) -> Result<Vec<u8>, String> {
     })
 }
 
-/// A route that stages: the bootstrap file (23), its inputs (24), the trust
-/// anchor against the fingerprints (25), and the configuration generated
-/// from them by the service's checks (24).
+/// A route that stages: the bootstrap file (23), its inputs (24), then
+/// `take_inputs`.
 fn take_in(host: &Host, path: &Path) -> Result<Staged, Refusal> {
     let bytes = read_bootstrap(host, path)?;
     let invalid = |reason: &str| {
@@ -312,6 +300,26 @@ fn take_in(host: &Host, path: &Path) -> Result<Staged, Refusal> {
     };
     let text = std::str::from_utf8(&bytes).map_err(|_| invalid("the file is not UTF-8"))?;
     let inputs = parse_bootstrap(text).map_err(|reason| invalid(&reason))?;
+    take_inputs(host, &inputs, invalid)
+}
+
+/// The wizard's submission (SPEC-024 Amendment 2026-11-13, point 4): its
+/// fields as a bootstrap file's keys (24), then `take_inputs`. There is no
+/// file, so 23 does not apply.
+pub fn take_fields(host: &Host, fields: &Fields) -> Result<Staged, Refusal> {
+    let invalid = |reason: &str| Refusal::new(INVALID_INPUT, format!("invalid input: {reason}"));
+    let inputs = fields.inputs().map_err(|reason| invalid(&reason))?;
+    take_inputs(host, &inputs, invalid)
+}
+
+/// The inputs' checks, alike for a bootstrap file and the wizard: the trust
+/// anchor's path (24), the anchor read once against the fingerprints (25),
+/// and the configuration generated from them by the service's checks (24).
+fn take_inputs(
+    host: &Host,
+    inputs: &Inputs,
+    invalid: impl Fn(&str) -> Refusal,
+) -> Result<Staged, Refusal> {
     if !inputs.anchor_source.is_absolute() {
         return Err(invalid("server.trust_anchor_path must be an absolute path"));
     }
@@ -326,17 +334,18 @@ fn take_in(host: &Host, path: &Path) -> Result<Staged, Refusal> {
         Some(hostname) => hostname.clone(),
         None => custody::hostname().map_err(own_state)?,
     };
-    let config = staged_config(&host.paths, &inputs, &placeholder_id(), &hostname);
-    check_staged(&host.paths, &config).map_err(|line| {
+    stage_inputs(
+        &host.paths,
+        inputs,
+        &certificates,
+        &placeholder_id(),
+        &hostname,
+    )
+    .map_err(|line| {
         Refusal::new(
             INVALID_INPUT,
             format!("the configuration generated from the input is refused: {line}"),
         )
-    })?;
-    Ok(Staged {
-        config,
-        anchor: staged_anchor(&certificates),
-        fingerprints: inputs.fingerprints,
     })
 }
 
@@ -348,6 +357,7 @@ pub fn assess(host: &Host, request: &Request) -> Result<Plan, Refusal> {
         Decision::Migrate(request) => Ok(Plan::Migrate(request)),
         Decision::Start => Ok(Plan::Start),
         Decision::Stage(path) => take_in(host, &path).map(Plan::Stage),
+        Decision::Ask(offer) => Ok(Plan::Ask(offer)),
     }
 }
 
