@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-68.md](../handoff-session-68.md)).
+([handoff-session-69.md](../handoff-session-69.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -456,8 +456,13 @@ This dependency-ordered document supersedes both for planning.
   contract: SPEC-024 Amendment 2026-11-12 (second) and the threat model's
   Amendment 2026-11-12, approved by Manuel (`fe05912`: the bundle as read on
   probe #123, #156 and #157 settled), CI ALL GREEN
-  (`docs/handoff-session-68.md`). The bundle's code (install_ac_011/015, the
-  rest of #87) follows in S69, then the wizard.
+  (`docs/handoff-session-68.md`). S69 landed C7's code: SPEC-024 Amendment
+  2026-11-12 (third), approved by Manuel (`99fcd17`: the failure page names
+  Burn's log and its lines), cg-setup's system-directory loading (`fd2d546`),
+  the MSI's same-version upgrade and test build (`fb03f68`) and the setup with
+  `package-ci`'s `bundle` job (`3adfcd2`, install_ac_011/015, #156 and #157
+  closed, #87 narrowed to its runbook), CI ALL GREEN
+  (`docs/handoff-session-69.md`). The wizard follows in S70, then C8 to C10.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
