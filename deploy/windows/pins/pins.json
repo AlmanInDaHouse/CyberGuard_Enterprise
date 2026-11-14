@@ -1,7 +1,9 @@
 {
-  "comment": "SPEC-024 Amendment 2026-11-01, point 1: the pinned WiX release and .NET SDK, with each nuget package's SHA-512 as nuget.org's catalog publishes it (packageHash, base64). `carried` marks a package whose binaries the setup or the MSI carries onto the endpoint; check-licences.mjs admits those by name. A change to this file is a reviewed change.",
+  "comment": "SPEC-024 Amendment 2026-11-01, point 1: the pinned WiX release and .NET SDK, with each nuget package's SHA-512 as nuget.org's catalog publishes it (packageHash, base64). `carried` marks a package whose binaries the setup or the MSI carries onto the endpoint; check-licences.mjs admits those by name. wixCommit is the commit the release tag v<wixRelease> names, which wixInformationalVersion abbreviates, and wixTree its tree: the release archives that tree as the source of the WiX files the setup carries (the Amendment 2026-11-14, point 3). A change to this file is a reviewed change.",
   "wixRelease": "7.0.1",
   "wixInformationalVersion": "7.0.1+642f1a0",
+  "wixCommit": "642f1a0f7c857ffa4fc9fa3f9d1433aab895dd29",
+  "wixTree": "7ebe172bb319de1070dbac860425531ac04379c0",
   "eulaId": "wix7",
   "dotnetSdk": "10.0.403",
   "packages": [

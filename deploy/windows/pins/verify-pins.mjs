@@ -25,6 +25,16 @@ export function consistency({ pins, globalJson, toolManifest, pinsProject }) {
   if (globalJson.sdk?.version !== pins.dotnetSdk) out.push(`global.json pins the SDK at ${globalJson.sdk?.version}, pins.json at ${pins.dotnetSdk}`);
   if (globalJson.sdk?.rollForward !== "disable") out.push(`global.json sets rollForward to ${globalJson.sdk?.rollForward}, not disable`);
 
+  // SPEC-024 Amendment 2026-11-14, point 3: the release's commit and its tree, by their full IDs,
+  // and the informational version the tool reports naming that commit.
+  for (const key of ["wixCommit", "wixTree"]) {
+    if (!/^[0-9a-f]{40}$/.test(String(pins[key] ?? ""))) out.push(`pins.json's ${key} ${pins[key]} is not 40 lower-case hex digits`);
+  }
+  const short = /^[^+]+\+([0-9a-f]{7,40})$/.exec(String(pins.wixInformationalVersion ?? ""))?.[1];
+  if (!short || !String(pins.wixCommit ?? "").startsWith(short)) {
+    out.push(`pins.json's wixInformationalVersion ${pins.wixInformationalVersion} does not name wixCommit ${pins.wixCommit}`);
+  }
+
   const seen = new Set();
   for (const p of pins.packages) {
     if (seen.has(p.id)) out.push(`${p.id} is listed twice in pins.json`);

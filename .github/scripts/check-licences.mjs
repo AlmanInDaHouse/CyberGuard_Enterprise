@@ -141,16 +141,17 @@ export function nugetPackages(pins) {
  */
 export function wixSection(pins, licence) {
   const release = pins.wixRelease;
-  const commit = /^(.+)\+([0-9a-f]{7,40})$/.exec(pins.wixInformationalVersion ?? "");
-  if (!release || !commit || commit[1] !== release) {
-    throw new Error(`pins name no WiX release and commit: ${pins.wixRelease} ${pins.wixInformationalVersion}`);
+  const short = /^(.+)\+([0-9a-f]{7,40})$/.exec(pins.wixInformationalVersion ?? "");
+  const commit = pins.wixCommit ?? "";
+  if (!release || !short || short[1] !== release || !/^[0-9a-f]{40}$/.test(commit) || !commit.startsWith(short[2])) {
+    throw new Error(`pins name no WiX release and commit: ${pins.wixRelease} ${pins.wixInformationalVersion} ${pins.wixCommit}`);
   }
   // A fence longer than any run of backticks in the text, so that the text cannot close it.
   const fence = "`".repeat(Math.max(3, ...[...licence.matchAll(/`+/g)].map((m) => m[0].length + 1)));
   return [
     "## WiX files the setup carries",
     "",
-    `The setup carries these files of WiX ${release}, commit \`${commit[2]}\`, distributed under the Microsoft Reciprocal License (MS-RL):`,
+    `The setup carries these files of WiX ${release}, commit \`${commit}\`, distributed under the Microsoft Reciprocal License (MS-RL):`,
     "",
     "- Burn's engine, which is the setup's own executable: its code unmodified, its version resource the setup's, which keeps WiX's copyright line;",
     "- the standard bootstrapper application, `wixstdba.exe`, and its `logo.png`, unmodified;",

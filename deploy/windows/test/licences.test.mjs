@@ -90,7 +90,10 @@ test("the report's WiX section names the files the setup carries, their release 
   assert.match(section, /`wixstdba\.exe`.*`logo\.png`.*unmodified/s);
   assert.match(section, /`thm\.xml` and `thm\.wxl`.*modified from WiX's `HyperlinkTheme` files/s);
   assert.match(section, /WiX 7\.0\.1/);
-  assert.match(section, /`642f1a0`/);
+  assert.match(section, /`642f1a0f7c857ffa4fc9fa3f9d1433aab895dd29`/);
+  // A pins file whose full commit is not the informational version's is refused.
+  assert.throws(() => wixSection({ ...pins(), wixCommit: "0".repeat(40) }, licence), /no WiX release and commit/);
+  assert.throws(() => wixSection({ ...pins(), wixCommit: undefined }, licence), /no WiX release and commit/);
   assert.match(section, /MS-RL/);
   assert.match(section, /`wix-7\.0\.1-source\.tar\.gz`/);
   assert.ok(section.includes(`\n\`\`\`text\n${licence}\`\`\`\n`), "the LICENSE.TXT verbatim, fenced");
