@@ -65,9 +65,13 @@ From the release `v<version>` on the repository's releases page, `https://github
 
 - `cyberguard-deploy-<version>.tar.gz`, the bundle;
 - `cg-agent-<version>-x86_64-pc-windows-msvc.exe`, the agent;
-- `SHA256SUMS`, the SHA-256 of the bundle, the agent and the licence report, in `sha256sum`'s format.
+- `SHA256SUMS`, the SHA-256 of the release's six payload assets, in `sha256sum`'s format.
 
-The release also carries `licences-<version>.md`, the licence report of its dependencies.
+The release also carries `licences-<version>.md`, the licence report of its dependencies, with the
+notices and MS-RL's text of the WiX files the setup carries; the agent's setup,
+`cyberguard-agent-<version>-x64-setup.exe`, and its MSI, `cyberguard-agent-<version>-x64.msi`; and
+`wix-<release>-source.tar.gz`, the source of those WiX files and of the setup's own (SPEC-024
+Amendment 2026-11-14). The endpoint steps below still use the agent's executable.
 
 ### Verify the files
 

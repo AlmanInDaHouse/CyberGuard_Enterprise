@@ -8,7 +8,8 @@ name: package-ci
 # job builds the agent's MSI and installs it there (the Amendment 2026-11-09, item 4 and
 # *Tests*), and the bundle job builds the setup and runs it there (the Amendment 2026-11-12
 # (second), *Tests*), so the agent's sources, the Rust toolchain and the release's version check
-# are among the paths.
+# are among the paths. The release job is the release's dry run for its Windows assets (the
+# Amendment 2026-11-14, point 6), so release.yml and every script the release runs are too.
 
 on:
   push:
@@ -20,10 +21,9 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - ".cargo/**"
-      - ".github/scripts/release-version.mjs"
-      - ".github/scripts/check-licences.mjs"
-      - ".github/scripts/licences-allowed.json"
+      - ".github/scripts/**"
       - ".github/workflows/package-ci.yml"
+      - ".github/workflows/release.yml"
   pull_request:
     paths:
       - "deploy/windows/**"
@@ -32,10 +32,9 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - ".cargo/**"
-      - ".github/scripts/release-version.mjs"
-      - ".github/scripts/check-licences.mjs"
-      - ".github/scripts/licences-allowed.json"
+      - ".github/scripts/**"
       - ".github/workflows/package-ci.yml"
+      - ".github/workflows/release.yml"
 
 permissions:
   contents: read
@@ -319,3 +318,75 @@ jobs:
           path: ${{ runner.temp }}/burn-logs
           if-no-files-found: ignore
           retention-days: 7
+
+  # SPEC-024 Amendment 2026-11-14, point 6: the release's dry run for its Windows assets. The
+  # agent job's script builds, checks and archives them at a fixture version, on release.yml's
+  # runner image, restoring no cache, with the licence report the release's licence job writes;
+  # then the readers' tests run on those files, and the matrix sees each check refuse the wrong
+  # set it is for. Nothing is installed, attested or published.
+  release:
+    name: The release's Windows assets, built and checked (dry run)
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: "0"
+      # The fixture release version, as the release takes it from its tag.
+      CG_FIXTURE_VERSION: "1.2.3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Set up the pinned .NET SDK
+        # v6.1.0, by its commit.
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: deploy/windows/global.json
+
+      # As release.yml's licence job writes it, so that the build compares the archive's
+      # LICENSE.TXT with the report's.
+      - name: The licence report
+        shell: bash
+        run: |
+          set -eu
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+          rustup toolchain install
+          node .github/scripts/check-licences.mjs --report "$RUNNER_TEMP/licences-$CG_FIXTURE_VERSION.md"
+
+      # Into the same relative directory as release.yml's agent job, which the script resolves.
+      - name: Build, check and archive the Windows assets
+        shell: bash
+        run: |
+          set -eu
+          node .github/scripts/release-windows.mjs build --version "$CG_FIXTURE_VERSION" --out assets \
+            --work "$RUNNER_TEMP/release-work" --report "$RUNNER_TEMP/licences-$CG_FIXTURE_VERSION.md"
+
+      - name: The readers' tests on the built assets
+        shell: bash
+        run: |
+          set -eu
+          V="$CG_FIXTURE_VERSION"
+          export CG_REQUIRE_RELEASE_FILES=1 CG_TEST_VERSION="$V"
+          export CG_TEST_AGENT_EXE="$GITHUB_WORKSPACE/assets/cg-agent-$V-x86_64-pc-windows-msvc.exe"
+          export CG_TEST_SETUP_EXE="$RUNNER_TEMP/release-work/cg-setup.exe"
+          export CG_TEST_MSI="$GITHUB_WORKSPACE/assets/cyberguard-agent-$V-x64.msi"
+          export CG_TEST_SETUP="$GITHUB_WORKSPACE/assets/cyberguard-agent-$V-x64-setup.exe"
+          node --test deploy/windows/test/release-windows.test.mjs
+
+      # A development executable for the matrix's last case.
+      - name: The check refuses each wrong set
+        shell: bash
+        run: |
+          set -eu
+          V="$CG_FIXTURE_VERSION"
+          cargo build --locked -p cg-agent
+          node deploy/windows/test/release-check-matrix.mjs "$GITHUB_WORKSPACE/assets/cg-agent-$V-x86_64-pc-windows-msvc.exe" \
+            "$RUNNER_TEMP/release-work/cg-setup.exe" "$V" target/debug/cg-agent.exe

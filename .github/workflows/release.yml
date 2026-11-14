@@ -3,15 +3,17 @@ name: release
 # SPEC-023 §Operational §12 and its Amendment 2026-10-26, item 4: a tag v<major>.<minor>.<patch>
 # cuts a release. The tag's version is checked first (SPEC-024 Amendment 2026-11-01, point 3,
 # debt #139): its form and MSI's limits, before any job pushes, attests or publishes. Then
-# the licence check; then the four images are built for
-# linux/amd64 with BuildKit's SBOM and provenance attestations, pushed to GHCR with the tags
-# <version> and sha-<commit>, and attested; the agent's executable is built on Windows and
-# attested; the bundle names each image by its digest and is attested; and the GitHub
-# Release carries the bundle, the executable, the licence report and SHA256SUMS. Each job has
-# the permissions it uses alone, and every third-party action is pinned by commit SHA, the
-# release it points to in the comment. deploy-ci.yml runs the image builds and the bundle
-# step as a dry run, pushing and attesting nothing. The first release waits for F2 to F4 and
-# for Manuel's explicit OK (ADR-0022 §7).
+# the licence check; then the four images are built for linux/amd64 with BuildKit's SBOM and
+# provenance attestations, pushed to GHCR with the tags <version> and sha-<commit>, and
+# attested; the agent's executable, its MSI and setup and WiX's source archive are built,
+# checked against each other and attested on Windows (SPEC-024 Amendment 2026-11-14); the
+# bundle names each image by its digest and is attested; and the GitHub Release carries six
+# payload assets and SHA256SUMS. Each job has the permissions it uses alone, and every
+# third-party action is pinned by commit SHA, the release it points to in the comment.
+# deploy-ci.yml runs the image builds and the bundle step as a dry run, and package-ci.yml the
+# Windows assets' build and checks, pushing and attesting nothing; their runners are pinned
+# images (#149), changed together. The first release waits for F2 to F4 and for Manuel's
+# explicit OK (ADR-0022 §7).
 on:
   push:
     tags:
@@ -29,7 +31,7 @@ jobs:
   # nothing.
   version:
     name: The tag's release version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -55,7 +57,7 @@ jobs:
   licences:
     name: The licence check and its report
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -71,7 +73,7 @@ jobs:
           node-version: "22"
           package-manager-cache: false
 
-      # The production dependencies, installed without their scripts, and the agent's crates,
+      # The production dependencies, installed without their scripts, and the agent's and cg-setup's crates,
       # read with the toolchain rust-toolchain.toml pins.
       - name: Check the licences
         run: |
@@ -92,7 +94,7 @@ jobs:
   images:
     name: The four images, pushed and attested
     needs: licences
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -162,54 +164,79 @@ jobs:
           subject-digest: ${{ steps.build.outputs.proxy }}
           push-to-registry: true
 
+  # SPEC-024 Amendment 2026-11-14, points 1 to 5: the four Windows assets made from the tag in one
+  # run, by the script package-ci's dry run runs: the pins and the EULA ID checked before WiX runs;
+  # the agent and cg-setup at the tag's version (SPEC-024 §Data contracts §1, debt #131); the MSI
+  # without the test build's define (#158); the setup; every check of point 2, installing nothing;
+  # WiX's source archive, fetched by its pinned commit, whose LICENSE.TXT the licence report must
+  # carry. No cache is restored: Rust through rustup from rust-toolchain.toml, Node and .NET with
+  # their caches off. The four are attested once every check has passed.
   agent:
-    name: The agent's executable, built and attested
+    name: The agent's executable, MSI, setup and WiX's source, built, checked and attested
     needs: licences
-    runs-on: windows-latest
-    timeout-minutes: 60
+    runs-on: windows-2025
+    timeout-minutes: 90
     permissions:
       contents: read
       id-token: write
       attestations: write
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
-      # The toolchain rust-toolchain.toml pins; the asset is named before it is attested, since
-      # the attestation records its subject's name. SPEC-024 §Data contracts §1 (debt #131): the
-      # tag's X.Y.Z is the agent's version, given to the build as CG_RELEASE_VERSION; the build
-      # refuses an empty or malformed one, and the executable must report exactly it.
-      - name: Build cg-agent (release)
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Set up the pinned .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: deploy/windows/global.json
+
+      - name: Fetch the licence report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: licences
+          path: ${{ runner.temp }}/licences
+
+      # The build cannot mint an OIDC token: the request variables are blank in its step, and the
+      # attestation's step keeps the job's id-token permission.
+      - name: Build, check and archive the Windows assets
         shell: bash
         env:
-          CARGO_INCREMENTAL: "0"
+          ACTIONS_ID_TOKEN_REQUEST_URL: ""
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ""
         run: |
           set -eu
           V="${GITHUB_REF_NAME#v}"
-          export CG_RELEASE_VERSION="$V"
           rustup toolchain install
-          cargo build --release --locked -p cg-agent
-          test "$(target/release/cg-agent.exe --version)" = "cg-agent $V"
-          cp target/release/cg-agent.exe "cg-agent-$V-x86_64-pc-windows-msvc.exe"
+          node .github/scripts/release-windows.mjs build --version "$V" --out assets \
+            --work "$RUNNER_TEMP/release-work" --report "$RUNNER_TEMP/licences/licences-$V.md"
 
-      - name: Attest the executable
+      - name: Attest the Windows assets
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: cg-agent-*-x86_64-pc-windows-msvc.exe
+          subject-path: assets/*
 
-      - name: Keep the executable
+      - name: Keep the Windows assets
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent
-          path: cg-agent-*-x86_64-pc-windows-msvc.exe
+          path: assets/*
           if-no-files-found: error
 
   bundle:
     name: The bundle, pinned by digest and attested
     needs: images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -251,7 +278,7 @@ jobs:
   publish:
     name: The GitHub Release
     needs: [licences, images, agent, bundle]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -262,7 +289,10 @@ jobs:
           path: assets
           merge-multiple: true
 
-      # gh is on the runner; the release is created on the pushed tag alone.
+      # gh is on the runner; the release is created on the pushed tag alone. SPEC-024 Amendment
+      # 2026-11-14, point 5: six payload assets, each in SHA256SUMS, and nothing else downloaded
+      # is published; WiX's source archive is the one wix-<release>-source.tar.gz the agent job
+      # made.
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -270,10 +300,14 @@ jobs:
           set -eu
           V="${GITHUB_REF_NAME#v}"
           cd assets
-          sha256sum "cyberguard-deploy-$V.tar.gz" "cg-agent-$V-x86_64-pc-windows-msvc.exe" \
-            "licences-$V.md" > SHA256SUMS
+          shopt -s nullglob
+          SOURCES=(wix-*-source.tar.gz)
+          test "${#SOURCES[@]}" -eq 1
+          ASSETS=("cyberguard-deploy-$V.tar.gz" "cg-agent-$V-x86_64-pc-windows-msvc.exe" \
+            "cyberguard-agent-$V-x64-setup.exe" "cyberguard-agent-$V-x64.msi" "licences-$V.md" \
+            "${SOURCES[0]}")
+          sha256sum "${ASSETS[@]}" > SHA256SUMS
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "CyberGuard $V" \
-            --notes "The bundle, the agent's executable, the licence report and their SHA-256 sums. Install: docs/operations/install.md at $GITHUB_REF_NAME." \
-            "cyberguard-deploy-$V.tar.gz" "cg-agent-$V-x86_64-pc-windows-msvc.exe" \
-            "licences-$V.md" SHA256SUMS
+            --notes "The server bundle, cyberguard-deploy-$V.tar.gz; the agent's setup, cyberguard-agent-$V-x64-setup.exe, its MSI, cyberguard-agent-$V-x64.msi, and its executable, cg-agent-$V-x86_64-pc-windows-msvc.exe; the licence report, licences-$V.md, with WiX's notices and MS-RL's text; the source of the WiX files the setup carries, ${SOURCES[0]}; and their SHA-256 sums, SHA256SUMS. Install: docs/operations/install.md at $GITHUB_REF_NAME." \
+            "${ASSETS[@]}" SHA256SUMS

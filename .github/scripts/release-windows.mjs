@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPEC-024 Amendment 2026-11-14, points 2, 3 and 6: the release's Windows assets. release.yml's
-// agent job is to run this on the assets it builds from the tag, before it attests them, and
-// package-ci's dry run on the assets it builds at a fixture version (points 1 and 6).
+// agent job runs this on the assets it builds from the tag, before it attests them, and
+// package-ci's dry run runs it on the assets it builds at a fixture version (points 1 and 6).
 //
 //   node .github/scripts/release-windows.mjs check --version X.Y.Z --exe <cg-agent.exe> \
 //     --msi <msi> --setup <setup.exe> --setup-exe <cg-setup.exe>
@@ -18,11 +18,21 @@
 // sources from this repository at <ref> (HEAD by default). It reads the archive back and refuses
 // it, removed and with the reason named, unless its wix-<release>/ is exactly the pinned tree and
 // its LICENSE.TXT is the theme's copy.
+//
+//   node .github/scripts/release-windows.mjs build --version X.Y.Z --out <dir> --work <dir> [--report <licences.md>]
+//
+// is point 1 for release.yml's agent job and package-ci's dry run alike: the pins checked, then
+// the four assets built from this checkout into <dir>, which must be empty, the intermediate files
+// in <work>, which must be empty too, then `check` and `archive` on them; with --report, the licence
+// report must carry the archive's LICENSE.TXT. Relative paths are taken from the current directory.
+// It refuses a checkout with a change or an untracked file where the build reads it, and runs each
+// build step without the variables that would change what it builds (SCRUBBED_VARIABLES). Any
+// failure ends it with exit 1 and leaves no attestable set.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -917,6 +927,204 @@ export function buildArchive({ repo = REPO, ref = "HEAD", out, remote = WIX_REMO
 
 // --- The command --------------------------------------------------------------------------
 
+/** The release's names of the Windows assets for a version (SPEC-024 §Data contracts §1, point 3). */
+export function assetNames(version, release) {
+  return {
+    exe: `cg-agent-${version}-x86_64-pc-windows-msvc.exe`,
+    msi: `cyberguard-agent-${version}-x64.msi`,
+    setup: `cyberguard-agent-${version}-x64-setup.exe`,
+    archive: `wix-${release}-source.tar.gz`,
+  };
+}
+
+/**
+ * The variables no build step inherits (point 1): each one would change what cargo, rustc or
+ * MSBuild builds or where it reads or writes it, so a release built in an environment that sets one
+ * would not be the build of the tag. RUSTFLAGS and its kin replace .cargo/config.toml's static C
+ * runtime; a wrapper runs other code as the compiler; a target or target directory moves the
+ * executables the build copies; CgInjectFailure is the MSI's test-build define; the Custom*Targets
+ * import a file into every MSBuild project; NUGET_PACKAGES moves the packages verify-pins checks.
+ */
+export const SCRUBBED_VARIABLES = Object.freeze([
+  "RUSTFLAGS",
+  "CARGO_ENCODED_RUSTFLAGS",
+  "CARGO_BUILD_RUSTFLAGS",
+  "RUSTC_WRAPPER",
+  "RUSTC_WORKSPACE_WRAPPER",
+  "CARGO_BUILD_RUSTC_WRAPPER",
+  "CARGO_TARGET_DIR",
+  "CARGO_BUILD_TARGET",
+  "CARGO_BUILD_TARGET_DIR",
+  "CgInjectFailure",
+  "CustomBeforeMicrosoftCommonTargets",
+  "CustomAfterMicrosoftCommonTargets",
+  "NUGET_PACKAGES",
+]);
+
+/**
+ * A build step's environment: `parent` without SCRUBBED_VARIABLES, matched without regard to case
+ * as Windows and MSBuild read names, dotnet's opt-outs, then the step's own variables.
+ */
+export function buildEnvironment(parent, own = {}) {
+  const scrubbed = new Set(SCRUBBED_VARIABLES.map((v) => v.toUpperCase()));
+  const env = Object.fromEntries(Object.entries(parent).filter(([k]) => !scrubbed.has(k.toUpperCase())));
+  return { ...env, DOTNET_CLI_TELEMETRY_OPTOUT: "1", DOTNET_NOLOGO: "1", ...own };
+}
+
+/** The paths of the repository the build reads, which must be as the commit holds them. */
+export const BUILD_INPUTS = Object.freeze(["deploy/windows", "agent", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml"]);
+
+/** The paths `git status --porcelain` lists (`XY path`, or `XY from -> to` for a rename). */
+export function statusPaths(porcelain) {
+  return porcelain
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== "")
+    .map((l) => l.slice(3));
+}
+
+/** The build's inputs are clean: `git status --porcelain --untracked-files=all -- BUILD_INPUTS` printed nothing. */
+export function cleanTreeProblems(porcelain) {
+  const paths = statusPaths(porcelain);
+  return paths.length === 0 ? [] : [`the repository is not clean where the build reads it: ${paths.join(", ")}`];
+}
+
+/** The status of `repo`'s build inputs, read with git as the archive runs it. */
+export function repositoryProblems(repo = REPO) {
+  return cleanTreeProblems(git(["status", "--porcelain", "--untracked-files=all", "--", ...BUILD_INPUTS], { cwd: repo }).toString("utf8"));
+}
+
+/** A directory the build starts from is empty; `entries` are its names. */
+export function emptyDirectoryProblems(what, dir, entries) {
+  return entries.length === 0 ? [] : [`${what} ${dir} is not empty: ${[...entries].sort().join(", ")}`];
+}
+
+/** The output directory holds the four assets and nothing else. */
+export function outputProblems(dir, entries, names) {
+  const expected = Object.values(names);
+  const missing = expected.filter((n) => !entries.includes(n));
+  const extra = entries.filter((n) => !expected.includes(n));
+  return [
+    ...(missing.length > 0 ? [`${dir} lacks ${missing.join(", ")}`] : []),
+    ...(extra.length > 0 ? [`${dir} holds ${extra.sort().join(", ")} beside the four assets`] : []),
+  ];
+}
+
+/** The licence report carries WiX's LICENSE.TXT, the theme's copy (point 4), line endings aside. */
+export function reportProblems(report, text, licence) {
+  const lf = (s) => s.replaceAll("\r\n", "\n");
+  return lf(text).includes(lf(licence)) ? [] : [`the licence report ${report} does not carry WiX's LICENSE.TXT (deploy/windows/${THEME_LICENCE})`];
+}
+
+/**
+ * What the build refuses before it builds anything, every problem listed: `out` and `work` (made
+ * when absent) not empty; the licence report, when one is given, without WiX's LICENSE.TXT; and
+ * `repo` not clean where the build reads it.
+ */
+export function preflightProblems({ out, work, report, repo = REPO }) {
+  mkdirSync(out, { recursive: true });
+  mkdirSync(work, { recursive: true });
+  const licence = () => readFileSync(join(WINDOWS, ...THEME_LICENCE.split("/")), "utf8");
+  return [
+    ...emptyDirectoryProblems("the output directory", out, readdirSync(out)),
+    ...emptyDirectoryProblems("the work directory", work, readdirSync(work)),
+    ...(report === undefined ? [] : reportProblems(resolve(report), readFileSync(resolve(report), "utf8"), licence())),
+    ...repositoryProblems(repo),
+  ];
+}
+
+/**
+ * Point 1's build as data: the ordered steps, each `{ name, command, args, cwd, env }` run in
+ * buildEnvironment, or `{ name, copy: { from, to } }`, with `out` and `work` resolved to absolute
+ * paths first, since MSBuild resolves a relative property against the project's directory. The pins
+ * and the EULA ID are checked before WiX builds anything; cargo builds the agent alone, whose
+ * executable is taken at once, and then cg-setup, so that no feature cg-setup asks of a shared
+ * crate reaches the released agent; the MSI is built with the test build's define empty.
+ */
+export function releaseSteps({ version, out, work, wixRelease }) {
+  const names = assetNames(version, wixRelease);
+  const outDir = resolve(out);
+  const workDir = resolve(work);
+  const exe = join(outDir, names.exe);
+  const msi = join(outDir, names.msi);
+  const setup = join(outDir, names.setup);
+  const setupExe = join(workDir, "cg-setup.exe");
+  const msiOut = join(workDir, "msi");
+  const setupOut = join(workDir, "setup");
+  const release = { CG_RELEASE_VERSION: version };
+  const run = (name, command, args, cwd, env = {}) => ({ name, command, args, cwd, env });
+  const copy = (name, from, to) => ({ name, copy: { from, to } });
+  const verifyPins = join(WINDOWS, "pins", "verify-pins.mjs");
+  const steps = [
+    run("the pinned packages", "dotnet", ["restore", join(WINDOWS, "pins", "Pins.csproj")], WINDOWS),
+    run("the packages' hashes", process.execPath, [verifyPins], WINDOWS),
+    run("the wix tool", "dotnet", ["tool", "restore"], WINDOWS),
+    run("the tool's build and EULA ID", process.execPath, [verifyPins, "--tool"], WINDOWS),
+    run("cg-agent", "cargo", ["build", "--release", "--locked", "-p", "cg-agent"], REPO, release),
+    copy("the agent's executable", join(REPO, "target", "release", "cg-agent.exe"), exe),
+    run("cg-setup", "cargo", ["build", "--release", "--locked", "-p", "cg-setup"], REPO, release),
+    copy("cg-setup.exe", join(REPO, "target", "release", "cg-setup.exe"), setupExe),
+    run(
+      "the MSI",
+      "dotnet",
+      ["build", "--no-incremental", join(WINDOWS, "msi", "CyberGuardAgent.wixproj"), "-c", "Release", `-p:AgentExe=${exe}`, "-p:CgInjectFailure=", `-p:OutputPath=${msiOut}${sep}`],
+      WINDOWS,
+      release,
+    ),
+    copy("the MSI asset", join(msiOut, names.msi), msi),
+    run(
+      "the setup",
+      "dotnet",
+      ["build", "--no-incremental", join(WINDOWS, "bundle", "CyberGuardSetup.wixproj"), "-c", "Release", `-p:Msi=${msi}`, `-p:SetupExe=${setupExe}`, `-p:OutputPath=${setupOut}${sep}`],
+      WINDOWS,
+      release,
+    ),
+    copy("the setup asset", join(setupOut, names.setup), setup),
+  ];
+  return { names, out: outDir, work: workDir, exe, msi, setup, setupExe, steps };
+}
+
+/** Runs a step of the build, its output through; a failure ends the build, naming the step. */
+function runStep(s) {
+  process.stdout.write(`--- ${s.name}\n`);
+  if (s.copy) {
+    copyFileSync(s.copy.from, s.copy.to);
+    return;
+  }
+  const r = spawnSync(s.command, s.args, { cwd: s.cwd, env: buildEnvironment(process.env, s.env), stdio: "inherit", shell: false });
+  if (r.status !== 0) throw new Error(`${s.name} failed: ${r.error?.message ?? `exit ${r.status}`}`);
+}
+
+function refuse(problems) {
+  if (problems.length > 0) throw new Error(problems.join("; "));
+}
+
+/**
+ * Point 1: the four Windows assets made from this checkout in one run, into `out`, and nothing else
+ * there. Before anything is built: `out` and `work` are empty, the licence report, when one is
+ * given, carries WiX's LICENSE.TXT (point 4), and the build's inputs are clean. Then releaseSteps,
+ * point 2's checks, and point 3's archive, whose LICENSE.TXT is the theme's copy; and `out` holds
+ * the four assets alone.
+ */
+export function buildRelease({ version, out, work, report }) {
+  const plan = releaseSteps({ version, out, work, wixRelease: pins().wixRelease });
+  refuse(preflightProblems({ out: plan.out, work: plan.work, report }));
+  process.stdout.write(`PASS the output and work directories are empty${report === undefined ? "" : ", the licence report carries WiX's LICENSE.TXT"}, and the repository is clean in ${BUILD_INPUTS.join(", ")}\n`);
+
+  for (const s of plan.steps) runStep(s);
+
+  process.stdout.write("--- the checks\n");
+  const results = check({ version, exe: plan.exe, msi: plan.msi, setup: plan.setup, setupExe: plan.setupExe });
+  for (const r of results) process.stdout.write(r.problems.length === 0 ? `PASS ${r.check}\n` : `FAIL ${r.check}: ${r.problems.join("; ")}\n`);
+  const failed = results.filter((r) => r.problems.length > 0);
+  if (failed.length > 0) throw new Error(`${failed.length} of ${results.length} checks failed`);
+
+  process.stdout.write("--- the source archive\n");
+  buildArchive({ ref: "HEAD", out: plan.out });
+  process.stdout.write("PASS the source archive is the pinned tree and the setup's sources\n");
+  refuse(outputProblems(plan.out, readdirSync(plan.out), plan.names));
+  return { names: plan.names, out: plan.out };
+}
+
 function arg(name) {
   const i = process.argv.indexOf(name);
   return i === -1 ? undefined : process.argv[i + 1];
@@ -952,8 +1160,21 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(resolve(p
       process.stderr.write(`archive refused: ${e instanceof Error ? e.message : String(e)}\n`);
       process.exit(1);
     }
+  } else if (command === "build") {
+    const options = { version: arg("--version"), out: arg("--out"), work: arg("--work"), report: arg("--report") };
+    if (!/^\d+\.\d+\.\d+$/.test(options.version ?? "") || !options.out || !options.work) {
+      process.stderr.write("usage: release-windows.mjs build --version X.Y.Z --out <dir> --work <dir> [--report <licences.md>]\n");
+      process.exit(2);
+    }
+    try {
+      const r = buildRelease(options);
+      process.stdout.write(`release build: ${Object.values(r.names).join(", ")} in ${r.out}\n`);
+    } catch (e) {
+      process.stderr.write(`release build refused: ${e instanceof Error ? e.message : String(e)}\n`);
+      process.exit(1);
+    }
   } else {
-    process.stderr.write("usage: release-windows.mjs check ... | archive --out <dir> [--ref <ref>]\n");
+    process.stderr.write("usage: release-windows.mjs check ... | archive --out <dir> [--ref <ref>] | build --version X.Y.Z --out <dir> --work <dir>\n");
     process.exit(2);
   }
 }

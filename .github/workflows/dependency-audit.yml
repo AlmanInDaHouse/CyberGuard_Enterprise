@@ -12,7 +12,7 @@ name: dependency-audit
 #   whatever its severity; an unmaintained, unsound or yanked crate is printed as a
 #   warning and passes.
 # - licences (debt #112, SPEC-023 §Operational §12): the production pnpm dependencies,
-#   the agent's runtime crates and the nuget pins that the agent's setup or MSI carries,
+#   the agent's and cg-setup's runtime crates and the nuget pins that the agent's setup or MSI carries,
 #   against .github/scripts/licences-allowed.json.
 # - nuget (SPEC-024 Amendment 2026-11-01, point 1): every pin of the Windows package against
 #   nuget.org's vulnerability feed. Any advisory that covers a pin fails the run.
@@ -31,6 +31,7 @@ on:
       - ".github/scripts/check-licences.mjs"
       - ".github/scripts/licences-allowed.json"
       - "deploy/windows/pins/**"
+      - "deploy/windows/bundle/theme/LICENSE.TXT"
       - ".github/workflows/dependency-audit.yml"
   pull_request:
     paths:
@@ -44,6 +45,7 @@ on:
       - ".github/scripts/check-licences.mjs"
       - ".github/scripts/licences-allowed.json"
       - "deploy/windows/pins/**"
+      - "deploy/windows/bundle/theme/LICENSE.TXT"
       - ".github/workflows/dependency-audit.yml"
   schedule:
     # Mondays, 06:17 UTC.
@@ -132,7 +134,7 @@ jobs:
         run: node deploy/windows/pins/audit-pins.mjs
 
   licences:
-    name: Licences (production dependencies, the agent's crates and the package's pins)
+    name: Licences (production dependencies, the agent's and cg-setup's crates and the package's pins)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

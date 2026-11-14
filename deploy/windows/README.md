@@ -41,7 +41,7 @@ upgrades a second build of its own version as it upgrades a lower one (SPEC-024 
 `-p:CgInjectFailure=1` makes a test build whose deferred action fails inside the transaction;
 a release build has no custom action, which the job reads. The
 build does not compare the agent's own version with `CG_RELEASE_VERSION`: that comparison is the
-release's (install_ac_015), which is not built yet.
+release's (install_ac_015), below.
 `test/msi-version-matrix.mjs` checks that its build refuses a version outside the release's form.
 
 ## The setup
@@ -67,3 +67,31 @@ installs nothing; running it installs the agent, so it runs only in `package-ci`
 a hosted runner (`agent/cg-setup/tests/package_bundle_host.rs`), never on a development host.
 `test/bundle-version-matrix.mjs` checks that its build refuses a version outside the release's form
 and packages of another version.
+
+## The release
+
+`.github/scripts/release-windows.mjs` makes the release's four Windows assets (SPEC-024 Amendment
+2026-11-14): `release.yml`'s agent job runs it at the tag's version, and `package-ci`'s `release`
+job at a fixture version, the release's dry run. From the repository root, with the toolchains of
+the gate:
+
+```sh
+node .github/scripts/check-licences.mjs --report <dir>/licences-1.2.3.md
+node .github/scripts/release-windows.mjs build --version 1.2.3 --out <empty dir> --work <empty dir> --report <dir>/licences-1.2.3.md
+```
+
+It refuses to start unless the output and work directories are empty, the report carries WiX's
+`LICENSE.TXT` and `git status` shows no change or untracked file under `deploy/windows`, `agent`,
+`Cargo.toml`, `Cargo.lock`, `.cargo` or `rust-toolchain.toml`; relative directories are taken from
+the current one. Its steps run without `RUSTFLAGS`, the compiler wrappers, a cargo target or target
+directory, `CgInjectFailure`, MSBuild's `Custom*MicrosoftCommonTargets` or `NUGET_PACKAGES` from the
+environment. It checks the pins and the EULA ID, builds the agent alone and then `cg-setup` at that
+version, the MSI with the test build's define empty and the setup, and then checks them without
+installing anything: the
+executable's version resource, imports and message table, the MSI's version, its one file and no
+custom action, the setup's version and copyright, and, with the pinned `wix` tool, that the MSI the
+setup carries and the agent's file the MSI carries are byte-identical to the assets. Last it builds
+`wix-<release>-source.tar.gz`, WiX's tree at the commit and tree IDs `pins/pins.json` records,
+fetched from WiX's repository, and the setup's own sources under `cyberguard-setup/deploy/windows/`,
+and reads it back against the pinned tree. `test/release-check-matrix.mjs` sees each check refuse the
+wrong set it is for, and `test/release-workflow.test.mjs` holds `release.yml`'s structure.
