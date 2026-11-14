@@ -2741,6 +2741,217 @@ anchor's path typed with no file picker, the fingerprints never computed from th
 pasting allowed into the token's field with the clipboard disclosed. He approved this text on
 2026-11-13, in chat: "si". Status stays **Accepted**.
 
+## Amendment 2026-11-14: the release's Windows assets
+
+**What surfaced it.** C8, the release, is to publish the assets §Data contracts §1 and the
+Amendment 2026-11-01, point 1, name. Reading the texts against the package that `package-ci`
+builds left points no text settles: where the Windows assets are made and checked; how their
+payloads are compared without installing them, since a test that installs the MSI runs in
+`package-ci` alone (the Amendment 2026-11-09); what the source archive of point 1 holds, where
+it comes from and how it is pinned; where MS-RL's text travels; that the setup carries the
+project's own theme, two modified MS-RL files, while point 1 says the WiX binaries "ship
+unmodified"; that the release MSI carries no custom action, while point 1 names "an
+extension's custom action" among what runs elevated; that SPEC-023 §Operational §12 and its
+Amendments 2026-10-26, item 4, and 2026-10-27 name three and then five payload assets, which
+point 1 made six by scope without listing them; debt #158 (a release MSI built with the test
+build's define); #140 (a development build's version resource reads as a release's); #149
+(`ubuntu-latest`); and #131's remainder (install_ac_015). Read on the setup and the MSI that
+`package-ci`'s recipe builds at the fixture version `1.2.3`, with the pinned `wix` tool and
+nothing installed: `wix burn extract` yields an MSI payload byte-identical to the MSI and two
+`cg-setup.exe` payloads byte-identical to `cg-setup.exe`; its bootstrapper application's files
+are `wixstdba.exe`, `logo.png`, the theme as `thm.xml` and `thm.wxl`, and data WiX's binder
+writes; `wix msi decompile -x` yields the agent's file byte-identical to `cg-agent.exe`, and the
+MSI has no `CustomAction` and no `Binary` table. WiX's binder writes the setup's own version
+resource over the engine's, from `Bundle.wxs`, so the setup's executable, Burn's engine, carries
+`Copyright (c) CyberGuard` and not WiX's line, `Copyright (c) .NET Foundation and contributors. All
+rights reserved.`, which the nuget package's `burn.exe` carries; `wixstdba.exe` keeps its own
+resource. WiX's
+tag `v7.0.1` is annotated and names the commit `642f1a0f7c857ffa4fc9fa3f9d1433aab895dd29`, the one
+`deploy/windows/pins/pins.json` abbreviates, whose tree is
+`7ebe172bb319de1070dbac860425531ac04379c0`: 5192 files, at its root `LICENSE.TXT` (WiX's copyright
+line and MS-RL) and `OSMFEULA.txt` (the EULA its nuget packages declare), WiX's own licence documents
+under `src/` (placeholders and a copy of its EULA), and other projects' licence files only under its test data.
+
+**Amendment.**
+
+1. **Where the Windows assets are made.** `release.yml`'s agent job, on Windows, makes its four
+   assets from the tag in one run: the raw executable (§Data contracts §1), the MSI from that
+   executable without the test build's define (`CgInjectFailure`), the setup from that MSI and from
+   `cg-setup.exe`, built at the same version, and the source archive of point 3. It restores the
+   pinned .NET SDK and `wix` tool and checks each nuget package against its recorded hash and the
+   tool's EULA ID, as `package-ci` does, before WiX runs. No release job restores a cache, and no
+   file of an earlier run enters an asset: the toolchains, the nuget packages and the Node packages
+   are fetched by their pins, WiX's binaries the setup carries being those of its pinned nuget
+   packages. SPEC-023 §Operational §12's jobs and their permissions stay as they are: the agent job
+   holds `contents: read`, `id-token: write` and `attestations: write`, and attests its four assets
+   once every check of points 2 and 3 has passed.
+2. **What the job checks before it attests.** A failure ends the job with nothing of it attested
+   and the GitHub Release not created; the images job runs alongside it, so its images, and the
+   bundle after them, may already be pushed and attested, as they may be today. None of
+   these checks installs anything or runs the MSI or the setup:
+   - the raw executable: `--version` prints `cg-agent X.Y.Z` (as today); its version resource has
+     the numeric file and product versions `X.Y.Z.0`, the `FileVersion` and `ProductVersion`
+     strings `X.Y.Z` and no pre-release flag (point 8); its import tables, the delay-loaded one
+     included, name only DLLs every supported Windows ships, the list
+     `agent/cg-agent/tests/package_executable.rs` holds, or an API set other than the C
+     runtime's (SPEC-001 NFR-004); and its message table holds entries 1000 to 1003 (the
+     Amendment 2026-11-09, item 4) and neither 999 nor 1004;
+   - `cg-setup.exe`: its `ProductVersion` string is `X.Y.Z`, with no pre-release flag;
+   - the MSI, its database opened read-only: its `ProductVersion` is `X.Y.Z`; its `File` table
+     holds one file, the agent's executable; it has no `Binary` table, and its `CustomAction`
+     table is absent or empty (#158);
+   - the setup: its version resource's `ProductVersion` string and the version its manifest
+     registers (Burn's `manifest.xml`, read with the pinned `wix` tool) are `X.Y.Z`, and its
+     `LegalCopyright` holds WiX's line (point 10);
+   - the payloads, read with the pinned `wix` tool: the MSI the setup carries is byte-identical to
+     the MSI asset, and each `cg-setup.exe` it carries to the one built; the agent's file the MSI
+     carries is byte-identical to the raw executable asset. The installed binary's digest is the
+     raw executable's, which the endpoint runbook (C10) verifies.
+
+   This is install_ac_015's "setup, MSI and installed/raw binary have the same product version
+   and contained agent-payload digest" for the published assets, and, on the release's own MSI, the check the Amendment 2026-11-12
+   (second) gives `package-ci` ("the release MSI has none, which the job checks"). The comparison of
+   the agent's own version with the package's, which `deploy/windows/README.md` leaves to the
+   release, is this point's: the MSI's build does not make it, since `package-ci` builds an MSI
+   of a higher version around the same executable for its upgrade tests.
+3. **The source archive.** One asset, `wix-<release>-source.tar.gz` for the pinned WiX release
+   (`wix-7.0.1-source.tar.gz` today), holds the source of the WiX files the setup carries and the
+   setup's own:
+   - `wix-<release>/`: every file of the pinned commit's tree, its bytes as the commit holds them,
+     with no line-ending conversion and no file left out (WiX's `OSMFEULA.txt` and the test data's
+     own licence files among them);
+   - `cyberguard-setup/`: the setup's own sources as the release's tag holds them, under their
+     paths in `deploy/windows/`, from which WiX's binder makes the setup's executable: the
+     bundle's `Bundle.wxs`, `CyberGuardSetup.wixproj` and `packages.lock.json`, the directory's
+     `Directory.Build.props`, `Directory.Build.targets`, `global.json` and `nuget.config`, and the
+     theme (`bundle/theme/`), two files adapted from WiX's `HyperlinkTheme` and kept under MS-RL,
+     with the `LICENSE.TXT` their headers name, WiX's, which the theme's directory of the
+     repository gains and holds once; the headers, which place it in the project root, gain a line
+     that places it beside them.
+
+   `deploy/windows/pins/pins.json` gains the commit's full ID and its tree's ID, and its tests check
+   that the informational version it records names that commit. The job fetches that commit by its
+   ID from `https://github.com/wixtoolset/wix` with git's object checks on, and builds no archive
+   unless the tag `v<release>` there names that commit and the commit's tree is the pinned one. It
+   checks that the archive's `wix-<release>/` holds exactly the pinned tree's files, each with its
+   blob's bytes (the tree's ID recomputed from the archive), and that its `LICENSE.TXT` is
+   byte-identical to the copy the licence report reads (point 4); the commit holds it with LF
+   line endings, as the repository does. The archive is in `SHA256SUMS` and attested like the setup, the MSI
+   and the raw executable. A release that cannot reach `github.com` fails before it attests. Git
+   recomputes each object's ID from the content it receives, so other content under the pinned
+   IDs needs a SHA-1 collision; git's collision detection refuses the known attacks of that kind,
+   and one it would miss is the threat model's accepted residual (its Amendment 2026-11-14).
+4. **MS-RL's text and WiX's notices.** The licence report, `licences-<version>.md`, gains a section
+   on the WiX files the setup carries, named as it carries them: Burn's engine, which is the
+   setup's own executable, its code unmodified and its version resource the setup's (point 10);
+   the standard bootstrapper application, `wixstdba.exe`, and its `logo.png`, unmodified; and the
+   theme, `thm.xml` and `thm.wxl`, modified from WiX's `HyperlinkTheme` files. The job takes the
+   report from the licence check's job. It gives their WiX
+   release and commit; that they are distributed under MS-RL; the name of the archive that holds
+   their source; and the text of WiX's `LICENSE.TXT`, WiX's copyright line and MS-RL's full text,
+   from the copy beside the theme (point 3). The release MSI carries no WiX file. The licence check also reads `cg-setup`'s runtime
+   crates, which the setup carries, as it reads the agent's: a licence it would admit for neither
+   yet is Manuel's. #130's WiX part, whose destination was this change, is met by points 3, 4 and
+   10; the questions it leaves, legal readings, move to #130's first-release part: whether the
+   release's notice reaches, as MS-RL asks, a recipient of the setup alone; a notice inside the
+   package; the OSMF EULA's text beyond the archive's copy; whether the engine's other version
+   fields WiX's binder replaces (its company, product and description) are attribution notices
+   MS-RL asks to keep; and whether MS-RL's "source code to that file" for the setup's executable,
+   which is Burn's engine with the MSI and `cg-setup.exe` attached, asks more than point 3's
+   archive, which holds the engine's source and the setup's own.
+5. **The release's assets.** `SHA256SUMS` covers six payload assets: the bundle, the raw
+   executable, the setup, the MSI, the licence report and the source archive. Attested: the four
+   images and the bundle (as today), the raw executable, the setup, the MSI and the source archive;
+   neither the licence report nor `SHA256SUMS`. `cg-setup.exe` is no asset of its own: it reaches
+   the endpoint inside the setup, whose digest and attestation cover it. The release's notes name
+   the assets. No SBOM of the Windows assets is published.
+6. **The dry run.** `package-ci` gains a job that runs the agent job's builds, checks and archive
+   through the same script, on the runner image of point 7, at a fixture version, restoring no
+   cache, attesting and publishing nothing. A test that reads `release.yml` itself (`node --test`,
+   under `deploy/windows/test/`, in `package-ci` and the local gate) holds its six assets in
+   `SHA256SUMS` and the publish step, each job's permissions, that each job that pushes or attests
+   needs the licence check, directly or through another job, that no step passes the test build's
+   define, that no step restores a cache (no cache action; Node and .NET set up with their caches
+   off; Rust from `rust-toolchain.toml` through `rustup`), and its runners' labels. `package-ci`
+   runs on a change to `release.yml` or to a script the release runs. By scope this amends
+   SPEC-023's Amendment 2026-10-27, whose "deploy_ac_019's asset checks extend to these additions":
+   the Windows additions' checks are this job's, since `deploy-ci`'s dry run is Linux's. The
+   published provenance (`gh attestation verify`) stays first-release evidence.
+7. **Runner images (#149).** `release.yml`'s Ubuntu jobs and `deploy-ci`'s release dry run run on
+   `ubuntu-24.04`, the image `deploy-ci`'s images job is pinned to, rather than `ubuntu-latest`, where
+   the dashboard's `next build` dies with `kill EACCES` for a cause not yet known. The agent job and
+   point 6's job run on `windows-2025`. By scope this amends SPEC-023's *Test scenarios* line, whose
+   "run on `ubuntu-latest`" reads `ubuntu-24.04`. A move to another image is a reviewed change of
+   both workflows together.
+8. **A development build's flag (#140).** The version resource of `cg-agent.exe` and of
+   `cg-setup.exe`, which one resource writer builds, carries the pre-release flag
+   (`VS_FF_PRERELEASE`, in its file flags; their mask already admits it) in a development build,
+   the `<Cargo package version>-dev` one, and not in a release build. install_ac_014's version tests
+   read the flag in both builds, and point 2 refuses it in a release asset.
+9. **Text that the package made inexact.** Point 1 of the Amendment 2026-11-01 says the WiX
+   binaries the setup or the MSI carries are "Burn's engine, an extension's custom action" and that
+   they "ship unmodified": the setup carries Burn's engine, its code unmodified and its version
+   resource the setup's, the standard bootstrapper application and its `logo.png`, unmodified, and
+   the theme, two modified MS-RL files whose source point 3 publishes; the release MSI carries
+   neither a WiX file nor a custom action. Its *Effect* names the same pieces, and reads the same.
+   So do the sentences of the same kind: the Amendment 2026-11-09, item 1's "The setup is WiX's
+   unmodified Burn engine and standard bootstrapper application", the Amendment 2026-11-12
+   (second)'s *Effect*, which holds that sentence with its theme, and the Amendment 2026-11-12
+   (third), which relies on it, read "unmodified" of the engine as its code, its version resource
+   being the setup's (point 10).
+   The licence allowlist's entries keep their names and licence; the `WixToolset.Sdk` entry's
+   reason reads as this point says, with the release's code.
+   SPEC-023 §Operational §12 and its first Amendment 2026-10-26, item 4, list three payload assets,
+   and its Amendment 2026-10-27 five: by scope, both read as point 5;
+   §12's agent job, which "builds `cg-agent.exe` in release mode, and attests it",
+   reads as point 1, its "its dry run is `deploy-ci.yml`'s" as point 6 for the Windows assets, and
+   its *Licences* bullet, which reads "the agent's runtime dependencies", as point 4, with
+   `cg-setup`'s crates and the WiX section. The Amendment 2026-11-01's "MS-RL's text in its
+   third-party notices (#130)" is the licence report's section of point 4. Point 10 changes the
+   version resource alone: the setup's window keeps its own copyright text. The release's list in
+   `docs/operations/install.md` follows point 5 with the release's code.
+10. **WiX's copyright line in the setup's executable.** The setup's copyright is
+    `Copyright (c) CyberGuard. Burn engine: Copyright (c) .NET Foundation and contributors. All
+    rights reserved.`, so that its executable, Burn's engine under the version resource WiX's binder
+    writes, keeps WiX's copyright line as `burn.exe` states it: MS-RL's section 3(D) asks a
+    distribution to retain the copyright, patent, trademark and attribution notices present in the
+    software. `wixstdba.exe` keeps its own resource. This amends point 8 of the Amendment 2026-11-12 (second) in its copyright, which
+    stays provisional with the publisher.
+
+**Tests.** Point 6's job and its static test, the tests of the script's readers against the
+binaries that job builds, and install_ac_014's version tests for point 8, on Windows. Every check
+installs nothing, so each is seen refusing a case made for it locally before the release's code
+lands (CLAUDE.md's control §1): builds the local gate makes where a build makes the case, such
+as a test-build MSI (a custom action), a
+setup built around another build of the MSI, an MSI around another executable, a development
+executable, a setup of another version, a setup whose copyright lacks WiX's line, an archive
+whose `LICENSE.TXT` had its line endings converted or that lacks a file of the tree, and a pinned
+tree ID the commit does not have; and, where no build makes it, a copy of a built file changed for
+the test, such as an executable with a foreign import or another message entry, or an MSI with a
+second file or a `Binary` table. Point 6's job's run on the hosted runner is the dry run's
+evidence.
+
+**Effect.** §Data contracts §1's "Publish SHA-256 entries and provenance for all three" holds, and
+the source archive is a fourth Windows asset with its own entry and attestation (the Amendment
+2026-11-01, point 1). install_ac_015 is met for the release's code by points 2, 5 and 6, its
+published provenance staying first-release evidence. §Operational §5's "check version agreement and
+package contents before publication" is point 2. The Amendment 2026-11-01's point 1 reads as point 9
+says. SPEC-023's Amendment 2026-10-27 reads as points 5 and 6, and its *Test scenarios* line as
+point 7. ADR-0022 §7, whose release "also carries the agent's executable", is not changed: the
+setup, the MSI and the archive are added by SPEC-023's Amendment 2026-10-27 and this SPEC, as
+assets of the same release, under the same attestation and permissions; the archive's fetch from
+WiX's upstream repository is a new input of an attested asset, pinned by point 3, which §7 does not
+name. No dependency of `cg-agent` is added. The release-tag freeze stays, and so does Authenticode
+(ADR-0022 Open question 1). CLAUDE.md's *Local pre-commit gate* names `release.yml` and the release
+scripts among the *Windows package* bullet's triggers when point 6's test lands. Every point bears
+on packaging, on Manuel's list: the design is Claude Code's proposal, and lands only with his
+approval of this text. Manuel chose, on 2026-11-14 in chat, each in the recommended option: the
+archive of WiX's whole tree with the theme, fetched by the pinned commit ("Árbol entero + tema"), to which the review added the setup's
+other sources, `Bundle.wxs` and its build files, for point 4's last question;
+MS-RL's text and WiX's notices in the licence report ("En licences-<v>.md"); and WiX's
+copyright line kept in the setup's version resource ("Conservarla en el recurso"). He approved
+this text on 2026-11-14, in chat: "doy el si". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
