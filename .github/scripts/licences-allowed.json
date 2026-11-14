@@ -33,7 +33,7 @@
       "ecosystem": "nuget",
       "name": "WixToolset.Sdk",
       "licence": "MS-RL",
-      "reason": "Carries Burn's engine, which the agent's setup runs elevated on the endpoint, unmodified. Reviewed under SPEC-024 Amendment 2026-11-01, point 1: the package declares its licence as a file, the OSMF EULA v1.1 (wix7), which Manuel accepted on 2026-11-01; its binaries are redistributed under MS-RL, whose reciprocity reaches each distributed file of WiX's own and not the agent."
+      "reason": "Carries Burn's engine, which is the agent's setup's own executable and runs elevated on the endpoint: its code unmodified, its version resource the setup's, which carries WiX's copyright line (SPEC-024 Amendment 2026-11-14, points 9 and 10). Reviewed under SPEC-024 Amendment 2026-11-01, point 1: the package declares its licence as a file, the OSMF EULA v1.1 (wix7), which Manuel accepted on 2026-11-01; its binaries are redistributed under MS-RL, whose reciprocity reaches each distributed file of WiX's own and not the agent."
     },
     {
       "ecosystem": "nuget",

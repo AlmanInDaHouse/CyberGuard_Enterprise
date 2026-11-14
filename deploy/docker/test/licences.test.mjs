@@ -26,21 +26,25 @@ test("an SPDX expression: OR admits one side, AND both, WITH its base, X/Y as OR
   assert.throws(() => admitted("MIT WITH )", ALLOWED));
 });
 
-test("the agent's crates are its normal dependencies, transitively, without its development ones", () => {
+// The setup's cg-setup is read with the agent (SPEC-024 Amendment 2026-11-14, point 4): a
+// crate of cg-setup alone is read too, and the workspace's own packages are not.
+test("the agent's and the setup's crates are their normal dependencies, transitively, without their development ones", () => {
   const pkg = (name) => ({ id: `${name} 1.0.0`, name, version: "1.0.0", license: "MIT" });
   const normal = [{ kind: null, target: null }];
   const json = {
-    packages: [pkg("cg-agent"), pkg("serde"), pkg("serde_derive"), pkg("bollard")],
+    packages: [pkg("cg-agent"), pkg("cg-setup"), pkg("serde"), pkg("serde_derive"), pkg("bollard"), pkg("pem")],
     resolve: {
       nodes: [
         { id: "cg-agent 1.0.0", deps: [{ pkg: "serde 1.0.0", dep_kinds: normal }, { pkg: "bollard 1.0.0", dep_kinds: [{ kind: "dev", target: null }] }] },
+        { id: "cg-setup 1.0.0", deps: [{ pkg: "cg-agent 1.0.0", dep_kinds: normal }, { pkg: "pem 1.0.0", dep_kinds: normal }] },
         { id: "serde 1.0.0", deps: [{ pkg: "serde_derive 1.0.0", dep_kinds: normal }] },
         { id: "serde_derive 1.0.0", deps: [] },
         { id: "bollard 1.0.0", deps: [] },
+        { id: "pem 1.0.0", deps: [] },
       ],
     },
   };
-  assert.deepEqual(cargoPackages(json).map((p) => p.name).sort(), ["serde", "serde_derive"]);
+  assert.deepEqual(cargoPackages(json).map((p) => p.name).sort(), ["pem", "serde", "serde_derive"]);
 });
 
 test("a package the allowlist names is admitted under its licence too, and under no other outside the list", () => {
@@ -88,9 +92,16 @@ test("the checker fails on a fixture with a licence outside the list, naming the
     const cargo = {
       packages: [
         { id: "cg-agent 0.1.0", name: "cg-agent", version: "0.1.0", license: "Apache-2.0" },
+        { id: "cg-setup 0.1.0", name: "cg-setup", version: "0.1.0", license: "Apache-2.0" },
         { id: "agpl-crate 0.3.0", name: "agpl-crate", version: "0.3.0", license: "AGPL-3.0-only" },
       ],
-      resolve: { nodes: [{ id: "cg-agent 0.1.0", deps: [{ pkg: "agpl-crate 0.3.0", dep_kinds: [{ kind: null, target: null }] }] }, { id: "agpl-crate 0.3.0", deps: [] }] },
+      resolve: {
+        nodes: [
+          { id: "cg-agent 0.1.0", deps: [{ pkg: "agpl-crate 0.3.0", dep_kinds: [{ kind: null, target: null }] }] },
+          { id: "cg-setup 0.1.0", deps: [{ pkg: "cg-agent 0.1.0", dep_kinds: [{ kind: null, target: null }] }] },
+          { id: "agpl-crate 0.3.0", deps: [] },
+        ],
+      },
     };
     writeFileSync(join(dir, "pnpm.json"), JSON.stringify(pnpm));
     writeFileSync(join(dir, "cargo.json"), JSON.stringify(cargo));
