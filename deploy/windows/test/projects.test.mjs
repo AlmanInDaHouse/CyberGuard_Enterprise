@@ -126,7 +126,10 @@ test("the setup's chain is preflight, the MSI with the chain's property, a vital
   assert.equal(bundle.get("Version"), "$(var.ProductVersion)", "its version is the release version");
   assert.equal(bundle.get("UpgradeCode"), "B3D1FE6C-5F20-4E58-9B7A-3A7C8E1D4F10", "one upgrade family");
   assert.equal(bundle.get("Manufacturer"), "CyberGuard");
-  assert.equal(bundle.get("Copyright"), "Copyright (c) CyberGuard");
+  // WiX's copyright line kept in the version resource the binder writes over Burn's (SPEC-024
+  // Amendment 2026-11-14, point 10), and the engine read as its point 9 reads it.
+  assert.equal(bundle.get("Copyright"), "Copyright (c) CyberGuard. Burn engine: Copyright (c) .NET Foundation and contributors. All rights reserved.");
+  assert.doesNotMatch(wxs, /unmodified\s+Burn engine/, "the engine's code is unmodified, its version resource the setup's");
 
   const chain = /<Chain>([\s\S]*?)<\/Chain>/.exec(wxs)?.[1];
   assert.ok(chain, "a chain");

@@ -11,7 +11,9 @@
 //! file and product versions are `X.Y.Z.0`; its `FileVersion` and
 //! `ProductVersion` strings are the version `cg-agent --version` prints:
 //! the input's `X.Y.Z`, or `<Cargo package version>-dev` without it, whose
-//! numbers are Cargo's. A malformed input writes nothing here, and
+//! numbers are Cargo's; its file flags are the pre-release flag in that
+//! development build alone (the Amendment 2026-11-14, point 8). A
+//! malformed input writes nothing here, and
 //! `version.rs` refuses it with its own message. A well-formed one with a
 //! component above 65535, which a PE version field cannot hold, fails the
 //! build. No crate, no external tool; cargo reruns this when the input is
@@ -31,7 +33,7 @@ const LAST_ENTRY: u32 = 1003;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_resource.rs");
-    let Some((text, numbers)) = build_resource::version() else {
+    let Some(version) = build_resource::version() else {
         return;
     };
     let names = build_resource::Names {
@@ -41,7 +43,7 @@ fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("version.res");
     std::fs::write(
         &out,
-        build_resource::resource_file(numbers, &text, &names, Some((FIRST_ENTRY, LAST_ENTRY))),
+        build_resource::resource_file(&version, &names, Some((FIRST_ENTRY, LAST_ENTRY))),
     )
     .expect("write version.res");
     println!("cargo:rustc-link-arg-bin=cg-agent={}", out.display());

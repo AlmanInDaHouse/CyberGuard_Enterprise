@@ -29,7 +29,7 @@ jobs:
   `dotnet list package --vulnerable` would read. Any advisory that covers a
   pin fails the run, whatever its severity, and so does a feed it cannot read.
 - `check-licences.mjs` reads the licences of the production pnpm dependencies,
-  of the agent's runtime crates and of the nuget pins whose binaries the setup
+  of the agent's and cg-setup's runtime crates and of the nuget pins whose binaries the setup
   or the MSI carries; one that
   `.github/scripts/licences-allowed.json` does not admit fails the run, named.
   Red for a licence: replace the package, or add the licence or the package to
@@ -153,7 +153,7 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
   checks a release's provenance.
 - **Licences** beyond the checked ones. `check-licences.mjs` reads the
   production pnpm dependencies as CI installs them (on Linux with glibc), the
-  agent's runtime crates for its Windows target and the nuget pins marked
+  agent's and cg-setup's runtime crates for their Windows target and the nuget pins marked
   `carried`, which it admits by name alone. What an image ships
   beyond them is not checked: its base image's packages, and the musl build
   of a native package the image installs. Each released image's index carries BuildKit's SBOM attestation, which lists the operating-system and Node packages installed in the image, and each image carries its third-party notices (SPEC-023 Amendment 2026-10-26, items 2 and 4; debt #112); neither checks a licence.

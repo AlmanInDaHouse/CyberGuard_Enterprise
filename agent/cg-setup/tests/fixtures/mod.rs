@@ -571,13 +571,16 @@ mod windows {
         (u32_at(at) >= 80).then(|| u16_at(at + 78))
     }
 
-    /// The string `key` of the U.S. English, UTF-16 table of the version
-    /// resource of `path`, if it has one.
-    pub fn version_string(path: &Path, key: &str) -> Option<String> {
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(Some(0)).collect()
+    }
+
+    /// The version resource of `path`, as GetFileVersionInfoExW reads it, if
+    /// it has one.
+    fn version_block(path: &Path) -> Option<Vec<u8>> {
         use windows_sys::Win32::Storage::FileSystem::{
-            GetFileVersionInfoExW, GetFileVersionInfoSizeExW, VerQueryValueW, FILE_VER_GET_NEUTRAL,
+            GetFileVersionInfoExW, GetFileVersionInfoSizeExW, FILE_VER_GET_NEUTRAL,
         };
-        let wide = |text: &str| -> Vec<u16> { text.encode_utf16().chain(Some(0)).collect() };
         let wpath = wide(&path.to_string_lossy());
         let mut ignored = 0u32;
         // SAFETY: a NUL-terminated path.
@@ -601,6 +604,42 @@ mod windows {
         {
             return None;
         }
+        Some(block)
+    }
+
+    /// The file flags' mask and the file flags of the fixed file info of the
+    /// version resource of `path`, if it has one.
+    pub fn file_flags(path: &Path) -> Option<(u32, u32)> {
+        use windows_sys::Win32::Storage::FileSystem::{VerQueryValueW, VS_FIXEDFILEINFO};
+        let block = version_block(path)?;
+        let root = wide("\\");
+        let mut pointer: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut length = 0u32;
+        // SAFETY: the block GetFileVersionInfoExW wrote; the fixed file info
+        // lies in it, `length` bytes long, read without assuming its
+        // alignment.
+        unsafe {
+            if VerQueryValueW(
+                block.as_ptr().cast(),
+                root.as_ptr(),
+                &mut pointer,
+                &mut length,
+            ) == 0
+                || pointer.is_null()
+                || (length as usize) < std::mem::size_of::<VS_FIXEDFILEINFO>()
+            {
+                return None;
+            }
+            let fixed = std::ptr::read_unaligned(pointer as *const VS_FIXEDFILEINFO);
+            Some((fixed.dwFileFlagsMask, fixed.dwFileFlags))
+        }
+    }
+
+    /// The string `key` of the U.S. English, UTF-16 table of the version
+    /// resource of `path`, if it has one.
+    pub fn version_string(path: &Path, key: &str) -> Option<String> {
+        use windows_sys::Win32::Storage::FileSystem::VerQueryValueW;
+        let block = version_block(path)?;
         let sub_block = wide(&format!("\\StringFileInfo\\040904B0\\{key}"));
         let mut pointer: *mut core::ffi::c_void = std::ptr::null_mut();
         let mut length = 0u32;

@@ -1,17 +1,22 @@
 <!--
   The agent's setup, cyberguard-agent-<version>-x64-setup.exe (SPEC-024 §Data contracts §1, its
   Amendment 2026-11-09, items 1 and 2, and its Amendment 2026-11-12 (second), point 1): WiX's
-  unmodified Burn engine and standard bootstrapper application, with the project's own theme
-  (point 8). Its chain runs cg-setup preflight, the MSI with the chain's property, a vital rollback
-  boundary, then cg-setup configure; Burn rolls preflight back with cg-setup reverse. Burn carries
-  no secret: the bundle variables name a file and the migration's choices, never the token. The
-  setup has no condition or search of its own: preflight decides.
+  Burn engine, its code unmodified and its version resource the setup's (the Amendment
+  2026-11-14, point 9), and WiX's unmodified standard bootstrapper application, with the
+  project's own theme (the Amendment 2026-11-12 (second), point 8). Its chain runs cg-setup preflight, the MSI with the chain's
+  property, a vital rollback boundary, then cg-setup configure; Burn rolls preflight back with
+  cg-setup reverse. Burn carries no secret: the bundle variables name a file and the migration's
+  choices, never the token. The setup has no condition or search of its own: preflight decides.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
   <!-- One upgrade family of setups across releases, its version the release version. The
-       publisher and the copyright are provisional (SPEC-024 Amendment 2026-11-12, point 5). -->
-  <Bundle Name="CyberGuard Agent" Manufacturer="CyberGuard" Copyright="Copyright (c) CyberGuard"
+       publisher and the copyright are provisional (SPEC-024 Amendment 2026-11-12, point 5). The
+       binder writes this version resource over the engine's, so the copyright keeps WiX's line
+       as burn.exe states it (the Amendment 2026-11-14, point 10); the window's own text is the
+       theme's. -->
+  <Bundle Name="CyberGuard Agent" Manufacturer="CyberGuard"
+          Copyright="Copyright (c) CyberGuard. Burn engine: Copyright (c) .NET Foundation and contributors. All rights reserved."
           Version="$(var.ProductVersion)" UpgradeCode="B3D1FE6C-5F20-4E58-9B7A-3A7C8E1D4F10">
     <!-- The standard bootstrapper application with the project's theme: no licence to accept (an
          empty LicenseUrl hides it), no image, no cancellation while the chain applies, and a

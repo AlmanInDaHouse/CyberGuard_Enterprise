@@ -54,8 +54,9 @@ jobs:
   images:
     name: The four images and the bundle, from the commit
     # ubuntu-latest began serving Ubuntu 26.04 on 2026-11-10, where the dashboard's next
-    # build dies with kill EACCES under this job's plain docker build; the release dry run
-    # below, whose buildx container builder does not, stays on ubuntu-latest.
+    # build dies with kill EACCES under this job's plain docker build (#149). This job, the
+    # release dry run below and release.yml's Ubuntu jobs run on ubuntu-24.04 together
+    # (SPEC-024 Amendment 2026-11-14, point 7).
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -105,7 +106,7 @@ jobs:
           cargo build --locked -p cg-agent
 
       # deploy_ac_019's licence clause, on the repository: the production dependencies,
-      # installed without their scripts, and the agent's crates (the fixture is a test below).
+      # installed without their scripts, and the agent's and cg-setup's crates (the fixture is a test below).
       - name: Check the licences
         run: |
           corepack enable
@@ -133,7 +134,7 @@ jobs:
   # and deploy_ac_001's dry-run halves).
   release-dry-run:
     name: The release's builds and bundle, pushed nowhere
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
