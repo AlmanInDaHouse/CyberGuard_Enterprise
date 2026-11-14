@@ -27,7 +27,7 @@ fn main() {
     if os == "windows" && abi == "msvc" {
         println!("cargo:rustc-link-arg-bin=cg-setup=/DEPENDENTLOADFLAG:0x800");
     }
-    let Some((text, numbers)) = build_resource::version() else {
+    let Some(version) = build_resource::version() else {
         return;
     };
     let names = build_resource::Names {
@@ -35,10 +35,7 @@ fn main() {
         original_filename: "cg-setup.exe",
     };
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("version.res");
-    std::fs::write(
-        &out,
-        build_resource::resource_file(numbers, &text, &names, None),
-    )
-    .expect("write version.res");
+    std::fs::write(&out, build_resource::resource_file(&version, &names, None))
+        .expect("write version.res");
     println!("cargo:rustc-link-arg-bin=cg-setup={}", out.display());
 }

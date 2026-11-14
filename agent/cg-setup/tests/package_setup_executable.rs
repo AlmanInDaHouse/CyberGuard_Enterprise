@@ -313,9 +313,13 @@ fn package_setup_executable_the_floor_comes_before_any_other_check() {
 
 /// The version resource: `X.Y.Z.0` and the setup's own version string, the
 /// agent's (`--version` agrees), its own `OriginalFilename`, and no message
-/// table.
+/// table. Its file flags are the agent's too (the Amendment 2026-11-14, point
+/// 8, #140): the pre-release flag in a development build, the `<Cargo package
+/// version>-dev` one, and none in a release build; the version matrix runs
+/// this in both.
 #[test]
 fn package_setup_executable_carries_the_agents_version_resource() {
+    use windows_sys::Win32::Storage::FileSystem::VS_FF_PRERELEASE;
     use windows_sys::Win32::System::LibraryLoader::{
         FindResourceW, LoadLibraryExW, LOAD_LIBRARY_AS_DATAFILE,
     };
@@ -337,6 +341,21 @@ fn package_setup_executable_carries_the_agents_version_resource() {
     assert_eq!(
         fixtures::version_string(Path::new(EXE), "FileVersion").as_deref(),
         Some(SETUP_VERSION)
+    );
+    let (build, expected) = if SETUP_VERSION.ends_with("-dev") {
+        ("development", VS_FF_PRERELEASE)
+    } else {
+        ("release", 0)
+    };
+    let (mask, flags) = fixtures::file_flags(Path::new(EXE)).expect("the fixed file info");
+    assert_eq!(
+        mask & VS_FF_PRERELEASE,
+        VS_FF_PRERELEASE,
+        "the file flags' mask admits the pre-release flag"
+    );
+    assert_eq!(
+        flags, expected,
+        "file flags of a {build} build ({SETUP_VERSION})"
     );
 
     let path = wide(OsStr::new(EXE));

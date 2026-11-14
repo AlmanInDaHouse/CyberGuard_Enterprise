@@ -11,7 +11,10 @@
 //! version>-dev` without it, whose numbers are Cargo's. A malformed input
 //! yields no resource, and `version.rs` refuses it with its own message. A
 //! well-formed one with a component above 65535, which a PE version field
-//! cannot hold, fails the build. No crate, no external tool.
+//! cannot hold, fails the build. Its file flags are the pre-release flag in
+//! a development build, the `-dev` one, and none in a release build
+//! (SPEC-024 Amendment 2026-11-14, point 8, #140). No crate, no external
+//! tool.
 
 use std::env;
 
@@ -22,11 +25,22 @@ const CODE_PAGE: u16 = 1200;
 const RT_VERSION: u16 = 16;
 /// `RT_MESSAGETABLE`.
 const RT_MESSAGETABLE: u16 = 11;
+/// `VS_FF_PRERELEASE`, in the file flags of a development build.
+const VS_FF_PRERELEASE: u32 = 0x0000_0002;
+
+/// The build's version: its text, its numbers, and whether it is a
+/// development build, the `<Cargo package version>-dev` one, without the
+/// input.
+pub struct Version {
+    pub text: String,
+    pub numbers: [u16; 3],
+    pub development: bool,
+}
 
 /// What a build script writes: whether to write anything, and the version.
 /// `None` off a Windows MSVC target, and for a malformed input. Each call
 /// tells cargo to rerun the script when the input is set, changed or removed.
-pub fn version() -> Option<(String, [u16; 3])> {
+pub fn version() -> Option<Version> {
     println!("cargo:rerun-if-env-changed=CG_RELEASE_VERSION");
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let abi = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
@@ -35,9 +49,9 @@ pub fn version() -> Option<(String, [u16; 3])> {
     }
 
     let cargo_version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
-    let (text, components) = match env::var("CG_RELEASE_VERSION") {
+    let (text, components, development) = match env::var("CG_RELEASE_VERSION") {
         Ok(release) => match release_components(&release) {
-            Some(components) => (release, components),
+            Some(components) => (release, components, false),
             // version.rs refuses it, with its own message.
             None => return None,
         },
@@ -45,7 +59,7 @@ pub fn version() -> Option<(String, [u16; 3])> {
             let core = cargo_version.split(['-', '+']).next().unwrap_or_default();
             let components = release_components(core)
                 .unwrap_or_else(|| panic!("Cargo's version {cargo_version} is not X.Y.Z"));
-            (format!("{cargo_version}-dev"), components)
+            (format!("{cargo_version}-dev"), components, true)
         }
     };
     let numbers = components.map(|c| {
@@ -53,7 +67,11 @@ pub fn version() -> Option<(String, [u16; 3])> {
             panic!("version component {c} is above 65535, which a PE version field cannot hold")
         })
     });
-    Some((text, numbers))
+    Some(Version {
+        text,
+        numbers,
+        development,
+    })
 }
 
 /// The three components of `X.Y.Z`, each `0` or ASCII digits without a
@@ -83,15 +101,10 @@ pub struct Names {
 /// A `.res` file: the empty resource every one begins with, then the
 /// VERSIONINFO and, with `messages`, a message table whose entries
 /// `messages.0` to `messages.1` are each their one insertion string.
-pub fn resource_file(
-    numbers: [u16; 3],
-    text: &str,
-    names: &Names,
-    messages: Option<(u32, u32)>,
-) -> Vec<u8> {
+pub fn resource_file(version: &Version, names: &Names, messages: Option<(u32, u32)>) -> Vec<u8> {
     let mut out = Vec::new();
     resource_header(&mut out, 0, 0, 0, 0, 0);
-    let data = version_info(numbers, text, names);
+    let data = version_info(version, names);
     resource_header(&mut out, data.len() as u32, RT_VERSION, 1, 0x0030, LANGUAGE);
     out.extend_from_slice(&data);
     pad4(&mut out);
@@ -156,8 +169,16 @@ fn message_table(first: u32, last: u32) -> Vec<u8> {
 }
 
 /// The VS_VERSIONINFO tree.
-fn version_info(numbers: [u16; 3], text: &str, names: &Names) -> Vec<u8> {
-    let [x, y, z] = numbers.map(u32::from);
+fn version_info(version: &Version, names: &Names) -> Vec<u8> {
+    let text = version.text.as_str();
+    let [x, y, z] = version.numbers.map(u32::from);
+    // The Amendment 2026-11-14, point 8: a development build reads as a
+    // pre-release; the mask already admits the flag.
+    let flags = if version.development {
+        VS_FF_PRERELEASE
+    } else {
+        0
+    };
     let ms = (x << 16) | y;
     let ls = z << 16;
     let fixed: Vec<u8> = [
@@ -168,7 +189,7 @@ fn version_info(numbers: [u16; 3], text: &str, names: &Names) -> Vec<u8> {
         ms,          // dwProductVersionMS
         ls,          // dwProductVersionLS
         0x0000_003F, // dwFileFlagsMask
-        0,           // dwFileFlags
+        flags,       // dwFileFlags
         0x0004_0004, // dwFileOS: VOS_NT_WINDOWS32
         1,           // dwFileType: VFT_APP
         0,           // dwFileSubtype

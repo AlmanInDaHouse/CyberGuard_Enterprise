@@ -289,13 +289,17 @@ async fn install_ac_014_secure_heartbeat() {
 /// resource carries the build's version. Its numeric file and product
 /// versions are `X.Y.Z.0`, Cargo's numbers in a development build; its
 /// `FileVersion` and `ProductVersion` strings are the version `--version`
-/// prints after the program's name.
+/// prints after the program's name. The Amendment 2026-11-14, point 8
+/// (#140): its file flags are the pre-release flag in a development build,
+/// the `<Cargo package version>-dev` one, and none in a release build; the
+/// version matrix runs this in both.
 #[cfg(windows)]
 #[test]
 fn install_ac_014_pe_version_resource() {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
-        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO,
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FF_PRERELEASE,
+        VS_FIXEDFILEINFO,
     };
 
     fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
@@ -359,6 +363,20 @@ fn install_ac_014_pe_version_resource() {
         (fixed.dwProductVersionMS, fixed.dwProductVersionLS),
         (ms, ls),
         "product version X.Y.Z.0"
+    );
+    let (build, flags) = if expected.ends_with("-dev") {
+        ("development", VS_FF_PRERELEASE)
+    } else {
+        ("release", 0)
+    };
+    assert_eq!(
+        fixed.dwFileFlagsMask & VS_FF_PRERELEASE,
+        VS_FF_PRERELEASE,
+        "the file flags' mask admits the pre-release flag"
+    );
+    assert_eq!(
+        fixed.dwFileFlags, flags,
+        "file flags of a {build} build ({expected})"
     );
 
     for key in ["FileVersion", "ProductVersion"] {
