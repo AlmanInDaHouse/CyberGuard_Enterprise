@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-71.md](../handoff-session-71.md)).
+([handoff-session-72.md](../handoff-session-72.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -470,7 +470,13 @@ This dependency-ordered document supersedes both for planning.
   (`docs/handoff-session-70.md`). S71 landed the wizard's code: the input and
   the decision (`721e4d0`), the dialog (`2c20d07`) and the setup passing its
   window with `package-ci`'s tests through it (`3ce1ddc`), seen red first on
-  probes #130 and #131, CI ALL GREEN (`docs/handoff-session-71.md`). C8 to C10
+  probes #130 and #131, CI ALL GREEN (`docs/handoff-session-71.md`). S72 wrote
+  C8's contract, SPEC-024 Amendment 2026-11-14 and the threat model's, approved
+  by Manuel (`9ad26ea`), and its code (`c0ad344`, `671f641`, `0eb51cb`,
+  `df48f45`): the release builds, checks against each other and attests the
+  executable, the MSI, the setup and WiX's source archive, with a dry run in
+  `package-ci`; and moved tokio and rustix past their advisories (`0e7fe6b`,
+  #159) after three elevated gates (`docs/handoff-session-72.md`). C9 and C10
   follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration

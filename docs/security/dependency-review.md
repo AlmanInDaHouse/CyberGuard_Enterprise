@@ -166,7 +166,7 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
   and rustix, which only tests compile, to 1.1.6, within their ranges
   past RUSTSEC-2026-0386 and RUSTSEC-2026-0486 (debt #159); the update
   also re-resolved, within their declared ranges and to versions already
-  in the lock, `windows-sys` for errno, tempfile and rustix (0.52.0, test
+  in the lock, `windows-sys` for errno, tempfile and rustix (0.52.0, on Windows test
   code) and for nu-ansi-term (0.61.2, which the agent links through
   tracing-subscriber). It prints one:
   astral-tokio-tar 0.6.2, unmaintained (RUSTSEC-2026-0440), with no
