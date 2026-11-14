@@ -161,6 +161,18 @@ test asserts that release (nodemailer, soar_ac_006, debt #75).
   yanked crate passes with a warning, as chacha20 0.10.0, in the agent's
   development dependencies, did until Session 42, and rustls-pemfile,
   unmaintained, which the agent read its certificates with, until Session 43
-  (debt #111). Since then `cargo audit` prints none; a new one is a debt.
+  (debt #111). A new one is a debt. Session 72 moved tokio, which the
+  agent and `cg-setup` link (it lands after the elevated gate), to 1.54.1
+  and rustix, which only tests compile, to 1.1.6, within their ranges
+  past RUSTSEC-2026-0386 and RUSTSEC-2026-0486 (debt #159); the update
+  also re-resolved, within their declared ranges and to versions already
+  in the lock, `windows-sys` for errno, tempfile and rustix (0.52.0, test
+  code) and for nu-ansi-term (0.61.2, which the agent links through
+  tracing-subscriber). It prints one:
+  astral-tokio-tar 0.6.2, unmaintained (RUSTSEC-2026-0440), with no
+  patched release, which only the agent's tests compile through
+  testcontainers 0.27, and which Manuel accepted as debt #159 on
+  2026-11-14 until testcontainers drops it or an advisory of a
+  vulnerability covers it.
 - **The GitHub Actions the workflows use** are pinned by major tag, not by
   commit (debt #113).
