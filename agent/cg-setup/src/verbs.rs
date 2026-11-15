@@ -334,6 +334,9 @@ pub fn purge(machine: &Machine<'_>, within: Duration) -> Result<(), Refusal> {
             format!("the purge removed nothing: {cause}{again}"),
         )
     };
+    // `--purge` reaches the service's start only through `ServiceMain`, so a
+    // start the SCM refuses, a process that died before its dispatcher
+    // connected included, removed nothing (46).
     if let Err(refusal) = scm::start(&scm, name, &[PURGE.to_string()]) {
         return Err(removed_nothing(text_of(&refusal).to_string()));
     }

@@ -1,6 +1,8 @@
 //! `cg-setup.exe` itself (SPEC-024 Amendment 2026-11-10, items 1 and 9):
 //! `--version`; a command line Burn did not form, 40 after the floor; each
-//! verb's first checks, the platform and then the elevation; and its version
+//! verb's first checks, the platform and then the elevation, `purge`'s with
+//! no confirmation included, which exits 0 only after them (the Amendment
+//! 2026-11-15, point 3); and its version
 //! resource, the agent's with its own file name and no message table; and
 //! the system directory as the only place its imports load from (the
 //! Amendment 2026-11-12 (second), point 10).
@@ -234,6 +236,12 @@ fn package_setup_executable_a_command_line_burn_did_not_form_is_40() {
         &["preflight", "--bootstrap"],
         &["preflight", "--token=SECRET-VALUE"],
         &["reverse", "now"],
+        &["purge", "now"],
+        &["purge", "--confirm=no"],
+        &["purge", "--confirm=YES"],
+        &["purge", "--confirm=yes", "--confirm=yes"],
+        &["purge", "--confirm=", "--confirm="],
+        &["purge", "--bootstrap=x"],
     ] {
         let run = run(arguments);
         assert_eq!(run.code, 40, "{arguments:?}: {run:?}");
@@ -265,6 +273,9 @@ fn package_setup_executable_each_verb_checks_the_elevation_first() {
             "--trust-anchors=sha256:00",
         ],
         &["reverse"],
+        &["purge"],
+        &["purge", "--confirm="],
+        &["purge", "--confirm=yes"],
     ] {
         let run = run_filtered(arguments, &[]);
         assert_eq!(run.code, 21, "{arguments:?}: {run:?}");
@@ -288,7 +299,10 @@ fn package_setup_executable_the_floor_comes_before_any_other_check() {
         &["preflight"][..],
         &["configure"],
         &["reverse"],
+        &["purge"],
+        &["purge", "--confirm=yes"],
         &["preflight", "--x=1"],
+        &["purge", "--confirm=no"],
         &["install"],
     ] {
         let run = run_filtered(arguments, &compatibility);

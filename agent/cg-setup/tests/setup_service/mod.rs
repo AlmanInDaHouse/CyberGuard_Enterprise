@@ -3,8 +3,10 @@
 //! (26) and `service_running`, the stop within 75 seconds (31) and what its
 //! first reading found (the Amendment 2026-11-11, point 1), the failure
 //! actions with their flag set to false, the start with its arguments (41
-//! when refused), the reversal's start (40 when refused, point 2), and
-//! configure's observer (42 to 44, item 8's outcome).
+//! when refused), the reversal's start (40 when refused, point 2),
+//! configure's observer (42 to 44, item 8's outcome), and the purge's start
+//! with `--purge`, its wait and its codes 0, 46 and 47 (the Amendment
+//! 2026-11-15, point 3).
 //!
 //! These tests create, start, stop and delete Windows services, so they build
 //! only with the test-only `scm-tests` feature and run only in rust-ci's
@@ -1761,7 +1763,7 @@ impl<F: Fn() -> Answer> Wizard for Wizarding<F> {
 }
 
 impl TestService {
-    /// Change its command line.
+    /// Change its start type.
     fn set_start_type(&self, start_type: u32) {
         // SAFETY: the handle has SERVICE_ALL_ACCESS; every other value is left
         // as it is.
@@ -1788,6 +1790,7 @@ impl TestService {
         );
     }
 
+    /// Change its command line.
     fn set_command_line(&self, command_line: &str) {
         let command = wide(command_line);
         // SAFETY: the handle has SERVICE_ALL_ACCESS; the string lives for
@@ -1963,7 +1966,10 @@ fn package_scm_purge_15_another_code_a_death_or_the_end_is_47() {
     for (purge_behaviour, fragment) in [
         (serde_json::json!({ "code": 15 }), "code 15"),
         (serde_json::json!({ "code": 3 }), "code 3"),
-        (serde_json::json!({ "die": true }), "1067"),
+        (
+            serde_json::json!({ "die": true, "pending_ms": 2000 }),
+            "1067",
+        ),
     ] {
         let host = purge_host(purge_behaviour, true);
         assert_refused(purge(&host), codes::PURGE_INCOMPLETE, &[fragment]);

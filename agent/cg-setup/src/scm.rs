@@ -589,26 +589,44 @@ pub fn wait_stopped(scm: &Manager, name: &str, within: Duration) -> Ended {
             ))
         }
     };
+    await_stopped(within, POLL, || {
+        service
+            .status()
+            .map(|status| {
+                (
+                    status.dwCurrentState,
+                    status.dwWin32ExitCode,
+                    status.dwServiceSpecificExitCode,
+                )
+            })
+            .map_err(|error| {
+                format!("the state of the service {name} cannot be read: Win32 error {error}")
+            })
+    })
+}
+
+/// `wait_stopped`'s loop: `read` gives the state and the two exit codes, or
+/// why they cannot be read, every `poll` until `STOPPED` or `within` has
+/// passed. A `STOPPED` read at the end of `within`, the last reading, is read
+/// with its codes as any earlier one: only another state at the end is
+/// `Still`.
+pub fn await_stopped(
+    within: Duration,
+    poll: Duration,
+    mut read: impl FnMut() -> Result<(u32, u32, u32), String>,
+) -> Ended {
     let end = Instant::now() + within;
     loop {
-        let read_at = Instant::now();
-        let status = match service.status() {
+        let (state, win32, specific) = match read() {
             Ok(status) => status,
-            Err(error) => {
-                return Ended::Unreadable(format!(
-                    "the state of the service {name} cannot be read: Win32 error {error}"
-                ))
-            }
+            Err(reason) => return Ended::Unreadable(reason),
         };
-        if status.dwCurrentState == SERVICE_STOPPED && read_at < end {
-            return Ended::Stopped {
-                win32: status.dwWin32ExitCode,
-                specific: status.dwServiceSpecificExitCode,
-            };
+        if state == SERVICE_STOPPED {
+            return Ended::Stopped { win32, specific };
         }
         if Instant::now() >= end {
-            return Ended::Still(status.dwCurrentState);
+            return Ended::Still(state);
         }
-        std::thread::sleep(POLL.min(end.saturating_duration_since(Instant::now())));
+        std::thread::sleep(poll.min(end.saturating_duration_since(Instant::now())));
     }
 }

@@ -2,8 +2,11 @@
 //! platform and the elevation, on temporary roots, the current user standing
 //! for SYSTEM and Administrators, and a product service that does not exist:
 //! preflight's order up to the staging and the stop, configure's checks in
-//! order before anything it starts, and the reversal's start from the record
-//! alone. What a real service adds is in the SCM tests (`setup_service`).
+//! order before anything it starts, the reversal's start from the record
+//! alone, and the purge's refusals before the stop (27, 28, the absent
+//! service's 46), its reading of the service's end and its wait (the
+//! Amendment 2026-11-15, point 3). What a real service adds is in the SCM
+//! tests (`setup_service`).
 #![cfg(windows)]
 
 mod fixtures;
@@ -1266,7 +1269,45 @@ fn package_verbs_purge_outcome_maps_the_service_s_end() {
     let pending = incomplete(Ended::Still(2));
     assert!(pending.contains("within 300 seconds"), "{pending}");
     assert!(pending.contains("START_PENDING"), "{pending}");
-    assert!(incomplete(Ended::Still(1)).contains("was STOPPED"));
+}
+
+/// Point 3.5's wait: a `STOPPED` read at the end of the 300 seconds, the
+/// last reading, is read with its codes as any other, and only another state
+/// at the end is `Still`; a reading that fails ends the wait.
+#[test]
+fn package_verbs_purge_wait_reads_a_stop_at_its_end_with_its_codes() {
+    use cg_setup::scm::{await_stopped, Ended};
+    use std::time::{Duration, Instant};
+    let within = Duration::from_millis(200);
+    let poll = Duration::from_millis(50);
+    // The service reports STOPPED with code 0 from the end of the wait on:
+    // only the last reading sees it.
+    let end = Instant::now() + within;
+    let mut readings = 0;
+    let ended = await_stopped(within, poll, || {
+        readings += 1;
+        if Instant::now() >= end {
+            Ok((1, 1066, 0))
+        } else {
+            Ok((2, 0, 0))
+        }
+    });
+    assert_eq!(
+        ended,
+        Ended::Stopped {
+            win32: 1066,
+            specific: 0
+        }
+    );
+    assert!(readings > 1, "{readings} readings");
+    assert_eq!(
+        await_stopped(within, poll, || Ok((2, 0, 0))),
+        Ended::Still(2)
+    );
+    assert_eq!(
+        await_stopped(within, poll, || Err("unread".to_string())),
+        Ended::Unreadable("unread".to_string())
+    );
 }
 
 /// 46's line after a service that was running: started again, not stopped,

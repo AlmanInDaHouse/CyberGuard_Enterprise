@@ -1,5 +1,5 @@
 //! `cg-setup`'s command line (SPEC-024 Amendment 2026-11-10, item 9): Burn
-//! runs it with one verb, `preflight`, `configure` or `reverse`, and the
+//! runs it with one verb, `preflight`, `configure`, `reverse` or `purge`, and the
 //! bundle variables of the Amendment 2026-11-09, item 2, as options of the
 //! form `--name=value`, each at most once, an empty value as not given.
 //! `--version` answers the setup's version. Preflight takes `--ui` too, the

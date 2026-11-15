@@ -1,6 +1,7 @@
 //! `cg-setup`'s command line (SPEC-024 Amendment 2026-11-10, item 9): one
-//! verb, `preflight`, `configure` or `reverse`, with the options of the
-//! bundle variables, each at most once, an empty value as not given;
+//! verb, `preflight`, `configure`, `reverse` or `purge` (the Amendment
+//! 2026-11-15, point 3, `--confirm=` empty or `yes`), with the options of
+//! the bundle variables, each at most once, an empty value as not given;
 //! `--version`; any other command line is 40, its line quoting no value.
 #![cfg(windows)]
 

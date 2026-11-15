@@ -635,18 +635,34 @@ fn install_ac_012_a_file_of_another_owner_is_left_and_named() {
 }
 
 fn canary(console: &Console) -> PathBuf {
+    canary_as(console, "canary")
+}
+
+/// A target outside the roots holding a canary file named `name`: a name of
+/// point 5's, a purge that followed the junction would remove it.
+fn canary_as(console: &Console, name: &str) -> PathBuf {
     let target = console.outside("target");
     std::fs::create_dir(&target).expect("the target");
-    std::fs::write(target.join("canary"), b"canary").expect("the canary");
+    std::fs::write(target.join(name), b"canary").expect("the canary");
     target
 }
 
 fn assert_canary(target: &Path, what: &str) {
+    assert_canary_as(target, "canary", what);
+}
+
+fn assert_canary_as(target: &Path, name: &str, what: &str) {
     assert_eq!(
-        std::fs::read(target.join("canary")).ok().as_deref(),
+        std::fs::read(target.join(name)).ok().as_deref(),
         Some(b"canary".as_slice()),
         "{what}: the canary"
     );
+}
+
+/// The line names `link` as a reparse point: it was opened without being
+/// followed.
+fn names_a_reparse_point(line: &str, link: &Path) -> bool {
+    line.contains(&format!("{} is a reparse point", link.display()))
 }
 
 #[test]
@@ -672,49 +688,58 @@ fn install_ac_012_a_junction_as_p_or_the_data_root_is_code_13() {
 }
 
 /// A junction in place of `identity\`, `logs\` or the legacy directory is
-/// left and named, its target intact; removed, the purge run again ends.
+/// left and named as a reparse point, its target and a file in it of a name
+/// the purge removes there intact; removed, the purge run again ends.
 #[test]
 fn install_ac_012_a_junction_as_a_directory_is_left_and_named() {
-    for (what, make, place) in [
-        ("identity", pending as fn() -> Console, "agent\\identity"),
-        ("logs", pending, "agent\\logs"),
-        ("legacy", enrolled, "agent.legacy"),
+    for (what, make, place, name) in [
+        (
+            "identity",
+            pending as fn() -> Console,
+            "agent\\identity",
+            "cert.pem",
+        ),
+        ("logs", pending, "agent\\logs", "agent.jsonl"),
+        ("legacy", enrolled, "agent.legacy", "agent.toml"),
     ] {
         let console = make();
         let link = console.paths.product_root.join(place);
         if present(&link) {
             std::fs::remove_dir_all(&link).expect("make room");
         }
-        let target = canary(&console);
+        let target = canary_as(&console, name);
         junction(&link, &target);
         let line = left(purge(&console, &Script::new()));
-        assert!(names(&line, &link), "{what}: {line}");
+        assert!(names_a_reparse_point(&line, &link), "{what}: {line}");
         assert!(present(&link), "{what}: the junction is left");
-        assert_canary(&target, what);
+        assert_canary_as(&target, name, what);
         if what == "legacy" {
             assert!(present(&console.paths.identity), "the identity stays");
         }
         std::fs::remove_dir(&link).expect("remove the junction");
         assert_eq!(purge(&console, &Script::new()), Ok(()), "{what}: run again");
         assert_gone(&console, what);
-        assert_canary(&target, what);
+        assert_canary_as(&target, name, what);
     }
 }
 
-/// A junction planted as an entry of each directory, a product name or not.
+/// A junction planted as an entry of each directory, a product name or not;
+/// one of a product name is named as a reparse point, opened without being
+/// followed.
 #[test]
 fn install_ac_012_a_junction_as_an_entry_is_left_and_named() {
-    for (what, make, entry) in [
-        ("<P>", enrolled as fn() -> Console, "planted"),
+    for (what, make, entry, product_name) in [
+        ("<P>", enrolled as fn() -> Console, "planted", false),
         (
             "data root, a product name",
             enrolled,
             "agent\\server-ca.pem",
+            true,
         ),
-        ("data root, another name", enrolled, "agent\\planted"),
-        ("identity", enrolled, "agent\\identity\\cert.pem"),
-        ("logs", enrolled, "agent\\logs\\agent.jsonl"),
-        ("legacy", full, "agent.legacy\\agent.toml"),
+        ("data root, another name", enrolled, "agent\\planted", false),
+        ("identity", enrolled, "agent\\identity\\cert.pem", true),
+        ("logs", enrolled, "agent\\logs\\agent.jsonl", true),
+        ("legacy", full, "agent.legacy\\agent.toml", true),
     ] {
         let console = make();
         let link = console.paths.product_root.join(entry);
@@ -725,6 +750,9 @@ fn install_ac_012_a_junction_as_an_entry_is_left_and_named() {
         junction(&link, &target);
         let line = left(purge(&console, &Script::new()));
         assert!(names(&line, &link), "{what}: {line}");
+        if product_name {
+            assert!(names_a_reparse_point(&line, &link), "{what}: {line}");
+        }
         assert!(present(&link), "{what}: left");
         assert_canary(&target, what);
     }
