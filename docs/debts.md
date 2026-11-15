@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 56** at Session 72's close, the count `docs/handoff-session-72.md` states
-(Session 72 landed C8, the release's Windows assets, under SPEC-024 Amendment 2026-11-14, closed #131, #140, #149 and #158, narrowed #130 and #159, and opened #161 and #162).
+**Open: 56** at Session 73's close, the count `docs/handoff-session-73.md` states
+(Session 73 landed C9's contract, SPEC-024 Amendment 2026-11-15, the purge, and opened, closed and narrowed no debt).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 72's close, `docs/handoff-session-72.md#how-session-73-resumes`);
+Session N resumes* (at Session 73's close, `docs/handoff-session-73.md#how-session-74-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
