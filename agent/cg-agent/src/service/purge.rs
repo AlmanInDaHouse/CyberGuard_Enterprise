@@ -298,6 +298,9 @@ impl Purge<'_, '_> {
         let data_root_name = file_name(&paths.data_root);
         let legacy_name = file_name(&paths.legacy());
 
+        // Past the first three steps the purge goes on past what it leaves,
+        // naming it, and names what it does not reach.
+        let mut emptied = true;
         if let Some(data_root) = data_root {
             let entries = match custody::entries(&paths.data_root, wait) {
                 Ok(entries) => entries,
@@ -321,7 +324,6 @@ impl Purge<'_, '_> {
                     return Ok(());
                 }
             }
-            let mut emptied = true;
             for name in REST {
                 for entry in matching(&entries, name) {
                     emptied &= self.file(Area::DataRoot, name, &paths.data_root.join(entry))?;
@@ -340,11 +342,11 @@ impl Purge<'_, '_> {
                 }
             }
             drop(data_root);
-            if !emptied || !self.remove_directory(Area::DataRoot, &paths.data_root)? {
-                return Ok(());
+            // Past the bound, a directory left is named as not reached.
+            if emptied || self.late {
+                emptied &= self.remove_directory(Area::DataRoot, &paths.data_root)?;
             }
         }
-        let mut emptied = true;
         for entry in &root_entries {
             let product = entry.eq_ignore_ascii_case(&data_root_name)
                 || entry.eq_ignore_ascii_case(&legacy_name);
@@ -357,7 +359,7 @@ impl Purge<'_, '_> {
             }
         }
         drop(product_root);
-        if emptied {
+        if emptied || self.late {
             self.remove_directory(Area::ProductRoot, &paths.product_root)?;
         }
         Ok(())

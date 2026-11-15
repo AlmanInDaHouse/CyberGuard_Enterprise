@@ -29,8 +29,8 @@ use cg_agent::service::{
 
 use custody_fixtures::{default_owner_sid, sid_bytes};
 use migration_fixtures::{
-    assert_clean, assert_same_tree, hold, in_ci, junction, set_owner, sid, test_custody, Console,
-    Script, ACCESS_READ, SHARE_ALL, TOKEN, WAIT,
+    assert_clean, assert_same_tree, batch_oplock, hold, in_ci, junction, set_dacl, set_owner, sid,
+    test_custody, Console, Script, ACCESS_READ, SHARE_ALL, TOKEN, WAIT,
 };
 
 const DIRECTORIES_LINE: &str = "cg-agent: the purge's directories fail their check: ";
@@ -832,6 +832,10 @@ fn install_ac_012_no_removal_begins_after_the_bound() {
     let line = left(purge_within(&console, &Script::new(), Duration::ZERO));
     assert!(line.contains("not reached"), "{line}");
     assert!(names(&line, &console.paths.staged_config()), "{line}");
+    for directory in [&console.paths.data_root, &console.paths.product_root] {
+        let not_reached = format!("{} was not reached", directory.display());
+        assert!(line.contains(&not_reached), "{not_reached}: {line}");
+    }
     assert_same_tree(&before, &console.whole(), "nothing removed");
 
     let console = enrolled();
@@ -912,4 +916,77 @@ fn install_ac_012_the_entries_1001_and_1002() {
         "{}",
         entry.text
     );
+}
+
+// Point 4's bounded opens and point 5's directory checks.
+
+/// An open Windows makes wait on another process is cancelled after the
+/// wait and fails as one the sharing refuses: the file is left, named in
+/// use, and the rest goes on.
+#[test]
+fn install_ac_012_an_open_held_by_an_oplock_is_cancelled_and_left() {
+    let console = enrolled();
+    let _oplock = batch_oplock(&console.paths.trust_anchor).expect("a batch oplock");
+    let started = std::time::Instant::now();
+    let line = left(purge(&console, &Script::new()));
+    assert!(names(&line, &console.paths.trust_anchor), "{line}");
+    assert!(line.contains("in use"), "{line}");
+    assert!(
+        started.elapsed() < WAIT * 15,
+        "bounded: {:?}",
+        started.elapsed()
+    );
+    assert!(!present(&console.paths.identity_dir), "the rest goes on");
+}
+
+/// The legacy directory counts only under `agent.toml`'s policy: one whose
+/// DACL allows another principal is left and ends the purge at its step.
+#[test]
+fn install_ac_012_a_legacy_directory_that_fails_its_policy_is_left() {
+    let console = enrolled();
+    directory(
+        &console.paths.legacy(),
+        &format!("D:P(A;OICI;FA;;;{})(A;OICI;0x1200a9;;;BU)", sid()),
+    );
+    let line = left(purge(&console, &Script::new()));
+    assert!(names(&line, &console.paths.legacy()), "{line}");
+    assert!(present(&console.paths.legacy()), "left");
+    assert!(present(&console.paths.identity), "the identity stays");
+}
+
+/// `logs\` allowing anyone but SYSTEM and Administrators is left and named,
+/// its files unopened.
+#[test]
+fn install_ac_012_a_directory_allowing_others_is_left() {
+    let console = enrolled();
+    set_dacl(
+        &logs(&console),
+        &format!("D:P(A;OICI;FA;;;{})(A;OICI;0x1200a9;;;BU)", sid()),
+    );
+    let line = left(purge(&console, &Script::new()));
+    assert!(names(&line, &logs(&console)), "{line}");
+    assert!(present(&logs(&console).join("agent.jsonl")), "unopened");
+    assert!(
+        !present(&console.paths.identity_dir),
+        "the steps before ran"
+    );
+}
+
+/// Past the first three steps the purge names everything it leaves: an
+/// unknown name in the data root does not hide one in `<P>`.
+#[test]
+fn install_ac_012_names_left_in_the_data_root_and_in_p_are_all_named() {
+    let console = enrolled();
+    let in_data_root = console.paths.data_root.join("notes.txt");
+    let in_product_root = console.paths.product_root.join("planted.txt");
+    std::fs::write(&in_data_root, b"x").expect("notes.txt");
+    std::fs::write(&in_product_root, b"x").expect("planted.txt");
+    let line = left(purge(&console, &Script::new()));
+    for path in [&in_data_root, &in_product_root] {
+        assert!(
+            names(&line, path),
+            "{} is not named: {line}",
+            path.display()
+        );
+    }
 }
