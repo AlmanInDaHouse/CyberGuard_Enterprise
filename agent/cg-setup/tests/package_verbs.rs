@@ -1159,3 +1159,65 @@ fn package_verbs_configure_refuses_another_packages_binary() {
     );
     assert_eq!(root.tree(), before);
 }
+
+// --- purge (SPEC-024 Amendment 2026-11-15, point 3) ----------------------------
+
+const PURGE_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// With `<P>` absent there is nothing to remove: 0, with nothing created.
+#[test]
+fn package_verbs_purge_with_no_product_root_is_0() {
+    let root = Root::bare();
+    let before = root.tree();
+    let on = machine(&root, &quiet, root.operator.join("cg-agent.exe"));
+    assert_eq!(verbs::purge(&on, PURGE_WITHIN), Ok(()));
+    assert_eq!(root.tree(), before, "nothing created");
+}
+
+/// Point 3.2: the host's state as preflight reads it, before the service:
+/// an untrusted path 27, a migration in progress or a console layout 28,
+/// each with nothing changed and before the absent service's 46.
+#[test]
+fn package_verbs_purge_refuses_the_states_preflight_refuses() {
+    let untrusted = Root::empty();
+    std::fs::create_dir(untrusted.paths.legacy()).unwrap();
+    let in_progress = Root::empty();
+    std::fs::create_dir(in_progress.paths.staging()).unwrap();
+    let console = Root::empty();
+    console.touch("cert.pem");
+    let junction = Root::bare();
+    let target = junction.operator.join("target");
+    std::fs::create_dir(&target).unwrap();
+    fixtures::junction(&junction.paths.product_root, &target);
+    for (what, root, code) in [
+        ("untrusted", untrusted, codes::UNTRUSTED_PATH),
+        (
+            "a migration in progress",
+            in_progress,
+            codes::CONSOLE_LAYOUT,
+        ),
+        ("a console layout", console, codes::CONSOLE_LAYOUT),
+        ("a junction as <P>", junction, codes::UNTRUSTED_PATH),
+    ] {
+        let before = root.tree();
+        let on = machine(&root, &quiet, root.operator.join("cg-agent.exe"));
+        let refusal = assert_code(verbs::purge(&on, PURGE_WITHIN), code, &["purge"]);
+        assert_eq!(root.tree(), before, "{what}: {}", refusal.line);
+    }
+}
+
+/// Point 3.3: with no product service, nothing but SYSTEM can remove what
+/// only SYSTEM reaches: 46, with nothing changed.
+#[test]
+fn package_verbs_purge_with_no_product_service_is_46() {
+    let root = Root::empty();
+    root.touch("agent.toml");
+    let before = root.tree();
+    let on = machine(&root, &quiet, root.operator.join("cg-agent.exe"));
+    assert_code(
+        verbs::purge(&on, PURGE_WITHIN),
+        codes::PURGE_REFUSED,
+        &["absent"],
+    );
+    assert_eq!(root.tree(), before);
+}

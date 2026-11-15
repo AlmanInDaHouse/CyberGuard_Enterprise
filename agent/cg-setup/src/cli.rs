@@ -4,7 +4,8 @@
 //! form `--name=value`, each at most once, an empty value as not given.
 //! `--version` answers the setup's version. Preflight takes `--ui` too, the
 //! setup's `WixBundleUILevel` (the Amendment 2026-11-13, point 1), which
-//! configure and reverse do not. Any other command line is 40.
+//! configure and reverse do not. `purge` takes `--confirm=`, empty or `yes`
+//! (the Amendment 2026-11-15, point 3). Any other command line is 40.
 //!
 //! A refusal names the verb and an option's name, never a value: a value is
 //! a bundle variable, which carries no secret, but a misplaced one could.
@@ -25,12 +26,16 @@ pub enum Command {
     Configure(Request),
     /// `cg-setup reverse`.
     Reverse,
+    /// `cg-setup purge [--confirm=]` (SPEC-024 Amendment 2026-11-15, point 3):
+    /// whether `--confirm=yes` was given.
+    Purge { confirmed: bool },
 }
 
 const BOOTSTRAP: &str = "--bootstrap";
 const MIGRATE_LEGACY: &str = "--migrate-legacy";
 const TRUST_ANCHORS: &str = "--trust-anchors";
 const UI: &str = "--ui";
+const CONFIRM: &str = "--confirm";
 
 fn refused(reason: impl std::fmt::Display) -> Refusal {
     Refusal::new(
@@ -58,6 +63,14 @@ pub fn parse(arguments: &[OsString]) -> Result<Command, Refusal> {
         "--version" => Err(refused("--version takes nothing")),
         "reverse" if options.is_empty() => Ok(Command::Reverse),
         "reverse" => Err(refused("reverse takes nothing")),
+        "purge" => {
+            let [confirm] = take(verb, options, [CONFIRM])?;
+            match confirm.filter(|value| !value.is_empty()) {
+                None => Ok(Command::Purge { confirmed: false }),
+                Some("yes") => Ok(Command::Purge { confirmed: true }),
+                Some(_) => Err(refused("--confirm= is neither empty nor yes")),
+            }
+        }
         "preflight" => {
             let [bootstrap, migrate_legacy, trust_anchors, ui] = take(
                 verb,
@@ -78,7 +91,7 @@ pub fn parse(arguments: &[OsString]) -> Result<Command, Refusal> {
             )))
         }
         _ => Err(refused(
-            "the first argument is not preflight, configure, reverse or --version",
+            "the first argument is not preflight, configure, reverse, purge or --version",
         )),
     }
 }

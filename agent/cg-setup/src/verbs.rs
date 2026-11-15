@@ -7,17 +7,24 @@
 //! give it a wizard of their own.
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cg_agent::custody;
+use cg_agent::service::layout::{classify, HostState};
 use cg_agent::service::InstalledPaths;
+use windows_sys::Win32::Foundation::ERROR_SERVICE_SPECIFIC_ERROR;
 
-use crate::codes::{Refusal, OPERATIONAL, OWN_STATE};
+use crate::codes::{
+    Refusal, CONSOLE_LAYOUT, OPERATIONAL, OWN_STATE, PURGE_INCOMPLETE, PURGE_REFUSED,
+    UNTRUSTED_PATH,
+};
 use crate::dialog::SystemWizard;
 use crate::observer::{self, LogPosition};
 use crate::preflight::{self, decide_again, parse_migration, take_fields, Host, Plan, Request};
-use crate::scm::{self, Manager, Product, Route};
-use crate::service::{migration_arguments, start_arguments, PRODUCT_SERVICE};
+use crate::scm::{self, Ended, Manager, Product, Route};
+use crate::service::{
+    migration_arguments, start_arguments, PRODUCT_SERVICE, PURGE, PURGE_BEFORE_REMOVAL,
+};
 use crate::staging::{self, Files, Setup};
 use crate::version::{self, numeric, SETUP_VERSION};
 use crate::wizard::{Again, Answer, Choice, Closed, Offer, Wizard};
@@ -269,4 +276,122 @@ pub fn reverse(machine: &Machine<'_>) -> Result<(), Refusal> {
         let scm = Manager::open()?;
         scm::start_if_stopped(&scm, &machine.service).map(drop)
     })
+}
+
+/// `purge` with `--confirm=yes` (SPEC-024 Amendment 2026-11-15, point 3),
+/// `within` being its 300 seconds: `<P>` absent is 0; the host's state as
+/// preflight reads it (27, 28); the product service as preflight checks it
+/// (26, and 46 when it is absent); its stop (31); then its start with
+/// `--purge`, whose code `STOPPED` carries is the outcome: 0, 46 when the
+/// purge removed nothing, the service then started again if it was running,
+/// 47 otherwise, the service left as it is. It holds no handle under `<P>`.
+pub fn purge(machine: &Machine<'_>, within: Duration) -> Result<(), Refusal> {
+    // PROBE: the verb does nothing unless the variable is set, so that the
+    // SCM tests run against the behaviour missing (never landed).
+    if std::env::var_os("CG_PROBE_PURGE_IMPLEMENTED").is_none() {
+        return Ok(());
+    }
+    let paths = machine.paths();
+    if let Ok(None) = custody::shape(&paths.product_root, machine.host.wait) {
+        return Ok(());
+    }
+    match classify(paths, &machine.host.directories, machine.host.wait) {
+        HostState::Untrusted(reason) => {
+            return Err(Refusal::new(
+                UNTRUSTED_PATH,
+                format!("the purge refuses an untrusted path: {reason}"),
+            ))
+        }
+        HostState::MigrationInProgress => {
+            return Err(Refusal::new(
+                CONSOLE_LAYOUT,
+                "the purge refuses a migration in progress: finish or reverse it first",
+            ))
+        }
+        HostState::ConsoleLayout => {
+            return Err(Refusal::new(
+                CONSOLE_LAYOUT,
+                "the purge refuses a console layout: the data directory holds a console                  installation's identity files",
+            ))
+        }
+        HostState::Enrolled | HostState::Pending | HostState::Fresh => {}
+    }
+    let scm = Manager::open()?;
+    let name = &machine.service;
+    let product =
+        scm::check_product_service(&scm, name, &machine.binary, &paths.config, Route::Other)?;
+    if product == Product::Absent {
+        return Err(Refusal::new(
+            PURGE_REFUSED,
+            format!(
+                "the purge removed nothing: the product service {name} is absent, and no                  other process may remove what only SYSTEM can reach"
+            ),
+        ));
+    }
+    let stop = scm::stop(&scm, name);
+    stop.result?;
+    let removed_nothing = |cause: String| {
+        let again = if !stop.found_running {
+            String::new()
+        } else {
+            match scm::start_if_stopped(&scm, name) {
+                Ok(_) => "; the service was started again".to_string(),
+                Err(refusal) => format!(
+                    "; the service could not be started again: {}",
+                    text_of(&refusal)
+                ),
+            }
+        };
+        Refusal::new(
+            PURGE_REFUSED,
+            format!("the purge removed nothing: {cause}{again}"),
+        )
+    };
+    if let Err(refusal) = scm::start(&scm, name, &[PURGE.to_string()]) {
+        return Err(removed_nothing(text_of(&refusal).to_string()));
+    }
+    let incomplete = |cause: String| {
+        Refusal::new(
+            PURGE_INCOMPLETE,
+            format!(
+                "the purge may have removed some of the product's data: {cause}; the                  service is left as it is, and the purge run again names what remains"
+            ),
+        )
+    };
+    match scm::wait_stopped(&scm, name, within) {
+        Ended::Stopped { win32: 0, .. } => Ok(()),
+        Ended::Stopped {
+            win32: ERROR_SERVICE_SPECIFIC_ERROR,
+            specific,
+        } if PURGE_BEFORE_REMOVAL.contains(&specific) => Err(removed_nothing(format!(
+            "the service's purge start stopped with code {specific} before any removal"
+        ))),
+        Ended::Stopped {
+            win32: ERROR_SERVICE_SPECIFIC_ERROR,
+            specific,
+        } => Err(incomplete(format!(
+            "the service's purge start stopped with code {specific}{}",
+            if specific == 15 {
+                "; its entry 1002 in the Application log names what it left"
+            } else {
+                ""
+            }
+        ))),
+        Ended::Stopped { win32, .. } => Err(incomplete(format!(
+            "the service's purge start ended with Win32 error {win32}"
+        ))),
+        Ended::Unreadable(reason) => Err(incomplete(reason)),
+        Ended::Still(state) => Err(incomplete(format!(
+            "the service's purge start is still pending, in state {state}, {} seconds after              its start",
+            within.as_secs()
+        ))),
+    }
+}
+
+/// A refusal's text without its `cg-setup: ` prefix.
+fn text_of(refusal: &Refusal) -> &str {
+    refusal
+        .line
+        .strip_prefix("cg-setup: ")
+        .unwrap_or(&refusal.line)
 }

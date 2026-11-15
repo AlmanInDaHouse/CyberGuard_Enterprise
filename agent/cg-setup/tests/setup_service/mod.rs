@@ -1869,6 +1869,129 @@ fn package_scm_verbs_wizard_a_conflicting_service_is_26_before_the_dialog() {
     assert!(!host.record().exists());
 }
 
+// --- The purge (SPEC-024 Amendment 2026-11-15, point 3) -----------------------
+
+/// How long these tests let the purge wait for `STOPPED`, in place of 300 s.
+const PURGE_WAIT: Duration = Duration::from_secs(20);
+
+/// A pending host whose product service stands for the agent's purge start.
+fn purge_host(purge: serde_json::Value, running: bool) -> VerbsHost {
+    let host = verbs_host(
+        serde_json::json!({ "stop_ms": 1000, "purge": purge }),
+        SERVICE_DEMAND_START,
+    );
+    if running {
+        host.service.start();
+        host.service
+            .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    }
+    host
+}
+
+fn purge(host: &VerbsHost) -> Result<(), Refusal> {
+    verbs::purge(&host.machine(&unwatched), PURGE_WAIT)
+}
+
+const PURGE: &str = "--purge";
+
+/// The service stopped, started with `--purge` alone, `STOPPED` with 0: 0,
+/// and the service is not started again.
+fn package_scm_purge_a_purge_start_that_ends_0_is_0() {
+    let host = purge_host(serde_json::json!({ "pending_ms": 3000 }), true);
+    assert_eq!(purge(&host), Ok(()));
+    assert_eq!(host.service.state(), SERVICE_STOPPED);
+    assert_eq!(
+        host.starts(),
+        vec![Vec::<String>::new(), vec![PURGE.to_string()]]
+    );
+}
+
+/// A code the purge start gives before any removal is 46, naming it; the
+/// service is started again, with no argument, when it was running, and
+/// left stopped when it was not.
+fn package_scm_purge_a_code_before_any_removal_is_46_and_restarts() {
+    for code in [1, 2, 10, 13, 14] {
+        let host = purge_host(serde_json::json!({ "code": code }), true);
+        assert_refused(
+            purge(&host),
+            codes::PURGE_REFUSED,
+            &[&format!("code {code}")],
+        );
+        host.service
+            .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+        assert_eq!(
+            host.starts(),
+            vec![Vec::<String>::new(), vec![PURGE.to_string()], Vec::new()],
+            "code {code}"
+        );
+    }
+    let host = purge_host(serde_json::json!({ "code": 14 }), false);
+    assert_refused(purge(&host), codes::PURGE_REFUSED, &["code 14"]);
+    assert_eq!(host.service.state(), SERVICE_STOPPED, "it was not running");
+    assert_eq!(host.starts(), vec![vec![PURGE.to_string()]]);
+}
+
+/// 15, another code, a process that dies and a start still pending at the
+/// end are 47, and the service is left as it is.
+fn package_scm_purge_15_another_code_a_death_or_the_end_is_47() {
+    for (purge_behaviour, fragment) in [
+        (serde_json::json!({ "code": 15 }), "code 15"),
+        (serde_json::json!({ "code": 3 }), "code 3"),
+        (serde_json::json!({ "die": true }), "1067"),
+    ] {
+        let host = purge_host(purge_behaviour, true);
+        assert_refused(purge(&host), codes::PURGE_INCOMPLETE, &[fragment]);
+        assert_eq!(host.service.state(), SERVICE_STOPPED, "{fragment}");
+        assert_eq!(
+            host.starts(),
+            vec![Vec::<String>::new(), vec![PURGE.to_string()]],
+            "{fragment}: not started again"
+        );
+    }
+    let host = purge_host(serde_json::json!({ "pending_ms": 60_000 }), false);
+    let started = Instant::now();
+    assert_refused(purge(&host), codes::PURGE_INCOMPLETE, &["pending"]);
+    let waited = started.elapsed();
+    assert!(
+        waited >= PURGE_WAIT && waited < PURGE_WAIT + Duration::from_secs(10),
+        "{waited:?}"
+    );
+    assert_eq!(host.service.state(), SERVICE_START_PENDING, "left as it is");
+}
+
+/// A start the SCM refuses is 46, and nothing is started.
+fn package_scm_purge_a_start_the_scm_refuses_is_46() {
+    let host = verbs_host(
+        serde_json::json!({ "purge": { "code": 0 } }),
+        SERVICE_DISABLED,
+    );
+    assert_refused(purge(&host), codes::PURGE_REFUSED, &["refused"]);
+    assert_eq!(host.service.state(), SERVICE_STOPPED);
+    assert!(host.starts().is_empty());
+}
+
+/// The service's refusals before the stop, as preflight's: a conflicting
+/// service is 26 and one not proved stopped 31, each before any start.
+fn package_scm_purge_a_conflicting_service_is_26_and_one_not_stopped_31() {
+    let host = purge_host(serde_json::json!({}), false);
+    host.service.set_command_line(&command_line(
+        &host.binary,
+        &host.root.paths.data_root.join("other.toml"),
+    ));
+    assert_refused(purge(&host), codes::CONFLICTING_SERVICE, &[]);
+    assert!(host.starts().is_empty());
+
+    let host = verbs_host(
+        serde_json::json!({ "never_stop": true, "purge": {} }),
+        SERVICE_DEMAND_START,
+    );
+    host.service.start();
+    host.service
+        .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
+    assert_refused(purge(&host), codes::NOT_STOPPED, &[]);
+    assert_eq!(host.starts(), vec![Vec::<String>::new()], "no purge start");
+}
+
 /// The tests, in the order they run.
 const TESTS: &[(&str, fn())] = &[
     (
@@ -2010,6 +2133,26 @@ const TESTS: &[(&str, fn())] = &[
     (
         "package_scm_observe_a_state_that_cannot_be_read_after_the_start_is_44",
         package_scm_observe_a_state_that_cannot_be_read_after_the_start_is_44,
+    ),
+    (
+        "package_scm_purge_a_purge_start_that_ends_0_is_0",
+        package_scm_purge_a_purge_start_that_ends_0_is_0,
+    ),
+    (
+        "package_scm_purge_a_code_before_any_removal_is_46_and_restarts",
+        package_scm_purge_a_code_before_any_removal_is_46_and_restarts,
+    ),
+    (
+        "package_scm_purge_15_another_code_a_death_or_the_end_is_47",
+        package_scm_purge_15_another_code_a_death_or_the_end_is_47,
+    ),
+    (
+        "package_scm_purge_a_start_the_scm_refuses_is_46",
+        package_scm_purge_a_start_the_scm_refuses_is_46,
+    ),
+    (
+        "package_scm_purge_a_conflicting_service_is_26_and_one_not_stopped_31",
+        package_scm_purge_a_conflicting_service_is_26_and_one_not_stopped_31,
     ),
 ];
 

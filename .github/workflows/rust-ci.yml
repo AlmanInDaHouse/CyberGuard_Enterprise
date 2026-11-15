@@ -76,7 +76,8 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: cargo test
-        run: cargo test --all
+        # PROBE: the unelevated purge verb tests need the verb the probe stubs.
+        run: cargo test --all -- --skip package_verbs_purge
 
       - name: "cargo test, the #[ignore]d real-ETW and Security-log tests"
         run: cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1
@@ -100,7 +101,12 @@ jobs:
       # and #105, #107 and #108 (configure's observer and its review's tests),
       # closed without landing.
       - name: "cargo test, cg-setup's SCM tests (scm-tests)"
-        run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1
+        run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1 --skip purge
+      # PROBE (never landed): the purge's SCM tests against the verb that does
+      # nothing; this step cannot fail the job, its log is the red evidence.
+      - name: "PROBE: cg-setup's purge SCM tests, red"
+        continue-on-error: true
+        run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1 purge
 
       - name: agent version matrix
         run: node .github/scripts/agent-version-matrix.mjs

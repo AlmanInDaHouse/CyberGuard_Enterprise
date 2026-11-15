@@ -45,6 +45,12 @@ pub const NOT_OBSERVABLE: u8 = 44;
 /// A restart is pending.
 pub const RESTART_PENDING: u8 = 45;
 
+// The purge, before the MSI (SPEC-024 Amendment 2026-11-15, point 3).
+/// The purge removed nothing.
+pub const PURGE_REFUSED: u8 = 46;
+/// The purge may have removed some of the data, or its outcome is unread.
+pub const PURGE_INCOMPLETE: u8 = 47;
+
 /// A refusal: the exit code and the line the setup writes. No line carries
 /// the token or quotes a line of an input file.
 #[derive(Debug, Clone, PartialEq, Eq)]

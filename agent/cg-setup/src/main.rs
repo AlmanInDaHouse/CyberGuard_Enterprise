@@ -1,6 +1,6 @@
 //! `cg-setup.exe`, the setup's elevated code (SPEC-024 Amendment 2026-11-09,
 //! item 1), as Burn runs it (the Amendment 2026-11-10, item 9): one verb,
-//! `preflight`, `configure` or `reverse`, or `--version`. The platform's floor
+//! `preflight`, `configure`, `reverse` or `purge`, or `--version`. The platform's floor
 //! is checked first (item 1), then the command line, then, for each verb, the
 //! elevation; the verb then runs in its item's order (`cg_setup::verbs`).
 //! The exit code is the operator's result (the Amendment 2026-11-09, item
@@ -28,6 +28,7 @@ fn main() -> ExitCode {
 fn run(arguments: &[std::ffi::OsString]) -> Result<(), Refusal> {
     use cg_setup::cli::{parse, Command};
     use cg_setup::platform::{check_elevation, check_platform};
+    use cg_setup::service::PURGE_WITHIN;
     use cg_setup::verbs::{self, Machine};
     use cg_setup::version::SETUP_VERSION;
 
@@ -41,11 +42,17 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Refusal> {
     check_platform()?;
     let command = command?;
     check_elevation()?;
+    // Unconfirmed, the purge reads nothing under <P> and opens no service
+    // (the Amendment 2026-11-15, point 3): every default uninstallation.
+    if matches!(command, Command::Purge { confirmed: false }) {
+        return Ok(());
+    }
     let machine = Machine::system()?;
     match command {
         Command::Preflight(request) => verbs::preflight(&machine, &request),
         Command::Configure(request) => verbs::configure(&machine, &request),
         Command::Reverse => verbs::reverse(&machine),
+        Command::Purge { .. } => verbs::purge(&machine, PURGE_WITHIN),
         Command::Version => Ok(()),
     }
 }
