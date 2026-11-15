@@ -58,15 +58,17 @@
         <MsiProperty Name="CG_SETUP_CHAIN" Value="1" />
       </MsiPackage>
       <RollbackBoundary Id="Committed" Vital="yes" />
-      <!-- The purge (the Amendment 2026-11-15, point 2): detected present, so that Burn runs it
-           on every uninstallation, before the MSI, which comes before it in the chain, and on no
-           installation or repair; not permanent, so that Burn uninstalls it. Its uninstallation
-           carries CG_PURGE, empty unless the command line gives it, which purges nothing; its
-           installation, which only Burn's rollback of that uninstallation runs, is purge with no
-           option, which changes nothing. A code other than 0 stops the uninstallation with the
-           product installed. -->
+      <!-- The purge (the Amendment 2026-11-15, point 2): detected present once this setup is
+           installed, so that Burn runs its uninstallation on every uninstallation, before the
+           MSI, which comes before it in the chain, and nothing on a repair; detected absent
+           before, so that a refused installation leaves no package present and nothing
+           registered. Not permanent, so that Burn uninstalls it. Its uninstallation carries
+           CG_PURGE, empty unless the command line gives it, which purges nothing; its
+           installation, run by an installation and by Burn's rollback of that uninstallation,
+           is purge with no option, which changes nothing. A code other than 0 stops the
+           uninstallation with the product installed. -->
       <ExePackage Id="Purge" CacheId="cg-setup-purge-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
-                  Vital="yes" DetectCondition="1"
+                  Vital="yes" DetectCondition="WixBundleInstalled"
                   SourceFile="$(var.SetupExe)" Name="purge\cg-setup.exe"
                   InstallArguments="purge"
                   UninstallArguments="purge --confirm=&quot;[CG_PURGE]&quot;" />

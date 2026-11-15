@@ -926,13 +926,14 @@ fn package_bundle_a_fresh_installation_keeps_the_token_and_survives_a_reinstalla
     );
 
     // The chain as built (point 1): preflight rolled back by the reversal,
-    // the MSI with the chain's property, the purge planned no action (the
-    // Amendment 2026-11-15, point 2), configure rolled back by nothing.
+    // the MSI with the chain's property, the purge installed, purge with no
+    // option, and rolled back by its uninstallation (the Amendment
+    // 2026-11-15, point 2), configure rolled back by nothing.
     let burn = outcome.burn();
     for (package, action) in [
         ("Preflight", "execute: Install, rollback: Uninstall,"),
         ("Agent", "execute: Install, rollback: Uninstall,"),
-        ("Purge", "execute: None, rollback: None,"),
+        ("Purge", "execute: Install, rollback: Uninstall,"),
         ("Configure", "execute: Install, rollback: None,"),
     ] {
         let line = plan(&burn, package);
@@ -2085,10 +2086,15 @@ fn package_bundle_purge_an_installation_upgrade_repair_or_second_build_never_pur
     assert_eq!(outcome.code, 0, "{}", outcome.summary());
     let line = plan(&outcome.burn(), "Purge");
     assert!(
-        line.contains("execute: None, rollback: None,"),
-        "an installation plans no action for the step: {line}"
+        line.contains("execute: Install, rollback: Uninstall,"),
+        "an installation runs the step's installation: {line}"
     );
-    assert_eq!(exits(&outcome.burn(), "Purge"), Vec::<u32>::new());
+    let runs = purge_runs(&outcome.burn(), "execute");
+    assert!(
+        runs.len() == 1 && ran_with(&runs[0], "purge"),
+        "an installation runs purge with no option, whatever CG_PURGE is: {runs:?}"
+    );
+    assert_eq!(exits(&outcome.burn(), "Purge"), [0]);
     assert!(
         confirmed_purges(&outcome).is_empty(),
         "no step ran with yes"
@@ -2118,11 +2124,19 @@ fn package_bundle_purge_an_installation_upgrade_repair_or_second_build_never_pur
             "{name}: no step ran with yes: {:?}",
             confirmed_purges(&outcome)
         );
-        assert_eq!(
-            exits(&outcome.burn(), "Purge"),
-            Vec::<u32>::new(),
-            "{name}: the newer setup's step runs nothing"
-        );
+        // The newer setup is not installed yet on a second build or an
+        // upgrade: its step's installation runs, purge with no option; on a
+        // repair it is, and the step runs nothing.
+        let runs = purge_runs(&outcome.burn(), "execute");
+        if name == "repair" {
+            assert!(runs.is_empty(), "{name}: the step runs nothing: {runs:?}");
+        } else {
+            assert!(
+                runs.len() == 1 && ran_with(&runs[0], "purge"),
+                "{name}: the newer setup's step runs purge with no option: {runs:?}"
+            );
+            assert_eq!(exits(&outcome.burn(), "Purge"), [0], "{name}");
+        }
         if name != "repair" {
             // The setup replaced is uninstalled after the newer chain, with
             // no bundle variable: its step runs with no value.

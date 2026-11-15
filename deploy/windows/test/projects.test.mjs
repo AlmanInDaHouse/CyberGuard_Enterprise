@@ -161,7 +161,11 @@ test("the setup's chain is preflight, the MSI with the chain's property, a vital
   const purge = element(chain, "ExePackage", (a) => a.get("Id") === "Purge");
   assert.equal(purge.get("PerMachine"), "yes");
   assert.equal(purge.get("Vital"), "yes", "a code other than 0 stops the uninstallation before the MSI");
-  assert.equal(purge.get("DetectCondition"), "1", "detected present: it runs on every uninstallation and on no installation or repair");
+  assert.equal(
+    purge.get("DetectCondition"),
+    "WixBundleInstalled",
+    "detected present once the setup is installed: its uninstallation runs on every uninstallation, and a refused installation leaves nothing registered",
+  );
   assert.equal(purge.has("Permanent"), false, "not permanent: Burn uninstalls it");
   assert.equal(purge.has("RepairArguments"), false);
   assert.equal(purge.get("SourceFile"), "$(var.SetupExe)");
