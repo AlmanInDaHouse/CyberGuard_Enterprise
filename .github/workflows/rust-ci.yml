@@ -104,7 +104,7 @@ jobs:
         run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1 --skip purge
       # PROBE (never landed): the purge's SCM tests against the verb that does
       # nothing; this step cannot fail the job, its log is the red evidence.
-      - name: "PROBE: cg-setup's purge SCM tests, red"
+      - name: "PROBE: cg-setup's purge SCM tests, against the verb before its review fixes"
         continue-on-error: true
         run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1 purge
 

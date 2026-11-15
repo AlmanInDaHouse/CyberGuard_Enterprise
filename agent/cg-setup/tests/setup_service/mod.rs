@@ -1762,6 +1762,32 @@ impl<F: Fn() -> Answer> Wizard for Wizarding<F> {
 
 impl TestService {
     /// Change its command line.
+    fn set_start_type(&self, start_type: u32) {
+        // SAFETY: the handle has SERVICE_ALL_ACCESS; every other value is left
+        // as it is.
+        let ok = unsafe {
+            ChangeServiceConfigW(
+                self.handle,
+                SERVICE_NO_CHANGE,
+                start_type,
+                SERVICE_NO_CHANGE,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        assert!(
+            ok != 0,
+            "ChangeServiceConfigW {}: Win32 error {}",
+            self.name,
+            last_error()
+        );
+    }
+
     fn set_command_line(&self, command_line: &str) {
         let command = wide(command_line);
         // SAFETY: the handle has SERVICE_ALL_ACCESS; the string lives for
@@ -1950,7 +1976,11 @@ fn package_scm_purge_15_another_code_a_death_or_the_end_is_47() {
     }
     let host = purge_host(serde_json::json!({ "pending_ms": 60_000 }), false);
     let started = Instant::now();
-    assert_refused(purge(&host), codes::PURGE_INCOMPLETE, &["pending"]);
+    assert_refused(
+        purge(&host),
+        codes::PURGE_INCOMPLETE,
+        &["did not report STOPPED", "START_PENDING"],
+    );
     let waited = started.elapsed();
     assert!(
         waited >= PURGE_WAIT && waited < PURGE_WAIT + Duration::from_secs(10),
@@ -1978,8 +2008,10 @@ fn package_scm_purge_a_conflicting_service_is_26_and_one_not_stopped_31() {
         &host.binary,
         &host.root.paths.data_root.join("other.toml"),
     ));
+    let before = host.root.tree();
     assert_refused(purge(&host), codes::CONFLICTING_SERVICE, &[]);
     assert!(host.starts().is_empty());
+    assert_eq!(host.root.tree(), before, "nothing changed");
 
     let host = verbs_host(
         serde_json::json!({ "never_stop": true, "purge": {} }),
@@ -1990,6 +2022,25 @@ fn package_scm_purge_a_conflicting_service_is_26_and_one_not_stopped_31() {
         .wait_for(SERVICE_RUNNING, Duration::from_secs(20));
     assert_refused(purge(&host), codes::NOT_STOPPED, &[]);
     assert_eq!(host.starts(), vec![Vec::<String>::new()], "no purge start");
+    assert_eq!(host.service.state(), SERVICE_STOP_PENDING, "left as it is");
+}
+
+/// A running service whose purge start the SCM refuses, and whose start
+/// again is refused too: 46, its line naming both, as the purge's.
+fn package_scm_purge_a_restart_that_fails_is_named_in_46() {
+    let host = purge_host(serde_json::json!({}), true);
+    host.service.set_start_type(SERVICE_DISABLED);
+    let refusal = purge(&host).expect_err("a refusal");
+    assert_eq!(refusal.code, codes::PURGE_REFUSED, "{}", refusal.line);
+    assert!(
+        refusal.line.contains("could not be started again"),
+        "{}",
+        refusal.line
+    );
+    assert!(!refusal.line.contains("reversal"), "{}", refusal.line);
+    assert!(!refusal.line.contains("  "), "{}", refusal.line);
+    assert_eq!(host.service.state(), SERVICE_STOPPED);
+    assert_eq!(host.starts(), vec![Vec::<String>::new()]);
 }
 
 /// The tests, in the order they run.
@@ -2153,6 +2204,10 @@ const TESTS: &[(&str, fn())] = &[
     (
         "package_scm_purge_a_conflicting_service_is_26_and_one_not_stopped_31",
         package_scm_purge_a_conflicting_service_is_26_and_one_not_stopped_31,
+    ),
+    (
+        "package_scm_purge_a_restart_that_fails_is_named_in_46",
+        package_scm_purge_a_restart_that_fails_is_named_in_46,
     ),
 ];
 

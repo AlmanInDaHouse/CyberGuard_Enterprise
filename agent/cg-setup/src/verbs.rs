@@ -286,11 +286,6 @@ pub fn reverse(machine: &Machine<'_>) -> Result<(), Refusal> {
 /// purge removed nothing, the service then started again if it was running,
 /// 47 otherwise, the service left as it is. It holds no handle under `<P>`.
 pub fn purge(machine: &Machine<'_>, within: Duration) -> Result<(), Refusal> {
-    // PROBE: the verb does nothing unless the variable is set, so that the
-    // SCM tests run against the behaviour missing (never landed).
-    if std::env::var_os("CG_PROBE_PURGE_IMPLEMENTED").is_none() {
-        return Ok(());
-    }
     let paths = machine.paths();
     if let Ok(None) = custody::shape(&paths.product_root, machine.host.wait) {
         return Ok(());
