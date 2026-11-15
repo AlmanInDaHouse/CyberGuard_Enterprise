@@ -27,6 +27,9 @@ pub mod observer;
 pub mod platform;
 #[cfg(windows)]
 pub mod preflight;
+// PROBE, never lands: the C9 reading probe's purge stub.
+#[cfg(windows)]
+pub mod probe_purge;
 pub mod record;
 #[cfg(windows)]
 pub mod scm;

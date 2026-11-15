@@ -56,6 +56,13 @@ required-features = ["host-tests"]
 name = "package_bundle_host"
 required-features = ["host-tests"]
 
+# PROBE, never lands: the C9 reading probe of the purge step on the machine
+# (install_ac_012), the setup run against cg-agent's test servers; it prints
+# readings and asserts nothing about Burn.
+[[test]]
+name = "package_purge_probe"
+required-features = ["host-tests"]
+
 # No new third-party crate (SPEC-024 Amendment 2026-11-09, item 1): each one
 # below is already a dependency of cg-agent, at the same requirement.
 [dependencies]

@@ -41,12 +41,17 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Refusal> {
     check_platform()?;
     let command = command?;
     check_elevation()?;
+    // PROBE, never lands: the C9 reading probe's purge stub records how Burn
+    // ran it and exits with the code the job left for it, on no machine.
+    if let Command::ProbePurge(_) = command {
+        std::process::exit(cg_setup::probe_purge::record());
+    }
     let machine = Machine::system()?;
     match command {
         Command::Preflight(request) => verbs::preflight(&machine, &request),
         Command::Configure(request) => verbs::configure(&machine, &request),
         Command::Reverse => verbs::reverse(&machine),
-        Command::Version => Ok(()),
+        Command::ProbePurge(_) | Command::Version => Ok(()),
     }
 }
 

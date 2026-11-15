@@ -25,6 +25,10 @@ pub enum Command {
     Configure(Request),
     /// `cg-setup reverse`.
     Reverse,
+    /// PROBE, never lands: `cg-setup purge <anything>`, the C9 reading
+    /// probe's stub of the purge step (install_ac_012), which records how
+    /// Burn ran it and takes every argument after the verb as it came.
+    ProbePurge(Vec<String>),
 }
 
 const BOOTSTRAP: &str = "--bootstrap";
@@ -58,6 +62,10 @@ pub fn parse(arguments: &[OsString]) -> Result<Command, Refusal> {
         "--version" => Err(refused("--version takes nothing")),
         "reverse" if options.is_empty() => Ok(Command::Reverse),
         "reverse" => Err(refused("reverse takes nothing")),
+        // PROBE, never lands: the C9 reading probe's purge stub.
+        "purge" => Ok(Command::ProbePurge(
+            options.iter().map(|option| option.to_string()).collect(),
+        )),
         "preflight" => {
             let [bootstrap, migrate_legacy, trust_anchors, ui] = take(
                 verb,

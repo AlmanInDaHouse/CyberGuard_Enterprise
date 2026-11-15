@@ -33,6 +33,9 @@
     <Variable Name="CG_BOOTSTRAP" Type="string" Value="" bal:Overridable="yes" />
     <Variable Name="CG_MIGRATE_LEGACY" Type="string" Value="" bal:Overridable="yes" />
     <Variable Name="CG_TRUST_ANCHORS" Type="string" Value="" bal:Overridable="yes" />
+    <!-- PROBE, never lands: the C9 reading probe's purge request (install_ac_012), not
+         persisted, so that an uninstallation from the registered setup passes none. -->
+    <Variable Name="CG_PURGE" Type="string" Value="" bal:Overridable="yes" />
 
     <Chain>
       <!-- Each step's cache folder is this build's own (BuildId): a second build of the version
@@ -53,6 +56,14 @@
         <MsiProperty Name="CG_SETUP_CHAIN" Value="1" />
       </MsiPackage>
       <RollbackBoundary Id="Committed" Vital="yes" />
+      <!-- PROBE, never lands: the C9 reading probe's purge step (install_ac_012). Detected
+           present, so that an install runs nothing and an uninstallation runs it, before the
+           MSI, which comes before it in the chain; not permanent, so that Burn uninstalls it.
+           Its cg-setup.exe is the probe's stub, which records how Burn ran it. -->
+      <ExePackage Id="Purge" CacheId="cg-setup-purge-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
+                  Vital="yes" DetectCondition="1"
+                  SourceFile="$(var.SetupExe)" Name="purge\cg-setup.exe"
+                  UninstallArguments="purge --confirm=&quot;[CG_PURGE]&quot;" />
       <!-- Permanent and detected by no condition: it runs on every install, repair and upgrade,
            and nothing rolls it back or uninstalls it. -->
       <ExePackage Id="Configure" CacheId="cg-setup-configure-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
