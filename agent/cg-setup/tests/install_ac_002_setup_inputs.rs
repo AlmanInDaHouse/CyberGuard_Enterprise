@@ -451,4 +451,5 @@ fn package_preflight_the_exit_codes_are_item_7s() {
         ],
         [40, 41, 42, 43, 44, 45]
     );
+    assert_eq!([PURGE_REFUSED, PURGE_INCOMPLETE], [46, 47]);
 }

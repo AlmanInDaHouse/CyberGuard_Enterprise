@@ -7,17 +7,24 @@
 //! give it a wizard of their own.
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cg_agent::custody;
+use cg_agent::service::layout::{classify, HostState};
 use cg_agent::service::InstalledPaths;
+use windows_sys::Win32::Foundation::ERROR_SERVICE_SPECIFIC_ERROR;
 
-use crate::codes::{Refusal, OPERATIONAL, OWN_STATE};
+use crate::codes::{
+    Refusal, CONSOLE_LAYOUT, OPERATIONAL, OWN_STATE, PURGE_INCOMPLETE, PURGE_REFUSED,
+    UNTRUSTED_PATH,
+};
 use crate::dialog::SystemWizard;
 use crate::observer::{self, LogPosition};
 use crate::preflight::{self, decide_again, parse_migration, take_fields, Host, Plan, Request};
-use crate::scm::{self, Manager, Product, Route};
-use crate::service::{migration_arguments, start_arguments, PRODUCT_SERVICE};
+use crate::scm::{self, Ended, Manager, Product, Route};
+use crate::service::{
+    migration_arguments, start_arguments, PRODUCT_SERVICE, PURGE, PURGE_BEFORE_REMOVAL,
+};
 use crate::staging::{self, Files, Setup};
 use crate::version::{self, numeric, SETUP_VERSION};
 use crate::wizard::{Again, Answer, Choice, Closed, Offer, Wizard};
@@ -269,4 +276,163 @@ pub fn reverse(machine: &Machine<'_>) -> Result<(), Refusal> {
         let scm = Manager::open()?;
         scm::start_if_stopped(&scm, &machine.service).map(drop)
     })
+}
+
+/// `purge` with `--confirm=yes` (SPEC-024 Amendment 2026-11-15, point 3),
+/// `within` being its 300 seconds: `<P>` absent is 0; the host's state as
+/// preflight reads it (27, 28); the product service as preflight checks it
+/// (26, and 46 when it is absent); its stop (31); then its start with
+/// `--purge`, whose end `outcome` reads: 0, 46 when the purge removed
+/// nothing, the service then started again if it was running, 47 otherwise,
+/// the service left as it is. It holds no handle under `<P>`.
+pub fn purge(machine: &Machine<'_>, within: Duration) -> Result<(), Refusal> {
+    let paths = machine.paths();
+    if let Ok(None) = custody::shape(&paths.product_root, machine.host.wait) {
+        return Ok(());
+    }
+    match classify(paths, &machine.host.directories, machine.host.wait) {
+        HostState::Untrusted(reason) => {
+            return Err(Refusal::new(
+                UNTRUSTED_PATH,
+                format!("the purge refuses an untrusted path: {reason}"),
+            ))
+        }
+        HostState::MigrationInProgress => {
+            return Err(Refusal::new(
+                CONSOLE_LAYOUT,
+                "the purge refuses a migration in progress: finish or reverse it first",
+            ))
+        }
+        HostState::ConsoleLayout => {
+            return Err(Refusal::new(
+                CONSOLE_LAYOUT,
+                "the purge refuses a console layout: the data directory holds a console installation's identity files",
+            ))
+        }
+        HostState::Enrolled | HostState::Pending | HostState::Fresh => {}
+    }
+    let scm = Manager::open()?;
+    let name = &machine.service;
+    let product =
+        scm::check_product_service(&scm, name, &machine.binary, &paths.config, Route::Other)?;
+    if product == Product::Absent {
+        return Err(Refusal::new(
+            PURGE_REFUSED,
+            format!("the purge removed nothing: the product service {name} is absent, and no other process may remove what only SYSTEM can reach"),
+        ));
+    }
+    let stop = scm::stop(&scm, name);
+    stop.result?;
+    let removed_nothing = |cause: String| {
+        let again = if stop.found_running {
+            restart_note(scm::start_if_stopped(&scm, name))
+        } else {
+            String::new()
+        };
+        Refusal::new(
+            PURGE_REFUSED,
+            format!("the purge removed nothing: {cause}{again}"),
+        )
+    };
+    if let Err(refusal) = scm::start(&scm, name, &[PURGE.to_string()]) {
+        return Err(removed_nothing(text_of(&refusal).to_string()));
+    }
+    match outcome(&scm::wait_stopped(&scm, name, within), within) {
+        Outcome::Purged => Ok(()),
+        Outcome::RemovedNothing(cause) => Err(removed_nothing(cause)),
+        Outcome::Incomplete(cause) => Err(Refusal::new(
+            PURGE_INCOMPLETE,
+            format!("the purge may have removed some of the product's data: {cause}; the service is left as it is, and the purge run again names what remains"),
+        )),
+    }
+}
+
+/// What the service's purge start ended with, for the purge's code (point
+/// 3.5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// 0.
+    Purged,
+    /// 46, with its cause.
+    RemovedNothing(String),
+    /// 47, with its cause.
+    Incomplete(String),
+}
+
+/// Point 3.5's reading of the end `wait_stopped` read: `STOPPED` with
+/// `dwWin32ExitCode` 0 is the code 0; with 1066 the code is
+/// `dwServiceSpecificExitCode`; any other value, 1067 for a process that died
+/// included, is no code of the service's. 0 is 0; a code the purge start gives
+/// before any removal is 46; any other code, no code, a state that cannot be
+/// read and any other state at the end are 47.
+pub fn outcome(ended: &Ended, within: Duration) -> Outcome {
+    let code = match ended {
+        Ended::Stopped { win32: 0, .. } => Some(0),
+        Ended::Stopped {
+            win32: ERROR_SERVICE_SPECIFIC_ERROR,
+            specific,
+        } => Some(*specific),
+        _ => None,
+    };
+    match (ended, code) {
+        (_, Some(0)) => Outcome::Purged,
+        (_, Some(code)) if PURGE_BEFORE_REMOVAL.contains(&code) => Outcome::RemovedNothing(
+            format!("the service's purge start stopped with code {code}, which it gives before any removal"),
+        ),
+        (_, Some(15)) => Outcome::Incomplete(
+            "the service's purge start stopped with code 15; when it left a name or ran out of its 120 seconds, its entry 1002 in the Application log names what it left".to_string(),
+        ),
+        (_, Some(code)) => {
+            Outcome::Incomplete(format!("the service's purge start stopped with code {code}"))
+        }
+        (Ended::Stopped { win32, .. }, None) => Outcome::Incomplete(format!(
+            "the service's purge start ended with Win32 error {win32}"
+        )),
+        (Ended::Unreadable(reason), _) => Outcome::Incomplete(reason.clone()),
+        (Ended::Still(state), _) => Outcome::Incomplete(format!(
+            "the service's purge start did not report STOPPED within {} seconds of its start; its state then was {}",
+            within.as_secs(),
+            state_name(*state)
+        )),
+    }
+}
+
+/// A service state's name, as the SCM's constants name it.
+fn state_name(state: u32) -> String {
+    match state {
+        1 => "STOPPED".to_string(),
+        2 => "START_PENDING".to_string(),
+        3 => "STOP_PENDING".to_string(),
+        4 => "RUNNING".to_string(),
+        5 => "CONTINUE_PENDING".to_string(),
+        6 => "PAUSE_PENDING".to_string(),
+        7 => "PAUSED".to_string(),
+        other => format!("{other}"),
+    }
+}
+
+/// What 46's line adds after a service that was running: whether
+/// `scm::start_if_stopped` started it again, or why it could not.
+pub fn restart_note(started: Result<bool, Refusal>) -> String {
+    match started {
+        Ok(true) => "; the service was started again".to_string(),
+        Ok(false) => "; the service was not stopped, so it was not started again".to_string(),
+        Err(refusal) => {
+            // `start_if_stopped` words its failure as the reversal's.
+            let text = text_of(&refusal);
+            let cause = text
+                .strip_prefix("the reversal could not start the service ")
+                .and_then(|rest| rest.split_once(": ").map(|(_, cause)| cause))
+                .unwrap_or(text);
+            format!("; the service could not be started again: {cause}")
+        }
+    }
+}
+
+/// A refusal's text without its `cg-setup: ` prefix.
+fn text_of(refusal: &Refusal) -> &str {
+    refusal
+        .line
+        .strip_prefix("cg-setup: ")
+        .unwrap_or(&refusal.line)
 }

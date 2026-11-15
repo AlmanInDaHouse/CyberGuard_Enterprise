@@ -33,6 +33,18 @@ pub const FAILURE_RESET_SECONDS: u32 = 86_400;
 /// item 6).
 pub const ADOPT: &str = "--adopt-staged-config";
 
+/// The start argument that asks for the purge (the Amendment 2026-11-15,
+/// point 4).
+pub const PURGE: &str = "--purge";
+
+/// How long the purge waits for the service's purge start to report
+/// `STOPPED` (the Amendment 2026-11-15, point 3.5).
+pub const PURGE_WITHIN: Duration = Duration::from_secs(300);
+
+/// The service's codes that a purge start gives before any removal (point 4):
+/// the purge removed nothing.
+pub const PURGE_BEFORE_REMOVAL: [u32; 5] = [1, 2, 10, 13, 14];
+
 /// A service's configuration, as the SCM reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Configuration {

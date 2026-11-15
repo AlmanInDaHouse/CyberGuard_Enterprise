@@ -7,7 +7,8 @@
 //! Each call takes the service's name: the machine's is `PRODUCT_SERVICE`,
 //! and the tests name services of their own. Each one opens the service with
 //! the access it needs alone, so that a right the service's security denies
-//! fails that call and no other.
+//! fails that call and no other. The purge's wait for the service's purge
+//! start to stop is here too (the Amendment 2026-11-15, point 3.5).
 
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -561,4 +562,53 @@ pub fn start_if_stopped(scm: &Manager, name: &str) -> Result<bool, Refusal> {
         };
     }
     Ok(true)
+}
+
+/// How a started service ended, as `wait_stopped` read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ended {
+    /// `STOPPED`, with its two exit codes.
+    Stopped { win32: u32, specific: u32 },
+    /// Its state could not be read: why.
+    Unreadable(String),
+    /// In this state at the end.
+    Still(u32),
+}
+
+/// The purge's wait (the Amendment 2026-11-15, point 3.5): the state of the
+/// service `name` read every `POLL`, at least every second, until `STOPPED` or
+/// `within` has passed, so that a restart by the failure actions, 60 seconds
+/// after a death, is not read as the outcome.
+pub fn wait_stopped(scm: &Manager, name: &str, within: Duration) -> Ended {
+    let service = match scm.service(name, SERVICE_QUERY_STATUS) {
+        Ok(Some(service)) => service,
+        Ok(None) => return Ended::Unreadable(format!("the service {name} no longer exists")),
+        Err(error) => {
+            return Ended::Unreadable(format!(
+                "the service {name} cannot be opened to read its state: Win32 error {error}"
+            ))
+        }
+    };
+    let end = Instant::now() + within;
+    loop {
+        let read_at = Instant::now();
+        let status = match service.status() {
+            Ok(status) => status,
+            Err(error) => {
+                return Ended::Unreadable(format!(
+                    "the state of the service {name} cannot be read: Win32 error {error}"
+                ))
+            }
+        };
+        if status.dwCurrentState == SERVICE_STOPPED && read_at < end {
+            return Ended::Stopped {
+                win32: status.dwWin32ExitCode,
+                specific: status.dwServiceSpecificExitCode,
+            };
+        }
+        if Instant::now() >= end {
+            return Ended::Still(status.dwCurrentState);
+        }
+        std::thread::sleep(POLL.min(end.saturating_duration_since(Instant::now())));
+    }
 }

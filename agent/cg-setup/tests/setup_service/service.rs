@@ -23,7 +23,12 @@
 //! - `log_while_pending`: those steps are taken in `START_PENDING` instead,
 //!   before its pending time;
 //! - `stop_with`: after those steps it reports `STOPPED` with this
-//!   service-specific exit code, unasked.
+//!   service-specific exit code, unasked;
+//! - `purge`: a start whose single argument is `--purge` stands for the
+//!   agent's purge start (SPEC-024 Amendment 2026-11-15, point 4): it reports
+//!   `START_PENDING` for `pending_ms`, never `RUNNING`, then `STOPPED`
+//!   with `code` as its service-specific exit code (0: none), or, with
+//!   `die`, its process exits instead.
 //!
 //! In each pending state its checkpoint advances every second.
 
@@ -59,6 +64,16 @@ struct Behaviour {
     log: Vec<Step>,
     log_while_pending: bool,
     stop_with: Option<u32>,
+    purge: Option<Purge>,
+}
+
+/// How a `--purge` start ends.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct Purge {
+    pending_ms: u64,
+    code: u32,
+    die: bool,
 }
 
 /// One step on the log.
@@ -197,6 +212,19 @@ unsafe extern "system" fn service_main(argc: u32, argv: *mut PWSTR) {
             .open(record)
             .expect("open the record");
         writeln!(file, "{line}").expect("write the record");
+    }
+    if let Some(purge) = &behaviour.purge {
+        if arguments[1..] == ["--purge"] {
+            pending(
+                SERVICE_START_PENDING,
+                Duration::from_millis(purge.pending_ms),
+            );
+            if purge.die {
+                std::process::exit(1);
+            }
+            report_with(SERVICE_STOPPED, 0, purge.code);
+            return;
+        }
     }
     let _held_while_pending = match &behaviour.log_dir {
         Some(dir) if behaviour.log_while_pending => take_steps(dir, &behaviour.log),

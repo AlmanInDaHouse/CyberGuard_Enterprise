@@ -1159,3 +1159,129 @@ fn package_verbs_configure_refuses_another_packages_binary() {
     );
     assert_eq!(root.tree(), before);
 }
+
+// --- purge (SPEC-024 Amendment 2026-11-15, point 3) ----------------------------
+
+const PURGE_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A purge refusal's line is one sentence: no run of spaces inside it.
+fn assert_one_line(refusal: &Refusal) {
+    assert!(!refusal.line.contains("  "), "{}", refusal.line);
+}
+
+/// With `<P>` absent there is nothing to remove: 0, with nothing created.
+#[test]
+fn package_verbs_purge_with_no_product_root_is_0() {
+    let root = Root::bare();
+    let before = root.tree();
+    let on = machine(&root, &quiet, root.operator.join("cg-agent.exe"));
+    assert_eq!(verbs::purge(&on, PURGE_WITHIN), Ok(()));
+    assert_eq!(root.tree(), before, "nothing created");
+}
+
+/// Point 3.2: the host's state as preflight reads it, before the service:
+/// an untrusted path 27, a migration in progress or a console layout 28,
+/// each with nothing changed and before the absent service's 46.
+#[test]
+fn package_verbs_purge_refuses_the_states_preflight_refuses() {
+    let untrusted = Root::empty();
+    std::fs::create_dir(untrusted.paths.legacy()).unwrap();
+    let in_progress = Root::empty();
+    std::fs::create_dir(in_progress.paths.staging()).unwrap();
+    let console = Root::empty();
+    console.touch("cert.pem");
+    let junction = Root::bare();
+    let target = junction.operator.join("target");
+    std::fs::create_dir(&target).unwrap();
+    fixtures::junction(&junction.paths.product_root, &target);
+    for (what, root, code) in [
+        ("untrusted", untrusted, codes::UNTRUSTED_PATH),
+        (
+            "a migration in progress",
+            in_progress,
+            codes::CONSOLE_LAYOUT,
+        ),
+        ("a console layout", console, codes::CONSOLE_LAYOUT),
+        ("a junction as <P>", junction, codes::UNTRUSTED_PATH),
+    ] {
+        let before = root.tree();
+        let on = machine(&root, &quiet, root.operator.join("cg-agent.exe"));
+        let refusal = assert_code(verbs::purge(&on, PURGE_WITHIN), code, &["purge"]);
+        assert_one_line(&refusal);
+        assert_eq!(root.tree(), before, "{what}: {}", refusal.line);
+    }
+}
+
+/// Point 3.3: with no product service, nothing but SYSTEM can remove what
+/// only SYSTEM reaches: 46, with nothing changed.
+#[test]
+fn package_verbs_purge_with_no_product_service_is_46() {
+    let root = Root::empty();
+    root.touch("agent.toml");
+    let before = root.tree();
+    let on = machine(&root, &quiet, root.operator.join("cg-agent.exe"));
+    let refusal = assert_code(
+        verbs::purge(&on, PURGE_WITHIN),
+        codes::PURGE_REFUSED,
+        &["absent"],
+    );
+    assert_one_line(&refusal);
+    assert_eq!(root.tree(), before);
+}
+
+/// Point 3.5's reading of the end: 0 with `dwWin32ExitCode` 0 or with 1066
+/// and code 0; 46 for each code given before any removal; 47 for 15, another
+/// code, another Win32 error, an unreadable state and any state at the end;
+/// each cause one sentence.
+#[test]
+fn package_verbs_purge_outcome_maps_the_service_s_end() {
+    use cg_setup::scm::Ended;
+    use cg_setup::verbs::{outcome, Outcome};
+    let within = std::time::Duration::from_secs(300);
+    let stopped = |win32: u32, specific: u32| Ended::Stopped { win32, specific };
+    assert_eq!(outcome(&stopped(0, 0), within), Outcome::Purged);
+    assert_eq!(outcome(&stopped(0, 7), within), Outcome::Purged);
+    assert_eq!(outcome(&stopped(1066, 0), within), Outcome::Purged);
+    for code in [1, 2, 10, 13, 14] {
+        match outcome(&stopped(1066, code), within) {
+            Outcome::RemovedNothing(cause) => {
+                assert!(cause.contains(&format!("code {code},")), "{cause}")
+            }
+            other => panic!("{code}: {other:?}"),
+        }
+    }
+    let incomplete = |ended: Ended| match outcome(&ended, within) {
+        Outcome::Incomplete(cause) => {
+            assert!(!cause.contains("  "), "{cause}");
+            cause
+        }
+        other => panic!("{ended:?}: {other:?}"),
+    };
+    let fifteen = incomplete(stopped(1066, 15));
+    assert!(fifteen.contains("code 15;"), "{fifteen}");
+    assert!(fifteen.contains("when it left a name"), "{fifteen}");
+    assert!(incomplete(stopped(1066, 3)).contains("code 3"));
+    assert!(incomplete(stopped(1067, 0)).contains("Win32 error 1067"));
+    assert!(incomplete(Ended::Unreadable("unread".to_string())).contains("unread"));
+    let pending = incomplete(Ended::Still(2));
+    assert!(pending.contains("within 300 seconds"), "{pending}");
+    assert!(pending.contains("START_PENDING"), "{pending}");
+    assert!(incomplete(Ended::Still(1)).contains("was STOPPED"));
+}
+
+/// 46's line after a service that was running: started again, not stopped,
+/// or the start's failure, named as the purge's and not the reversal's.
+#[test]
+fn package_verbs_purge_restart_note_names_the_restart() {
+    use cg_setup::verbs::restart_note;
+    assert_eq!(restart_note(Ok(true)), "; the service was started again");
+    assert!(restart_note(Ok(false)).contains("not started again"));
+    let failed = restart_note(Err(Refusal::new(
+        codes::OWN_STATE,
+        "the reversal could not start the service S: the service control manager refused the start: Win32 error 1058",
+    )));
+    assert_eq!(
+        failed,
+        "; the service could not be started again: the service control manager refused the start: Win32 error 1058"
+    );
+}

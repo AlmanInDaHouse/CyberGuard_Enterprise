@@ -205,3 +205,41 @@ fn package_cli_an_argument_that_is_not_unicode_is_40() {
         assert!(refusal.line.contains("not Unicode"), "{}", refusal.line);
     }
 }
+
+// --- purge (SPEC-024 Amendment 2026-11-15, point 3) ----------------------------
+
+/// `--confirm=` at most once; absent or empty is not given, `yes` confirms.
+#[test]
+fn package_cli_purge_takes_confirm_once() {
+    assert_eq!(
+        parse(&args(&["purge"])),
+        Ok(Command::Purge { confirmed: false })
+    );
+    assert_eq!(
+        parse(&args(&["purge", "--confirm="])),
+        Ok(Command::Purge { confirmed: false })
+    );
+    assert_eq!(
+        parse(&args(&["purge", "--confirm=yes"])),
+        Ok(Command::Purge { confirmed: true })
+    );
+}
+
+/// Another value, the option twice, an unknown option or one without `=` is
+/// 40, and the line quotes no value.
+#[test]
+fn package_cli_purge_refuses_any_other_command_line() {
+    for value in ["no", "YES", "yes ", "\"yes\"", "1"] {
+        let option = format!("--confirm={value}");
+        let line = refused(&["purge", &option]);
+        assert!(line.contains("--confirm="), "{line}");
+        if !value.is_empty() {
+            assert!(!line.contains(&option), "{line}");
+        }
+    }
+    refused(&["purge", "--confirm=yes", "--confirm=yes"]);
+    refused(&["purge", "--confirm=", "--confirm=yes"]);
+    refused(&["purge", r"--bootstrap=C:\x"]);
+    refused(&["purge", "--confirm"]);
+    refused(&["purge", "yes"]);
+}
