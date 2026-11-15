@@ -1,0 +1,16 @@
+diff --git a/deploy/windows/bundle/Bundle.wxs b/deploy/windows/bundle/Bundle.wxs
+index 0d36877..be90033 100644
+--- a/deploy/windows/bundle/Bundle.wxs
++++ b/deploy/windows/bundle/Bundle.wxs
+@@ -65,11 +65,6 @@
+            installation, which only Burn's rollback of that uninstallation runs, is purge with no
+            option, which changes nothing. A code other than 0 stops the uninstallation with the
+            product installed. -->
+-      <ExePackage Id="Purge" CacheId="cg-setup-purge-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
+-                  Vital="yes" DetectCondition="1"
+-                  SourceFile="$(var.SetupExe)" Name="purge\cg-setup.exe"
+-                  InstallArguments="purge"
+-                  UninstallArguments="purge --confirm=&quot;[CG_PURGE]&quot;" />
+       <!-- Permanent and detected by no condition: it runs on every install, repair and upgrade,
+            and nothing rolls it back or uninstalls it. -->
+       <ExePackage Id="Configure" CacheId="cg-setup-configure-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"

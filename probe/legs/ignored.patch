@@ -1,0 +1,13 @@
+diff --git a/deploy/windows/bundle/Bundle.wxs b/deploy/windows/bundle/Bundle.wxs
+index 0d36877..5ce67c0 100644
+--- a/deploy/windows/bundle/Bundle.wxs
++++ b/deploy/windows/bundle/Bundle.wxs
+@@ -69,7 +69,7 @@
+                   Vital="yes" DetectCondition="1"
+                   SourceFile="$(var.SetupExe)" Name="purge\cg-setup.exe"
+                   InstallArguments="purge"
+-                  UninstallArguments="purge --confirm=&quot;[CG_PURGE]&quot;" />
++                  UninstallArguments="purge" />
+       <!-- Permanent and detected by no condition: it runs on every install, repair and upgrade,
+            and nothing rolls it back or uninstalls it. -->
+       <ExePackage Id="Configure" CacheId="cg-setup-configure-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"

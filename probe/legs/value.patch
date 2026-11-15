@@ -1,0 +1,13 @@
+diff --git a/agent/cg-setup/src/cli.rs b/agent/cg-setup/src/cli.rs
+index e98ca19..7dbf134 100644
+--- a/agent/cg-setup/src/cli.rs
++++ b/agent/cg-setup/src/cli.rs
+@@ -67,7 +67,7 @@ pub fn parse(arguments: &[OsString]) -> Result<Command, Refusal> {
+             let [confirm] = take(verb, options, [CONFIRM])?;
+             match confirm.filter(|value| !value.is_empty()) {
+                 None => Ok(Command::Purge { confirmed: false }),
+-                Some("yes") => Ok(Command::Purge { confirmed: true }),
++                Some(_) => Ok(Command::Purge { confirmed: true }),
+                 Some(_) => Err(refused("--confirm= is neither empty nor yes")),
+             }
+         }

@@ -1,0 +1,13 @@
+diff --git a/deploy/windows/bundle/Bundle.wxs b/deploy/windows/bundle/Bundle.wxs
+index 0d36877..d584692 100644
+--- a/deploy/windows/bundle/Bundle.wxs
++++ b/deploy/windows/bundle/Bundle.wxs
+@@ -37,7 +37,7 @@
+     <Variable Name="CG_BOOTSTRAP" Type="string" Value="" bal:Overridable="yes" />
+     <Variable Name="CG_MIGRATE_LEGACY" Type="string" Value="" bal:Overridable="yes" />
+     <Variable Name="CG_TRUST_ANCHORS" Type="string" Value="" bal:Overridable="yes" />
+-    <Variable Name="CG_PURGE" Type="string" Value="" bal:Overridable="yes" />
++    <Variable Name="CG_PURGE" Type="string" Value="" bal:Overridable="yes" Persisted="yes" />
+ 
+     <Chain>
+       <!-- Each step's cache folder is this build's own (BuildId): a second build of the version

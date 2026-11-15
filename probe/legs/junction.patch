@@ -1,0 +1,13 @@
+diff --git a/agent/cg-agent/src/custody.rs b/agent/cg-agent/src/custody.rs
+index 0506329..52da6ab 100644
+--- a/agent/cg-agent/src/custody.rs
++++ b/agent/cg-agent/src/custody.rs
+@@ -439,7 +439,7 @@ fn open_raw(path: &Path, access: u32, share: u32) -> Result<Option<Handle>, u32>
+             share,
+             std::ptr::null(),
+             OPEN_EXISTING,
+-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
++            FILE_FLAG_BACKUP_SEMANTICS,
+             std::ptr::null_mut(),
+         )
+     };
