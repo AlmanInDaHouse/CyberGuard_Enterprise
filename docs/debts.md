@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 56** at Session 73's close, the count `docs/handoff-session-73.md` states
-(Session 73 landed C9's contract, SPEC-024 Amendment 2026-11-15, the purge, and opened, closed and narrowed no debt).
+**Open: 57** at Session 74's close, the count `docs/handoff-session-74.md` states
+(Session 74 landed C9's first two commits, the service's purge start and `cg-setup purge`, and opened #163).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 73's close, `docs/handoff-session-73.md#how-session-74-resumes`);
+Session N resumes* (at Session 74's close, `docs/handoff-session-74.md#how-session-75-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -90,6 +90,7 @@ Session N resumes* (at Session 73's close, `docs/handoff-session-73.md#how-sessi
 | 159 | `cargo audit` prints an allowed warning: RUSTSEC-2026-0440 (`astral-tokio-tar` 0.6.2, unmaintained, no patched release), which only the agent's tests compile through testcontainers 0.27; Manuel accepted it as this debt on 2026-11-14. RUSTSEC-2026-0486 (`rustix`) and RUSTSEC-2026-0386 (`tokio`) were moved within their ranges in Session 72 | `handoff-session-70.md#debts`; `handoff-session-72.md#debts` | Reopens when testcontainers drops astral-tokio-tar (move with it), or when an advisory of a vulnerability covers it. |
 | 161 | `ac-001-marquee` failed once in the elevated gate, unreproduced: the harness ends the agent at 4 s and checks its ETW session once after `logman stop`, and found it still running (`services/ingest/test/helpers/marquee-agent.ts`); 0 failures in 17 runs since | `handoff-session-72.md#debts` | A stop that waits for the session to go, with a bound, when the harness next changes or the failure recurs. |
 | 162 | The release's checks beyond SPEC-024 Amendment 2026-11-14's wording: payloads outside a container and a second string table are not read; `MsiEmbeddedUI`, `MsiEmbeddedChainer` and a downloaded package are not refused; the engine and `wixstdba.exe` are not compared with the nuget content; and `images` runs alongside `agent`, so a failed Windows build can leave attested images of a version with no release | `handoff-session-72.md#debts` | Before the first release (F4): the job order to Manuel (packaging); the checks with an amendment if they narrow the contract. |
+| 163 | `custody::check` passed a directory created with the SDDL `D:(A;OICI;FA;;;<user>)` against a policy with `protected: true`, while `GetFileSecurityW` renders its DACL without `P`: what `GetSecurityInfo` reports of `SE_DACL_PROTECTED`, and whether a DACL inheritance can still reach passes the configuration and identity policies, is unread | `handoff-session-74.md#debts` | Read with a test of the custody check before C10's runbooks cite the policies; a fix that narrows a check goes through an amendment first. |
 
 ## Closed
 
