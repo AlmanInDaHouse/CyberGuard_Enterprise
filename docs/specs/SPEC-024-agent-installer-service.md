@@ -2952,6 +2952,306 @@ MS-RL's text and WiX's notices in the licence report ("En licences-<v>.md"); and
 copyright line kept in the setup's version resource ("Conservarla en el recurso"). He approved
 this text on 2026-11-14, in chat: "doy el si". Status stays **Accepted**.
 
+## Amendment 2026-11-15: the purge
+
+**What surfaced it.** C9, the purge (`docs/handoff-session-72.md#how-session-73-resumes`).
+§Operational §4 makes "Explicit purge" a "separate elevated, deliberate operator choice" that
+removes "only validated product-owned paths" and never follows junctions, and install_ac_012 asks
+for it; the Amendment 2026-11-09's *Effect* gave it no route ("it is decided with that criterion"),
+and its item 1 runs neither `cg-setup` step on an uninstallation. An audit of the code found that
+no route of the product's but the service's can remove the data: `identity\` and its files admit
+SYSTEM alone (`agent/cg-agent/src/identity.rs:483-485`), `logs\` and its files give Administrators
+read access only (`agent/cg-agent/src/service/log_file.rs:32-34`), and `cg-setup` enables no
+privilege (item 1, ADR-0010 §Compliance); the MSI removes the service on an uninstallation, so the
+purge runs before it. The probe pull request #134 (closed without landing; run 43659558742, job
+"The setup on the host", its readings step), which added to the chain a step detected present after
+the MSI whose `cg-setup` recorded how Burn ran it, read on a hosted runner:
+
+- On an uninstallation Burn runs the step before the MSI, with the service `RUNNING` and the binary
+  in place, from the step's folder in the package cache, which Burn caches on the installation; its
+  arguments carry `CG_PURGE` as the command line gives it, `--confirm="yes"`, or `--confirm=""`
+  when the command line has none, and an uninstallation from the installed programs' registered
+  entry passes none.
+- On a repair, and on the installation of an upgrade or of a second build, Burn plans no action for
+  the step and runs nothing (read with `CG_PURGE=yes`, and the plan is the same without it); a
+  fresh installation with `CG_PURGE=yes` was not run. On an upgrade, and on a second build of the
+  same version, the setup that is replaced is uninstalled after the newer chain, with no bundle
+  variable: its step runs with `--confirm=""`, while the newer agent runs.
+- A step that exits other than 0 stops the uninstallation before the MSI: the setup stays
+  registered, the MSI installed and its service in the state the step left, and `setup.exe` exits
+  with the step's code (read: 1 and 46). Burn then runs the step's rollback, its installation
+  action, which with no `InstallArguments` runs `cg-setup.exe` with no argument (read: 40).
+
+**Amendment.** Items without a date are those of the Amendment 2026-11-09. `<P>` is
+`%ProgramData%\CyberGuard` and the data root `<P>\agent`, as the Amendment 2026-11-04, item 1,
+derives them, and the legacy directory `<P>\agent.legacy`, as the Amendment 2026-11-05 names it.
+
+1. **The route.** The purge is an uninstallation of the setup with the bundle variable
+   `CG_PURGE=yes`: `setup.exe -uninstall CG_PURGE=yes`, with item 2's `-norestart`, with `-log` and
+   a file for Burn's log (point 7) and, unattended, `-quiet`, run with the registered setup, in the
+   package cache, or with the file it was installed from (read with the latter). `CG_PURGE` carries
+   no secret and is not persisted, as item 2's variables: an uninstallation from the installed
+   programs' entry, a repair, an installation and an upgrade never purge (read on an upgrade, a
+   second build and a repair; a fresh installation plans the step as they do), and nothing in the
+   setup's window offers it; an uninstallation chosen in the setup's window purges only when
+   `CG_PURGE=yes` is on that setup's command line. Its values are empty, which purges nothing, and
+   `yes`; `cg-setup` compares the value its command line parses, and any other is 40 before
+   anything changes. Burn does not escape a quote inside a value (the Amendment 2026-11-12
+   (second), point 1), so a value whose quotes the command line's parsing removes, leaving `yes`,
+   purges: the value is an elevated administrator's own command, not a boundary.
+2. **The chain's step.** Item 1's chain gains `cg-setup` **purge**, an `ExePackage` per machine,
+   vital, not permanent, detected present by a condition that is always true, placed after the
+   rollback boundary and before configure, whose uninstallation runs `cg-setup.exe purge
+   --confirm="[CG_PURGE]"` and whose installation, which only Burn's rollback of that
+   uninstallation runs, `cg-setup.exe purge` with no option (not read: the probe's step had no
+   `InstallArguments`, and its rollback ran `cg-setup.exe` with no argument, 40). Its cache folder
+   is its build's own, as preflight's and configure's are. Burn runs it on every uninstallation,
+   before the MSI, and on no installation or repair (read). On an upgrade, and on a second build of
+   the same version, the setup replaced is uninstalled after the newer chain with no bundle
+   variable, so its step runs with no value and changes nothing (read). A step that exits other
+   than 0 stops the uninstallation before the MSI: the setup, the MSI and the service stay
+   installed, and `setup.exe` exits with the step's code (read). So every uninstallation, a default
+   one included, now runs `cg-setup` and depends on its exit 0, which without a value needs only
+   the platform and the elevation (point 3) that Burn's uninstallation per machine has, so a step
+   that fails, its cached payload missing included, blocks a default uninstallation too, until it
+   exits 0; what Burn does when a replaced setup's step fails during an upgrade is not read; the
+   setup carries three `cg-setup.exe` payloads, which the Amendment 2026-11-14, point 2, checks
+   each of.
+3. **`cg-setup purge`.** The verb takes `--confirm=` at most once, as item 9 of the Amendment
+   2026-11-10 takes its options, its absence or an empty value as not given, and checks the
+   Amendment 2026-11-10, item 1's platform and the elevation as that item 9 says. Not given, it
+   reads nothing under `<P>`, opens no service and exits 0, which is every uninstallation with no
+   `CG_PURGE` or an empty one, the replaced setup's on an upgrade included, and the rollback of the
+   step. With `yes`, in order:
+   1. With `<P>` absent, it exits 0: nothing to remove.
+   2. It reads the host's state as preflight does (item 3, the Amendment 2026-11-10, item 2), by
+      name: an untrusted path is 27, and a migration in progress or a console layout 28; the
+      service is not touched. Any other state goes on.
+   3. It checks the product service as preflight does (the Amendment 2026-11-10, item 3): a
+      conflicting service is 26, and an absent one 46, since no other process may remove what only
+      SYSTEM can reach.
+   4. It stops a running service and proves it `STOPPED` within 75 seconds, as the Amendment
+      2026-11-10, item 6, does, and notes whether it was running; 31 leaves the service as it is.
+   5. It holds no handle under `<P>`, and starts the service with the single start argument
+      `--purge` (point 4) and waits up to 300 seconds for `STOPPED`, reading its state at least
+      every second, so that item 8's first restart, 60 seconds after a death, is not read as the
+      purge's outcome, and reading its exit code. `STOPPED` with `dwWin32ExitCode` 0 is 0; with
+      1066, `ERROR_SERVICE_SPECIFIC_ERROR`, the code is `dwServiceSpecificExitCode` (the second
+      Amendment 2026-11-01, item 3); any other value, 1067 for a process that died included, is
+      "any other code" below. A start the SCM refuses, or `STOPPED` with a code that point 4 gives
+      before any removal (1, 2, 10, 13 or 14), is 46, and `cg-setup` then starts the service again
+      if it was running, as the reversal does (the Amendment 2026-11-10, item 7), a failure of that
+      start named in 46's line. `STOPPED` with 15 or with any other code, a purge process that died
+      included, a state it cannot read, or any other state at the 300 seconds, is 47, and the
+      service is left as it is.
+
+   46 and 47 join item 7's codes before the MSI; the uninstallation stops at either, with the
+   product installed. 46 is a purge that removed nothing; 47 one that may have removed some, or
+   whose outcome `cg-setup` could not read. Under the setup the operator reads the code, as the
+   Amendment 2026-11-12 (second), point 5, says; `cg-setup`'s line names the service's code, and
+   for the service's 15 of a name left or of the 120 seconds, its entry 1002 (point 7) names what
+   the purge left; an abnormal end's names nothing, and the purge run again names what remains. A
+   step that fails reaches the setup's failure page as the others do (the Amendment 2026-11-12
+   (third), point 1): its line "Applied execute package: Purge, result:" carries the code.
+4. **The service's purge start.** The Amendment 2026-11-05, item 1's start arguments gain
+   `--purge`, alone: with any other argument, a migration's or the adoption's included, it is code
+   2, before any change, with the line `cg-agent: invalid purge arguments: --purge is given with
+   another argument`. A purge start checks `--config` as the Amendment 2026-11-04, item 2, does,
+   then takes the instance lock (code 10 while another instance runs, code 1 when it cannot be
+   taken, as on the migration's route), then opens `<P>` and the data root, if there, without
+   following a reparse point, checks them as the Amendment 2026-11-04, item 3, does (code 13, R17,
+   with the line `cg-agent: the purge's directories fail their check: <reason>`) and holds each
+   open, sharing no deletion; then reads the state as point 3.2 does, and refuses an untrusted
+   state, a migration in progress or a console layout with code 14, which names it. The order of
+   the Amendment 2026-11-04, item 3, before the configuration is read is not this start's: it takes
+   the lock before it checks the directories, reads no `agent.toml`, and an absent `<P>` or data
+   root is not code 2 but what point 5 skips. It is not the Amendment 2026-11-05, item 4's reading
+   of "every start": it renames, commits, reverses and removes nothing as a migration and does not
+   continue the Amendment 2026-11-05, item 5's old copies, and every state on which that reading
+   renames, commits or reverses is a migration in progress, which it refuses. It reads no
+   configuration, opens no file log, ETW session or subscription, enrolls nothing and never reports
+   `RUNNING`: it works during `START_PENDING`, whose checkpoint advances at least every 10 seconds,
+   and reports `STOPPED` with its code. Every open and deletion it makes is cancelled after 30
+   seconds when Windows makes it wait on another process, and fails as one the object's sharing
+   refuses, as the migration's are (the Amendment 2026-11-05); it begins no removal 120 seconds
+   after it took the lock, and stops with what it has not reached named. Codes 1, 2, 10, 13 and 14
+   are given before any removal; 15 after those checks, whenever a name is left or the 120 seconds
+   end, and for any abnormal end of a purge start, a panic included, with the line `cg-agent: the
+   purge ended abnormally`, whatever it had removed; 0 when nothing is left.
+5. **What it removes and what it leaves.** It works only in `<P>`, the data root, the data root's
+   `identity\` and `logs\`, and the legacy directory, each when it is there: a directory, not a
+   reparse point, owned by SYSTEM or Administrators (the legacy directory by SYSTEM, with a
+   protected DACL that passes `agent.toml`'s policy, as the Amendment 2026-11-05, item 4, counts
+   it) and with allow entries for SYSTEM and Administrators only, opened without following a
+   reparse point and held open, sharing no deletion, while its entries are removed. Each file it
+   removes is opened without following a reparse point, checked through that handle, a regular file
+   with one link owned by SYSTEM or Administrators, and deleted through the same handle. It removes
+   these names, compared but for ASCII case, and no others:
+   - in the data root: `agent.toml`, `agent.toml.setup`, `agent.toml.hygiene-tmp`, `server-ca.pem`,
+     `server-ca.pem.setup`, `setup-attempt.json`, `migration.json` and
+     `migration.json.rewrite-tmp`;
+   - in `identity\`: `cert.pem`, `key.dat` and `identity.json`;
+   - in `logs\`: `agent.jsonl`, `agent.1.jsonl` to `agent.5.jsonl` and `agent.rotating.jsonl`;
+   - in the legacy directory, the console installation's data root that the migration moved:
+     `agent.toml`, `server-ca.pem`, `cert.pem`, `key.dat`, `identity.json` and
+     `agent.toml.hygiene-tmp`, the names the Amendment 2026-11-05, item 2.2, admits there;
+   - the directories `identity\`, `logs\`, the legacy directory, the data root and `<P>`, each once
+     it is empty, which the purge reads again just before, so that an entry a file transaction
+     commits after its first listing leaves it in place (the Amendment 2026-11-07 (second)), each
+     without following a reparse point, through a handle opened after its hold is closed and
+     checked as above.
+
+   Every other entry is left, unopened beyond that check and never followed: another name, another
+   directory, a reparse point, a file with another link or another owner; the purge names it and
+   exits 15, and so does a removal Windows refuses. No path comes from the configuration:
+   §Operational §4's "arbitrary configured paths" are never read, and "only validated product-owned
+   paths" are these names.
+6. **Order, a crash and a rerun.** In this order, each step only once the one before it left
+   nothing: `agent.toml.setup`, then `agent.toml` once `agent.toml.setup` is gone, and
+   `agent.toml.hygiene-tmp`, the staged file first, so that no start, the adoption's included,
+   finds a configuration to run or adopt once `agent.toml` is gone; then the legacy directory's
+   files, its `agent.toml` first, and the directory; then `identity\`'s files and `identity\`. A
+   name left at one of these three steps, whatever object is there, one point 5 does not enter or
+   remove included, ends the purge there with 15, so that it never leaves a configuration without
+   its identity, nor a data root without `identity\` beside a legacy directory, which item 3 reads
+   as untrusted, nor a data root without `migration.json` beside one, which the Amendment
+   2026-11-05, item 4, reads as code 5. Then the data root's other names, `logs\`'s files and
+   `logs\`, the data root and `<P>`, going on past a name left, with 15 at the end. A service start
+   without arguments after the first step finds no `agent.toml` and is code 2 (the Amendment
+   2026-11-04, item 3), before any enrollment or heartbeat. A name the purge leaves at those steps,
+   such as a legacy file whose owner changed, which an administrator cannot reach without taking
+   ownership, ends every run at its step until the runbook's repair (C10) removes it. A purge
+   process that dies is restarted by item 8's failure actions without arguments: before the removal
+   of `agent.toml` that start runs the agent as before the purge, a pending host's enrolling as it
+   would have, and after it, it is code 2; `cg-setup` reads the death as 47 either way. A purge run
+   again, through the same command, continues from what is left, since every state it leaves is one
+   that point 3.2 and point 4 go on from, and one that finds nothing exits 0.
+7. **The record.** Under the setup, `cg-setup`'s line reaches no log (the Amendment 2026-11-12
+   (second), point 5); Burn's log records the step's arguments, `--confirm="yes"`, and its exit
+   code, and point 1's command names that log's file, which is not to be under `<P>`: a log there
+   keeps `<P>` (15). The service writes the Application log's entry 1001 when the purge exits 0,
+   and 1002 with its code and its line otherwise (the second Amendment 2026-11-01, item 4); 15's
+   line, for a name left or the 120 seconds, names what was left, at most 20 names and then their
+   number, and an abnormal end's is point 4's, and no line carries a file's content. The purge
+   removes the file log with the rest (Manuel's choice): those entries and Burn's log are the
+   purge's record, diagnostics, not evidence, as item 4 of that amendment says, and once the MSI
+   removes the source Windows keeps their strings without their message text.
+8. **What it is not.** The purge removes the local identity, configuration, token, logs and the
+   migration's record with the enrolling account's SID; it does not revoke the certificate, remove
+   the agent or its events from the server, erase securely, or reach a copy outside these
+   directories: backups, shadow copies, the page file, dumps, quarantine, a file a hard link made
+   elsewhere, and what an ordinary user read before (R1). A host purged and set up again is fresh:
+   it needs a new token (item 3's 22 without input), and its old agent stays on the server until an
+   operator removes it there, which this SPEC does not provide (R5). An elevated administrator can
+   also run `cg-setup purge --confirm=yes` or start the service with `--purge` themselves, which,
+   when it exits 0, leaves the product installed with its data removed and its next start code 2,
+   or 13 once an ordinary user has created `<P>`; elevated administration is not a threat boundary
+   (§Data contracts §2). Closing the setup's window while the step runs cancels the uninstallation,
+   and Burn does not wait for a running `cg-setup` (the Amendment 2026-11-12 (second), point 6):
+   the purge goes on, and the product stays installed with what it left, for the same command to
+   finish. A purge that exits 0 before an MSI uninstallation that fails leaves the same: the
+   product installed with its data removed, its next start code 2. With `<P>` gone and the product
+   installed, an ordinary user can create `<P>` first (R17), and a setup or a purge run then
+   refuses it (27 or 28). The runbook (C10) says each, with the network-data-loss window of
+   §Operational §4.
+9. **A host uninstalled without the purge.** There is no product service left to run it, so the
+   route is to set up the same or a later version again, which on an enrolled or pending host needs
+   no token and on a host left with neither, item 3's "neither", a bootstrap file or the wizard's
+   input (the Amendment 2026-11-13), and then to uninstall with `CG_PURGE=yes`. A pending host may
+   then enroll, and a bootstrap file's token enrolls, so this route can create an agent on the
+   server only to purge it, which the operator removes there (point 8). That setup runs the agent,
+   which sends its heartbeats while its certificate is valid; with an expired one configure ends 42
+   or 44, and the uninstallation with `CG_PURGE=yes` still purges. The console executable a
+   migrated host may keep outside `%ProgramData%` (the Amendment 2026-11-05, item 5) holds no
+   secret and is outside the purge; the migration's runbook (C10) removes it.
+
+**Tests.** Unit tests: `cg-setup purge`'s command line (`--confirm=` absent, empty, `yes`, another
+value 40, given twice 40, an unknown option 40) and the service's `--purge` start argument (alone;
+with another argument code 2). The service's purge on temporary roots, unelevated, as the
+migration's and the adoption's are, in the local gate and `rust-ci`: every name of point 5 removed
+in point 6's order, on a fresh, an enrolled, a pending and a migrated host (`keep` and `remove`),
+with a failure and a crash injected at each step, no state in which `identity\` or one of its files
+is gone while `agent.toml` is there, and every state it leaves read by point 3.2 as one the purge
+goes on from; `agent.toml` and a legacy file left, ending the purge at their step (15); a junction
+planted as `<P>`, as the data root, as each of point 5's other directories and as an entry in each,
+its target and a canary in it intact, and each named (13 for `<P>` and the data root, 15 for the
+others); a file with a second link, a file of another owner, an unknown name and an unknown
+directory left and named (15); an untrusted state, and a migration in progress and a console layout
+whose directories pass item 3's check, refused (14), each with nothing changed; a rerun completing;
+an empty tree giving 0. `cg-setup purge`'s refusals before the stop (27, 28, 26, the absent
+service's 46) as preflight's are, the states over temporary roots and the service's in the SCM
+target, and its mapping of the service's codes to 0, 46 and 47, with the restart after 46, in
+`rust-ci`'s SCM target against the test service that stands in for the agent. In `package-ci`'s
+`bundle` job, seen red first on a probe pull request (the Amendment 2026-11-12's *Tests*): an
+operational installation, then `-uninstall CG_PURGE=yes`, 0, with `<P>`, the service, the binary,
+the MSI and the setup gone, and Burn's log holding the step's `--confirm="yes"`; a reinstallation
+after it with no input, 22; an entry an administrator planted in the data root, a junction to a
+directory holding a canary, left with the canary, 47, the product installed and the service
+stopped, Burn's rollback of the step exiting 0, then the junction removed and the purge run again,
+0; `CG_PURGE` of another value, 40, with nothing changed and the agent `RUNNING`; an upgrade, a
+repair and a second build with `CG_PURGE=yes`, the data kept and no step run with `yes` in Burn's
+logs; and install_ac_012's first half strengthened: a default uninstallation keeps `agent.toml`,
+`server-ca.pem`, `logs\`, the data root and `<P>` with the security descriptors they had, and the
+reinstallation's identity line names the agent ID the first installation's did, its heartbeat
+verified under the key the first enrollment certified, with no second enrollment.
+
+**Effect.** The Amendment 2026-11-09's *Effect* sentence "Purge (§Operational §4, install_ac_012)
+is not settled here" is settled by points 1 to 9, and §Operational §4's purge is them;
+install_ac_012's text does not change, and its "only owned data" is point 5's names. Item 1's chain
+gains point 2's step, and its "on uninstall neither" stays true of preflight and configure; the
+Amendment 2026-11-12 (second), point 1's chain as built gains the step, and its point 7's "No
+cg-setup step is added" stays true of the uninstallation's stop (#156), which an uninstallation
+without the purge leaves to Windows Installer as before. Item 2's variables, and §Data contracts
+§3's operator inputs, gain `CG_PURGE`. Item 7's codes gain 46 and 47 and 40's bad value, and 20,
+21, 26, 27, 28 and 31 gain the purge's causes within their meanings. §Operational §2's "Check
+existing ownership, DACLs, type and containment before reading secrets or modifying files" is, for
+the purge's deletions, point 5's checks: the directories' DACLs and every file's type, link count
+and owner, the file's own DACL not being checked before it is deleted. The Amendment 2026-11-12
+(third), point 1's three steps, and the theme's text that names them, gain `Purge`, whose own run
+writes its line as theirs do. The Amendment 2026-11-10, item 9's verbs gain `purge`, which is not
+"any other command line". The Amendment 2026-11-05, item 1's start arguments gain `--purge`, and
+its items 2 and 4's "on every start" and "with or without arguments" except a purge start (point
+4), as the Amendment 2026-11-09's *Effect* excepts item 6's start from its "any other start"; the
+Amendment 2026-11-04, item 3's order before the configuration is read excepts a purge start, whose
+order is point 4's, and §Operational §3's "The SCM entry point invokes the same secure runtime as
+the console path" is not a purge start's, which runs none of it; ADR-0008's Amendment 2026-11-02,
+"A start that holds it reclaims a session of the agent's name", is read as the start that opens the
+capture session, which §Decision part 2's reclaim precedes, so a purge start, which opens none,
+reclaims none, and a session an earlier crash left stays until the next capture start or the host's
+restart; the Amendment 2026-11-05, item 6's default refusal, and the Amendment 2026-11-09, item 6's
+"A start without them never adopts, and leaves staged files untouched", except a purge start, which
+refuses a console layout with 13 when its directories fail the Amendment 2026-11-04, item 3's
+check, as item 6 has it but with point 4's line, and with 14 when they pass, and removes the staged
+files (points 4 to 6); the Amendment 2026-11-12 (second), point 1's "a repair or an uninstallation
+from the registered setup passes none" reads as one started from the installed programs' entry, or
+with no variable on its command line, since the registered setup run with `CG_PURGE=yes` passes it
+(point 1); the second Amendment 2026-11-01, item 3's codes gain 14 and 15, which the SCM does not
+restart (item 8), and codes 1, 2, 10 and 13 gain a purge start's causes within their meanings, 13
+with point 4's line, and its "`START_PENDING` lasts until the configuration is loaded" excepts a
+purge start, which ends `STOPPED` from `START_PENDING` (point 4). The Amendment 2026-11-05, item
+5's "the legacy executable outside `%ProgramData%` … is the package's" reads as point 9 says:
+outside the purge, the migration's runbook removes it. By scope, the Amendment 2026-11-05's
+"§Operational §4's purge removes the legacy directory and `migration.json` with the product's
+paths" stands, the legacy directory's files being point 5's, and its *Effect*'s "removes the
+staging and legacy directories and `migration.json`" narrows to the legacy directory and
+`migration.json`: a staging directory exists only during a migration, which the purge refuses (14,
+28), and after its reversal, beside a console layout, which the purge refuses too: the purge never
+removes a staging directory. The Amendment 2026-11-14, point 2's check of each `cg-setup.exe`
+payload covers the step's. No ADR changes, and no dependency of `cg-agent` or privilege is added:
+the service already runs as SYSTEM and removes the migration's copies under the lock, and
+`cg-setup` gains a verb. The purge is a new operator input and a destructive operation the service
+runs as SYSTEM, and the threat model is amended with this text (its Amendment 2026-11-15). Manuel
+chose on 2026-11-15, in chat, each in the recommended option: the route through the setup's
+uninstallation with `CG_PURGE=yes` ("setup.exe -uninstall CG_PURGE=yes"); the service as SYSTEM
+with `--purge` as the one that removes ("El servicio como SYSTEM con --purge"); the logs removed
+with the rest ("Se borran con el resto"); and the command line alone, with no control in the
+setup's window ("Solo línea de comandos"). Claude Code proposed, and Manuel's approval of this text
+decides: the codes 46 and 47 and the service's 14 and 15, the refusal of a migration in progress,
+the closed list of point 5, the route of point 9, the console executable left to the migration's
+runbook, and the reading of ADR-0008's reclaim above, which changes no ADR text and which Manuel
+chose on 2026-11-15, in chat ("Lectura por alcance"). He approved this text, at `21f0344`, on
+2026-11-15, in chat: "Apruebo". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
