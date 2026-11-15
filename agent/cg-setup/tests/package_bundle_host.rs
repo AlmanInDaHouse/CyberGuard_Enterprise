@@ -15,7 +15,12 @@
 //! runs ask nothing; with the setup's full window, driven by its controls'
 //! messages, a cancelled wizard is 22 with the reversal run, an installation
 //! through it is operational with the token in none of those places, and a
-//! pending host's configuration is kept or replaced.
+//! pending host's configuration is kept or replaced. The purge (the
+//! Amendment 2026-11-15): a default uninstallation keeps the data and the
+//! identity; `-uninstall CG_PURGE=yes` removes the product and its data; a
+//! junction planted in the data root is left with its canary, 47, and the
+//! purge run again completes; another value is 40; and an installation, a
+//! second build, a repair and an upgrade with `CG_PURGE=yes` never purge.
 //!
 //! The test installs the product on the machine, so it builds only with the
 //! test-only `host-tests` feature and runs only in `package-ci`, on a
@@ -921,18 +926,17 @@ fn package_bundle_a_fresh_installation_keeps_the_token_and_survives_a_reinstalla
     );
 
     // The chain as built (point 1): preflight rolled back by the reversal,
-    // the MSI with the chain's property, configure rolled back by nothing.
+    // the MSI with the chain's property, the purge planned no action (the
+    // Amendment 2026-11-15, point 2), configure rolled back by nothing.
     let burn = outcome.burn();
-    for (package, rollback) in [
-        ("Preflight", "rollback: Uninstall"),
-        ("Agent", "rollback: Uninstall"),
-        ("Configure", "rollback: None"),
+    for (package, action) in [
+        ("Preflight", "execute: Install, rollback: Uninstall,"),
+        ("Agent", "execute: Install, rollback: Uninstall,"),
+        ("Purge", "execute: None, rollback: None,"),
+        ("Configure", "execute: Install, rollback: None,"),
     ] {
         let line = plan(&burn, package);
-        assert!(
-            line.contains(&format!("execute: Install, {rollback},")),
-            "{package}'s plan: {line}"
-        );
+        assert!(line.contains(action), "{package}'s plan: {line}");
     }
     assert!(
         burn.iter().any(
@@ -966,7 +970,12 @@ fn package_bundle_a_fresh_installation_keeps_the_token_and_survives_a_reinstalla
     // The bundle variables are not persisted: a repair or an uninstallation
     // from the registered setup passes none (point 1).
     let variables = format!(r"{UNINSTALL_KEY}\{}\variables", setups_listed[0].key);
-    for name in ["CG_BOOTSTRAP", "CG_MIGRATE_LEGACY", "CG_TRUST_ANCHORS"] {
+    for name in [
+        "CG_BOOTSTRAP",
+        "CG_MIGRATE_LEGACY",
+        "CG_TRUST_ANCHORS",
+        "CG_PURGE",
+    ] {
         assert_eq!(
             registry_value(&variables, name),
             None,
@@ -985,7 +994,7 @@ fn package_bundle_a_fresh_installation_keeps_the_token_and_survives_a_reinstalla
     // the system directory alone (point 10).
     let cache = program_data().join("Package Cache");
     let raw_setup = std::fs::read(input("CG_TEST_SETUP_EXE")).expect("the raw cg-setup.exe");
-    for step in ["preflight", "configure"] {
+    for step in ["preflight", "purge", "configure"] {
         let folders = step_folders(step);
         assert_eq!(folders.len(), 1, "one cached {step}: {folders:?}");
         let carried = cache.join(&folders[0]).join(step).join("cg-setup.exe");
@@ -1433,7 +1442,7 @@ fn package_bundle_a_second_build_of_the_same_version_replaces_the_first() {
         "the earlier setup found its MSI already removed\n{}",
         chain(&earlier).join("\n")
     );
-    for step in ["preflight", "configure"] {
+    for step in ["preflight", "purge", "configure"] {
         assert_eq!(
             step_folders(step).len(),
             1,
@@ -1644,6 +1653,502 @@ fn package_bundle_only_the_test_msi_carries_a_custom_action() {
         [INJECTED_FAILURE],
         "the test MSI has its one"
     );
+}
+
+// --- The purge (SPEC-024 Amendment 2026-11-15) ---------------------------------------
+
+/// Burn's lines that apply the purge step in its `kind` pass (`execute` or
+/// `rollback`), each naming the arguments Burn ran `cg-setup.exe` with.
+fn purge_runs(lines: &[String], kind: &str) -> Vec<String> {
+    let start = format!("i301: Applying {kind} package: Purge, ");
+    lines
+        .iter()
+        .filter(|line| line.starts_with(&start))
+        .cloned()
+        .collect()
+}
+
+/// Whether a line of `purge_runs` ran the step's `cg-setup.exe`, from its
+/// cache folder, with `arguments` alone.
+fn ran_with(line: &str, arguments: &str) -> bool {
+    line.ends_with(&format!(r#"\purge\cg-setup.exe" {arguments}'"#))
+}
+
+/// The lines of every log of `outcome`, Burn's, the packages' and the
+/// related bundles', where a step ran with `--confirm="yes"`: point 7's
+/// record of a purge.
+fn confirmed_purges(outcome: &Outcome) -> Vec<String> {
+    outcome
+        .logs
+        .iter()
+        .flat_map(|(file, text)| {
+            burn_lines(text)
+                .into_iter()
+                .filter(|line| line.contains(r#"purge --confirm="yes""#))
+                .map(move |line| format!("{file}: {line}"))
+        })
+        .collect()
+}
+
+/// The purge step ran in the execute pass before the MSI did (point 2).
+fn assert_purge_before_the_msi(outcome: &Outcome) {
+    let burn = outcome.burn();
+    let position = |start: &str| burn.iter().position(|line| line.starts_with(start));
+    let purge = position("i301: Applying execute package: Purge, ");
+    let msi = position("i301: Applying execute package: Agent, ");
+    assert!(
+        matches!((purge, msi), (Some(purge), Some(msi)) if purge < msi),
+        "the purge step runs before the MSI\n{}",
+        outcome.summary()
+    );
+}
+
+/// The data root, beside the configuration.
+fn data_root(paths: &Paths) -> PathBuf {
+    paths.config.parent().expect("the data root").to_path_buf()
+}
+
+/// What install_ac_012's first half keeps on a default uninstallation, each
+/// with its security descriptor: `agent.toml`, `server-ca.pem`, `logs\`, the
+/// data root and `<P>`.
+fn kept(paths: &Paths) -> Vec<(PathBuf, String)> {
+    let data_root = data_root(paths);
+    [
+        paths.config.clone(),
+        data_root.join("server-ca.pem"),
+        data_root.join("logs"),
+        data_root.clone(),
+        paths.product_root.clone(),
+    ]
+    .into_iter()
+    .map(|path| {
+        assert!(exists(&path), "{} is there", path.display());
+        let descriptor = descriptor_of(&path);
+        (path, descriptor)
+    })
+    .collect()
+}
+
+/// The agent IDs of the file log's identity lines, in order (the agent's
+/// `agent identity ready`, its `agent.id`); Administrators read the log.
+fn identity_lines(paths: &Paths) -> Vec<String> {
+    let log = data_root(paths).join("logs").join("agent.jsonl");
+    let text = std::fs::read_to_string(&log).unwrap_or_else(|e| panic!("{}: {e}", log.display()));
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|line| line["fields"]["message"] == "agent identity ready")
+        .map(|line| {
+            line["fields"]["agent.id"]
+                .as_str()
+                .expect("the identity line's agent.id")
+                .to_string()
+        })
+        .collect()
+}
+
+/// After a purge that ended 0: the setup, the MSI, the service, the binary,
+/// the package cache and `<P>` gone.
+fn assert_purged(host: &Host, context: &str) {
+    assert!(
+        programs().is_empty(),
+        "{context}: no program listed: {:?}",
+        programs()
+    );
+    assert!(
+        open_service(PRODUCT_SERVICE, SERVICE_QUERY_STATUS).is_err(),
+        "{context}: the service is removed"
+    );
+    assert!(
+        !exists(&host.paths.program_files_root),
+        "{context}: the binary is removed"
+    );
+    assert!(
+        cached().is_empty(),
+        "{context}: the cache is removed: {:?}",
+        cached()
+    );
+    assert!(
+        !exists(&host.paths.product_root),
+        "{context}: <P> is removed"
+    );
+}
+
+/// A step that exits `code` on an uninstallation: the uninstallation ends
+/// with it before the MSI, and Burn's rollback of the step, `cg-setup.exe
+/// purge` with no option, exits 0 (points 2 and 3).
+fn assert_purge_refused_then_rolled_back(host: &Host, outcome: &Outcome, code: u32) {
+    let burn = outcome.burn();
+    assert_eq!(outcome.code, code as i32, "{}", outcome.summary());
+    assert_failed_step(outcome, "Purge", code);
+    assert_eq!(
+        exits(&burn, "Purge"),
+        [code, 0],
+        "the step, then its rollback\n{}",
+        outcome.summary()
+    );
+    let rollback = purge_runs(&burn, "rollback");
+    assert!(
+        rollback.len() == 1
+            && rollback[0].starts_with("i301: Applying rollback package: Purge, action: Install, ")
+            && ran_with(&rollback[0], "purge"),
+        "Burn's rollback runs the step's installation, purge with no option: {rollback:?}"
+    );
+    assert_eq!(
+        results(&burn, "rollback", "Purge"),
+        ["0x0"],
+        "the rollback changes nothing and exits 0"
+    );
+    assert!(
+        !applied(&burn, "execute", "Agent"),
+        "the MSI did not run\n{}",
+        outcome.summary()
+    );
+    assert_eq!(setups_registered().len(), 1, "the setup stays registered");
+    assert_eq!(msi_products().len(), 1, "the MSI stays installed");
+    assert!(exists(&host.paths.binary), "the binary stays");
+}
+
+/// A directory outside `<P>` that passes the purge's checks of a directory,
+/// owned by Administrators with entries for SYSTEM and Administrators alone,
+/// holding a canary file of a name the purge removes in `logs\`, of one link
+/// and the same owner: a purge that followed a junction to it would remove
+/// both.
+fn canary_directory(parent: &Path, name: &str) -> PathBuf {
+    let any = cg_agent::custody::Policy {
+        owners: vec![],
+        allowed: vec![],
+        protected: false,
+    };
+    let target = parent.join(name);
+    cg_agent::custody::ensure_directory(&target, "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", &any)
+        .expect("the canary's directory");
+    cg_agent::custody::create_new_file(
+        &target.join("agent.jsonl"),
+        "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)",
+        b"canary",
+    )
+    .expect("the canary");
+    target
+}
+
+fn assert_canary_intact(target: &Path, context: &str) {
+    assert_eq!(
+        std::fs::read(target.join("agent.jsonl")).ok().as_deref(),
+        Some(b"canary".as_slice()),
+        "{context}: the canary in {} is intact",
+        target.display()
+    );
+}
+
+/// install_ac_012's first half: a default uninstallation runs the purge step
+/// with no value, which changes nothing, before the MSI; it keeps
+/// `agent.toml`, `server-ca.pem`, `logs\`, the data root and `<P>` with the
+/// security they had; the reinstallation with no input enrolls nothing, its
+/// identity line names the agent ID the first installation's did, and it
+/// heartbeats to a server that verifies under the key the first enrollment
+/// certified (points 2 and 3, and *Tests*).
+#[test]
+fn package_bundle_purge_a_default_uninstallation_keeps_the_data_and_the_identity() {
+    let setups = setups();
+    let mut host = Host::take("purge-default");
+    let servers = Servers::start();
+    install_operational(&mut host, &servers, &setups.current);
+    let first = identity_lines(&host.paths);
+    let id = first.first().expect("an identity line").clone();
+    assert!(
+        first.iter().all(|line| *line == id),
+        "one agent ID: {first:?}"
+    );
+    let before = kept(&host.paths);
+
+    let outcome = host.setup("uninstall", &setups.current, &["-uninstall"]);
+    let burn = outcome.burn();
+    assert_eq!(outcome.code, 0, "{}", outcome.summary());
+    let runs = purge_runs(&burn, "execute");
+    assert!(
+        runs.len() == 1
+            && runs[0].starts_with("i301: Applying execute package: Purge, action: Uninstall, ")
+            && ran_with(&runs[0], r#"purge --confirm="""#),
+        "the step runs with no value: {runs:?}"
+    );
+    assert_eq!(exits(&burn, "Purge"), [0], "{}", outcome.summary());
+    assert_purge_before_the_msi(&outcome);
+    assert!(
+        confirmed_purges(&outcome).is_empty(),
+        "no step ran with yes"
+    );
+    assert!(programs().is_empty(), "no program listed: {:?}", programs());
+    assert!(
+        open_service(PRODUCT_SERVICE, SERVICE_QUERY_STATUS).is_err(),
+        "the service is removed"
+    );
+    assert!(cached().is_empty(), "the cache is removed: {:?}", cached());
+    let after: Vec<(PathBuf, String)> = before
+        .iter()
+        .map(|(path, _)| {
+            assert!(exists(path), "{} is kept", path.display());
+            (path.clone(), descriptor_of(path))
+        })
+        .collect();
+    assert_eq!(after, before, "kept with the security they had");
+
+    let online = servers.online();
+    let outcome = host.setup("reinstall", &setups.current, &[]);
+    assert_eq!(outcome.code, 0, "{}", outcome.summary());
+    assert_eq!(servers.enrollments(), 1, "no second enrollment");
+    // The heartbeat server verifies each envelope under the key the one
+    // enrollment certified, and answers anything else 401: an online
+    // heartbeat is the key's.
+    assert!(
+        servers.wait_online_beyond(online, Duration::from_secs(30)),
+        "the reinstalled agent heartbeats under the enrolled key"
+    );
+    let lines = identity_lines(&host.paths);
+    assert!(
+        lines.len() > first.len() && lines[first.len()..].iter().all(|line| *line == id),
+        "the reinstallation's identity line names the first installation's agent ID: {lines:?}"
+    );
+    assert_operational_service("the reinstallation");
+}
+
+/// `-uninstall CG_PURGE=yes` (point 1): the step runs with `yes` before the
+/// MSI and exits 0, and `<P>`, the service, the binary, the MSI and the setup
+/// are gone, Burn's log holding the step's `--confirm="yes"` (point 7); a
+/// reinstallation with no input then finds neither an identity nor a
+/// configuration, preflight's 22 (point 8).
+#[test]
+fn package_bundle_purge_removes_the_product_and_its_data() {
+    let setups = setups();
+    let mut host = Host::take("purge-yes");
+    let servers = Servers::start();
+    install_operational(&mut host, &servers, &setups.current);
+
+    let outcome = host.setup("purge", &setups.current, &["-uninstall", "CG_PURGE=yes"]);
+    let burn = outcome.burn();
+    assert_eq!(outcome.code, 0, "{}", outcome.summary());
+    let runs = purge_runs(&burn, "execute");
+    assert!(
+        runs.len() == 1 && ran_with(&runs[0], r#"purge --confirm="yes""#),
+        "Burn's log records the step's confirmation: {runs:?}"
+    );
+    assert_eq!(exits(&burn, "Purge"), [0], "{}", outcome.summary());
+    assert_purge_before_the_msi(&outcome);
+    assert_chain_property(&outcome);
+    assert_purged(&host, "the purge");
+
+    let outcome = host.setup("reinstall", &setups.current, &[]);
+    assert_eq!(
+        outcome.code,
+        22,
+        "a fresh host needs a token\n{}",
+        outcome.summary()
+    );
+    assert_failed_step(&outcome, "Preflight", 22);
+    assert!(
+        programs().is_empty(),
+        "nothing registered: {:?}",
+        programs()
+    );
+    assert_eq!(servers.enrollments(), 1, "no second enrollment");
+}
+
+/// An entry an administrator planted in the data root, a junction to a
+/// directory holding a canary, in place of `logs\` and under another name:
+/// the purge leaves each with its canary, 47, the product installed and the
+/// service stopped, Burn's rollback of the step exiting 0; the junctions
+/// removed, the purge run again completes, 0 (point 5 and *Tests*).
+#[test]
+fn package_bundle_purge_leaves_a_planted_junction_then_completes() {
+    let setups = setups();
+    let mut host = Host::take("purge-junction");
+    let servers = Servers::start();
+    install_operational(&mut host, &servers, &setups.current);
+
+    // The file log holds agent.jsonl open while the agent runs.
+    let stopped = Command::new("sc.exe")
+        .args(["stop", PRODUCT_SERVICE])
+        .status()
+        .expect("run sc.exe");
+    assert!(stopped.success(), "sc stop");
+    assert!(
+        wait_for_state(SERVICE_STOPPED, Duration::from_secs(90)),
+        "the agent stops"
+    );
+    // On <P>'s volume, so that logs\ moves there.
+    let outside = tempfile::tempdir_in(program_data()).expect("a directory outside <P>");
+    let data_root = data_root(&host.paths);
+    let logs = data_root.join("logs");
+    std::fs::rename(&logs, outside.path().join("moved-logs")).expect("move logs\\ aside");
+    let canaries = [
+        (logs, canary_directory(outside.path(), "logs-target")),
+        (
+            data_root.join("planted"),
+            canary_directory(outside.path(), "planted-target"),
+        ),
+    ];
+    for (link, target) in &canaries {
+        fixtures::junction(link, target);
+    }
+
+    let outcome = host.setup(
+        "purge-left",
+        &setups.current,
+        &["-uninstall", "CG_PURGE=yes"],
+    );
+    assert_purge_refused_then_rolled_back(&host, &outcome, 47);
+    assert!(
+        purge_runs(&outcome.burn(), "execute")
+            .iter()
+            .any(|line| ran_with(line, r#"purge --confirm="yes""#)),
+        "the step ran with yes\n{}",
+        outcome.summary()
+    );
+    assert!(
+        wait_for_state(SERVICE_STOPPED, Duration::from_secs(5))
+            && open_service(PRODUCT_SERVICE, SERVICE_QUERY_STATUS).is_ok(),
+        "the service is installed and stopped"
+    );
+    for (link, target) in &canaries {
+        assert!(exists(link), "{} is left", link.display());
+        assert_canary_intact(target, "left");
+    }
+    assert!(
+        !exists(&host.paths.config),
+        "the purge removed what precedes the junctions (point 6)"
+    );
+
+    for (link, _) in &canaries {
+        std::fs::remove_dir(link).expect("remove the junction");
+    }
+    let outcome = host.setup(
+        "purge-again",
+        &setups.current,
+        &["-uninstall", "CG_PURGE=yes"],
+    );
+    assert_eq!(outcome.code, 0, "{}", outcome.summary());
+    assert_eq!(exits(&outcome.burn(), "Purge"), [0]);
+    assert_purged(&host, "the purge run again");
+    for (_, target) in &canaries {
+        assert_canary_intact(target, "after the purge");
+    }
+}
+
+/// `CG_PURGE` of another value is 40 before anything changes: the agent
+/// still runs, as the same process, with its data, and the setup and the MSI
+/// stay installed (point 1).
+#[test]
+fn package_bundle_purge_another_value_is_40_and_changes_nothing() {
+    let setups = setups();
+    let mut host = Host::take("purge-other");
+    let servers = Servers::start();
+    install_operational(&mut host, &servers, &setups.current);
+    let running = assert_operational_service("installed");
+    let before = kept(&host.paths);
+
+    let outcome = host.setup("purge-no", &setups.current, &["-uninstall", "CG_PURGE=no"]);
+    assert_purge_refused_then_rolled_back(&host, &outcome, 40);
+    assert_eq!(
+        assert_operational_service("after 40").pid,
+        running.pid,
+        "the agent was not stopped"
+    );
+    let after: Vec<(PathBuf, String)> = before
+        .iter()
+        .map(|(path, _)| (path.clone(), descriptor_of(path)))
+        .collect();
+    assert_eq!(after, before, "nothing changed");
+    assert!(
+        confirmed_purges(&outcome).is_empty(),
+        "no step ran with yes"
+    );
+}
+
+/// An installation, a second build, a repair and an upgrade, each with
+/// `CG_PURGE=yes`, never purge: the step runs on none of them with `yes`, the
+/// setup replaced runs its own with no value, and the agent keeps its data
+/// and its one enrollment (points 1 and 2, and *Tests*).
+#[test]
+fn package_bundle_purge_an_installation_upgrade_repair_or_second_build_never_purges() {
+    let setups = setups();
+    let mut host = Host::take("purge-never");
+    let servers = Servers::start();
+
+    let bootstrap = servers.bootstrap("bootstrap.toml");
+    let outcome = host.setup(
+        "install",
+        &setups.current,
+        &[
+            &format!("CG_BOOTSTRAP={}", bootstrap.display()),
+            "CG_PURGE=yes",
+        ],
+    );
+    assert_eq!(outcome.code, 0, "{}", outcome.summary());
+    let line = plan(&outcome.burn(), "Purge");
+    assert!(
+        line.contains("execute: None, rollback: None,"),
+        "an installation plans no action for the step: {line}"
+    );
+    assert_eq!(exits(&outcome.burn(), "Purge"), Vec::<u32>::new());
+    assert!(
+        confirmed_purges(&outcome).is_empty(),
+        "no step ran with yes"
+    );
+    assert_eq!(servers.enrollments(), 1, "one enrollment");
+    assert_operational_service("the installation");
+    let installed = setups_registered();
+    let variables = format!(r"{UNINSTALL_KEY}\{}\variables", installed[0].key);
+    assert_eq!(
+        registry_value(&variables, "CG_PURGE"),
+        None,
+        "CG_PURGE is not persisted"
+    );
+
+    let steps: [(&str, &Path, &[&str]); 3] = [
+        ("second-build", &setups.rebuilt, &["CG_PURGE=yes"]),
+        ("repair", &setups.rebuilt, &["-repair", "CG_PURGE=yes"]),
+        ("upgrade", &setups.next, &["CG_PURGE=yes"]),
+    ];
+    for (name, setup, arguments) in steps {
+        let replaced = setups_registered();
+        let online = servers.online();
+        let outcome = host.setup(name, setup, arguments);
+        assert_eq!(outcome.code, 0, "{name}\n{}", outcome.summary());
+        assert!(
+            confirmed_purges(&outcome).is_empty(),
+            "{name}: no step ran with yes: {:?}",
+            confirmed_purges(&outcome)
+        );
+        assert_eq!(
+            exits(&outcome.burn(), "Purge"),
+            Vec::<u32>::new(),
+            "{name}: the newer setup's step runs nothing"
+        );
+        if name != "repair" {
+            // The setup replaced is uninstalled after the newer chain, with
+            // no bundle variable: its step runs with no value.
+            let log = outcome
+                .log_named(&format!("{}.log", replaced[0].key))
+                .unwrap_or_else(|| {
+                    panic!("{name}: the replaced setup's log\n{}", outcome.summary())
+                });
+            let runs = purge_runs(&burn_lines(log), "execute");
+            assert!(
+                runs.len() == 1 && ran_with(&runs[0], r#"purge --confirm="""#),
+                "{name}: the replaced setup's step runs with no value: {runs:?}"
+            );
+            assert_eq!(exits(&burn_lines(log), "Purge"), [0], "{name}");
+        }
+        assert!(
+            exists(&host.paths.config),
+            "{name}: the configuration is kept"
+        );
+        assert_eq!(servers.enrollments(), 1, "{name}: no second enrollment");
+        assert!(
+            servers.wait_online_beyond(online, Duration::from_secs(30)),
+            "{name}: the agent heartbeats under its enrolled key"
+        );
+        assert_operational_service(name);
+    }
 }
 
 // --- The wizard (SPEC-024 Amendment 2026-11-13) --------------------------------------

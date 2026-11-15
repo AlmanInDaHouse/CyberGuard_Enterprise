@@ -226,7 +226,9 @@ fn package_setup_executable_answers_its_version() {
 }
 
 /// Any command line Burn does not form is 40, one line on standard error,
-/// after the platform's floor: these run no verb, elevated or not.
+/// after the platform's floor and before the elevation: under a filtered
+/// token, so that one read as a verb's, `purge --confirm=YES` read as `yes`
+/// included, stops at the elevation's 21 and acts on nothing.
 #[test]
 fn package_setup_executable_a_command_line_burn_did_not_form_is_40() {
     for arguments in [
@@ -243,7 +245,7 @@ fn package_setup_executable_a_command_line_burn_did_not_form_is_40() {
         &["purge", "--confirm=", "--confirm="],
         &["purge", "--bootstrap=x"],
     ] {
-        let run = run(arguments);
+        let run = run_filtered(arguments, &[]);
         assert_eq!(run.code, 40, "{arguments:?}: {run:?}");
         assert_eq!(run.stdout, "", "{arguments:?}");
         assert!(
