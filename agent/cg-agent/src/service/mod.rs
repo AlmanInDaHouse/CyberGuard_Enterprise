@@ -13,7 +13,8 @@
 //! gets entries 1000 to 1003 under the source `CyberGuardAgent`. A start
 //! asked to by its SCM start arguments migrates a console installation
 //! during `START_PENDING` (`migration`), or adopts the configuration the
-//! setup staged (`adoption`).
+//! setup staged (`adoption`), or removes the product's data from the host
+//! (`purge`, never reporting `RUNNING`).
 //!
 //! This module holds what is portable: the codes, the lines, the outcome
 //! and its entry, and the enrollment rounds. The SCM, the Application log
@@ -38,6 +39,8 @@ pub mod layout;
 mod log_file;
 #[cfg(windows)]
 pub mod migration;
+#[cfg(windows)]
+pub mod purge;
 pub mod rotation;
 #[cfg(windows)]
 mod windows;
@@ -48,6 +51,11 @@ pub const EXIT_NOT_STARTED_BY_SCM: u8 = 11;
 pub const EXIT_STOP_DEADLINE: u8 = 12;
 /// The service's file log cannot be written (item 3).
 pub const EXIT_SERVICE_LOG: u8 = 13;
+/// A purge start refuses the host's state (SPEC-024 Amendment 2026-11-15,
+/// point 4).
+pub const EXIT_PURGE_REFUSED: u8 = 14;
+/// A purge start left a name, ran out of time or ended abnormally (point 4).
+pub const EXIT_PURGE_LEFT: u8 = 15;
 
 /// Item 2's line for `--service` without a start by the SCM.
 pub const STDERR_NOT_STARTED_BY_SCM: &str =
@@ -93,6 +101,8 @@ pub const EVENT_DEADLINE: u32 = 1003;
 pub enum ServiceExit {
     /// A clean stop; `undelivered` events were lost on the way out.
     Clean { undelivered: usize },
+    /// A purge start that left nothing (Amendment 2026-11-15, point 7).
+    Purged,
     /// A failure, with the code the console would exit with (or 13) and
     /// the cause's line.
     Failed { code: u8, line: String },
@@ -117,7 +127,7 @@ impl ServiceExit {
     /// clean stop (`dwWin32ExitCode` 0).
     pub fn specific_code(&self) -> Option<u8> {
         match self {
-            ServiceExit::Clean { .. } => None,
+            ServiceExit::Clean { .. } | ServiceExit::Purged => None,
             ServiceExit::Failed { code, .. } => Some(*code),
             ServiceExit::DeadlineExpired { .. } => Some(EXIT_STOP_DEADLINE),
         }
@@ -132,6 +142,11 @@ impl ServiceExit {
                 text: format!(
                     "cg-agent: the service stopped cleanly; events not delivered: {undelivered}"
                 ),
+            },
+            ServiceExit::Purged => Entry {
+                id: EVENT_STOPPED,
+                error: false,
+                text: "cg-agent: the purge removed the product's data and left nothing".to_string(),
             },
             ServiceExit::Failed { code, line } => Entry {
                 id: EVENT_FAILED,

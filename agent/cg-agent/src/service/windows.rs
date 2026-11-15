@@ -39,6 +39,7 @@ use windows_sys::Win32::System::Services::{
 
 use super::adoption;
 use super::migration::{self, Environment, Injected, Point, Prepared, Start, Stop, Watch};
+use super::purge;
 use super::{
     check_config_path, check_installed_config, config_error_line, identity_rounds_until_stopped,
     log_file, running_entry, stderr_service_log, Entry, InstalledPaths, ServiceExit,
@@ -298,6 +299,12 @@ async fn serve(
         Ok(start) => start,
         Err(line) => return failed(2, line),
     };
+    // SPEC-024 Amendment 2026-11-15, point 4: the purge reads no
+    // configuration, opens no file log, ETW session or subscription, and
+    // never reports RUNNING.
+    if start == Start::Purge {
+        return tokio::task::block_in_place(|| purge_start(paths));
+    }
     let mut _instance_lock = None;
     let prepared = {
         let environment = Environment::service(paths.clone(), &SERVICE_WATCH);
@@ -330,7 +337,7 @@ async fn serve(
         };
         tokio::task::block_in_place(|| {
             let request = match &start {
-                Start::Plain => None,
+                Start::Plain | Start::Purge => None,
                 Start::Migrate(request) => Some(request),
                 Start::Adopt(fingerprints) => {
                     adoption::adopt(&environment, fingerprints, &mut lock)?;
@@ -475,6 +482,33 @@ async fn serve(
             undelivered: Some(undelivered),
         },
         Err(e) => failed(e.exit_code(), e.stderr_line()),
+    }
+}
+
+/// The purge start (SPEC-024 Amendment 2026-11-15, point 4): the lock first,
+/// as on the migration's route, held until the purge ends; `START_PENDING`
+/// advances with each of its steps; 0 is entry 1001, any other code 1002.
+fn purge_start(paths: InstalledPaths) -> ServiceExit {
+    let environment = Environment::service(paths, &SERVICE_WATCH);
+    let mut _instance_lock = None;
+    let mut lock = || match instance_lock::acquire() {
+        LockOutcome::Acquired(lock) => {
+            _instance_lock = Some(lock);
+            Ok(())
+        }
+        LockOutcome::Unprivileged => Err(Stop::Refused {
+            code: 1,
+            line: stderr_lock_failed("the purge's token cannot create the lock", 5),
+        }),
+        outcome => Err(Stop::Refused {
+            code: outcome.exit_code().unwrap_or(1),
+            line: outcome.stderr_line().unwrap_or_default(),
+        }),
+    };
+    match purge::start(&environment, purge::BOUND, &mut lock) {
+        Ok(()) => ServiceExit::Purged,
+        Err(Stop::Refused { code, line }) => failed(code, line),
+        Err(Stop::Crashed) => failed(super::EXIT_PURGE_LEFT, purge::ABNORMAL.to_string()),
     }
 }
 

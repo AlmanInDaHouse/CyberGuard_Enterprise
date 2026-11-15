@@ -33,6 +33,7 @@ use zeroize::Zeroizing;
 
 pub(super) use super::anchor::check_anchor;
 use super::anchor::is_fingerprint;
+use super::purge::Area;
 pub(super) use super::READ_LIMIT;
 use super::{
     check_installed_config, config_error_line, log_file, stderr_service_log, InstalledPaths,
@@ -96,6 +97,8 @@ pub enum Choice {
 /// The start argument that asks for the adoption (Amendment 2026-11-09,
 /// item 6).
 const ADOPT: &str = "--adopt-staged-config";
+/// The start argument that asks for the purge (Amendment 2026-11-15, point 4).
+const PURGE: &str = "--purge";
 
 /// What the start arguments ask for (item 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,12 +168,23 @@ pub enum Start {
     Migrate(Request),
     /// The Amendment 2026-11-09, item 6: the anchor's fingerprints.
     Adopt(BTreeSet<String>),
+    /// The Amendment 2026-11-15, point 4: `--purge`, alone.
+    Purge,
 }
 
-/// The SCM start arguments after the service's name (item 1, and item 6 of
-/// the Amendment 2026-11-09): the error is code 2's whole line, which never
-/// repeats a value.
+/// The SCM start arguments after the service's name (item 1, item 6 of the
+/// Amendment 2026-11-09 and point 4 of the Amendment 2026-11-15): the error is
+/// code 2's whole line, which never repeats a value.
 pub fn parse_start(arguments: &[String]) -> Result<Start, String> {
+    if arguments.iter().any(|argument| argument == PURGE) {
+        if arguments.len() != 1 {
+            return Err(
+                "cg-agent: invalid purge arguments: --purge is given with another argument"
+                    .to_string(),
+            );
+        }
+        return Ok(Start::Purge);
+    }
     if !arguments.iter().any(|argument| argument == ADOPT) {
         return Ok(parse_start_arguments(arguments)?.map_or(Start::Plain, Start::Migrate));
     }
@@ -324,6 +338,14 @@ pub enum Point {
     AdoptNames,
     AdoptDelete(&'static str),
     AdoptRename(&'static str),
+    /// The purge (Amendment 2026-11-15, points 4 to 6): opening, checking and
+    /// listing the directory of that area, which it then holds; reading the
+    /// host's state; removing the area's file of that name; removing the
+    /// area's directory.
+    PurgeHold(Area),
+    PurgeState,
+    PurgeFile(Area, &'static str),
+    PurgeDirectory(Area),
 }
 
 /// What an injected point does: `Failure` makes the operation fail with
