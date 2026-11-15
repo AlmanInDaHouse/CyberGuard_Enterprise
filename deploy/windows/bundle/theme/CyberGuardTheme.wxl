@@ -49,7 +49,7 @@
   <String Id="FailureUninstallHeader" Value="Uninstall Failed" />
   <String Id="FailureUnsafeUninstallHeader" Value="Uninstall Failed" />
   <String Id="FailureHyperlinkLogText" Value="Setup did not complete. Its &lt;a href=&quot;#&quot;&gt;log&lt;/a&gt; records each step: [WixBundleLog]" />
-  <String Id="FailureCodeText" Value="A failed step's code is on the log line &quot;Applied execute package: (step), result:&quot; for Preflight, Agent or Configure, with a result other than 0x0; else on &quot;Apply complete, result:&quot;. A result 0x8007xxxx carries the code in its last four digits." />
+  <String Id="FailureCodeText" Value="A failed step's code is on the log line &quot;Applied execute package: (step), result:&quot; for Preflight, Agent, Purge or Configure, with a result other than 0x0; else on &quot;Apply complete, result:&quot;. A result 0x8007xxxx carries the code in its last four digits." />
   <String Id="FailureRestartText" Value="You must restart your computer to complete the rollback of the software." />
   <String Id="FailureRestartButton" Value="&amp;Restart" />
   <String Id="FailureCloseButton" Value="&amp;Close" />
