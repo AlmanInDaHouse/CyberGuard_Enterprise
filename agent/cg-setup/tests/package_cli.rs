@@ -1,6 +1,7 @@
 //! `cg-setup`'s command line (SPEC-024 Amendment 2026-11-10, item 9): one
 //! verb, `preflight`, `configure`, `reverse` or `purge` (the Amendment
-//! 2026-11-15, point 3, `--confirm=` empty or `yes`), with the options of
+//! 2026-11-15, point 3, `--confirm=` empty or `yes`, and the Amendment
+//! 2026-11-16, item 2, `--action=` of digits), with the options of
 //! the bundle variables, each at most once, an empty value as not given;
 //! `--version`; any other command line is 40, its line quoting no value.
 #![cfg(windows)]
@@ -243,4 +244,48 @@ fn package_cli_purge_refuses_any_other_command_line() {
     refused(&["purge", r"--bootstrap=C:\x"]);
     refused(&["purge", "--confirm"]);
     refused(&["purge", "yes"]);
+}
+
+/// `--action=`, the setup's `WixBundleAction` (SPEC-024 Amendment
+/// 2026-11-16, item 2), at most once, absent or empty not given, of digits:
+/// `yes` confirms with Burn's uninstallation, 4, and with no action; with
+/// any other action, an installation's 6 and a repair's 8 included, it is not
+/// given. Another value is 40, its line quoting none.
+#[test]
+fn package_cli_purge_confirms_only_with_the_uninstallation() {
+    let purge = |options: &[&str]| {
+        let mut arguments = vec!["purge"];
+        arguments.extend_from_slice(options);
+        parse(&args(&arguments))
+    };
+    for (options, confirmed) in [
+        (&["--confirm=yes", "--action=4"][..], true),
+        (&["--action=4", "--confirm=yes"], true),
+        (&["--confirm=yes", "--action=04"], true),
+        (&["--confirm=yes", "--action="], true),
+        (&["--confirm=yes", "--action=6"], false),
+        (&["--confirm=yes", "--action=8"], false),
+        (&["--confirm=yes", "--action=3"], false),
+        (&["--confirm=yes", "--action=0"], false),
+        (
+            &["--confirm=yes", "--action=99999999999999999999999"],
+            false,
+        ),
+        (&["--confirm=", "--action=4"], false),
+        (&["--action=4"], false),
+    ] {
+        assert_eq!(
+            purge(options),
+            Ok(Command::Purge { confirmed }),
+            "{options:?}"
+        );
+    }
+    for value in ["x", "-4", "4 ", " 4", "4.0", "uninstall"] {
+        let option = format!("--action={value}");
+        let line = refused(&["purge", "--confirm=yes", &option]);
+        assert!(line.contains("--action="), "{line}");
+        assert!(!line.contains(&option), "{line}");
+    }
+    refused(&["purge", "--action=4", "--action=4"]);
+    refused(&["purge", "--action=", "--action=6"]);
 }

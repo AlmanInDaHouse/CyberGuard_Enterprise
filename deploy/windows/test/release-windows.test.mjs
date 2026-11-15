@@ -31,6 +31,7 @@ import {
   agentVersionProblems,
   blobId,
   buildArchive,
+  extractSetup,
   foreignImports,
   gitEnvironment,
   importProblems,
@@ -231,7 +232,7 @@ test("the MSI is version X.Y.Z, holds the agent's file alone, and no custom acti
   );
 });
 
-const MANIFEST = `﻿<?xml version="1.0" encoding="utf-8"?><BurnManifest xmlns="http://wixtoolset.org/schemas/v4/2008/Burn"><UX PrimaryPayloadId="Ba"><Payload Id="u" FilePath="thm.xml" SourcePath="u0" /><Payload Id="Ba" FilePath="wixstdba.exe" SourcePath="u3" /></UX><Container Id="WixAttachedContainer" FilePath="s.exe" Attached="yes" /><Payload Id="Preflight" FilePath="preflight\\cg-setup.exe" FileSize="3" Packaging="embedded" SourcePath="a0" Container="WixAttachedContainer" /><Payload Id="Agent" FilePath="cyberguard-agent-1.2.3-x64.msi" Packaging="embedded" SourcePath="a1" Container="WixAttachedContainer" /><Payload Id="Configure" FilePath="configure\\cg-setup.exe" Packaging="embedded" SourcePath="a2" Container="WixAttachedContainer" /><Registration Code="{X}" ExecutableName="s.exe" Version="1.2.3"><Arp DisplayName="CyberGuard &amp; Agent" DisplayVersion="1.2.3" /></Registration></BurnManifest>`;
+const MANIFEST = `﻿<?xml version="1.0" encoding="utf-8"?><BurnManifest xmlns="http://wixtoolset.org/schemas/v4/2008/Burn"><UX PrimaryPayloadId="Ba"><Payload Id="u" FilePath="thm.xml" SourcePath="u0" /><Payload Id="Ba" FilePath="wixstdba.exe" SourcePath="u3" /></UX><Container Id="WixAttachedContainer" FilePath="s.exe" Attached="yes" /><Payload Id="Preflight" FilePath="preflight\\cg-setup.exe" FileSize="3" Packaging="embedded" SourcePath="a0" Container="WixAttachedContainer" /><Payload Id="Agent" FilePath="cyberguard-agent-1.2.3-x64.msi" Packaging="embedded" SourcePath="a1" Container="WixAttachedContainer" /><Payload Id="Purge" FilePath="purge\\cg-setup.exe" Packaging="embedded" SourcePath="a2" Container="WixAttachedContainer" /><Payload Id="Configure" FilePath="configure\\cg-setup.exe" Packaging="embedded" SourcePath="a3" Container="WixAttachedContainer" /><Registration Code="{X}" ExecutableName="s.exe" Version="1.2.3"><Arp DisplayName="CyberGuard &amp; Agent" DisplayVersion="1.2.3" /></Registration></BurnManifest>`;
 
 test("the manifest's registered version and its payloads are read", () => {
   const manifest = parseManifest(MANIFEST);
@@ -246,7 +247,8 @@ test("the manifest's registered version and its payloads are read", () => {
       ["Ba", "wixstdba.exe", "u3", null],
       ["Preflight", "preflight\\cg-setup.exe", "a0", "WixAttachedContainer"],
       ["Agent", "cyberguard-agent-1.2.3-x64.msi", "a1", "WixAttachedContainer"],
-      ["Configure", "configure\\cg-setup.exe", "a2", "WixAttachedContainer"],
+      ["Purge", "purge\\cg-setup.exe", "a2", "WixAttachedContainer"],
+      ["Configure", "configure\\cg-setup.exe", "a3", "WixAttachedContainer"],
     ],
   );
   assert.deepEqual(registeredVersionProblems(manifest, "1.2.3"), []);
@@ -256,23 +258,35 @@ test("the manifest's registered version and its payloads are read", () => {
   assert.match(registeredVersionProblems(parseManifest(twice), "1.2.3")[0] ?? "", /2 Registration/);
 });
 
+// The setup carries three cg-setup.exe payloads, preflight's, the purge's and configure's (SPEC-024
+// Amendment 2026-11-15, point 2), and each is compared on its own.
 test("the payloads the setup carries are compared with the MSI and cg-setup.exe by their bytes", () => {
   const manifest = parseManifest(MANIFEST);
-  const digests = { Preflight: "s", Agent: "m", Configure: "s" };
+  const all = { Preflight: "s", Agent: "m", Purge: "s", Configure: "s" };
+  let digests = { ...all };
   const digest = (p) => digests[p.id];
   assert.deepEqual(payloadProblems(manifest, digest, { msi: "m", setupExe: "s" }), { msi: [], setupExe: [] });
   const msiOther = payloadProblems(manifest, digest, { msi: "M", setupExe: "s" });
   assert.match(msiOther.msi[0] ?? "", /cyberguard-agent-1\.2\.3-x64\.msi.*not the MSI/);
   assert.deepEqual(msiOther.setupExe, []);
-  digests.Configure = "S";
-  const setupOther = payloadProblems(manifest, digest, { msi: "m", setupExe: "s" });
-  assert.deepEqual(setupOther.msi, []);
-  assert.match(setupOther.setupExe.join(), /configure\\cg-setup\.exe.*not cg-setup\.exe/);
-  digests.Agent = undefined;
+  for (const [id, folder] of [["Preflight", "preflight"], ["Purge", "purge"], ["Configure", "configure"]]) {
+    digests = { ...all, [id]: "S" };
+    const setupOther = payloadProblems(manifest, digest, { msi: "m", setupExe: "s" });
+    assert.deepEqual(setupOther.msi, [], id);
+    assert.equal(setupOther.setupExe.length, 1, id);
+    assert.match(setupOther.setupExe[0], new RegExp(`^the payload ${folder}\\\\cg-setup\\.exe is not cg-setup\\.exe$`), id);
+    digests = { ...all, [id]: undefined };
+    assert.deepEqual(
+      payloadProblems(manifest, digest, { msi: "m", setupExe: "s" }).setupExe,
+      [`the payload ${folder}\\cg-setup.exe was not extracted`],
+      id,
+    );
+  }
+  digests = { ...all, Agent: undefined };
   assert.match(payloadProblems(manifest, digest, { msi: "m", setupExe: "s" }).msi.join(), /not extracted/);
-  const noSetup = parseManifest(MANIFEST.replace(/<Payload Id="(Preflight|Configure)"[^>]*\/>/g, ""));
+  const noSetup = parseManifest(MANIFEST.replace(/<Payload Id="(Preflight|Purge|Configure)"[^>]*\/>/g, ""));
   assert.match(payloadProblems(noSetup, digest, { msi: "m", setupExe: "s" }).setupExe.join(), /no cg-setup\.exe/);
-  const twoMsis = parseManifest(MANIFEST.replace("</BurnManifest>", '<Payload Id="X" FilePath="x.msi" SourcePath="a3" Container="WixAttachedContainer" /></BurnManifest>'));
+  const twoMsis = parseManifest(MANIFEST.replace("</BurnManifest>", '<Payload Id="X" FilePath="x.msi" SourcePath="a4" Container="WixAttachedContainer" /></BurnManifest>'));
   assert.match(payloadProblems(twoMsis, () => "m", { msi: "m", setupExe: "s" }).msi.join(), /2 MSI payloads/);
 });
 
@@ -474,6 +488,34 @@ releaseTest(
       assert.ok(lines.some((l) => l.startsWith("FAIL msi agent payload:")), r.stdout);
       for (const name of ["agent --version", "agent version resource", "agent imports", "cg-setup.exe version resource", "msi product version", "msi file table", "msi custom actions", "setup version resource", "setup copyright", "setup registered version", "setup msi payload", "setup cg-setup.exe payloads"]) {
         assert.ok(lines.includes(`PASS ${name}`), `${name}: ${r.stdout}`);
+      }
+    }),
+);
+
+// SPEC-024 Amendment 2026-11-15, point 2: the setup a build made carries the chain's three
+// cg-setup.exe payloads, each under its step's folder, and each is the cg-setup.exe built.
+releaseTest(
+  "the setup carries preflight's, the purge's and configure's cg-setup.exe",
+  ["CG_TEST_SETUP_EXE", "CG_TEST_SETUP"],
+  (setupExe, setup) =>
+    withTemp((dir) => {
+      const manifest = extractSetup(setup, dir);
+      const setups = manifest.payloads.filter(
+        (p) => p.container && p.filePath.split(/[\\/]/).at(-1).toLowerCase() === "cg-setup.exe",
+      );
+      assert.deepEqual(setups.map((p) => [p.id, p.filePath]).sort(), [
+        ["Configure", "configure\\cg-setup.exe"],
+        ["Preflight", "preflight\\cg-setup.exe"],
+        ["Purge", "purge\\cg-setup.exe"],
+      ]);
+      const built = readFileSync(setupExe);
+      for (const p of setups) {
+        // Where check() reads it: its FilePath, or its SourcePath, under its container's folder.
+        const file = [p.filePath, p.sourcePath]
+          .map((name) => join(dir, "c", p.container, ...name.split(/[\\/]/)))
+          .find((candidate) => existsSync(candidate));
+        assert.ok(file, `${p.filePath} extracted`);
+        assert.ok(readFileSync(file).equals(built), `${p.filePath} is the cg-setup.exe built`);
       }
     }),
 );

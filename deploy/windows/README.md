@@ -47,9 +47,12 @@ release's (install_ac_015), below.
 ## The setup
 
 `bundle/` is the agent's setup, `cyberguard-agent-<version>-x64-setup.exe` (SPEC-024 Amendments
-2026-11-09, items 1 and 2, and 2026-11-12 (second) and (third)): WiX's Burn engine and standard
-bootstrapper application with the project's theme (`bundle/theme/`), whose chain runs `cg-setup`
-preflight, the MSI with `CG_SETUP_CHAIN=1`, a vital rollback boundary and `cg-setup` configure.
+2026-11-09, items 1 and 2, 2026-11-12 (second) and (third), and 2026-11-15): WiX's Burn engine and
+standard bootstrapper application with the project's theme (`bundle/theme/`), whose chain runs
+`cg-setup` preflight, the MSI with `CG_SETUP_CHAIN=1`, a vital rollback boundary, `cg-setup` purge
+and `cg-setup` configure. The purge step runs on every uninstallation, before the MSI, and purges
+only with `CG_PURGE=yes` on the setup's command line (`setup.exe -uninstall CG_PURGE=yes`); with no
+value it changes nothing.
 Preflight is told the setup's window, `--ui="[WixBundleUILevel]"`: only with the full window, on a
 fresh or pending host given no bootstrap file or migration variable, does it show the wizard
 (SPEC-024 Amendment 2026-11-13, points 1 to 3); with `-quiet` or `-passive` it asks nothing. `Directory.Build.targets` checks, before WiX compiles, that the MSI and `cg-setup.exe` it carries
@@ -89,8 +92,9 @@ environment. It checks the pins and the EULA ID, builds the agent alone and then
 version, the MSI with the test build's define empty and the setup, and then checks them without
 installing anything: the
 executable's version resource, imports and message table, the MSI's version, its one file and no
-custom action, the setup's version and copyright, and, with the pinned `wix` tool, that the MSI the
-setup carries and the agent's file the MSI carries are byte-identical to the assets. Last it builds
+custom action, the setup's version and copyright, and, with the pinned `wix` tool, that the MSI and
+each of the three `cg-setup.exe` the setup carries, and the agent's file the MSI carries, are
+byte-identical to the assets. Last it builds
 `wix-<release>-source.tar.gz`, WiX's tree at the commit and tree IDs `pins/pins.json` records,
 fetched from WiX's repository, and the setup's own sources under `cyberguard-setup/deploy/windows/`,
 and reads it back against the pinned tree. `test/release-check-matrix.mjs` sees each check refuse the

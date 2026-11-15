@@ -533,6 +533,12 @@ function wix(args) {
   }
 }
 
+/** The setup's payloads extracted into `dir`, which exists, with the pinned `wix`: its manifest. */
+export function extractSetup(setup, dir) {
+  wix(["burn", "extract", resolve(setup), "-o", join(dir, "c"), "-oba", join(dir, "ba")]);
+  return parseManifest(readFileSync(join(dir, "ba", "manifest.xml"), "utf8"));
+}
+
 /** Every check of point 2 on the assets, each one's problems listed; none stops the others. */
 export function check({ version, exe, msi, setup, setupExe }) {
   const results = [];
@@ -585,10 +591,7 @@ export function check({ version, exe, msi, setup, setupExe }) {
 
   const scratch = mkdtempSync(join(tmpdir(), "cg-release-check-"));
   try {
-    const extracted = once(() => {
-      wix(["burn", "extract", resolve(setup), "-o", join(scratch, "c"), "-oba", join(scratch, "ba")]);
-      return parseManifest(readFileSync(join(scratch, "ba", "manifest.xml"), "utf8"));
-    });
+    const extracted = once(() => extractSetup(setup, scratch));
     // Each payload where the manifest places it, its FilePath under its container's folder.
     const digestOf = (p) => {
       for (const name of [p.filePath, p.sourcePath]) {

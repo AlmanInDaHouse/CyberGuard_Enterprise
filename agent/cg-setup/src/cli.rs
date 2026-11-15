@@ -5,7 +5,10 @@
 //! `--version` answers the setup's version. Preflight takes `--ui` too, the
 //! setup's `WixBundleUILevel` (the Amendment 2026-11-13, point 1), which
 //! configure and reverse do not. `purge` takes `--confirm=`, empty or `yes`
-//! (the Amendment 2026-11-15, point 3). Any other command line is 40.
+//! (the Amendment 2026-11-15, point 3), and `--action=`, the setup's
+//! `WixBundleAction`, of digits, with which `yes` confirms only Burn's
+//! uninstallation (the Amendment 2026-11-16, item 2). Any other command line
+//! is 40.
 //!
 //! A refusal names the verb and an option's name, never a value: a value is
 //! a bundle variable, which carries no secret, but a misplaced one could.
@@ -26,8 +29,9 @@ pub enum Command {
     Configure(Request),
     /// `cg-setup reverse`.
     Reverse,
-    /// `cg-setup purge [--confirm=]` (SPEC-024 Amendment 2026-11-15, point 3):
-    /// whether `--confirm=yes` was given.
+    /// `cg-setup purge [--confirm=] [--action=]` (SPEC-024 Amendment
+    /// 2026-11-15, point 3, and Amendment 2026-11-16, item 2): whether
+    /// `--confirm=yes` was given with no action, or with Burn's uninstallation.
     Purge { confirmed: bool },
 }
 
@@ -36,6 +40,11 @@ const MIGRATE_LEGACY: &str = "--migrate-legacy";
 const TRUST_ANCHORS: &str = "--trust-anchors";
 const UI: &str = "--ui";
 const CONFIRM: &str = "--confirm";
+const ACTION: &str = "--action";
+
+/// Burn's uninstallation, as `v7.0.1` numbers `WixBundleAction` (read on
+/// probe #139: 4 on an uninstallation, 6 on an installation, 8 on a repair).
+const BURN_UNINSTALL: u64 = 4;
 
 fn refused(reason: impl std::fmt::Display) -> Refusal {
     Refusal::new(
@@ -64,12 +73,24 @@ pub fn parse(arguments: &[OsString]) -> Result<Command, Refusal> {
         "reverse" if options.is_empty() => Ok(Command::Reverse),
         "reverse" => Err(refused("reverse takes nothing")),
         "purge" => {
-            let [confirm] = take(verb, options, [CONFIRM])?;
-            match confirm.filter(|value| !value.is_empty()) {
-                None => Ok(Command::Purge { confirmed: false }),
-                Some("yes") => Ok(Command::Purge { confirmed: true }),
-                Some(_) => Err(refused("--confirm= is neither empty nor yes")),
-            }
+            let [confirm, action] = take(verb, options, [CONFIRM, ACTION])?;
+            let yes = match confirm.filter(|value| !value.is_empty()) {
+                None => false,
+                Some("yes") => true,
+                Some(_) => return Err(refused("--confirm= is neither empty nor yes")),
+            };
+            // An action other than the uninstallation, an installation's
+            // rollback of the step included, makes yes not given.
+            let uninstallation = match action.filter(|value| !value.is_empty()) {
+                None => true,
+                Some(value) if value.bytes().all(|b| b.is_ascii_digit()) => {
+                    value.parse::<u64>() == Ok(BURN_UNINSTALL)
+                }
+                Some(_) => return Err(refused("--action= is not of digits")),
+            };
+            Ok(Command::Purge {
+                confirmed: yes && uninstallation,
+            })
         }
         "preflight" => {
             let [bootstrap, migrate_legacy, trust_anchors, ui] = take(

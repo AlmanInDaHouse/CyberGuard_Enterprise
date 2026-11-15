@@ -117,10 +117,10 @@ function element(text, tag, where = () => true) {
   assert.fail(`no <${tag}> as expected`);
 }
 
-// SPEC-024 Amendment 2026-11-09, items 1 and 2, and Amendment 2026-11-12 (second), points 1 and
-// 8: the setup's chain as built, its variables, and the standard bootstrapper application with
-// the project's theme.
-test("the setup's chain is preflight, the MSI with the chain's property, a vital boundary and configure", () => {
+// SPEC-024 Amendment 2026-11-09, items 1 and 2, Amendment 2026-11-12 (second), points 1 and 8,
+// and Amendment 2026-11-15, points 1 and 2: the setup's chain as built, its variables, and the
+// standard bootstrapper application with the project's theme.
+test("the setup's chain is preflight, the MSI with the chain's property, a vital boundary, purge and configure", () => {
   const wxs = read("bundle/Bundle.wxs");
   const bundle = element(wxs, "Bundle");
   assert.equal(bundle.get("Version"), "$(var.ProductVersion)", "its version is the release version");
@@ -134,7 +134,7 @@ test("the setup's chain is preflight, the MSI with the chain's property, a vital
   const chain = /<Chain>([\s\S]*?)<\/Chain>/.exec(wxs)?.[1];
   assert.ok(chain, "a chain");
   const order = [...chain.matchAll(/<(ExePackage|MsiPackage|RollbackBoundary)\b[^>]*\bId="([^"]+)"/g)].map((m) => `${m[1]}:${m[2]}`);
-  assert.deepEqual(order, ["ExePackage:Preflight", "MsiPackage:Agent", "RollbackBoundary:Committed", "ExePackage:Configure"]);
+  assert.deepEqual(order, ["ExePackage:Preflight", "MsiPackage:Agent", "RollbackBoundary:Committed", "ExePackage:Purge", "ExePackage:Configure"]);
 
   const preflight = element(chain, "ExePackage", (a) => a.get("Id") === "Preflight");
   assert.equal(preflight.get("PerMachine"), "yes");
@@ -158,6 +158,26 @@ test("the setup's chain is preflight, the MSI with the chain's property, a vital
 
   assert.equal(element(chain, "RollbackBoundary").get("Vital"), "yes");
 
+  const purge = element(chain, "ExePackage", (a) => a.get("Id") === "Purge");
+  assert.equal(purge.get("PerMachine"), "yes");
+  assert.equal(purge.get("Vital"), "yes", "a code other than 0 stops the uninstallation before the MSI");
+  assert.equal(
+    purge.get("DetectCondition"),
+    "WixBundleInstalled",
+    "detected present once the setup is installed: its uninstallation runs on every uninstallation, and a refused installation leaves nothing registered",
+  );
+  assert.equal(purge.has("Permanent"), false, "not permanent: Burn uninstalls it");
+  assert.equal(purge.has("RepairArguments"), false);
+  assert.equal(purge.get("SourceFile"), "$(var.SetupExe)");
+  assert.equal(purge.get("Name"), "purge\\cg-setup.exe");
+  assert.equal(purge.get("CacheId"), "cg-setup-purge-$(var.ProductVersion)-$(var.BuildId)", "this build's own cache folder");
+  assert.equal(
+    purge.get("UninstallArguments"),
+    "purge --confirm=&quot;[CG_PURGE]&quot; --action=&quot;[WixBundleAction]&quot;",
+    "the purge's confirmation, empty unless given, and the setup's action, with which only an uninstallation purges (SPEC-024 Amendment 2026-11-16)",
+  );
+  assert.equal(purge.get("InstallArguments"), "purge", "its installation, run by an installation and as the rollback of its uninstallation, is purge with no option, which changes nothing");
+
   const configure = element(chain, "ExePackage", (a) => a.get("Id") === "Configure");
   assert.equal(configure.get("PerMachine"), "yes");
   assert.equal(configure.get("Vital"), "yes");
@@ -172,12 +192,12 @@ test("the setup's chain is preflight, the MSI with the chain's property, a vital
   );
 });
 
-test("the setup's variables are the unattended route's three, overridable and not persisted", () => {
+test("the setup's variables are the unattended route's three and the purge's, overridable and not persisted", () => {
   const wxs = read("bundle/Bundle.wxs");
   const variables = [...wxs.matchAll(/<Variable\b[^>]*>/g)].map((m) => m[0]);
   assert.deepEqual(
     variables.map((v) => /Name="([^"]+)"/.exec(v)[1]),
-    ["CG_BOOTSTRAP", "CG_MIGRATE_LEGACY", "CG_TRUST_ANCHORS"],
+    ["CG_BOOTSTRAP", "CG_MIGRATE_LEGACY", "CG_TRUST_ANCHORS", "CG_PURGE"],
   );
   for (const variable of variables) {
     assert.match(variable, /\bType="string"/);
@@ -218,6 +238,7 @@ test("the setup's window is the standard application with the project's theme", 
   const code = /<String Id="FailureCodeText" Value="([^"]*)"/.exec(texts)?.[1] ?? "";
   assert.ok(code.includes("Applied execute package: (step), result:"), "a failed step's line");
   assert.ok(code.includes("Apply complete, result:"), "the run's line");
+  assert.ok(code.includes("for Preflight, Agent, Purge or Configure,"), "each step of the chain, the purge's included (SPEC-024 Amendment 2026-11-15, *Effect*)");
   assert.match(theme, /#\(loc\.FailureCodeText\)/, "the page shows them");
   for (const id of new Set([...theme.matchAll(/#\(loc\.(\w+)\)/g)].map((m) => m[1]))) {
     assert.match(texts, new RegExp(`<String Id="${id}" `), `${id} has its text`);

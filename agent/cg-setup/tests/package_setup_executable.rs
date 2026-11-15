@@ -226,7 +226,9 @@ fn package_setup_executable_answers_its_version() {
 }
 
 /// Any command line Burn does not form is 40, one line on standard error,
-/// after the platform's floor: these run no verb, elevated or not.
+/// after the platform's floor and before the elevation: under a filtered
+/// token, so that one read as a verb's, `purge --confirm=YES` read as `yes`
+/// included, stops at the elevation's 21 and acts on nothing.
 #[test]
 fn package_setup_executable_a_command_line_burn_did_not_form_is_40() {
     for arguments in [
@@ -242,8 +244,10 @@ fn package_setup_executable_a_command_line_burn_did_not_form_is_40() {
         &["purge", "--confirm=yes", "--confirm=yes"],
         &["purge", "--confirm=", "--confirm="],
         &["purge", "--bootstrap=x"],
+        &["purge", "--confirm=yes", "--action=x"],
+        &["purge", "--action=4", "--action=4"],
     ] {
-        let run = run(arguments);
+        let run = run_filtered(arguments, &[]);
         assert_eq!(run.code, 40, "{arguments:?}: {run:?}");
         assert_eq!(run.stdout, "", "{arguments:?}");
         assert!(
@@ -276,6 +280,8 @@ fn package_setup_executable_each_verb_checks_the_elevation_first() {
         &["purge"],
         &["purge", "--confirm="],
         &["purge", "--confirm=yes"],
+        &["purge", "--confirm=yes", "--action=6"],
+        &["purge", "--confirm=yes", "--action=4"],
     ] {
         let run = run_filtered(arguments, &[]);
         assert_eq!(run.code, 21, "{arguments:?}: {run:?}");
@@ -301,6 +307,7 @@ fn package_setup_executable_the_floor_comes_before_any_other_check() {
         &["reverse"],
         &["purge"],
         &["purge", "--confirm=yes"],
+        &["purge", "--confirm=yes", "--action=6"],
         &["preflight", "--x=1"],
         &["purge", "--confirm=no"],
         &["install"],

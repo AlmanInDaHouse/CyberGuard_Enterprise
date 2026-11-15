@@ -1124,11 +1124,30 @@ pub fn message_of(path: &Path, id: u32, insert: &str) -> Option<String> {
 
 /// The owner of `path`, as SDDL spells it (`SY`, `BA`, or a full SID).
 pub fn owner_of(path: &Path) -> String {
+    use windows_sys::Win32::Security::OWNER_SECURITY_INFORMATION;
+    let sddl = security_of(path, OWNER_SECURITY_INFORMATION);
+    sddl.strip_prefix("O:").unwrap_or(&sddl).to_string()
+}
+
+/// The owner, group and DACL of `path`, as SDDL, read the same way each
+/// time, so that two readings compare (the purge's *Tests*: a default
+/// uninstallation keeps what it keeps with the security it had).
+pub fn descriptor_of(path: &Path) -> String {
+    use windows_sys::Win32::Security::{
+        DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+    };
+    security_of(
+        path,
+        OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+    )
+}
+
+/// The parts `information` names of `path`'s security descriptor, as SDDL.
+fn security_of(path: &Path, information: u32) -> String {
     use windows_sys::Win32::Security::Authorization::{
         ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW,
         SDDL_REVISION_1, SE_FILE_OBJECT,
     };
-    use windows_sys::Win32::Security::OWNER_SECURITY_INFORMATION;
     let name = wide(path.as_os_str());
     let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
     // SAFETY: a NUL-terminated path; the descriptor is LocalAlloc'd, freed below.
@@ -1136,7 +1155,7 @@ pub fn owner_of(path: &Path) -> String {
         GetNamedSecurityInfoW(
             name.as_ptr(),
             SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION,
+            information,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -1151,7 +1170,7 @@ pub fn owner_of(path: &Path) -> String {
         ConvertSecurityDescriptorToStringSecurityDescriptorW(
             descriptor,
             SDDL_REVISION_1,
-            OWNER_SECURITY_INFORMATION,
+            information,
             &mut text,
             std::ptr::null_mut(),
         )
@@ -1163,12 +1182,11 @@ pub fn owner_of(path: &Path) -> String {
         "ConvertSecurityDescriptorToStringSecurityDescriptorW"
     );
     // SAFETY: a NUL-terminated string from the call, read then freed once.
-    let sddl = unsafe {
+    unsafe {
         let sddl = from_wide_nul(text);
         LocalFree(text.cast());
         sddl
-    };
-    sddl.strip_prefix("O:").unwrap_or(&sddl).to_string()
+    }
 }
 
 // --- Windows Installer's databases ---------------------------------------------------

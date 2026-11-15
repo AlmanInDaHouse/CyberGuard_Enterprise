@@ -4,9 +4,12 @@
   Burn engine, its code unmodified and its version resource the setup's (the Amendment
   2026-11-14, point 9), and WiX's unmodified standard bootstrapper application, with the
   project's own theme (the Amendment 2026-11-12 (second), point 8). Its chain runs cg-setup preflight, the MSI with the chain's
-  property, a vital rollback boundary, then cg-setup configure; Burn rolls preflight back with
-  cg-setup reverse. Burn carries no secret: the bundle variables name a file and the migration's
-  choices, never the token. The setup has no condition or search of its own: preflight decides.
+  property, a vital rollback boundary, cg-setup purge, then cg-setup configure; Burn rolls
+  preflight back with cg-setup reverse. Purge purges only on an uninstallation given CG_PURGE=yes,
+  before the MSI; an installation runs it with no option, which changes nothing (the Amendments
+  2026-11-15, points 1 and 2, and 2026-11-16). Burn carries no secret: the bundle variables name a
+  file, the migration's choices and the purge's confirmation, never the token. The setup has no
+  condition or search of its own: preflight decides.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
@@ -28,11 +31,14 @@
           SuppressOptionsUI="yes" />
     </BootstrapperApplication>
 
-    <!-- The unattended route's inputs (the Amendment 2026-11-09, item 2), none persisted: a
-         repair or an uninstallation from the registered setup passes none. -->
+    <!-- The unattended route's inputs (the Amendment 2026-11-09, item 2) and the purge's (the
+         Amendment 2026-11-15, point 1), none persisted: a repair or an uninstallation started
+         from the installed programs' entry, or with no variable on its command line, passes
+         none. -->
     <Variable Name="CG_BOOTSTRAP" Type="string" Value="" bal:Overridable="yes" />
     <Variable Name="CG_MIGRATE_LEGACY" Type="string" Value="" bal:Overridable="yes" />
     <Variable Name="CG_TRUST_ANCHORS" Type="string" Value="" bal:Overridable="yes" />
+    <Variable Name="CG_PURGE" Type="string" Value="" bal:Overridable="yes" />
 
     <Chain>
       <!-- Each step's cache folder is this build's own (BuildId): a second build of the version
@@ -53,6 +59,22 @@
         <MsiProperty Name="CG_SETUP_CHAIN" Value="1" />
       </MsiPackage>
       <RollbackBoundary Id="Committed" Vital="yes" />
+      <!-- The purge (the Amendment 2026-11-15, point 2): detected present once this setup is
+           installed, so that Burn runs its uninstallation on every uninstallation, before the
+           MSI, which comes before it in the chain, and nothing on a repair; detected absent
+           before, so that a refused installation leaves no package present and nothing
+           registered. Not permanent, so that Burn uninstalls it. Its uninstallation carries
+           CG_PURGE, empty unless the command line gives it, which purges nothing; its
+           installation, run by an installation and by Burn's rollback of that uninstallation,
+           is purge with no option, which changes nothing. The uninstallation passes the setup's
+           action, with which cg-setup honours yes only on an uninstallation, so that Burn's
+           rollback of an installation's step purges nothing (the Amendment 2026-11-16). A code
+           other than 0 stops the uninstallation with the product installed. -->
+      <ExePackage Id="Purge" CacheId="cg-setup-purge-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
+                  Vital="yes" DetectCondition="WixBundleInstalled"
+                  SourceFile="$(var.SetupExe)" Name="purge\cg-setup.exe"
+                  InstallArguments="purge"
+                  UninstallArguments="purge --confirm=&quot;[CG_PURGE]&quot; --action=&quot;[WixBundleAction]&quot;" />
       <!-- Permanent and detected by no condition: it runs on every install, repair and upgrade,
            and nothing rolls it back or uninstalls it. -->
       <ExePackage Id="Configure" CacheId="cg-setup-configure-$(var.ProductVersion)-$(var.BuildId)" PerMachine="yes"
