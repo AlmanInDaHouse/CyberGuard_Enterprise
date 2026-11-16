@@ -14,7 +14,9 @@ const IDS = ["versions", "verify", "unpack", "setup-template", "routes", "setup-
 // The endpoint's PowerShell blocks, in the document's order: they run on Windows alone
 // (SPEC-024 install_ac_016), and a test below reads what SPEC-024 asks of them.
 const ENDPOINT = ["elevation", "directory", "copy", "checksum", "bootstrap", "setup", "cleanup", "wizard", "log",
-  "binary", "service", "events", "agent-log", "audit", "dumps"];
+  "binary", "service", "events", "agent-log", "audit", "dumps", "removal-setup", "uninstall", "purge", "purge-check", "purge-events"];
+// The removal's blocks (SPEC-024 Amendments 2026-11-15 and 2026-11-16), under their own section.
+const REMOVAL = ["removal-setup", "uninstall", "purge", "purge-check", "purge-events"];
 // Explicitly classify every other fence. A new text or PowerShell fence is not
 // silently treated as output or as an endpoint command: its classification needs review.
 const NON_SERVER = new Map([
@@ -33,7 +35,10 @@ function blocks(text) {
     seen.add(id);
     assert.equal(fence[2], IDS.includes(id) ? "sh" : NON_SERVER.get(id), `classification of ${id}`);
     if (id.startsWith("endpoint-")) {
-      assert.ok(prefix.lastIndexOf("### On the endpoint:") > prefix.lastIndexOf("## Later users"), `${id} belongs to the endpoint procedure`);
+      // The installation's blocks under "### On the endpoint:", the removal's under its own section.
+      const removal = prefix.lastIndexOf("\n## Remove the agent from an endpoint\n");
+      const home = REMOVAL.includes(id.slice("endpoint-".length)) ? removal : prefix.lastIndexOf("\n### On the endpoint:");
+      assert.ok(home >= 0 && home > prefix.lastIndexOf("\n## Later users") && (home === removal || home > removal), `${id} belongs to its endpoint procedure`);
     }
   }
   assert.equal(seen.size, IDS.length + NON_SERVER.size, "all classified blocks remain present");
@@ -72,10 +77,35 @@ test("SPEC-024: the endpoint's commands run the setup as its amendments ask, and
   const wizard = endpoint.get("wizard");
   assert.ok(wizard.includes("'-norestart'") && wizard.includes("'-log'"), wizard);
   assert.doesNotMatch(wizard, /-quiet|-passive|CG_BOOTSTRAP/);
-  // A windowed program: PowerShell's call operator neither waits for it nor sets $LASTEXITCODE.
-  for (const block of [setup, wizard]) {
-    assert.match(block, /Start-Process -FilePath "\$dir\\cyberguard-agent-<version>-x64-setup\.exe" .* -Wait -PassThru\n\$run\.ExitCode\n$/);
+  // The Amendment 2026-11-15, point 1: the purge is an uninstallation with CG_PURGE=yes, with
+  // -norestart and -log; the default uninstallation carries no CG_PURGE. Neither is -unsafeuninstall,
+  // which purges nothing (the Amendment 2026-11-16, point 2).
+  const uninstall = endpoint.get("uninstall");
+  const purge = endpoint.get("purge");
+  for (const block of [uninstall, purge]) {
+    for (const option of ["'-uninstall'", "'-quiet'", "'-norestart'", "'-log'"]) {
+      assert.ok(block.includes(option), `the uninstallation's command passes ${option}`);
+    }
+    assert.doesNotMatch(block, /unsafeuninstall|CG_BOOTSTRAP/i);
   }
+  assert.doesNotMatch(uninstall, /CG_PURGE/);
+  assert.equal([...purge.matchAll(/CG_PURGE/g)].length, 1, purge);
+  assert.ok(purge.includes("'-uninstall', 'CG_PURGE=yes',"), purge);
+  // A windowed program: PowerShell's call operator neither waits for it nor sets $LASTEXITCODE.
+  for (const block of [setup, wizard, uninstall, purge]) {
+    assert.match(block, /Start-Process -FilePath "\$dir\\cyberguard-agent-<version>-x64-setup\.exe" .* -Wait -PassThru\n\$run\.ExitCode\n$/);
+    // Burn's log goes in the inputs' directory, never under %ProgramData%\CyberGuard, where a
+    // log would keep the directory the purge removes (the Amendment 2026-11-15, point 7).
+    assert.match(block, /^\$log = "\$dir\\[a-z]+-\$\(Get-Date -Format yyyyMMdd-HHmmss\)\.log"$/m);
+    assert.match(block, /'-log', \$log[, ]/, "-log names $log");
+  }
+  // The purge runs only while the setup is installed, so its result is checked on the endpoint.
+  assert.equal(endpoint.get("purge-check"), 'Test-Path -LiteralPath "$env:ProgramData\\CyberGuard"\nsc.exe query CyberGuardAgent\n');
+  // The removal runs the setup from the same directory, checked again against its digest.
+  const directory = endpoint.get("directory").match(/^\$dir = '([^']+)'$/m)[1];
+  const removal = endpoint.get("removal-setup");
+  assert.equal(removal.match(/^\$dir = '([^']+)'$/m)?.[1], directory, removal);
+  assert.ok(removal.includes(endpoint.get("checksum").trim()), removal);
   // §Data contracts §3: the token is read without echo, into a file created new with its
   // protection, in a directory created with its own; no block carries it on a command line.
   const bootstrap = endpoint.get("bootstrap");
@@ -105,21 +135,86 @@ test("SPEC-024: the endpoint's commands run the setup as its amendments ask, and
   }
 });
 
-test("SPEC-024: the setup's result lists every code cg-setup exits with on an installation, and Burn's", () => {
+/** The section under `heading`, up to the next heading of its level or a higher one. */
+function section(text, heading) {
+  const start = text.indexOf(`\n${heading}\n`);
+  assert.ok(start >= 0, heading);
+  const level = heading.match(/^#+/)[0].length;
+  const rest = text.slice(start + heading.length + 2);
+  const next = new RegExp(`^#{1,${level}} `, "m").exec(rest);
+  return rest.slice(0, next ? next.index : undefined);
+}
+
+/** The rows of the table under `heading`: code to hexadecimal. */
+function codeRows(text, heading) {
+  return new Map([...section(text, heading).matchAll(/^\| (-?\d+)[^|]* \| `(0x[0-9a-f]+)`[^|]* \|/gm)].map((m) => [m[1], m[2]]));
+}
+
+test("SPEC-024: the setup's result lists every code cg-setup exits with, and Burn's", () => {
   const text = readFileSync(FILE, "utf8");
-  const start = text.indexOf("#### The setup's result");
-  const table = text.slice(start, text.indexOf("\n#### ", start + 1));
-  const rows = new Map([...table.matchAll(/^\| (-?\d+)[^|]* \| `(0x[0-9a-f]+)`[^|]* \|/gm)].map((m) => [m[1], m[2]]));
+  const rows = codeRows(text, "#### The setup's result");
   const codes = [...readFileSync(join(REPO, "agent/cg-setup/src/codes.rs"), "utf8").matchAll(/^pub const ([A-Z_]+): u8 = (\d+);/gm)];
-  assert.ok(codes.length >= 20, "cg-setup's codes are read");
-  // 46 and 47 are the uninstallation's (SPEC-024 Amendment 2026-11-15).
-  for (const [, name, code] of codes.filter(([, name]) => !name.startsWith("PURGE_"))) {
+  assert.ok(codes.length >= 21 && codes.some(([, name]) => name === "PURGE_INCOMPLETE"), "cg-setup's codes are read");
+  for (const [, name, code] of codes) {
     assert.equal(rows.get(code), `0x${Number(code).toString(16)}`, `${name} (${code})`);
   }
   // Burn's and Windows Installer's (the Amendments 2026-11-12 (second) and (third)).
   for (const [code, hex] of [["3010", "0xbc2"], ["3017", "0xbc9"], ["1602", "0x642"], ["1638", "0x666"], ["1603", "0x643"], ["-2146889721", "0x80091007"]]) {
     assert.equal(rows.get(code), hex, code);
   }
+  // The uninstallation's own table: what its Purge step exits with (the Amendment 2026-11-15,
+  // point 3, and its Effect: 20, 21, 26, 27, 28, 31, 40, 46 and 47) and Burn's.
+  const uninstallation = codeRows(text, "### The uninstallation's result");
+  const expected = ["0", "3010", "3017", "1602", "1603", "20", "21", "26", "27", "28", "31", "40", "46", "47"];
+  assert.deepEqual([...uninstallation.keys()], expected, "the uninstallation's codes, and no other");
+  for (const code of expected) {
+    assert.equal(uninstallation.get(code), `0x${Number(code).toString(16)}`, `the uninstallation's ${code}`);
+  }
+  // 46's codes of the service are those cg-setup reads as given before any removal.
+  const before = readFileSync(join(REPO, "agent/cg-setup/src/service.rs"), "utf8").match(/^pub const PURGE_BEFORE_REMOVAL: \[u32; \d+\] = \[([\d, ]+)\];/m)[1];
+  const row46 = section(text, "### The uninstallation's result").split("\n").find((line) => line.startsWith("| 46 |"));
+  assert.ok(row46.includes(`(${before})`), row46);
+});
+
+test("SPEC-024: the agent's exit codes list every code of the service, the purge start's 14 and 15 included", () => {
+  const text = readFileSync(FILE, "utf8");
+  const exits = section(text, "### The agent's exit codes");
+  const rows = [...exits.matchAll(/^\| (\d+) \|/gm)].map((m) => Number(m[1]));
+  const service = [...readFileSync(join(REPO, "agent/cg-agent/src/service/mod.rs"), "utf8").matchAll(/^pub const EXIT_[A-Z_]+: u8 = (\d+);/gm)].map((m) => Number(m[1]));
+  assert.ok(service.includes(14) && service.includes(15), "the service's codes are read");
+  // 0 to the service's highest code, each once and in order.
+  assert.deepEqual(rows, Array.from({ length: Math.max(...service) + 1 }, (_, code) => code));
+  // The purge start's lines (SPEC-024 Amendment 2026-11-15, point 4; service/purge.rs).
+  const purge = readFileSync(join(REPO, "agent/cg-agent/src/service/purge.rs"), "utf8");
+  for (const line of ["cg-agent: the purge refuses this host:", "cg-agent: the purge left", "cg-agent: the purge ended abnormally", "cg-agent: the purge's directories fail their check:"]) {
+    assert.ok(purge.includes(line), `purge.rs writes ${line}`);
+    assert.ok(exits.includes(`\`${line}`), `the runbook gives ${line}`);
+  }
+  // The purge start's argument refusal (migration.rs) and its entry 1001 (mod.rs).
+  for (const [file, line] of [["migration.rs", "cg-agent: invalid purge arguments:"], ["mod.rs", "cg-agent: the purge removed the product's data and left nothing"]]) {
+    assert.ok(readFileSync(join(REPO, "agent/cg-agent/src/service", file), "utf8").includes(line), `${file} writes ${line}`);
+    assert.ok(exits.includes(`\`${line}`), `the runbook gives ${line}`);
+  }
+});
+
+test("SPEC-024: the runbook names the purge's closed list of names, as the service removes them", () => {
+  const text = readFileSync(FILE, "utf8");
+  const removes = section(text, "#### What the purge removes");
+  // Each list item "- in `<directory>`: `<name>`, ...", a range `agent.1.jsonl` to `agent.5.jsonl` expanded.
+  const listed = new Map();
+  for (const [, directory, names] of removes.matchAll(/^- in `([^`]+)`[^:]*: (.+)$/gm)) {
+    const expanded = names.replace(/`agent\.1\.jsonl` to `agent\.5\.jsonl`/, [1, 2, 3, 4, 5].map((n) => `\`agent.${n}.jsonl\``).join(", "));
+    listed.set(directory, [...expanded.matchAll(/`([^`]+)`/g)].map((m) => m[1]).sort());
+  }
+  const purge = readFileSync(join(REPO, "agent/cg-agent/src/service/purge.rs"), "utf8");
+  const names = (constant) => [...purge.match(new RegExp(`^const ${constant}: \\[&str; \\d+\\] = \\[([^\\]]+)\\]`, "m"))[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  // The data root's names are the configuration's and the rest's (purge.rs CONFIGURATION, REST).
+  assert.deepEqual(Object.fromEntries(listed), {
+    agent: [...names("CONFIGURATION"), ...names("REST")].sort(),
+    "agent\\identity": names("IDENTITY").sort(),
+    "agent\\logs": names("LOGS").sort(),
+    "agent.legacy": names("LEGACY").sort(),
+  });
 });
 
 test("deploy_ac_021: every server shell block has an execution case, including newly added commands", () => {

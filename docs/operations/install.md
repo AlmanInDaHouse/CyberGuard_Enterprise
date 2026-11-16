@@ -1,6 +1,6 @@
 # Installing CyberGuard
 
-This document installs CyberGuard Enterprise on one Linux host from the bundle a release publishes, creates its first admin, and installs a first agent on a Windows endpoint with the agent's setup (SPEC-023, SPEC-024, ADR-0022). `<version>` is the release's version, whose tag is `v<version>`.
+This document installs CyberGuard Enterprise on one Linux host from the bundle a release publishes, creates its first admin, installs a first agent on a Windows endpoint with the agent's setup, and removes an agent from an endpoint (SPEC-023, SPEC-024, ADR-0022). `<version>` is the release's version, whose tag is `v<version>`.
 
 Each command on the server runs as root in the bundle's directory unless its step says otherwise. The bundle's `.env` is mode `0600` and owned by root, and `docker compose` reads it there, so `docker compose` runs as root too.
 
@@ -461,7 +461,7 @@ The setup's exit code is the result. The second column is the code as Burn's log
 | 24 | `0x18` | An input is invalid: the file is not UTF-8 TOML, a key is missing or not admitted, a value has the wrong form, `trust_anchor_path` is not absolute, a URL is not `https://`, or the configuration generated from the input fails the agent's own checks. | Unchanged. | Correct the input; the same token while it is valid. |
 | 25 | `0x19` | The anchor cannot be read, or its distinct certificates are not exactly those of the fingerprints. | Unchanged. | Correct the anchor or the fingerprints, from the server's record. |
 | 26 | `0x1a` | A service named `CyberGuardAgent` exists whose configuration the setup cannot read, or that is not the agent's: its type is not its own process, its account not LocalSystem, or its command line not the agent's. | Unchanged. | Read its configuration (`sc.exe qc CyberGuardAgent`). Not the agent's: remove it, or have it renamed. The agent's: find why it cannot be read. |
-| 27 | `0x1b` | `C:\ProgramData\CyberGuard` or its `agent` directory is a reparse point or not a directory, is owned by an account other than SYSTEM or Administrators, or gives any access to another account; or the setup cannot read the names in it. | Unchanged. | Keep what it holds, remove it, and run the setup again. When `agent` holds `cert.pem`, `key.dat` or `identity.json` directly, it is a console installation: remove neither directory. |
+| 27 | `0x1b` | `C:\ProgramData\CyberGuard` or its `agent` directory is a reparse point or not a directory, is owned by an account other than SYSTEM or Administrators, or gives any access to another account; or the setup cannot read the names in it. | Unchanged. | Find what changed it, and keep what it holds. Its repair, or its removal, is not in this document yet: a recursive removal can follow a junction planted in it into the junction's target, and the agent's `identity` is SYSTEM's alone, which an administrator reaches only by taking ownership of it, which the service then refuses (code 5). When `agent` holds `cert.pem`, `key.dat` or `identity.json` directly, it is a console installation: remove neither directory. |
 | 28 | `0x1c` | A console installation of the agent, or its interrupted migration, is on the endpoint; or a migration was asked for where there is none. | Unchanged. | The migration of SPEC-024's Amendment 2026-11-05, which this document does not give yet. |
 | 29 | `0x1d` | The agent installed is newer than this setup. | Unchanged. | The installed version's setup, or a newer one. |
 | 30 | `0x1e` | The agent is enrolled on this endpoint, and a bootstrap file was given. | Unchanged; on an upgrade, the version installed before runs again. | The setup without `CG_BOOTSTRAP`, which repairs or upgrades the agent with its identity. |
@@ -472,6 +472,8 @@ The setup's exit code is the result. The second column is the code as Burn's log
 | 43 | `0x2b` | At the end of the 60 seconds the service was neither running nor stopped: still starting, stopping, or paused. | Installed, the service in that state (`sc.exe query CyberGuardAgent`). | Wait, then check the service and the agent as below. |
 | 44 | `0x2c` | The service runs, but the agent's identity line and then its first acknowledged heartbeat were not both seen in its log within the 60 seconds; or the log could not be read; or, after the start, the service's state could not be read or the service no longer existed. | Installed, and usually running: still enrolling, retrying a server it cannot reach a minute or more apart, or failing. | Read the agent's log (below); the agent goes on retrying by itself. |
 | 45 | `0x2d` | The agent's executable in place is not this version, and Windows replaces it at the next restart. When Windows Installer asked for that restart in this run, the setup exits 3017 instead. | Installed; the service not started by this setup, and the staged configuration, which holds the token, left. | Restart the computer, then run the setup again, with the same input while its token is valid, or a new token. |
+| 46 | `0x2e` | An uninstallation with `CG_PURGE=yes`: the purge removed nothing. | Installed, its data kept. | As [The uninstallation's result](#the-uninstallations-result) gives it. |
+| 47 | `0x2f` | An uninstallation with `CG_PURGE=yes`: the purge may have removed some of the agent's data, or its outcome could not be read. | Installed, part of its data possibly removed, the service as the purge left it. | As [The uninstallation's result](#the-uninstallations-result) gives it. |
 
 After a refusal of the setup's checks, or a failure of the MSI, Burn runs the setup's reversal. When an earlier attempt left its record behind, after its 40, 41 or 45, a failed deletion of its record, or a crash, the reversal removes what that record names, and starts the service if the record says it was running. On an upgrade, a refusal from 20 to 31, and the failures after it, are followed by the installed setup's own run, which may stop and start the agent, set its failure actions and start a service an administrator had left stopped ([upgrade](upgrade.md)).
 
@@ -479,7 +481,7 @@ Running the setup again takes no token on an enrolled endpoint, and neither enro
 
 #### Burn's log
 
-`$log` is Burn's log. Windows Installer's log of the MSI is beside it, named after it, ending in `_Agent.log`. The setup runs four steps, which the log names: `Preflight`, its checks and the staging of the configuration; `Agent`, the MSI; `Purge`, which does nothing on an installation; and `Configure`, the start of the service and the wait for its outcome. These lines carry the result:
+`$log` is Burn's log. Windows Installer's log of the MSI is beside it, named after it, ending in `_Agent.log`. The setup runs four steps, which the log names: `Preflight`, its checks and the staging of the configuration; `Agent`, the MSI; `Purge`, which on an installation runs with no confirmation and changes nothing, and runs first on an uninstallation ([Remove the agent from an endpoint](#remove-the-agent-from-an-endpoint)); and `Configure`, the start of the service and the wait for its outcome. These lines carry the result:
 
 <!-- deploy_ac_021: endpoint-log -->
 
@@ -525,7 +527,7 @@ The service writes to the Application log, under the source `CyberGuardAgent`:
 Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'CyberGuardAgent' } -MaxEvents 10 | Format-List TimeCreated, Id, Message
 ```
 
-Entry 1000 is the service running, with its version: `cg-agent <version>: the service is running`. 1001 is a clean stop, 1002 a stop with a code and its message, 1003 a stop whose 60-second deadline expired. Any interactive user can write entries under any source, so these entries are diagnostics, not evidence. When no entry matches, `Get-WinEvent` says so with an error, as it does when the source is not registered, before the setup's MSI has run.
+Entry 1000 is the service running, with its version: `cg-agent <version>: the service is running`. 1001 is a clean stop, 1002 a stop with a code and its message, 1003 a stop whose 60-second deadline expired. Any interactive user can write entries under any source, so these entries are diagnostics, not evidence. When no entry matches, `Get-WinEvent` says so with an error, as it does when the source is not registered, before the setup's MSI has run. An uninstallation removes the source: Windows keeps the entries without their message text, and this command, which names the source, then answers with an error.
 
 The agent's log, `C:\ProgramData\CyberGuard\agent\logs\agent.jsonl`, is one JSON object per line, whose `fields` hold the event's `message` and values. Elevated Administrators can read it:
 
@@ -602,7 +604,7 @@ The setup installs the agent's executable as `C:\Program Files\CyberGuard\Agent\
 - `identity\`, the agent's certificate, its private key, sealed with DPAPI to the machine, and its identity, which SYSTEM alone can open: an administrator who takes ownership of it, or changes its DACL, makes the service refuse it at its next start (code 5);
 - `logs\`, the agent's log, which SYSTEM writes and elevated Administrators read.
 
-After it enrolls, the agent removes the token from `agent.toml`, as a best-effort rewrite: if that fails, its log has a warning, and the token, already used, stays in the protected file. A token that the service never took, because a setup failed or was cancelled after it staged the configuration, stays in `agent.toml.setup`, readable by SYSTEM and Administrators alone, until a later setup that passes its checks, other than a migration, removes it; a backup or a shadow copy of the volume may keep it.
+After it enrolls, the agent removes the token from `agent.toml`, as a best-effort rewrite: if that fails, its log has a warning, and the token, already used, stays in the protected file. A token that the service never took, because a setup failed or was cancelled after it staged the configuration, stays in `agent.toml.setup`, readable by SYSTEM and Administrators alone, until a later setup that passes its checks, other than a migration, removes it, or the purge does; a default uninstallation keeps it ([Remove the agent from an endpoint](#remove-the-agent-from-an-endpoint)), and a backup or a shadow copy of the volume may keep it.
 
 ### The agent's exit codes
 
@@ -623,11 +625,155 @@ Before it exits with a code other than 0, the agent gives a message that begins 
 | 10 | Another CyberGuard agent is already running on this host; this instance exits before enrolling and stops no ETW session. | `cg-agent: another CyberGuard agent instance is running on this host` |
 | 11 | `--service` was given, but the Windows service control manager did not start the agent. It runs nothing else and reads no configuration. | `cg-agent: --service requires a start by the Windows service control manager` |
 | 12 | The service only: its stop did not end within its 60-second deadline. Application-log entry 1003 names the work still pending and counts the events not delivered. | The service writes no standard error; see below. |
-| 13 | The service only: its log file, `%ProgramData%\CyberGuard\agent\logs\agent.jsonl`, cannot be opened at startup, for instance because a directory on its path is not owned by SYSTEM or Administrators or lets another user in, which the service checks for `%ProgramData%\CyberGuard` and `CyberGuard\agent` before it reads its configuration (an administrator removes that directory, after keeping what it holds, and recreates the directory and its files, owned by SYSTEM with their protected DACLs, before starting the service again; when `CyberGuard\agent` holds `cert.pem`, `key.dat` or `identity.json` directly, it holds a console installation's identity: neither it nor `CyberGuard` is removed before SPEC-024's migration moves it, or, when the migration refuses it, before an administrator keeps its files aside); or, while it runs, a write to it fails again after the agent reopens the file, and the service stops. | `cg-agent: the service log cannot be written:` |
+| 13 | The service only: its log file, `%ProgramData%\CyberGuard\agent\logs\agent.jsonl`, cannot be opened at startup, for instance because a directory on its path is not owned by SYSTEM or Administrators or lets another user in, which the service checks for `%ProgramData%\CyberGuard` and `CyberGuard\agent` before it reads its configuration (its repair, which must not follow a junction planted in that directory nor take ownership of the agent's `identity`, is not in this document yet, as the setup's 27 says; when `CyberGuard\agent` holds `cert.pem`, `key.dat` or `identity.json` directly, it holds a console installation's identity: neither it nor `CyberGuard` is removed before SPEC-024's migration moves it, or, when the migration refuses it, before an administrator keeps its files aside); or, while it runs, a write to it fails again after the agent reopens the file, and the service stops. | `cg-agent: the service log cannot be written:` |
+| 14 | The service only, a purge start: the host's state is untrusted, a migration is in progress, or a console installation is there. Nothing was removed. | `cg-agent: the purge refuses this host:` |
+| 15 | The service only, a purge start: it left a name it does not remove, one it removes found in another form (another owner, a second link, a reparse point), or one Windows refused to delete; its 120 seconds ran out; or it ended abnormally. The message names what it left, at most 20 names and then their number; an abnormal end's names nothing. | `cg-agent: the purge left` or `cg-agent: the purge ended abnormally` |
 
 A start of the service that migrates a console installation (SPEC-024's Amendment 2026-11-05) reports through the same codes: 2 for start arguments it refuses (`cg-agent: invalid migration arguments:`) or a console configuration it cannot migrate; 5 for a console installation it refuses or a migration it cannot finish; 6 for a trust anchor whose certificates are not exactly those of the fingerprints given (`cg-agent: tls: client configuration failed: migration:`); 13 for a directory it cannot close. From the instance lock on, a refusal says where the console installation is and, before the commit, what the migration restricted of it.
 
+A purge start, the service started with the single argument `--purge` by the purge ([The purge](#the-purge), SPEC-024 Amendment 2026-11-15), reads no configuration and never reports `RUNNING`. It stops with 0 once it has removed every name it removes, with entry 1001 `cg-agent: the purge removed the product's data and left nothing`; with 2 when `--purge` is given with another argument (`cg-agent: invalid purge arguments:`) or `--config` is not the agent's, as above; with 10 or 1 for the instance lock, and 1 for another runtime error, as above; with 13 when `%ProgramData%\CyberGuard` or `CyberGuard\agent` fails its check (`cg-agent: the purge's directories fail their check:`); and with 14 or 15. It gives 1, 2, 10, 13 and 14 before it removes anything. The service control manager restarts none of these. A purge process that dies is restarted without arguments, as any agent whose process dies: before the purge has removed `agent.toml`, that start runs the agent as before the purge, and after it, it stops with code 2.
+
 Run as the Windows service (`--service`), the agent writes nothing to standard error. The service control manager's status carries the code: `STOPPED` with Win32 exit code 0 after a clean stop, otherwise 1066 (`ERROR_SERVICE_SPECIFIC_ERROR`) with the code above as the service-specific exit code (`sc.exe query <service>` shows both). The Application log carries the message, under the source `CyberGuardAgent`: entry 1000 when the service runs, with its version; 1001 after a clean stop; 1002 after a failure, with its code and message; 1003 when the stop deadline expired. A configuration error's entry names the file, and the line and column of a TOML error, but quotes no line of it. In service mode a `--config` that is not an absolute path is code 2 (`cg-agent: invalid config: --config must be an absolute path in service mode`). The service runs the secure path alone, at fixed paths under `%ProgramData%` (SPEC-024 Amendment 2026-11-04): `--config` must be `%ProgramData%\CyberGuard\agent\agent.toml`; in it, `server.trust_anchor_path` must be `%ProgramData%\CyberGuard\agent\server-ca.pem` and `cert_path`, `key_path` and `identity_path` of `[enrollment]` must be `cert.pem`, `key.dat` and `identity.json` in `%ProgramData%\CyberGuard\agent\identity\`, each spelled exactly so but for the case of ASCII letters (`<key> must be <path> in service mode`), and `server.heartbeat_url` must be set (`the service requires server.heartbeat_url`); a configuration without `[enrollment]` and `server.trust_anchor_path` is code 2 too. Before it reads `agent.toml`, the service checks `%ProgramData%\CyberGuard` and `CyberGuard\agent` as its log's directories (code 13 above), then `agent.toml` itself: owned by SYSTEM, with a protected DACL that gives access to SYSTEM and Administrators alone, a regular file with one link, not a reparse point; otherwise code 2 (`cg-agent: invalid config <file>: <reason>`). An editor that replaces `agent.toml` with a new file, rather than rewriting it, gives it another owner and DACL, and the next start refuses it; one that holds it open for writing while the service starts makes that start fail with code 2 too. After it reports `RUNNING`, it checks `server-ca.pem` the same way (code 6, `cg-agent: tls: client configuration failed: <reason>`), then `identity\` and its files, which only SYSTEM may access (code 5, `cg-agent: identity error: <reason>`). An `identity\` directory without all three of its files, an empty one included, is code 5 (`cg-agent: identity error: incomplete identity`), with the repair: restore the identity, or remove the directory and enroll with a new token; so is one whose certificate is not for its key or names another agent (`inconsistent identity`): the service neither enrolls again nor overwrites what is there. A certificate in the server's enrollment answer for another key or agent is code 3 (`malformed response`), and nothing is written. The service writes the identity with SYSTEM alone allowed from the moment each file is created, and its removal of the token from `agent.toml` keeps the file's owner and DACL. If the stop deadline expires before the agent can count what it lost, entry 1003 says the count is unknown. The service's log is JSON lines, one record per line: `agent.jsonl` and at most five archives, `agent.1.jsonl` (the newest) to `agent.5.jsonl`, each at most 10 MiB, so at most 60 MiB in all; the oldest is deleted when the active file rotates. A record of 64 KiB or more, its newline included, is replaced by a line that says so. If another process holds the active file open without sharing its deletion (an editor, a tail), the file cannot rotate: the service writes on in it past 10 MiB and tries again each second, and stops with code 13 only if rotation still fails after 60 seconds. Only SYSTEM writes these files and only elevated Administrators read them.
+
+## Remove the agent from an endpoint
+
+The agent's setup removes what it installed in one of two ways, each an uninstallation of the setup run from an elevated Windows PowerShell (SPEC-024 §Operational §4, Amendments 2026-11-15 and 2026-11-16):
+
+- the **default uninstallation** removes the service and the agent's executable, and keeps the agent's data, its identity included, for a later installation;
+- the **purge**, an uninstallation with `CG_PURGE=yes`, first removes the agent's data on the endpoint, then the service and the executable.
+
+Neither removes anything from the server: the agent stays there with the events it sent, and its certificate is not revoked. Like the installation's, these endpoint steps have not yet been run on an endpoint (SPEC-024 install_ac_016).
+
+### The setup to uninstall with
+
+Uninstall with the setup of the version installed, whose version and SHA-256 the installation's change record holds ([Record the endpoint's audit and dump settings](#record-the-endpoints-audit-and-dump-settings)), from the inputs' directory, where only an administrator can replace it. Open Windows PowerShell with *Run as administrator* and confirm with `net session` that it is elevated, as [On the endpoint: install and run the agent](#on-the-endpoint-install-and-run-the-agent) does; a setup started without elevation copies its engine where the starting user's other processes can reach it. Then, with `$dir` that directory:
+
+<!-- deploy_ac_021: endpoint-removal-setup -->
+
+```powershell
+$dir = 'C:\CyberGuardSetup'
+(Get-FileHash -Algorithm SHA256 "$dir\cyberguard-agent-<version>-x64-setup.exe").Hash -eq '<its SHA-256 in SHA256SUMS>'
+```
+
+It prints `True`. Stop if it prints `False`. When the directory or the setup is gone, create the directory, copy that version's setup into it and check it, as [A directory for the setup and its inputs](#a-directory-for-the-setup-and-its-inputs) does; the uninstallation needs neither the trust anchor nor a bootstrap file. The setup of another version is not the one installed: do not uninstall with it. The entry *CyberGuard Agent* of Windows' installed programs runs the default uninstallation, and never purges; started from it, the setup may run unelevated until its elevation prompt, as from Explorer, with the residual the installation's command avoids (not read), so this document uses the command.
+
+### The default uninstallation
+
+<!-- deploy_ac_021: endpoint-uninstall -->
+
+```powershell
+$log = "$dir\uninstall-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+$run = Start-Process -FilePath "$dir\cyberguard-agent-<version>-x64-setup.exe" -ArgumentList '-uninstall', '-quiet', '-norestart', '-log', $log -Wait -PassThru
+$run.ExitCode
+```
+
+The setup runs its `Purge` step first, which without `CG_PURGE=yes` checks the platform and the elevation (20, 21), then reads nothing and exits 0. Then Windows Installer stops the service, which ends its capture, tries once to send a last heartbeat and ends within 60 seconds ([The agent's service](#the-agents-service)), and removes the service, the agent's executable with the folders it installed it in, and the Application log's source; then the setup removes its own registration among the installed programs and its copies in Windows' package cache. 0 is the agent uninstalled; [The uninstallation's result](#the-uninstallations-result) gives the other codes.
+
+It keeps `C:\ProgramData\CyberGuard` and what the agent wrote in it, with the owner and DACL each object had:
+
+- in `agent`, `agent.toml` and `server-ca.pem`: on an endpoint whose agent never enrolled, or whose removal of the token after its enrollment failed, `agent.toml` holds the token;
+- `agent\identity`, the agent's certificate, its private key and its identity;
+- `agent\logs`, the agent's log;
+- in `agent`, `agent.toml.setup` with the token it holds, `server-ca.pem.setup` and `setup-attempt.json`, when a setup staged a configuration the service never took, and the temporary files a crash may leave, `agent.toml.hygiene-tmp` and `migration.json.rewrite-tmp`;
+- on an endpoint migrated from a console installation, the migration's record, `agent\migration.json`, and `agent.legacy`, the console installation's data, when the migration kept it.
+
+The inputs' directory, with what it holds (delete `bootstrap.toml` if it is still there), Burn's logs and the Application log's entries stay too. A later setup of the same version or a later one, run as [Install with a bootstrap file](#install-with-a-bootstrap-file) runs it but without `CG_BOOTSTRAP`, finds that data: on an enrolled endpoint the agent loads the same identity and reports again as the same agent, with no token (SPEC-024 install_ac_012); on one with an `agent.toml` and no identity, whose agent never enrolled, it takes that configuration, whose token may have expired meanwhile (42). An endpoint with only `agent.toml.setup` has no configuration: a later setup needs a bootstrap file or the wizard (22 without).
+
+### The purge
+
+<!-- deploy_ac_021: endpoint-purge -->
+
+```powershell
+$log = "$dir\purge-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+$run = Start-Process -FilePath "$dir\cyberguard-agent-<version>-x64-setup.exe" -ArgumentList '-uninstall', 'CG_PURGE=yes', '-quiet', '-norestart', '-log', $log -Wait -PassThru
+$run.ExitCode
+```
+
+`CG_PURGE=yes`, in lowercase, is the request, and only the command that carries it purges: the setup does not keep it. An empty `CG_PURGE` purges nothing, and any other value is refused (40) before anything changes. The installed programs' entry, a repair, an installation and an upgrade never purge, and the setup's window offers no purge: run without `-quiet`, the setup purges only with `CG_PURGE=yes` on its command line. Nor, by the setup's contract, does an uninstallation with `-unsafeuninstall`, which has not been run and which this document does not use. Keep `$log` out of `C:\ProgramData\CyberGuard`, and close any window or shell whose current directory is in it: a file there, or a directory held open, keeps the directory, and the purge ends with 47.
+
+The purge runs only while the setup is installed: on an endpoint where it is not, the command has no `Purge` step to run, and what it exits with is not tested ([An endpoint uninstalled without the purge](#an-endpoint-uninstalled-without-the-purge)). After the purge's command, whatever it exits with, check the endpoint:
+
+<!-- deploy_ac_021: endpoint-purge-check -->
+
+```powershell
+Test-Path -LiteralPath "$env:ProgramData\CyberGuard"
+sc.exe query CyberGuardAgent
+```
+
+After a purge that exited 0 or 3010, `Test-Path` prints `False`, and `sc.exe` answers that the service does not exist (1060, in Windows' language); a program that holds the service open, such as the Services console, can delay its deletion until it closes. Anything else is not a completed purge: read the code below.
+
+The setup's `Purge` step, before Windows Installer's uninstallation:
+
+1. exits 0 at once when `C:\ProgramData\CyberGuard` does not exist;
+2. reads the endpoint's state as the installation's checks do, and refuses an untrusted directory (27), and a console installation or an interrupted migration (28), before it touches the service;
+3. refuses a service `CyberGuardAgent` that is not the agent's (26); with no such service it removes nothing (46), since only the agent's service, which runs as SYSTEM, can reach the identity, which SYSTEM alone can open;
+4. stops the service, proved stopped within 75 seconds (31 otherwise);
+5. starts the service with the single argument `--purge`, and waits up to 300 seconds for it to stop.
+
+The service's purge start takes the instance lock, checks `C:\ProgramData\CyberGuard` and its `agent` directory as every start of the service does, without following a reparse point, and refuses an untrusted state, an interrupted migration or a console installation (14). Then, as SYSTEM, it removes the names below, and no others ([The agent's exit codes](#the-agents-exit-codes) gives its codes). Once it has stopped with 0, Windows Installer removes the service and the executable, as in the default uninstallation, and the setup its registration and its cache.
+
+#### What the purge removes
+
+It works only in `C:\ProgramData\CyberGuard` and, in it, `agent`, `agent\identity`, `agent\logs` and `agent.legacy`, each when it is a directory, not a reparse point, owned by SYSTEM or Administrators and open to them alone, `agent.legacy` owned by SYSTEM with a protected DACL. It removes these names, compared without regard to the case of ASCII letters, and no others:
+
+- in `agent`: `agent.toml.setup`, `agent.toml`, `agent.toml.hygiene-tmp`, `server-ca.pem`, `server-ca.pem.setup`, `setup-attempt.json`, `migration.json` and `migration.json.rewrite-tmp`;
+- in `agent\identity`: `cert.pem`, `key.dat` and `identity.json`;
+- in `agent\logs`: `agent.jsonl`, `agent.1.jsonl` to `agent.5.jsonl` and `agent.rotating.jsonl`;
+- in `agent.legacy`, the console installation's data a migration kept: `agent.toml`, `server-ca.pem`, `cert.pem`, `key.dat`, `identity.json` and `agent.toml.hygiene-tmp`;
+- then the five directories, each once it is empty.
+
+It opens each file without following a reparse point and deletes it only as a regular file with one link, owned by SYSTEM or Administrators. It reads no path from the configuration. It removes the configuration first, `agent.toml.setup` before `agent.toml`, then `agent.legacy`, then the identity, each step only once the one before it left nothing, so that it never leaves a configuration without its identity; then the rest, going on past what it leaves. It leaves, never followed, any other name, any other directory, a reparse point such as a junction or a symbolic link, a listed name that is not what the list allows (a file with another link or another owner, a directory that fails the check above), and a file Windows refuses to delete, and stops with code 15, whose message names them. It begins no removal 120 seconds after it took the lock. Run again, the same command goes on from what is left, and finds nothing to remove once nothing is left.
+
+#### What the purge is not
+
+- It removes the endpoint's identity, configuration, token and logs, and the migration's record, which names the account that enrolled a console installation. It does not revoke the agent's certificate, remove the agent or its events from the server, or erase securely: a backup or a shadow copy of the volume, the page file, a dump, an antivirus quarantine, a file that a hard link made elsewhere, and what an ordinary user read before (R1 of the [threat model](../security/threat-model.md)) keep what they hold.
+- A purged endpoint is a new one: a later setup needs a bootstrap file with a new token, or the wizard (22 without input), and enrolls a new agent. The old agent stays on the server, which has no command that removes it yet (R5).
+- By the levers the threat model names, entries made before the directories' protection, on a migrated endpoint or while `C:\ProgramData\CyberGuard` is absent, file transactions and handles held open, an ordinary user can make a purge leave names (47) or refuse it (27, 28 or 46). Its entry 1002 names what it left, and the purge goes on once an administrator has removed it; that removal is not in this document yet.
+- An elevated administrator can also run `cg-setup.exe purge --confirm=yes`, or start the service with `--purge`, outside the setup. This document does neither: when it ends 0, each leaves the agent installed with its data removed, and the service's next start stops with code 2, or 13 once an ordinary user has created `C:\ProgramData\CyberGuard`.
+- Closing the setup's window while the `Purge` step runs cancels the uninstallation (1602), but the purge goes on, for up to 75 seconds of the stop and 300 of the purge start: the agent stays installed with what the purge left. A purge that ends 0 before an uninstallation by Windows Installer that fails leaves the same: the agent installed, its data removed, the service's next start code 2. Either way, wait until no `cg-setup.exe` process runs and `sc.exe query CyberGuardAgent` shows the service at `4 RUNNING` or stopped with a code other than a process that died (1067, which the service control manager follows with a restart), then run the purge's command again to finish.
+- With `C:\ProgramData\CyberGuard` gone and the agent still installed, an ordinary user can create that directory first; a later setup or purge then refuses it (27 or 28).
+- What it leaves outside `C:\ProgramData\CyberGuard`: the inputs' directory, Burn's logs and the Application log's entries, and a console installation's executable that a migration left outside `C:\ProgramData`, which holds no secret. A trace session an earlier crash of the agent left stays until the computer restarts.
+
+#### An endpoint uninstalled without the purge
+
+No agent's service is left to run the purge. Run a setup of the same version or a later one again: on an endpoint with an `agent.toml`, enrolled or not, without `CG_BOOTSTRAP`; on one with no configuration, with a bootstrap file or the wizard. That setup runs the agent, which captures and reports until the purge, and may enroll it, with the configuration's token or the bootstrap file's, only for the purge to remove it locally: that agent stays on the server too. When the agent's certificate has expired, that setup ends 42 or 44. Then run the purge, with the setup of the version just installed.
+
+### The window without events
+
+From the service's stop until a later setup's service runs, the endpoint captures nothing: no process start or logon of that time reaches the server, then or later. The agent keeps no events on disk: those it holds in memory and has not delivered when its stop ends, at most 60 seconds after it began, are lost; its entry 1001 counts them (`events not delivered`), or 1003 when its stop's deadline expired, which can be read until an uninstallation removes the source. Every maintenance that stops the service opens this window: an uninstallation, a purge, the setup run again, an upgrade.
+
+### The uninstallation's result
+
+The setup's exit code is the result; the second column is the code as Burn's log writes it. 26, 27, 28, 31, 46 and 47 come from the purge alone, and 40 from the purge or a `CG_PURGE` other than `yes`: without one of them, the `Purge` step reads nothing.
+
+| Code | Hexadecimal | What happened | The endpoint after it | Retry |
+|---|---|---|---|---|
+| 0 | `0x0` | Uninstalled: by default, the agent's data kept; with `CG_PURGE=yes`, the data removed, which the purge's check above confirms. | As above. | None. |
+| 3010 | `0xbc2` | As 0, and Windows Installer asked for a restart, which `-norestart` held. | As 0; the MSI's log gives why. | Restart the computer when convenient. |
+| 3017 | `0xbc9` | The run failed, and Windows Installer asked for a restart. | As the failed step's code gives it (below). | That code's, after a restart. |
+| 1602 | `0x642` | Cancelled: the elevation prompt was declined, or the setup's window was closed. | Declined: unchanged. Closed while the `Purge` step ran: the purge goes on, and the agent stays installed with what it leaves. Closed during Windows Installer's uninstallation: rolled back, the agent installed, without its data after a purge that ended 0. | As [What the purge is not](#what-the-purge-is-not) says: wait for the purge to end, then run the same command again. |
+| 1603, or another Windows Installer code | `0x643` for 1603; another code, its own | Windows Installer's uninstallation failed, and its changes were rolled back. | Installed; after a purge that ended 0, without its data, the service's next start code 2. | Read the MSI's log, correct its cause, run the same command again. |
+| 20 | `0x14` | As the installation's 20: the setup runs emulated on a machine that is not x64, a compatibility mode is applied to it, or Windows 10 is below build 17763. | Installed, unchanged. | Run it with no compatibility mode. |
+| 21 | `0x15` | The setup's code ran unelevated. | Installed, unchanged. | An elevated PowerShell. |
+| 26 | `0x1a` | The purge: a service `CyberGuardAgent` whose configuration cannot be read, or that is not the agent's. | Installed; the data and the service untouched. | As the installation's 26 ([The setup's result](#the-setups-result)). |
+| 27 | `0x1b` | The purge: `C:\ProgramData\CyberGuard` or its `agent` directory is a reparse point or not a directory, is owned by another account than SYSTEM or Administrators, or gives access to another account; its names cannot be read; or the state they make is untrusted, such as `agent.legacy` beside an `agent` with no `identity`. | Installed; the data and the service untouched. | Find what changed it, and keep what it holds: its repair, or its removal, is not in this document yet, as the installation's 27 says ([The setup's result](#the-setups-result)). |
+| 28 | `0x1c` | The purge: a console installation of the agent, or its interrupted migration, is on the endpoint. | Installed; the data and the service untouched. | The migration of SPEC-024's Amendment 2026-11-05, which this document does not give yet. |
+| 31 | `0x1f` | The purge: the service was not proved stopped within 75 seconds of the setup's request: still running, starting or stopping, or its state or the stop request failing. | Installed, its data kept; the service may be left stopped. | Find why it does not stop (`sc.exe query CyberGuardAgent`, the Application log), then run the command again. |
+| 40 | `0x28` | `CG_PURGE` is neither empty nor `yes`; or the purge could not read Windows' folders, open the service control manager or read the service's state before its stop. | Installed; the data and the service as they were. | Correct the command, and run it again. |
+| 46 | `0x2e` | The purge removed nothing: the agent's service does not exist, the service control manager refused its purge start, or that start stopped with a code it gives before any removal (1, 2, 10, 13, 14). | Installed, its data kept. A service that was running is started again, and that start can fail: check it with `sc.exe query CyberGuardAgent`. | When the purge start stopped with a code, entry 1002 (below) gives it with its message: for 1 and 2, correct the cause it names; for 10, stop the other agent that runs; then run the command again. For 13 and 14, a directory or a state whose repair, as 27's and 28's, is not in this document yet. With no service, uninstall by default, then as [An endpoint uninstalled without the purge](#an-endpoint-uninstalled-without-the-purge) says; neither has been tested with the service deleted. A refused start: `sc.exe qc CyberGuardAgent`, as the installation's 41. |
+| 47 | `0x2f` | The purge may have removed some of the agent's data: its start stopped with 15 or another code, its process died, its state could not be read, or it had not stopped after 300 seconds. | Installed, the service left as it was: stopped after a code; still starting after the 300 seconds, its purge start beginning no removal after its own 120; after a process that died, started again without arguments after the failure actions' delay (60, 120 or 300 seconds), which runs the agent as before the purge while `agent.toml` is there, and stops with code 2 once it is not. | Check the service (`sc.exe query CyberGuardAgent`): a `1 STOPPED` whose Win32 exit code is 1067 is a process that died, which the service control manager starts again after that delay; wait for that start to end, at `4 RUNNING` or stopped with a code. After 15, entry 1002 names what the purge left. What it left is what it must not follow or remove: its removal, which must not follow a junction into its target nor take ownership of the identity, is not in this document yet. Once it is gone, run the same command again, which goes on from what is left. |
+
+A code that is not in the table is Burn's own or Windows Installer's: Burn's log gives the step it came from. A `Purge` step that cannot run, its copy in the package cache missing for instance, blocks every uninstallation, a default one included, until it can. When the `Purge` step fails, the uninstallation stops before Windows Installer's, with the setup, the MSI and the service installed. Burn's log then holds `Applied execute package: Purge, result: 0x8007002e` for 46, `0x8007002f` for 47, or the step's other code, and after it the step's rollback, `cg-setup.exe purge` with no option, which changes nothing ([Burn's log](#burns-log)).
+
+After 46 or 47 the agent is still installed. `cg-setup`'s own line, which names the cause, reaches no log under the setup; when the service's purge start stopped with a code, its entry 1002 gives it:
+
+<!-- deploy_ac_021: endpoint-purge-events -->
+
+```powershell
+Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'CyberGuardAgent'; Id = 1001, 1002 } -MaxEvents 5 | Format-List TimeCreated, Id, Message
+```
+
+Entry 1002 reads `cg-agent: the service stopped with code <code>:` followed by the purge start's message ([The agent's exit codes](#the-agents-exit-codes)), for 15 the names it left; compare its time with the purge's, since an earlier stop writes the same entry. An abnormal end's names nothing: the purge run again names what remains. A missing service, a refused start, a process that died, an unreadable state and the 300 seconds write no entry of the purge's. Burn's log holds the step's arguments, `--confirm="yes"` among them, and its exit code. These records are the purge's: diagnostics, not evidence, kept on the endpoint and sent to no server. The purge removes the agent's own log, and once the uninstallation has removed the source, Windows keeps the entries without their message text, and this command, which names the source, answers with an error.
 
 ## Later users
 

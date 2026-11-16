@@ -8,7 +8,7 @@ Read them at the tag of the release being installed, `v<version>`: the bundle's 
 
 | Document | What it covers |
 |---|---|
-| [install.md](install.md) | The server from the published bundle, its first admin, the forensic key's fingerprint recorded outside CyberGuard, and the first agent on a Windows endpoint. |
+| [install.md](install.md) | The server from the published bundle, its first admin, the forensic key's fingerprint recorded outside CyberGuard, the first agent on a Windows endpoint, and the agent's removal from an endpoint: the default uninstallation, which keeps its data, and the purge, which removes it there. |
 | [configuration.md](configuration.md) | The bundle variables of `.env` with their defaults, the service variables the compose sets from them, the start-up checks that refuse a malformed value, and the project name. |
 | [backup-and-restore.md](backup-and-restore.md) | `backup.sh`, which writes two encrypted files into `CG_BACKUP_DIR`, and `restore.sh`, which restores them into a stack whose stores are empty, with the backed-up installation's `.env`. |
 | [upgrade.md](upgrade.md) | Moving an installation to a newer bundle: `setup.sh` adds the variables the newer bundle brings, and the operator stops ingest and the api before the one-shots run. |
