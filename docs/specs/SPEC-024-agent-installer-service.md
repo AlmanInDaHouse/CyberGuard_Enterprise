@@ -3366,6 +3366,66 @@ the installation's rollback ("Acción de Burn (Recomendado)"); his approval of t
 rest. He approved this text, at `fa09dc8`, on 2026-11-16, in chat: "Doy mi OK y mi sí". Status stays
 **Accepted**.
 
+## Amendment 2026-11-16 (second): a protected DACL is the DACL as stored
+
+**What surfaced it.** Debt #163 (`docs/handoff-session-74.md#debts`): a directory created with an
+explicit DACL whose SDDL has no `P` passed `custody::check` against a policy that requires a
+protected DACL, while `GetFileSecurityW` renders its DACL without `P`. Session 76 read on the
+development host, unelevated (Windows 11, build 26200; its handoff, `docs/handoff-session-76.md`,
+records the readings), with a parent whose protected DACL holds two inheritable entries and
+children created with explicit DACLs:
+
+- A directory or file created with an explicit DACL without `P` is stored without
+  `SE_DACL_PROTECTED`, and without `SE_DACL_AUTO_INHERITED` even when its SDDL has `AI`.
+- `GetSecurityInfo`, which the check called through the checked handle, and
+  `GetNamedSecurityInfoW` do not return that stored control: they recompute a DACL not stored
+  auto-inherited against the parent's DACL at the time of the reading. When one of the parent's
+  inheritable entries is not in the child's DACL, they report the DACL protected; when all are,
+  they report those entries inherited and the DACL not protected.
+- A change to the parent's DACL that propagates (`SetNamedSecurityInfoW`, `icacls /grant`) wrote
+  `D:PAI` into a child of the first kind, and replaced a child of the second kind's entries with
+  the parent's new inheritable ones, a new entry for Everyone included.
+
+The check therefore passed, under the configuration's and the identity's policies, an object whose
+stored DACL is not protected, and its verdict on the same object depended on the parent's DACL when
+it read it.
+
+**Amendment.**
+
+1. **The reading.** Wherever this SPEC requires a protected DACL, among them the Amendment
+   2026-11-04, item 3's `agent.toml`, `server-ca.pem`, `identity\` and its files; `migration.json`
+   and the staging and legacy directories, under `agent.toml`'s policy (the Amendment 2026-11-05,
+   items 2 to 4, and the Amendment 2026-11-15, point 5); and the staged files and the setup's
+   record of the Amendments 2026-11-09 and 2026-11-10, it is the DACL as the file system stores
+   it: the descriptor read through the checked handle (`GetKernelObjectSecurity`) carries
+   `SE_DACL_PROTECTED`. Every check of an owner or of allow entries, under a policy that requires
+   protection or not, reads them from that stored descriptor, and the replacement of the Amendment
+   2026-11-04, item 6, copies it. An object whose stored DACL is not protected fails such a policy
+   as a DACL that is not protected does, with whatever outcome that check gives, whatever its
+   parent's DACL.
+2. **What changes verdict.** Everything the product writes under such a policy is created with an
+   SDDL that has `P`, set with `PROTECTED_DACL_SECURITY_INFORMATION`, or, for the replacement,
+   created with the stored descriptor its original passed with, so none of it changes verdict. The
+   stored owner and allow entries name the same accounts, with the same masks, as the reported
+   ones (read), so no check of an owner or an entry changes verdict either. An object an
+   administrator gave an explicit DACL without protection, which passed before, is now refused;
+   `icacls <path> /inheritance:r` stores it protected (read), keeping its explicit entries.
+
+**Tests.** `install_ac_004_a_dacl_stored_unprotected_is_refused`: under a parent whose protected
+DACL holds an inheritable entry the child lacks, a directory and a file created with explicit DACLs
+without `P` (stored unprotected, which `GetNamedSecurityInfoW` reports protected) are refused by
+the check, and the file by the read and the replacement too, unchanged; a directory created with
+`P` under that parent passes.
+`install_ac_005_the_replacement_keeps_owner_and_dacl` reads the replacement stored protected.
+
+**Effect.** No policy changes: who may own or be allowed on each object, and which objects are
+checked, stay as the amendments above state them. The Amendment 2026-11-04, item 3's "a protected
+DACL" reads as point 1 says, and so does every other requirement of a protected DACL in this SPEC.
+The threat model is not changed: no entry relies on the reported reading. No ADR changes, and no
+dependency or privilege is added. Taken by Claude Code under *Decision authority* (the design
+inside the accepted ADRs, nothing of Manuel's list), as the destination of debt #163 asks before
+the fix that narrows the check. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
