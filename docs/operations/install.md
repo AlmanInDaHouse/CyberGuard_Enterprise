@@ -1,10 +1,10 @@
 # Installing CyberGuard
 
-This document installs CyberGuard Enterprise on one Linux host from the bundle a release publishes, creates its first admin, and enrolls a first agent on a Windows endpoint (SPEC-023, ADR-0022). `<version>` is the release's version, whose tag is `v<version>`.
+This document installs CyberGuard Enterprise on one Linux host from the bundle a release publishes, creates its first admin, and installs a first agent on a Windows endpoint with the agent's setup (SPEC-023, SPEC-024, ADR-0022). `<version>` is the release's version, whose tag is `v<version>`.
 
 Each command on the server runs as root in the bundle's directory unless its step says otherwise. The bundle's `.env` is mode `0600` and owned by root, and `docker compose` reads it there, so `docker compose` runs as root too.
 
-Until the agent's installer lands, the agent is installed and run by hand from an elevated PowerShell, and it does not survive a reboot (SPEC-023 Â§Scope).
+On the endpoint the setup installs the agent as the Windows service `CyberGuardAgent`, which runs as LocalSystem and starts with Windows. An endpoint where an earlier version of this document installed the agent by hand, its files directly in `C:\ProgramData\CyberGuard\agent`, holds a console installation: the setup refuses it (code 28, or 27 when the agent never enrolled there) unless its migration is asked for (SPEC-024 Amendment 2026-11-05), a procedure this document does not give yet. Until it is migrated, its private key, `key.dat`, sealed with DPAPI at the machine's scope, can be read and decrypted by any process of the account that enrolled it, unelevated ones included (R1 of the [threat model](../security/threat-model.md)); and nothing in CyberGuard set the permissions of that directory, of `server-ca.pem` or of `agent.toml`, so an account that can write there can replace the trust anchor or the configuration, and one that can read `agent.toml` could read its token until the agent removed it.
 
 ## Before you start
 
@@ -53,25 +53,29 @@ The api, the dashboard's own port and the three stores are on the stack's intern
 
 ### The Windows endpoint
 
-- 64-bit Windows. The agent has been run on Windows 11; Windows 10 and Windows Server 2019 have not been tested.
-- An administrator's account: the agent runs elevated.
+- 64-bit Windows 10 version 1809 (build 17763) or later, or Windows Server 2019 or later: the setup refuses an earlier Windows 10 build (code 20), and does not run its code on a Windows before 10. The setup has been run by CI's tests on GitHub's hosted Windows Server runners, and the agent on Windows 11. Windows 10 and Windows Server 2019 have not been tested, and these endpoint steps have not yet been run on an endpoint (SPEC-024 install_ac_016).
+- An administrator's account, to run the setup elevated. The agent runs as the service, as LocalSystem.
 - A clock kept in time by NTP.
-- Logon auditing on in its audit policy: an endpoint whose policy does not log logons sends no logon events and reports no error (SPEC-020 Â§Risks).
+- Logon auditing on in its audit policy: an endpoint whose policy does not log logons sends no logon events and reports no error (SPEC-020 §Risks). The setup does not change it; [Record the endpoint's audit and dump settings](#record-the-endpoints-audit-and-dump-settings) reads it.
 - A route to `CG_ENROLL_PORT` and `CG_HEARTBEAT_PORT` on a name of `CG_AGENT_SERVER_NAMES`.
+- No `C:\ProgramData\CyberGuard` but the setup's: the setup creates it with its own protection, and refuses one that is owned by an account other than SYSTEM or Administrators or gives any access, reading included, to another account (code 27).
+- No `C:\Program Files\CyberGuard` that an account other than SYSTEM and Administrators can change: the setup does not check one that exists, which keeps its own security, and the agent's executable, which runs as LocalSystem, is installed in it (SPEC-024 Amendment 2026-11-12, point 3).
 
 ## Download the release
 
 From the release `v<version>` on the repository's releases page, `https://github.com/AlmanInDaHouse/CyberGuard_Enterprise/releases`, download into one directory of the server:
 
 - `cyberguard-deploy-<version>.tar.gz`, the bundle;
-- `cg-agent-<version>-x86_64-pc-windows-msvc.exe`, the agent;
+- `cyberguard-agent-<version>-x64-setup.exe`, the agent's setup, which installs it on the endpoint;
+- `cg-agent-<version>-x86_64-pc-windows-msvc.exe`, the agent's executable, which the setup carries: its line in `SHA256SUMS` is the digest the installed agent is checked against;
 - `SHA256SUMS`, the SHA-256 of the release's six payload assets, in `sha256sum`'s format.
 
 The release also carries `licences-<version>.md`, the licence report of its dependencies, with the
-notices and MS-RL's text of the WiX files the setup carries; the agent's setup,
-`cyberguard-agent-<version>-x64-setup.exe`, and its MSI, `cyberguard-agent-<version>-x64.msi`; and
+notices and MS-RL's text of the WiX files the setup carries; `cyberguard-agent-<version>-x64.msi`,
+the MSI the setup carries, published to be verified and not as a way to install: run on its own, it refuses to
+install (1603), and only the setup installs it with the agent's configuration and starts the service; and
 `wix-<release>-source.tar.gz`, the source of those WiX files and of the setup's own (SPEC-024
-Amendment 2026-11-14). The endpoint steps below still use the agent's executable.
+Amendment 2026-11-14).
 
 ### Verify the files
 
@@ -82,12 +86,13 @@ In the directory the files were downloaded to:
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
 gh attestation verify cyberguard-deploy-<version>.tar.gz --repo AlmanInDaHouse/CyberGuard_Enterprise
+gh attestation verify cyberguard-agent-<version>-x64-setup.exe --repo AlmanInDaHouse/CyberGuard_Enterprise
 gh attestation verify cg-agent-<version>-x86_64-pc-windows-msvc.exe --repo AlmanInDaHouse/CyberGuard_Enterprise
 ```
 
-`sha256sum` prints `OK` beside each file it checks, and skips those of `SHA256SUMS` that were not downloaded. `gh attestation verify` checks the build-provenance attestation the release's workflow made for the file. Stop if any check fails.
+`sha256sum` prints `OK` beside each file it checks, and skips those of `SHA256SUMS` that were not downloaded. `gh attestation verify` checks the build-provenance attestation the release's workflow made for the file: the executable's ties its line in `SHA256SUMS`, which is not attested itself, to the release's build. Stop if any check fails.
 
-The agent's executable is not code-signed, so Windows SmartScreen may warn when it first runs: its integrity rests on these checks and on the one the endpoint makes before it copies the executable (ADR-0022 Open question 1). The bundle's compose names each image by its digest.
+Neither the setup nor the agent's executable is code-signed (ADR-0022 Open question 1): Windows SmartScreen may warn when the setup starts, and its elevation prompt names no verified publisher. Their integrity rests on these checks and on the ones the endpoint makes, before it runs the setup and after it; a checksum alone authenticates no publisher. The bundle's compose names each image by its digest.
 
 ### Unpack the bundle
 
@@ -171,13 +176,13 @@ setup.sh: filled: CG_PG_SUPERUSER_PASSWORD CG_PG_INGEST_OWNER_PASSWORD CG_PG_ING
 
 While a hostname is empty, or `provided` mode lacks a TLS file, it changes nothing, names what is missing (for instance `setup.sh: missing: tls/dashboard.crt tls/dashboard.key`) and exits with status 1. Once the secrets are filled, a further run changes nothing and prints `setup.sh: nothing to fill`. When you replace `tls/dashboard.key` later, run `sh setup.sh` again, which gives the new key to the proxy's user ([configuration](configuration.md)).
 
-Keep a copy of `.env` apart from the backups. It is the installation's master secret: it holds the keys to the CA, to the users' TOTP secrets and to the forensic key, which the database holds encrypted, and `CG_BACKUP_PASSPHRASE`, which the backups are encrypted under. Losing it with no copy loses the CA, the TOTP secrets and the forensic key (ADR-0022 Â§Consequences), and leaves every backup encrypted under a passphrase no one holds.
+Keep a copy of `.env` apart from the backups. It is the installation's master secret: it holds the keys to the CA, to the users' TOTP secrets and to the forensic key, which the database holds encrypted, and `CG_BACKUP_PASSPHRASE`, which the backups are encrypted under. Losing it with no copy loses the CA, the TOTP secrets and the forensic key (ADR-0022 §Consequences), and leaves every backup encrypted under a passphrase no one holds.
 
 ## Start the stack
 
 Two points come before the first start.
 
-- **Ingest's server certificate.** At its first start ingest issues its server certificate from its own CA, for the names of `CG_AGENT_SERVER_NAMES`, and it issues a new one at a start when the list has changed; the agents trust the CA, so they need no change. A pair another CA issued must be in the `ingest_certs` volume before ingest's first start (SPEC-023 Â§Operational Â§6), and the `docker compose up` below is that start. This document installs with ingest's own certificate, and gives no step that places another pair; [configuration](configuration.md) describes an operator-provided pair.
+- **Ingest's server certificate.** At its first start ingest issues its server certificate from its own CA, for the names of `CG_AGENT_SERVER_NAMES`, and it issues a new one at a start when the list has changed; the agents trust the CA, so they need no change. A pair another CA issued must be in the `ingest_certs` volume before ingest's first start (SPEC-023 §Operational §6), and the `docker compose up` below is that start. This document installs with ingest's own certificate, and gives no step that places another pair; [configuration](configuration.md) describes an operator-provided pair.
 - **The clients' addresses.** Before starting the stack, merge these settings
   into the rootful Linux daemon's `/etc/docker/daemon.json`, preserving its other
   settings. Arrange a maintenance window to restart Docker through the host's
@@ -285,9 +290,9 @@ docker compose exec -T ingest node dist/cli/export-ca.js
 docker compose exec -T ingest node dist/cli/export-ca.js > server-ca.pem
 ```
 
-The first command prints ingest's CA certificate, in PEM, and, last, its fingerprint: `sha256:` and the SHA-256 of the certificate's DER in lowercase hexadecimal, which lets you compare the file an agent holds with the server's CA. Record that fingerprint beside the forensic key's. The second writes the same output to `server-ca.pem`, the agent's trust anchor: the agent reads the certificate from the file and skips the `sha256:` line after it. When ingest has no CA yet, the command prints `cg-ingest export-ca: no CA yet: ingest generates it at its first start` on standard error and exits with status 1, and the second leaves `server-ca.pem` empty.
+The first command prints ingest's CA certificate, in PEM, and, last, its fingerprint: `sha256:` and the SHA-256 of the certificate's DER in lowercase hexadecimal, which lets you compare the file an agent holds with the server's CA. Record that `sha256:` line beside the forensic key's fingerprint, in the installation's change record: the endpoint's setup checks the trust anchor against it. The second writes the same output to `server-ca.pem`, the agent's trust anchor: the setup reads the certificate from the file and ignores the `sha256:` line after it, which is no check of the file. When ingest has no CA yet, the command prints `cg-ingest export-ca: no CA yet: ingest generates it at its first start` on standard error and exits with status 1, and the second leaves `server-ca.pem` empty, which the setup refuses (code 25).
 
-Issue the token last, just before the endpoint's steps:
+Issue the token last, once the endpoint is ready for it ([Install with a bootstrap file](#install-with-a-bootstrap-file), or the wizard):
 
 <!-- deploy_ac_021: token -->
 
@@ -295,11 +300,15 @@ Issue the token last, just before the endpoint's steps:
 docker compose exec -T ingest node dist/cli/issue-token.js
 ```
 
-It prints the token on standard output, and on standard error `cg-ingest: token issued for org 'default', expires <time>`. The token is single-use and valid for 15 minutes. It is a secret on your terminal: carry it to the endpoint by a channel you trust. A token that has expired or been used is refused, and the agent exits with code 3: issue another.
+It prints the token on standard output, and on standard error `cg-ingest: token issued for org 'default', expires <time>`. The token is single-use and valid for 15 minutes, within which the agent must enroll with it. It is a secret on your terminal: carry it to the endpoint by a channel you trust. A token that has expired or been used is refused at the agent's enrollment, whose service then stops with code 3, and the setup exits 42: issue another.
 
 ### On the endpoint: install and run the agent
 
-Open PowerShell with *Run as administrator*, and confirm that it is elevated:
+The setup, `cyberguard-agent-<version>-x64-setup.exe`, installs the agent and its service, writes the agent's configuration, starts the service and waits up to 60 seconds for the agent to enroll and for its first heartbeat to be acknowledged. It takes its inputs from a bootstrap file, with no window, or from its wizard, a dialog that asks for them; both are checked the same way, and neither puts the token on a command line, in the environment or in a log (SPEC-024 §Data contracts §3). The setup changes neither the endpoint's firewall, audit policy or antivirus settings nor Windows' trust store.
+
+Run it from an elevated PowerShell, as below. A setup started from Explorer, without elevation, copies its engine into the starting user's temporary folder before the elevation prompt, where that user's other processes can reach it; started elevated, it does not (SPEC-024 Amendment 2026-11-12 (second), point 10). A deployment tool that runs as SYSTEM runs the bootstrap file's command below, and reads its result as the exit codes of [The setup's result](#the-setups-result) give it.
+
+Open Windows PowerShell (`powershell.exe`, which every supported Windows includes) with *Run as administrator*, and confirm that it is elevated. The steps below use .NET Framework calls that create a directory and a file with their security, which PowerShell 7 does not have:
 
 <!-- deploy_ac_021: endpoint-elevation -->
 
@@ -309,104 +318,230 @@ net session
 
 An unelevated PowerShell answers it with access denied.
 
-Bring the verified `cg-agent-<version>-x86_64-pc-windows-msvc.exe` and `server-ca.pem` from the server to the endpoint. Before you install the executable, check it against its line in `SHA256SUMS`, where `<agent executable>` is its path on the endpoint:
+#### A directory for the setup and its inputs
 
-<!-- deploy_ac_021: endpoint-checksum -->
+The setup, the trust anchor and the bootstrap file, which holds the token, go in a new local directory that SYSTEM and Administrators alone can open, created with that protection before anything is put in it. This creates `C:\CyberGuardSetup`, owned by Administrators with a protected DACL for SYSTEM and Administrators, then prints its attributes, its owner and DACL, and the number of entries it holds:
+
+<!-- deploy_ac_021: endpoint-directory -->
 
 ```powershell
-(Get-FileHash -Algorithm SHA256 '<agent executable>').Hash -eq '<its SHA-256 in SHA256SUMS>'
+$dir = 'C:\CyberGuardSetup'
+$security = New-Object System.Security.AccessControl.DirectorySecurity
+$security.SetSecurityDescriptorSddlForm('O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+$null = [System.IO.Directory]::CreateDirectory($dir, $security)
+$item = Get-Item -Force $dir
+'{0} {1} {2}' -f $item.Attributes, $item.GetAccessControl().GetSecurityDescriptorSddlForm('Owner, Access'), @(Get-ChildItem -Force $dir).Count
 ```
 
-It prints `True` when the two match. Stop if it prints `False`.
+It prints `Directory O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA) 0`. Stop if it prints anything else: a `C:\CyberGuardSetup` that existed before keeps its own owner, DACL and entries, which `CreateDirectory` does not change. Remove it, or set `$dir` to another new path, without spaces, on a local volume, whose parent directories only administrators can change, in every step below. Keep the directory out of `C:\ProgramData\CyberGuard`, which the setup creates itself. Every step below runs in this PowerShell, whose `$dir` it uses.
 
-Copy the executable where only administrators can change it, and the trust anchor to the agent's directory, where `<server-ca.pem>` is the anchor's path on the endpoint:
+Bring the setup and `server-ca.pem`, verified on the server above, to the endpoint, and copy them into the directory, where `<setup>` and `<server-ca.pem>` are their paths on the endpoint:
 
 <!-- deploy_ac_021: endpoint-copy -->
 
 ```powershell
-New-Item -ItemType Directory -Force 'C:\Program Files\CyberGuard'
-New-Item -ItemType Directory -Force 'C:\ProgramData\CyberGuard\agent'
-Copy-Item '<agent executable>' 'C:\Program Files\CyberGuard\cg-agent.exe'
-Copy-Item '<server-ca.pem>' 'C:\ProgramData\CyberGuard\agent\server-ca.pem'
+Copy-Item '<setup>' "$dir\cyberguard-agent-<version>-x64-setup.exe"
+Copy-Item '<server-ca.pem>' "$dir\server-ca.pem"
 ```
 
-The agent's configuration needs an id that is a lowercase UUIDv7. `New-Guid` prints a version 4 UUID, which the agent refuses; this sets `$id` to a version 7 one and prints it:
+Then check the setup against its line in `SHA256SUMS`, in the directory, where only an administrator can replace it:
 
-<!-- deploy_ac_021: endpoint-uuid -->
+<!-- deploy_ac_021: endpoint-checksum -->
 
 ```powershell
-$ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$b = New-Object byte[] 16
-[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
-for ($i = 0; $i -lt 6; $i++) { $b[$i] = [byte](($ms -shr (8 * (5 - $i))) -band 0xff) }
-$b[6] = ($b[6] -band 0x0f) -bor 0x70
-$b[8] = ($b[8] -band 0x3f) -bor 0x80
-$h = -join ($b | ForEach-Object { $_.ToString('x2') })
-$id = '{0}-{1}-{2}-{3}-{4}' -f $h.Substring(0, 8), $h.Substring(8, 4), $h.Substring(12, 4), $h.Substring(16, 4), $h.Substring(20, 12)
-$id
+(Get-FileHash -Algorithm SHA256 "$dir\cyberguard-agent-<version>-x64-setup.exe").Hash -eq '<its SHA-256 in SHA256SUMS>'
 ```
 
-In the same PowerShell, write the configuration, with `<agent server name>` and `<token>` replaced:
+It prints `True` when the two match. Stop if it prints `False`.
 
-<!-- deploy_ac_021: endpoint-config -->
+#### The trust anchor's fingerprints
+
+The setup checks the certificates in `server-ca.pem` against a list of fingerprints, and refuses the file unless its distinct certificates are exactly those of the list (code 25). The list is the `sha256:` line recorded on the server from `export-ca.js`'s first command, taken from the installation's change record and not from the copy of `server-ca.pem`, whose last line is part of the file being checked. With an operator-provided pair for ingest ([configuration](configuration.md)), the anchor is the file of the CA that issued it, and the list holds one fingerprint for each distinct certificate in that file: `sha256:` and the SHA-256 of the certificate's DER in lowercase hexadecimal, obtained from its issuer apart from the file.
+
+#### Install with a bootstrap file
+
+The token is valid for 15 minutes from its issue, and the agent must enroll with it within them: issue it on the server now. In the same PowerShell, with `<agent server name>` replaced by a name of `CG_AGENT_SERVER_NAMES` and `<fingerprint>` by the recorded `sha256:` line, this reads the token without echo and writes `bootstrap.toml`, created new with owner Administrators and a protected DACL for SYSTEM and Administrators before the token is written into it:
+
+<!-- deploy_ac_021: endpoint-bootstrap -->
 
 ```powershell
 $server = '<agent server name>'
-$token = '<token>'
-$config = @"
+$fingerprint = '<fingerprint>'
+$token = Read-Host -AsSecureString -Prompt 'Enrollment token'
+$bootstrap = @"
 [server]
 url = "https://${server}:8444"
 heartbeat_url = "https://${server}:8443"
-trust_anchor_path = "C:/ProgramData/CyberGuard/agent/server-ca.pem"
-
-[agent]
-id = "$id"
-hostname = "$env:COMPUTERNAME"
+trust_anchor_path = '$dir\server-ca.pem'
 
 [enrollment]
-token = "$token"
-cert_path = "C:/ProgramData/CyberGuard/agent/cert.pem"
-key_path = "C:/ProgramData/CyberGuard/agent/key.dat"
-identity_path = "C:/ProgramData/CyberGuard/agent/identity.json"
+token = "$([System.Net.NetworkCredential]::new('', $token).Password)"
 
-[tls]
-minimum_version = "1.3"
-
-[envelope]
-canonical_form = "JCS"
+[setup]
+trust_anchor_sha256 = ["$fingerprint"]
 "@
-Set-Content -Encoding ascii -Path 'C:\ProgramData\CyberGuard\agent\agent.toml' -Value $config
+$security = New-Object System.Security.AccessControl.FileSecurity
+$security.SetSecurityDescriptorSddlForm('O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)')
+$file = New-Object System.IO.FileStream("$dir\bootstrap.toml", [System.IO.FileMode]::CreateNew, [System.Security.AccessControl.FileSystemRights]::Write, [System.IO.FileShare]::None, 4096, [System.IO.FileOptions]::None, $security)
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($bootstrap)
+$file.Write($bytes, 0, $bytes.Length)
+$file.Close()
+Remove-Variable bootstrap, bytes, token
 ```
 
-- `server.url` is enrollment's URL: `https://`, a name of `CG_AGENT_SERVER_NAMES`, and `CG_ENROLL_PORT` (8444 by default; change it in the URL when `.env` sets another). With `[enrollment]` it must be `https://`.
+- `server.url` is enrollment's URL: `https://`, a name of `CG_AGENT_SERVER_NAMES`, and `CG_ENROLL_PORT` (8444 by default; change it in the URL when `.env` sets another).
 - `server.heartbeat_url` is the heartbeats' URL: the same name and `CG_HEARTBEAT_PORT` (8443 by default), `https://`.
-- `server.trust_anchor_path` names the trust anchor's PEM file, and is required with `[enrollment]`. Windows paths in this file are written with forward slashes.
-- `agent.id` is the UUIDv7 the snippet set. The agent refuses to start without a valid one, and once enrolled it uses the id the server assigned.
-- `agent.hostname` is the endpoint's name, `$env:COMPUTERNAME`; it must not be empty. The agent sends it at enrollment and with each heartbeat.
-- `enrollment.token` is the token `issue-token.js` printed. `cert_path`, `key_path` and `identity_path` are where the agent writes its certificate, its private key, sealed with DPAPI to the machine, and its identity.
-- `tls.minimum_version` and `envelope.canonical_form` accept only these values.
-- Without a `[heartbeat]` section, and without `timeout_seconds`, `max_retries`, `backoff_initial_ms` and `backoff_factor` in `[enrollment]`, the agent keeps their defaults: among them, a heartbeat every 30 seconds ([configuration](configuration.md)).
+- `server.trust_anchor_path` is the anchor's path in the directory. The setup reads it once, and copies the certificates it checked into the agent's own directory.
+- `enrollment.token` is the token `issue-token.js` printed, typed or pasted at the `Enrollment token` prompt, which does not echo it. It reaches neither a command line nor PowerShell's history.
+- `setup.trust_anchor_sha256` is the list of fingerprints, `["sha256:...", "sha256:..."]` for more than one.
+- The file admits these five keys and no other. The setup supplies the agent's placeholder ID, the endpoint's host name and the agent's fixed paths, and every other setting keeps its default ([configuration](configuration.md)).
 
-Run the agent:
+The setup refuses a bootstrap file (code 23) whose path is not absolute, that does not exist, is a reparse point such as a symbolic link, is not a regular file on a local volume, holds more than 16 MiB, is open for writing in another program, or is not owned by SYSTEM or Administrators or gives access to another account. The block creates the file new, and stops if one exists: to write it again, delete it first.
 
-<!-- deploy_ac_021: endpoint-run -->
+Run the setup, which this command waits for before it prints the setup's exit code:
+
+<!-- deploy_ac_021: endpoint-setup -->
 
 ```powershell
-& 'C:\Program Files\CyberGuard\cg-agent.exe' --config 'C:\ProgramData\CyberGuard\agent\agent.toml'
+$log = "$dir\setup-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+$run = Start-Process -FilePath "$dir\cyberguard-agent-<version>-x64-setup.exe" -ArgumentList '-quiet', '-norestart', '-log', $log, "CG_BOOTSTRAP=$dir\bootstrap.toml" -Wait -PassThru
+$run.ExitCode
 ```
 
-It runs in the foreground and writes its log, one JSON line per event, to standard output; it keeps no log file until its installer lands (SPEC-023 Â§Scope). At its first start it enrolls with the token and writes `cert.pem`, `key.dat` and `identity.json`, then sets on each a DACL that admits `SYSTEM` and the account that ran it alone. It then tries to remove the token from `agent.toml`, opens its capture (an ETW session named `CGAgent-KernelProcess` and a subscription to the Security log) and starts its heartbeats. When it cannot rewrite `agent.toml`, it logs `could not hygienize enrollment token from config` at `WARN` and runs on with the token left in the file: delete the `token` line from `agent.toml` then. A later start loads the identity and needs no token. An agent that enrolled and then exited with code 9, not elevated, needs no new token either: run it again elevated.
+`-quiet` shows no window and asks nothing. `-norestart` keeps the setup from restarting the computer when Windows Installer asks for a restart, which the setup reports instead (3010, 3017). `-log` writes Burn's log, the setup engine's, to `$log`. PowerShell's call operator does not wait for the setup, a windowed program, and leaves `$LASTEXITCODE` unset: `Start-Process -Wait -PassThru` waits and keeps the exit code. 0 is an agent enrolled and reporting; [The setup's result](#the-setups-result) gives every other code.
 
-### The agent's files
+Once the setup has exited 0, or once its token can no longer be used, delete the bootstrap file, then close this PowerShell, whose memory holds the token until it exits:
 
-Until the agent's installer lands:
+<!-- deploy_ac_021: endpoint-cleanup -->
 
-- `key.dat`, the agent's private key, is sealed with DPAPI at the machine's scope, and its DACL admits the account that enrolled the agent: any process of that account, unelevated included, can read and decrypt it (R1 of the [threat model](../security/threat-model.md)).
-- The agent sets the DACL of the three files it writes, and changes no file's owner. Nothing in CyberGuard sets the permissions of `C:\ProgramData\CyberGuard\agent`, of `server-ca.pem`, or of `agent.toml`, which holds the token until the agent removes it. An account that can write in that directory can replace the trust anchor or the configuration, or put files where the agent writes its identity, before the agent reads or writes them; one that can read `agent.toml` can read the token.
+```powershell
+Remove-Item "$dir\bootstrap.toml"
+```
+
+The setup never deletes the bootstrap file. Deleting it does not erase it: a backup or a shadow copy of the volume taken meanwhile keeps it. A refusal from 20 to 31 does not use the token: the retry may use it while it is valid, in the same file or, after 23, 24 or 25, in a file written again; after 30, the setup runs without `CG_BOOTSTRAP`.
+
+#### Or install with the wizard
+
+The setup run without `-quiet` shows its window, and, on an endpoint where the agent has no configuration, its wizard:
+
+<!-- deploy_ac_021: endpoint-wizard -->
+
+```powershell
+$log = "$dir\setup-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+$run = Start-Process -FilePath "$dir\cyberguard-agent-<version>-x64-setup.exe" -ArgumentList '-norestart', '-log', $log -Wait -PassThru
+$run.ExitCode
+```
+
+After the setup's elevation and its first checks, the dialog *CyberGuard Agent enrollment* asks for the bootstrap file's values: the server's URL and the heartbeat URL, as above; the trust anchor's path, typed (`server-ca.pem` in `$dir`, `C:\CyberGuardSetup\server-ca.pem` above); the fingerprints, one per line; and the token, in a masked field. It fills in nothing and computes no fingerprint from the anchor. It shows a refused field or anchor (codes 24 and 25) and asks again; any other refusal closes it, and the setup exits with that code. Issue the token just before you submit it. On an endpoint whose agent was configured and never enrolled, the dialog offers to keep that configuration or to replace it. On an enrolled endpoint no dialog shows, and the setup repairs or upgrades the agent with its identity.
+
+Cancelling the dialog, or leaving it 15 minutes without an accepted submission (a refused one does not restart them), closes it, and the setup exits 22, the endpoint unchanged by the dialog; so does a submission after the setup's process has ended. Do not close the setup's window while the dialog shows: the setup then exits 1602, but the dialog can stay open, and a submission or a choice to keep then stages the input and stops the service, with nothing to start it again until a later setup, an administrator or the next restart does (SPEC-024 Amendment 2026-11-13, point 8). A token that expires while the dialog waits is refused once the service starts, as any expired token is (code 42).
+
+- Type the token: a pasted token passes through the clipboard of your session, its clipboard history and any clipboard synchronisation the session has.
+- The dialog shows during the setup's own run alone, after its elevation, in front of the setup's window. A window of your session can imitate it: a request for the token at any other moment is not the setup's.
+- The token may stay in the memory of the setup's elevated process, `cg-setup.exe`, until that process exits. SYSTEM and elevated administrators can read that memory, and so can whoever reads a dump of the process ([Record the endpoint's audit and dump settings](#record-the-endpoints-audit-and-dump-settings)).
+- The dialog shows above other windows and asks for the keyboard; when Windows refuses it that, its taskbar button flashes: click the button, or the dialog, to type into it.
+
+#### The setup's result
+
+The setup's exit code is the result. The second column is the code as Burn's log writes it (below).
+
+| Code | Hexadecimal | What happened | The endpoint after it | Retry |
+|---|---|---|---|---|
+| 0 | `0x0` | The service runs, and the agent logged its identity and an acknowledged heartbeat within 60 seconds of its start. | Installed and reporting. | None. |
+| 3010 | `0xbc2` | As 0, and Windows Installer asked for a restart, which `-norestart` held. | Installed and reporting; the MSI's log gives why Windows Installer asked for the restart. | Restart the computer when convenient. |
+| 3017 | `0xbc9` | The run failed, by a step's code, a cancellation or another of Burn's results, and Windows Installer asked for a restart. | As that code gives it: the failed step's `Applied execute package` line in Burn's log, or else its `Apply complete` line. | That code's, after a restart. |
+| 1602 | `0x642` | Cancelled: the elevation prompt was declined, or the setup's window was closed while it ran. | Declined: unchanged. Closed during the MSI: rolled back, as for 1603. Closed during the setup's checks: they may go on, and may leave the service stopped and the staged configuration, which holds the token, readable by SYSTEM and Administrators alone. Closed during the last step: the agent this run installed stays installed, and its start goes on, may enroll with the token, and reports to no one. | Check the agent first ([Check that the agent reports](#check-that-the-agent-reports)). Enrolled: run the setup without `CG_BOOTSTRAP`. Not enrolled: run it again with its input, with a new token if the old one was used. A setup that passes its checks removes what an earlier attempt staged. |
+| 1638 | `0x666` | A newer version of the agent's setup is installed. | Unchanged. | The installed version's setup, or a newer one. |
+| 1603, or another Windows Installer code | `0x643` for 1603; another code, its own | The MSI failed, and its changes were rolled back. | Not installed by this run; on an upgrade, the version installed before runs again. | Read the MSI's log (below), correct its cause, run the setup again. |
+| -2146889721 | `0x80091007` | A package inside the setup does not match its digest. A setup damaged otherwise may fail with another code, Burn's log holding an `e310` or `e312` line. | Unchanged: nothing ran. | Download and verify the setup again. |
+| 20 | `0x14` | Windows 10 is below build 17763, the setup runs emulated on a machine that is not x64, or a compatibility mode is applied to the setup. A Windows before 10 does not run the setup's code, and the setup fails with another code, which Burn's log gives. | Unchanged. | A supported Windows, with no compatibility mode. |
+| 21 | `0x15` | The setup's code ran unelevated. | Unchanged. | An elevated PowerShell. |
+| 22 | `0x16` | No input: the bootstrap file's command without `CG_BOOTSTRAP` on an endpoint with no configuration, or the wizard cancelled, left 15 minutes or closed. | Unchanged. | Give a bootstrap file, or complete the wizard. |
+| 23 | `0x17` | The bootstrap file cannot be used: its path is not absolute, it does not exist or cannot be read, it is not a regular file on a local volume, it is open for writing elsewhere, it holds more than 16 MiB, or an account other than SYSTEM and Administrators owns it or has access to it. | Unchanged. | Write it again as above. |
+| 24 | `0x18` | An input is invalid: the file is not UTF-8 TOML, a key is missing or not admitted, a value has the wrong form, `trust_anchor_path` is not absolute, a URL is not `https://`, or the configuration generated from the input fails the agent's own checks. | Unchanged. | Correct the input; the same token while it is valid. |
+| 25 | `0x19` | The anchor cannot be read, or its distinct certificates are not exactly those of the fingerprints. | Unchanged. | Correct the anchor or the fingerprints, from the server's record. |
+| 26 | `0x1a` | A service named `CyberGuardAgent` exists whose configuration the setup cannot read, or that is not the agent's: its type is not its own process, its account not LocalSystem, or its command line not the agent's. | Unchanged. | Read its configuration (`sc.exe qc CyberGuardAgent`). Not the agent's: remove it, or have it renamed. The agent's: find why it cannot be read. |
+| 27 | `0x1b` | `C:\ProgramData\CyberGuard` or its `agent` directory is a reparse point or not a directory, is owned by an account other than SYSTEM or Administrators, or gives any access to another account; or the setup cannot read the names in it. | Unchanged. | Keep what it holds, remove it, and run the setup again. When `agent` holds `cert.pem`, `key.dat` or `identity.json` directly, it is a console installation: remove neither directory. |
+| 28 | `0x1c` | A console installation of the agent, or its interrupted migration, is on the endpoint; or a migration was asked for where there is none. | Unchanged. | The migration of SPEC-024's Amendment 2026-11-05, which this document does not give yet. |
+| 29 | `0x1d` | The agent installed is newer than this setup. | Unchanged. | The installed version's setup, or a newer one. |
+| 30 | `0x1e` | The agent is enrolled on this endpoint, and a bootstrap file was given. | Unchanged; on an upgrade, the version installed before runs again. | The setup without `CG_BOOTSTRAP`, which repairs or upgrades the agent with its identity. |
+| 31 | `0x1f` | The service was not stopped 75 seconds after the setup asked it to stop: still running, starting or stopping. | Unchanged, but the service may be left stopped. | Find why it does not stop (`sc.exe query CyberGuardAgent`, and the Application log's entries from `CyberGuardAgent`), then run the setup again. |
+| 40 | `0x28` | The setup could not read or write its own state or the host's, in its checks before the MSI or in its last step after it; or, after the MSI, the agent's executable in place is not this version and no restart is pending. | Before the MSI: not installed by this run, and a service that was running may be left stopped. After it: installed, the service not started and possibly stopped, and the staged configuration, which holds the token, left for the next setup. | Run the setup again, with the same input while its token is valid, or a new token. |
+| 41 | `0x29` | The service control manager refused to start the service, for instance a disabled service. | Installed, not running; the staged configuration left. | Correct the cause (`sc.exe qc CyberGuardAgent`), then as for 40. |
+| 42 | `0x2a` | The service started and then stopped with a code within the 60 seconds. | Installed and stopped; it is not restarted. Its own code is in `sc.exe query CyberGuardAgent` and Application-log entry 1002 ([The agent's exit codes](#the-agents-exit-codes)). | By the service's code: for 3, a token refused, used or expired, a new token in a new bootstrap file, which replaces the configuration of an agent that never enrolled; for 6, correct the URL's host name or the anchor, then run the setup again with a new bootstrap file, and a new token once the old one has expired. A server the service cannot reach is 44, not 42. |
+| 43 | `0x2b` | At the end of the 60 seconds the service was neither running nor stopped: still starting, stopping, or paused. | Installed, the service in that state (`sc.exe query CyberGuardAgent`). | Wait, then check the service and the agent as below. |
+| 44 | `0x2c` | The service runs, but the agent's identity line and then its first acknowledged heartbeat were not both seen in its log within the 60 seconds; or the log could not be read; or, after the start, the service's state could not be read or the service no longer existed. | Installed, and usually running: still enrolling, retrying a server it cannot reach a minute or more apart, or failing. | Read the agent's log (below); the agent goes on retrying by itself. |
+| 45 | `0x2d` | The agent's executable in place is not this version, and Windows replaces it at the next restart. When Windows Installer asked for that restart in this run, the setup exits 3017 instead. | Installed; the service not started by this setup, and the staged configuration, which holds the token, left. | Restart the computer, then run the setup again, with the same input while its token is valid, or a new token. |
+
+After a refusal of the setup's checks, or a failure of the MSI, Burn runs the setup's reversal. When an earlier attempt left its record behind, after its 40, 41 or 45, a failed deletion of its record, or a crash, the reversal removes what that record names, and starts the service if the record says it was running. On an upgrade, a refusal from 20 to 31, and the failures after it, are followed by the installed setup's own run, which may stop and start the agent, set its failure actions and start a service an administrator had left stopped ([upgrade](upgrade.md)).
+
+Running the setup again takes no token on an enrolled endpoint, and neither enrolls again nor overwrites an identity already there. It stops a running service before it changes anything, and the cases above (1602, 31, 40, 45, an upgrade's restore) may leave the service stopped until a later setup, an administrator or the next restart starts it. Re-enrolling an enrolled endpoint is not in this document. A code that is not in the table is Burn's own or Windows Installer's: Burn's log gives the step it came from.
+
+#### Burn's log
+
+`$log` is Burn's log. Windows Installer's log of the MSI is beside it, named after it, ending in `_Agent.log`. The setup runs four steps, which the log names: `Preflight`, its checks and the staging of the configuration; `Agent`, the MSI; `Purge`, which does nothing on an installation; and `Configure`, the start of the service and the wait for its outcome. These lines carry the result:
+
+<!-- deploy_ac_021: endpoint-log -->
+
+```powershell
+Select-String -Path $log -Pattern 'Applied execute package', 'Apply complete', 'Exit code'
+```
+
+- `Applied execute package: <step>, result: 0x...`, with a result other than `0x0`, names the step that failed; in a cancelled run the result, `0x80070642`, is the cancellation's, not the step's. On an upgrade, a line whose package is a code in braces is the setup installed before, which the upgrade removes.
+- `Apply complete, result: 0x...` carries the run's result, and is the line of a failure no step reports, such as 1638, a declined elevation or a damaged package.
+- The last line, `Exit code: 0x...`, is the code the setup exits with, in hexadecimal.
+
+A result that begins with `0x8007` ends with the code in its last four hexadecimal digits: `0x8007001e` is 30, `0x80070643` is 1603 and `0x80070666` is 1638. Any other result is itself the code, such as `0x80091007`. When Windows Installer asked for a restart, the setup exits 3010 or 3017 whatever the step's result, which its `Applied execute package` line keeps. A failure before Burn's `Apply begin` line writes neither of the first two lines: the `Exit code` line alone carries it. A setup run with its window shows, on a failure, a page that names the log and the first two lines; the `Exit code` line is written after the window closes. The setup's own steps write their reason to no log: their code and the table above are their result. Burn's log holds the setup's variables and command lines, among them the bootstrap file's path, and never the token. Keep the log with the installation's record.
 
 ### Check that the agent reports
 
-The dashboard has no agents page yet; a later release adds it. The agent's own log shows that it enrolled and reports. Each line is a JSON object whose `fields` hold the event's `message` and values: after its enrollment, a line whose `fields.message` is `identity persisted`; then, every 30 seconds, one whose `fields.message` is `signed heartbeat sent`, with `fields.response_status` 200. A refused heartbeat is logged as `signed envelope rejected by server`, with the server's status in `fields.response_status`; the agent keeps running, and after the retries it drops that batch's events (`batch dropped after repeated rejections`). A clock more than 5 minutes off the server's gives status 422.
+The dashboard has no agents page yet; a later release adds it. Check the installed agent's executable against its line in `SHA256SUMS`, the line of `cg-agent-<version>-x86_64-pc-windows-msvc.exe`:
+
+<!-- deploy_ac_021: endpoint-binary -->
+
+```powershell
+(Get-FileHash -Algorithm SHA256 "$env:ProgramFiles\CyberGuard\Agent\cg-agent.exe").Hash -eq '<the agent executable's SHA-256 in SHA256SUMS>'
+```
+
+It prints `True`. Then the service:
+
+<!-- deploy_ac_021: endpoint-service -->
+
+```powershell
+sc.exe query CyberGuardAgent
+sc.exe qc CyberGuardAgent
+sc.exe qfailure CyberGuardAgent
+sc.exe qfailureflag CyberGuardAgent
+sc.exe sdshow CyberGuardAgent
+```
+
+`sc.exe` writes its labels in Windows' language; the values are these. `query`: state `4 RUNNING`. `qc`: type `10 WIN32_OWN_PROCESS`, start type `2 AUTO_START`, the command line `"C:\Program Files\CyberGuard\Agent\cg-agent.exe" --service --config "C:\ProgramData\CyberGuard\agent\agent.toml"`, the display name `CyberGuard Agent` and the account `LocalSystem`. `qfailure`: a reset period of 86400 seconds and restarts after 60000, 120000 and 300000 milliseconds. `qfailureflag`: false, so the service control manager restarts an agent whose process dies, and never one that stopped with a code. `sdshow`: the `D:` part `D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLORC;;;IU)(A;;CCLCSWLORC;;;SU)`, which lets SYSTEM and Administrators alone change, start, stop or delete the service, and interactive and service logons query it.
+
+The service writes to the Application log, under the source `CyberGuardAgent`:
+
+<!-- deploy_ac_021: endpoint-events -->
+
+```powershell
+Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'CyberGuardAgent' } -MaxEvents 10 | Format-List TimeCreated, Id, Message
+```
+
+Entry 1000 is the service running, with its version: `cg-agent <version>: the service is running`. 1001 is a clean stop, 1002 a stop with a code and its message, 1003 a stop whose 60-second deadline expired. Any interactive user can write entries under any source, so these entries are diagnostics, not evidence. When no entry matches, `Get-WinEvent` says so with an error, as it does when the source is not registered, before the setup's MSI has run.
+
+The agent's log, `C:\ProgramData\CyberGuard\agent\logs\agent.jsonl`, is one JSON object per line, whose `fields` hold the event's `message` and values. Elevated Administrators can read it:
+
+<!-- deploy_ac_021: endpoint-agent-log -->
+
+```powershell
+$agentLog = "$env:ProgramData\CyberGuard\agent\logs\agent.jsonl"
+Select-String -Path $agentLog -Pattern '"enrollment response received"', '"agent identity ready"' | ForEach-Object Line
+Select-String -Path $agentLog -Pattern '"signed heartbeat sent"' | Select-Object -Last 1 | ForEach-Object Line
+```
+
+- `enrollment response received`, once, after the enrollment: `fields.agent_id`, the id the server assigned, and `fields.expires_at`, the end of the agent's certificate. Record that end: the certificate lasts 90 days, this release does not renew it, and past it the server refuses the agent, whose service stops with code 7. The log rotates (below), and drops this line in time.
+- `agent identity ready`, at each start of the service: the same id, under the key `agent.id` of `fields`.
+- `signed heartbeat sent`, at least every 30 seconds and with each batch of events delivered in between, with `fields.response_status` 200. A refused heartbeat is logged as `signed envelope rejected by server`, with the server's status in `fields.response_status`; the agent keeps running, and after the retries it drops that batch's events (`batch dropped after repeated rejections`). A clock more than 5 minutes off the server's gives status 422.
+
+Read the log with a command that opens it and closes it, as these do. An editor or a tail that keeps `agent.jsonl` open stops its rotation, and the service stops with code 13 if the rotation still fails after 60 seconds.
 
 On the server, ingest logs a `heartbeat accepted` line, with the agent's `agent_id`, for each heartbeat it accepts, at `info`, `CG_LOG_LEVEL`'s default:
 
@@ -416,33 +551,70 @@ On the server, ingest logs a `heartbeat accepted` line, with the agent's `agent_
 docker compose logs --no-color --tail 60
 ```
 
-The `agent_id` is the one `identity.json` holds on the endpoint, the id the server assigned.
+The `agent_id` is the one the agent's log gives.
 
-The agent's certificate lasts 90 days, and this release does not renew it: `expires_at` in `identity.json` gives its end. Past it, the server refuses the agent's certificate and the agent exits with code 7.
+### Record the endpoint's audit and dump settings
 
-### Stop and restart the agent
+The agent neither reads nor manages the endpoint's audit policy, and writes, collects and sends no crash or memory dump (SPEC-024 Amendment 2026-11-01, point 5). These commands read the settings that decide both, change nothing, and need the elevated PowerShell. Record their output with the installation's record, beside Windows' edition and build, the account that ran the setup, the setup's version and SHA-256, the installed executable's SHA-256, the setup's exit code with its Burn log, and the files removed afterwards.
 
-Ctrl+C stops the agent: it stops its capture, sends one last heartbeat and exits with code 0. Closing its window or ending its process instead leaves its ETW session running, which `logman query -ets` lists. The agent's next start stops a leftover session of its name itself; to stop it without starting the agent, from an elevated PowerShell:
+The audit policy of the Logon and Account Lockout subcategories, by their identifiers, since their names are in Windows' language, and the accounts with a per-user audit policy, which can keep their logons out of auditing:
 
-<!-- deploy_ac_021: endpoint-stop -->
+<!-- deploy_ac_021: endpoint-audit -->
 
 ```powershell
-logman stop CGAgent-KernelProcess -ets
+auditpol /get /subcategory:"{0CCE9215-69AE-11D9-BED3-505054503030},{0CCE9217-69AE-11D9-BED3-505054503030}" /r
+"auditpol exit code: $LASTEXITCODE"
+$perUser = @(auditpol /list /user /v /r | Select-String 'S-1-')
+"auditpol exit code: $LASTEXITCODE; accounts with a per-user audit policy: $($perUser.Count)"
 ```
 
-After a reboot, start the agent again with the same command.
+The policy read is the effective one, Group Policy's included. Record success and failure apart for each subcategory: Logon's success is event 4624, and Logon's and Account Lockout's failures are 4625. One not enabled is coverage the agent does not have: the agent then sends no such logon events, and reports no error (SPEC-020 §Risks). One that `auditpol` could not read, with an exit code other than 0, is unknown. A working subscription to the Security log does not show that logons are audited. Record the number of accounts with a per-user audit policy, not their names: the command counts the security identifiers `auditpol` lists, and prints none of them. With no such account, `auditpol` lists none and the count is 0; with an exit code other than 0 the count is unknown, as unelevated `auditpol` gives (1314).
+
+The settings of the dumps and of the files that can hold the agent's memory:
+
+<!-- deploy_ac_021: endpoint-dumps -->
+
+```powershell
+reg query 'HKLM\SYSTEM\CurrentControlSet\Control\CrashControl' /reg:64
+reg query 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' /v PagingFiles /reg:64
+reg query 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' /v ClearPageFileAtShutdown /reg:64
+reg query 'HKLM\SYSTEM\CurrentControlSet\Control\Power' /v HibernateEnabled /reg:64
+powercfg /a
+reg query 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting' /reg:64
+reg query 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\Consent' /reg:64
+reg query 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps' /s /reg:64
+reg query 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting' /s /reg:64
+reg query 'HKU\S-1-5-18\Software\Microsoft\Windows\Windows Error Reporting' /s
+reg query 'HKCU\Software\Microsoft\Windows\Windows Error Reporting' /s
+```
+
+`CrashControl` holds the kernel dump's settings; `PagingFiles`, `ClearPageFileAtShutdown`, `HibernateEnabled` and `powercfg /a`, the page file's and hibernation's. Windows Error Reporting's `LocalDumps`, global and per program, among them `cg-agent.exe` and `cg-setup.exe`, keeps dumps of a failing program on the endpoint; its consent and policy keys, the Group Policy ones, SYSTEM's and those of the administrator who runs the setup included, decide whether its reports and their dumps leave the endpoint. `reg query` says that it cannot find a key or value that is not set, so that Windows' default applies, and that access is denied to one it could not read, which is unknown: record its words.
+
+A dump of the agent's process can hold its decrypted private key and the events it holds; one of the setup's process, while its wizard runs or before it exits, the token. A kernel dump, the page file and the hibernation file can hold any memory of the endpoint. Who reads such files, and how long they are kept, follow the endpoint's own policy, which these settings record: none of them is a protection that CyberGuard verifies.
+
+### The agent's service
+
+The service starts with Windows, and needs no one logged on. From an elevated PowerShell, `Stop-Service CyberGuardAgent` stops it and `Start-Service CyberGuardAgent` starts it again. A stop ends the agent's capture, tries once to send a last heartbeat and ends within 60 seconds, or stops with code 12 and entry 1003; the events the agent has not delivered by then are lost, and none is captured while it is stopped. The agent keeps no events on disk: while the server cannot be reached, it holds them in memory alone, and drops the oldest when that buffer is full. The service control manager restarts an agent whose process dies, after 60, then 120, then 300 seconds, and counts the failures again after a day without one; it does not restart an agent that stopped with a code, which waits for an administrator.
+
+The setup installs the agent's executable as `C:\Program Files\CyberGuard\Agent\cg-agent.exe` and keeps its data in `C:\ProgramData\CyberGuard\agent`:
+
+- `agent.toml`, the configuration, and `server-ca.pem`, the trust anchor, owned by SYSTEM, with protected DACLs for SYSTEM and Administrators;
+- `identity\`, the agent's certificate, its private key, sealed with DPAPI to the machine, and its identity, which SYSTEM alone can open: an administrator who takes ownership of it, or changes its DACL, makes the service refuse it at its next start (code 5);
+- `logs\`, the agent's log, which SYSTEM writes and elevated Administrators read.
+
+After it enrolls, the agent removes the token from `agent.toml`, as a best-effort rewrite: if that fails, its log has a warning, and the token, already used, stays in the protected file. A token that the service never took, because a setup failed or was cancelled after it staged the configuration, stays in `agent.toml.setup`, readable by SYSTEM and Administrators alone, until a later setup that passes its checks, other than a migration, removes it; a backup or a shadow copy of the volume may keep it.
 
 ### The agent's exit codes
 
-Before it exits with a code other than 0, the agent writes to standard error a message that begins as the table shows.
+Before it exits with a code other than 0, the agent gives a message that begins as the table shows: the service in Application-log entry 1002, as the paragraph after the table says, and the agent run by hand, as development does, on standard error.
 
 | Code | Cause | The message begins |
 |---|---|---|
-| 0 | Stopped with Ctrl+C. It writes nothing to standard error. | |
+| 0 | A clean stop. | |
 | 1 | Another runtime error, for instance an ETW session or the Security log's subscription that fails to open for a reason other than privilege; a token that can control trace sessions but is not an elevated administrator's or SYSTEM's (it is refused before enrollment); or any other failure to take the per-host instance lock. | `cg-agent:` or `cg-agent: instance lock failed:` |
 | 2 | The configuration is refused, for instance: the file is missing or is not valid TOML; a required key is missing; `agent.id` is not a lowercase UUIDv7; `agent.hostname` or `trust_anchor_path` is empty; `server.url` is not `https://` beside `[enrollment]`, or `server.heartbeat_url` is not `https://`; `interval_seconds`, `request_timeout_seconds`, `backoff_initial_ms` or `backoff_max_ms` of `[heartbeat]` is 0, or its `backoff_factor` is below 1; `tls.minimum_version` or `envelope.canonical_form` has another value; there is no token at the first start. | `cg-agent: invalid config:` |
 | 3 | Enrollment is refused: the token is rejected, already used or expired, or the server's answer is malformed, for the service also a certificate document TLS would refuse. | `cg-agent: enrollment failed:` |
-| 4 | The server is unreachable after the retries, or it offers TLS 1.2 alone. | `cg-agent: enrollment failed: server unreachable after` |
+| 4 | The server is unreachable after the retries, or it offers TLS 1.2 alone. Run by hand only: the service waits 60 seconds after an exhausted round, and tries again. | `cg-agent: enrollment failed: server unreachable after` |
 | 5 | The identity cannot be written, restricted or loaded, for instance a `key.dat` copied from another machine or, for the service, a `cert.pem` TLS would refuse. | `cg-agent: identity error:` |
 | 6 | The server's certificate is not one the trust anchor issued, has expired, or does not name the URL's host (a name outside `CG_AGENT_SERVER_NAMES`); or the trust anchor file is missing or holds no usable certificate. Enrollment ends at once, without retries. | `cg-agent: tls: server certificate verification failed:` or `cg-agent: tls: client configuration failed:` |
 | 7 | The server refuses the agent's certificate, for instance once it has expired. | `cg-agent: tls: server rejected client certificate` |
@@ -451,7 +623,7 @@ Before it exits with a code other than 0, the agent writes to standard error a m
 | 10 | Another CyberGuard agent is already running on this host; this instance exits before enrolling and stops no ETW session. | `cg-agent: another CyberGuard agent instance is running on this host` |
 | 11 | `--service` was given, but the Windows service control manager did not start the agent. It runs nothing else and reads no configuration. | `cg-agent: --service requires a start by the Windows service control manager` |
 | 12 | The service only: its stop did not end within its 60-second deadline. Application-log entry 1003 names the work still pending and counts the events not delivered. | The service writes no standard error; see below. |
-| 13 | The service only: its log file, `%ProgramData%\CyberGuard\agent\logs\agent.jsonl`, cannot be opened at startup, for instance because a directory on its path is not owned by SYSTEM or Administrators or lets another user in, which the service checks for `%ProgramData%\CyberGuard` and `CyberGuard\agent` before it reads its configuration (an administrator removes that directory, after keeping what it holds, and recreates the directory and its files, owned by SYSTEM with their protected DACLs, before starting the service again; when `CyberGuard\agent` holds `cert.pem`, `key.dat` or `identity.json` directly, it holds a console installation's identity: neither it nor `CyberGuard` is removed before SPEC-024's migration, which the package's setup is to ask for and is not built yet, moves it, or, when the migration refuses it, before an administrator keeps its files aside); or, while it runs, a write to it fails again after the agent reopens the file, and the service stops. | `cg-agent: the service log cannot be written:` |
+| 13 | The service only: its log file, `%ProgramData%\CyberGuard\agent\logs\agent.jsonl`, cannot be opened at startup, for instance because a directory on its path is not owned by SYSTEM or Administrators or lets another user in, which the service checks for `%ProgramData%\CyberGuard` and `CyberGuard\agent` before it reads its configuration (an administrator removes that directory, after keeping what it holds, and recreates the directory and its files, owned by SYSTEM with their protected DACLs, before starting the service again; when `CyberGuard\agent` holds `cert.pem`, `key.dat` or `identity.json` directly, it holds a console installation's identity: neither it nor `CyberGuard` is removed before SPEC-024's migration moves it, or, when the migration refuses it, before an administrator keeps its files aside); or, while it runs, a write to it fails again after the agent reopens the file, and the service stops. | `cg-agent: the service log cannot be written:` |
 
 A start of the service that migrates a console installation (SPEC-024's Amendment 2026-11-05) reports through the same codes: 2 for start arguments it refuses (`cg-agent: invalid migration arguments:`) or a console configuration it cannot migrate; 5 for a console installation it refuses or a migration it cannot finish; 6 for a trust anchor whose certificates are not exactly those of the fingerprints given (`cg-agent: tls: client configuration failed: migration:`); 13 for a directory it cannot close. From the instance lock on, a refusal says where the console installation is and, before the commit, what the migration restricted of it.
 

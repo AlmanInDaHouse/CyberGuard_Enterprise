@@ -11,12 +11,16 @@ import { IS_ROOT, REPO, copyBundle, freePort, makeDashboardTls, ok, run, setEnv,
 
 const FILE = join(REPO, "docs/operations/install.md");
 const IDS = ["versions", "verify", "unpack", "setup-template", "routes", "setup-secrets", "start", "diagnostics", "addresses", "forensic-key", "admin", "ca", "token", "heartbeat-logs", "later-user", "confirm"];
+// The endpoint's PowerShell blocks, in the document's order: they run on Windows alone
+// (SPEC-024 install_ac_016), and a test below reads what SPEC-024 asks of them.
+const ENDPOINT = ["elevation", "directory", "copy", "checksum", "bootstrap", "setup", "cleanup", "wizard", "log",
+  "binary", "service", "events", "agent-log", "audit", "dumps"];
 // Explicitly classify every other fence. A new text or PowerShell fence is not
 // silently treated as output or as an endpoint command: its classification needs review.
 const NON_SERVER = new Map([
   ["output-setup", "text"], ["config-hostnames", "dotenv"], ["config-network", "dotenv"],
   ["output-secrets", "text"], ["config-daemon", "json"], ["output-fingerprint", "text"],
-  ...["elevation", "checksum", "copy", "uuid", "config", "run", "stop"].map((name) => [`endpoint-${name}`, "powershell"]),
+  ...ENDPOINT.map((name) => [`endpoint-${name}`, "powershell"]),
 ]);
 
 function blocks(text) {
@@ -45,6 +49,78 @@ function blocks(text) {
   assert.deepEqual([...result.keys()], IDS, "every server block has an execution case");
   return result;
 }
+
+/** The endpoint's PowerShell blocks by id, their text without carriage returns. */
+function endpointBlocks(text) {
+  const result = new Map();
+  for (const match of text.matchAll(/<!-- deploy_ac_021: endpoint-([a-z-]+) -->\r?\n\r?\n```powershell\r?\n([\s\S]*?)^```/gm)) {
+    result.set(match[1], match[2].replaceAll("\r", ""));
+  }
+  assert.deepEqual([...result.keys()], ENDPOINT, "the endpoint's blocks, in order");
+  return result;
+}
+
+test("SPEC-024: the endpoint's commands run the setup as its amendments ask, and keep the token off command lines", () => {
+  const endpoint = endpointBlocks(readFileSync(FILE, "utf8"));
+  // The Amendment 2026-11-09, item 2, and the Amendment 2026-11-13, point 1: the bootstrap
+  // file's command is quiet and never restarts the computer; -log keeps Burn's log.
+  const setup = endpoint.get("setup");
+  for (const option of ["'-quiet'", "'-norestart'", "'-log'", '"CG_BOOTSTRAP=$dir\\bootstrap.toml"']) {
+    assert.ok(setup.includes(option), `the setup's command passes ${option}`);
+  }
+  // The wizard's command shows the setup's window, with no bootstrap file.
+  const wizard = endpoint.get("wizard");
+  assert.ok(wizard.includes("'-norestart'") && wizard.includes("'-log'"), wizard);
+  assert.doesNotMatch(wizard, /-quiet|-passive|CG_BOOTSTRAP/);
+  // A windowed program: PowerShell's call operator neither waits for it nor sets $LASTEXITCODE.
+  for (const block of [setup, wizard]) {
+    assert.match(block, /Start-Process -FilePath "\$dir\\cyberguard-agent-<version>-x64-setup\.exe" .* -Wait -PassThru\n\$run\.ExitCode\n$/);
+  }
+  // §Data contracts §3: the token is read without echo, into a file created new with its
+  // protection, in a directory created with its own; no block carries it on a command line.
+  const bootstrap = endpoint.get("bootstrap");
+  assert.match(bootstrap, /^\$token = Read-Host -AsSecureString /m);
+  assert.match(bootstrap, /SetSecurityDescriptorSddlForm\('O:BAD:P\(A;;FA;;;SY\)\(A;;FA;;;BA\)'\)/);
+  assert.match(bootstrap, /\[System\.IO\.FileMode\]::CreateNew/);
+  assert.match(endpoint.get("directory"), /SetSecurityDescriptorSddlForm\('O:BAD:P\(A;OICI;FA;;;SY\)\(A;OICI;FA;;;BA\)'\)/);
+  // The token appears in two places alone: read without echo, and expanded into the file.
+  const uses = [...bootstrap.matchAll(/\$token\b/g)].length;
+  assert.equal(uses, 2, "the token is read once and written once");
+  assert.ok(bootstrap.includes("$([System.Net.NetworkCredential]::new('', $token).Password)"), bootstrap);
+  // The Amendment 2026-11-14, point 2: the installed binary's digest is the raw executable's.
+  assert.match(endpoint.get("binary"), /Get-FileHash -Algorithm SHA256 "\$env:ProgramFiles\\CyberGuard\\Agent\\cg-agent\.exe"\)\.Hash -eq '<the agent executable's SHA-256 in SHA256SUMS>'/);
+  // The Amendment 2026-11-01, point 5, and the Amendment 2026-11-13, point 6: read by GUID,
+  // and Windows Error Reporting's LocalDumps read whole, cg-agent.exe's and cg-setup.exe's included.
+  const audit = endpoint.get("audit");
+  for (const guid of ["{0CCE9215-69AE-11D9-BED3-505054503030}", "{0CCE9217-69AE-11D9-BED3-505054503030}"]) {
+    assert.ok(audit.includes(guid), guid);
+  }
+  assert.match(endpoint.get("dumps"), /reg query 'HKLM\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps' \/s/);
+  assert.match(endpoint.get("dumps"), /CrashControl/);
+
+  for (const [id, block] of endpoint) {
+    assert.doesNotMatch(block, /<token>|token=|CG_TOKEN|\$env:[A-Z_]+ *=/i, `${id} holds no token`);
+    // The setup creates %ProgramData%\CyberGuard itself, and refuses one made otherwise (27).
+    assert.doesNotMatch(block, /(New-Item|Copy-Item|Set-Content|Out-File|CreateDirectory)[^\n]*ProgramData/i, id);
+  }
+});
+
+test("SPEC-024: the setup's result lists every code cg-setup exits with on an installation, and Burn's", () => {
+  const text = readFileSync(FILE, "utf8");
+  const start = text.indexOf("#### The setup's result");
+  const table = text.slice(start, text.indexOf("\n#### ", start + 1));
+  const rows = new Map([...table.matchAll(/^\| (-?\d+)[^|]* \| `(0x[0-9a-f]+)`[^|]* \|/gm)].map((m) => [m[1], m[2]]));
+  const codes = [...readFileSync(join(REPO, "agent/cg-setup/src/codes.rs"), "utf8").matchAll(/^pub const ([A-Z_]+): u8 = (\d+);/gm)];
+  assert.ok(codes.length >= 20, "cg-setup's codes are read");
+  // 46 and 47 are the uninstallation's (SPEC-024 Amendment 2026-11-15).
+  for (const [, name, code] of codes.filter(([, name]) => !name.startsWith("PURGE_"))) {
+    assert.equal(rows.get(code), `0x${Number(code).toString(16)}`, `${name} (${code})`);
+  }
+  // Burn's and Windows Installer's (the Amendments 2026-11-12 (second) and (third)).
+  for (const [code, hex] of [["3010", "0xbc2"], ["3017", "0xbc9"], ["1602", "0x642"], ["1638", "0x666"], ["1603", "0x643"], ["-2146889721", "0x80091007"]]) {
+    assert.equal(rows.get(code), hex, code);
+  }
+});
 
 test("deploy_ac_021: every server shell block has an execution case, including newly added commands", () => {
   const text = readFileSync(FILE, "utf8");
@@ -110,8 +186,10 @@ test("deploy_ac_021: install.md server commands execute, with interactive users 
   cpSync(fixture, join(staging, name), { recursive: true });
   ok("tar", ["-czf", join(work, `${name}.tar.gz`), "-C", staging, name]);
   const executable = `cg-agent-${version}-x86_64-pc-windows-msvc.exe`;
+  const setup = `cyberguard-agent-${version}-x64-setup.exe`;
   writeFileSync(join(work, executable), "unattested runbook fixture, not an executable\n");
-  writeFileSync(join(work, "SHA256SUMS"), [`${name}.tar.gz`, executable].map((file) =>
+  writeFileSync(join(work, setup), "unattested runbook fixture, not a setup\n");
+  writeFileSync(join(work, "SHA256SUMS"), [`${name}.tar.gz`, setup, executable].map((file) =>
     `${createHash("sha256").update(readFileSync(join(work, file))).digest("hex")}  ${file}\n`).join(""));
   function command(id, substitutions = {}) {
     executed.add(id);
@@ -151,10 +229,10 @@ test("deploy_ac_021: install.md server commands execute, with interactive users 
     // read-only token; locally the caller supplies the existing credential via GH_TOKEN.
     assert.ok(process.env.GH_TOKEN, "GH_TOKEN is required for the real attestation verifier");
     const verification = command("verify").split("\n");
-    assert.equal(verification.length, 3, "review any added verification command");
+    assert.equal(verification.length, 4, "review any added verification command");
     const sums = run("sh", ["-eu", "-c", verification[0]], { cwd: work });
     assert.equal(sums.status, 0, sums.stderr);
-    assert.equal((sums.stdout.match(/: OK/g) ?? []).length, 2);
+    assert.equal((sums.stdout.match(/: OK/g) ?? []).length, 3);
     for (const line of verification.slice(1)) {
       const result = run("sh", ["-eu", "-c", line], { cwd: work, timeout: 90_000 });
       assert.notEqual(result.status, 0, "unattested fixture must not verify");

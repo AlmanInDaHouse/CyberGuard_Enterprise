@@ -529,7 +529,7 @@ Ingest answers `GET /health` on `CG_ENROLL_PORT`, over TLS with its server certi
 
 ## The agent's tuning
 
-The agent reads its configuration from `agent.toml`, which [install.md](install.md) writes. These keys tune it. Each is optional, with the default shown.
+The agent reads its configuration from `agent.toml`, which the agent's setup writes ([install.md](install.md)) with none of these keys, so each has the default shown. These keys tune it. Each is optional.
 
 | Key | Default | Meaning |
 |---|---|---|

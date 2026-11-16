@@ -11,6 +11,8 @@ on:
       - ".cargo/**"
       - ".github/workflows/rust-ci.yml"
       - ".github/scripts/agent-version-matrix.mjs"
+      # cg-setup reads the endpoint runbook bootstrap file (install_ac_002_setup_runbook.rs).
+      - "docs/operations/install.md"
   pull_request:
     paths:
       - "agent/**"
@@ -20,6 +22,8 @@ on:
       - ".cargo/**"
       - ".github/workflows/rust-ci.yml"
       - ".github/scripts/agent-version-matrix.mjs"
+      # cg-setup reads the endpoint runbook bootstrap file (install_ac_002_setup_runbook.rs).
+      - "docs/operations/install.md"
 
 permissions:
   contents: read
