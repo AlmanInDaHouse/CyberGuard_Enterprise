@@ -6,10 +6,11 @@
 //! regular file with one link; not a reparse point; owned by one of the
 //! policy's owners; and a DACL whose allow entries name only the policy's
 //! principals (deny entries may name anyone, an entry of another type is
-//! refused). What this module creates gets its final security when it is
-//! created, never after a write: a directory by `CreateDirectoryW` and a
-//! file by `CreateFileW` with `CREATE_NEW`, each with a security descriptor
-//! built from SDDL.
+//! refused). The owner and DACL are read as the file system stores them
+//! (`security_of`). What this module creates gets its final security when
+//! it is created, never after a write: a directory by `CreateDirectoryW`
+//! and a file by `CreateFileW` with `CREATE_NEW`, each with a security
+//! descriptor built from SDDL.
 //!
 //! `%ProgramData%` comes from the OS (`SHGetKnownFolderPath`), not from an
 //! environment variable.
@@ -24,19 +25,19 @@ use std::time::Duration;
 use windows_sys::core::PWSTR;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, LocalFree, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
-    ERROR_FILE_NOT_FOUND, ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_LOCK_VIOLATION,
-    ERROR_MORE_DATA, ERROR_NOT_SUPPORTED, ERROR_OPERATION_ABORTED, ERROR_PATH_NOT_FOUND,
-    ERROR_SHARING_VIOLATION, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+    ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FUNCTION,
+    ERROR_INVALID_PARAMETER, ERROR_LOCK_VIOLATION, ERROR_MORE_DATA, ERROR_NOT_SUPPORTED,
+    ERROR_OPERATION_ABORTED, ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION, GENERIC_READ,
+    GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
-    SDDL_REVISION_1, SE_FILE_OBJECT,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
 use windows_sys::Win32::Security::{
-    EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl, GetSecurityDescriptorDacl,
-    GetSecurityDescriptorOwner, IsValidSid, IsWellKnownSid, SetKernelObjectSecurity,
-    WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
-    DACL_SECURITY_INFORMATION, INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION,
+    EqualSid, GetAce, GetKernelObjectSecurity, GetLengthSid, GetSecurityDescriptorControl,
+    GetSecurityDescriptorDacl, GetSecurityDescriptorOwner, IsValidSid, IsWellKnownSid,
+    SetKernelObjectSecurity, WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE,
+    ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION,
     PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
     SE_DACL_PROTECTED,
 };
@@ -203,8 +204,12 @@ fn known_folder(id: &windows_sys::core::GUID, name: &str) -> Result<PathBuf, Str
     Ok(PathBuf::from(path))
 }
 
-/// A security descriptor built from SDDL, freed on drop.
-pub(crate) struct Descriptor(PSECURITY_DESCRIPTOR);
+/// A security descriptor, built from SDDL (LocalAlloc'd, freed on drop) or
+/// read from an object into a buffer of its own (`stored`).
+pub(crate) struct Descriptor {
+    pointer: PSECURITY_DESCRIPTOR,
+    stored: Option<Vec<u64>>,
+}
 
 impl Descriptor {
     pub(crate) fn from_sddl(sddl: &str) -> Result<Self, String> {
@@ -226,13 +231,16 @@ impl Descriptor {
                 last_error()
             ));
         }
-        Ok(Descriptor(descriptor))
+        Ok(Descriptor {
+            pointer: descriptor,
+            stored: None,
+        })
     }
 
     pub(crate) fn attributes(&self) -> SECURITY_ATTRIBUTES {
         SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: self.0,
+            lpSecurityDescriptor: self.pointer,
             bInheritHandle: 0,
         }
     }
@@ -246,7 +254,7 @@ impl Descriptor {
         let mut owner: PSID = std::ptr::null_mut();
         let mut defaulted = 0;
         // SAFETY: a live descriptor; `owner` points into it.
-        if unsafe { GetSecurityDescriptorOwner(self.0, &mut owner, &mut defaulted) } == 0 {
+        if unsafe { GetSecurityDescriptorOwner(self.pointer, &mut owner, &mut defaulted) } == 0 {
             return Err(format!(
                 "read a descriptor's owner: Win32 error {}",
                 last_error()
@@ -269,8 +277,9 @@ impl Descriptor {
         let mut dacl: *mut ACL = std::ptr::null_mut();
         let mut defaulted = 0;
         // SAFETY: a live descriptor; `dacl` points into it.
-        if unsafe { GetSecurityDescriptorDacl(self.0, &mut present, &mut dacl, &mut defaulted) }
-            == 0
+        if unsafe {
+            GetSecurityDescriptorDacl(self.pointer, &mut present, &mut dacl, &mut defaulted)
+        } == 0
         {
             return Err(format!(
                 "read the security of {}: Win32 error {}",
@@ -356,9 +365,11 @@ pub(crate) fn sid_text(sid: &[u8]) -> Result<String, String> {
 
 impl Drop for Descriptor {
     fn drop(&mut self) {
-        // SAFETY: a LocalAlloc'd descriptor (from SDDL or GetSecurityInfo),
-        // freed once.
-        unsafe { LocalFree(self.0.cast()) };
+        if self.stored.is_none() {
+            // SAFETY: a descriptor LocalAlloc'd by
+            // ConvertStringSecurityDescriptorToSecurityDescriptorW, freed once.
+            unsafe { LocalFree(self.pointer.cast()) };
+        }
     }
 }
 
@@ -759,30 +770,45 @@ pub fn replace_keeping_security(
     moved
 }
 
-/// The owner and DACL of an open object, as a self-relative descriptor.
+/// The owner and DACL of an open object as the file system stores them, a
+/// self-relative descriptor read through the handle with
+/// `GetKernelObjectSecurity` (#163). Not `GetSecurityInfo`: for a DACL not
+/// marked auto-inherited it recomputes the control and the entries against
+/// the parent's current DACL, reporting the DACL protected when one of the
+/// parent's inheritable entries is not in it, though the stored one is not.
 pub(crate) fn security_of(handle: &Handle, path: &Path) -> Result<Descriptor, String> {
-    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
-    // SAFETY: an open handle with READ_CONTROL; the descriptor is freed by
-    // the returned value.
-    let error = unsafe {
-        GetSecurityInfo(
-            handle.0,
-            SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            &mut descriptor,
-        )
-    };
-    if error != 0 {
-        return Err(format!(
-            "read the security of {}: Win32 error {error}",
-            path.display()
-        ));
+    let information = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    let mut buffer: Vec<u64> = Vec::new();
+    loop {
+        let size = (buffer.len() * 8) as u32;
+        let mut needed = 0u32;
+        // SAFETY: an open handle with READ_CONTROL; `buffer` holds `size`
+        // bytes, u64-aligned.
+        let ok = unsafe {
+            GetKernelObjectSecurity(
+                handle.0,
+                information,
+                buffer.as_mut_ptr().cast(),
+                size,
+                &mut needed,
+            )
+        };
+        if ok != 0 {
+            break;
+        }
+        let error = last_error();
+        if error != ERROR_INSUFFICIENT_BUFFER || needed <= size {
+            return Err(format!(
+                "read the security of {}: Win32 error {error}",
+                path.display()
+            ));
+        }
+        buffer = vec![0u64; (needed as usize).div_ceil(8)];
     }
-    Ok(Descriptor(descriptor))
+    Ok(Descriptor {
+        pointer: buffer.as_mut_ptr().cast(),
+        stored: Some(buffer),
+    })
 }
 
 /// One of `policy`'s owners owns the object, and its DACL allows no
@@ -802,15 +828,16 @@ fn check_descriptor(descriptor: &Descriptor, path: &Path, policy: &Policy) -> Re
     };
     let mut owner: PSID = std::ptr::null_mut();
     let mut defaulted = 0;
-    // SAFETY: a descriptor GetSecurityInfo returned; `owner` points into it.
-    if unsafe { GetSecurityDescriptorOwner(descriptor.0, &mut owner, &mut defaulted) } == 0 {
+    // SAFETY: a descriptor security_of read; `owner` points into it.
+    if unsafe { GetSecurityDescriptorOwner(descriptor.pointer, &mut owner, &mut defaulted) } == 0 {
         return Err(unreadable());
     }
     let mut present = 0;
     let mut dacl: *mut ACL = std::ptr::null_mut();
     // SAFETY: the same descriptor; `dacl` points into it.
-    if unsafe { GetSecurityDescriptorDacl(descriptor.0, &mut present, &mut dacl, &mut defaulted) }
-        == 0
+    if unsafe {
+        GetSecurityDescriptorDacl(descriptor.pointer, &mut present, &mut dacl, &mut defaulted)
+    } == 0
     {
         return Err(unreadable());
     }
@@ -831,10 +858,10 @@ fn check_descriptor(descriptor: &Descriptor, path: &Path, policy: &Policy) -> Re
         if policy.protected {
             let mut control = 0u16;
             let mut revision = 0u32;
-            // SAFETY: a descriptor GetSecurityInfo returned, and two
-            // out-values.
-            if unsafe { GetSecurityDescriptorControl(descriptor.0, &mut control, &mut revision) }
-                == 0
+            // SAFETY: a descriptor security_of read, and two out-values.
+            if unsafe {
+                GetSecurityDescriptorControl(descriptor.pointer, &mut control, &mut revision)
+            } == 0
             {
                 return Err(format!(
                     "read the security of {}: Win32 error {}",
@@ -1090,7 +1117,7 @@ pub(crate) fn set_security(
             information |= OWNER_SECURITY_INFORMATION;
         }
         // SAFETY: an open handle and a live descriptor.
-        if unsafe { SetKernelObjectSecurity(handle.0, information, descriptor.0) } == 0 {
+        if unsafe { SetKernelObjectSecurity(handle.0, information, descriptor.pointer) } == 0 {
             return Err(failure("change the security of", &owned, last_error()));
         }
         Ok(handle)

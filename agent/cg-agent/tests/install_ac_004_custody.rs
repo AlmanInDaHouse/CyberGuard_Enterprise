@@ -18,7 +18,7 @@ use std::path::Path;
 
 use cg_agent::custody::{self, Kind, Policy};
 use custody_fixtures::{
-    default_owner_sid, normalized, owner_and_dacl, sddl, user, user_only, user_sid,
+    default_owner_sid, normalized, owner_and_dacl, sddl, stored_dacl, user, user_only, user_sid,
 };
 
 fn file(path: &Path, security: &str, bytes: &[u8]) {
@@ -83,7 +83,7 @@ fn install_ac_004_each_custody_condition_is_refused() {
         "allows access to a principal other than",
     );
 
-    // A DACL given at creation is protected; one only inherited is not.
+    // A DACL only inherited is not protected.
     let inheriting = root.path().join("inheriting");
     custody::ensure_directory(&inheriting, &sddl(true, ""), &user_only()).expect("dir");
     let unprotected = inheriting.join("unprotected.toml");
@@ -155,6 +155,64 @@ fn install_ac_004_each_custody_condition_is_refused() {
     );
 }
 
+/// A protected DACL is one the file system stores protected (#163): a DACL
+/// given at creation without `P` is not, though `GetSecurityInfo` and
+/// `GetNamedSecurityInfoW` report it protected when one of the parent's
+/// inheritable entries is not in it (here SYSTEM's); whether a change to the parent's DACL that
+/// propagates reaches it then depends on the parent's DACL at that change,
+/// not on the object. The directory, the file, the read and the replacement
+/// refuse it; the same DACL with `P` passes under that parent.
+#[test]
+fn install_ac_004_a_dacl_stored_unprotected_is_refused() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let parent = root.path().join("parent");
+    custody::create_new_directory(
+        &parent,
+        &format!("D:P(A;OICI;FA;;;{})(A;OICI;FR;;;SY)", user_sid()),
+    )
+    .expect("the parent");
+    let dir = parent.join("identity");
+    custody::create_new_directory(&dir, &format!("D:(A;OICI;FA;;;{})", user_sid()))
+        .expect("a directory with a DACL stored unprotected");
+    let path = parent.join("agent.toml");
+    file(&path, &format!("D:(A;;FA;;;{})", user_sid()), b"token");
+    for object in [&dir, &path] {
+        assert!(
+            !stored_dacl(object).starts_with("D:P"),
+            "premise: {} is stored unprotected: {}",
+            object.display(),
+            stored_dacl(object)
+        );
+        assert!(
+            owner_and_dacl(object).contains("D:P"),
+            "premise: Windows reports {} protected: {}",
+            object.display(),
+            owner_and_dacl(object)
+        );
+    }
+
+    let error = custody::check(&dir, Kind::Directory, &user_only()).expect_err("the directory");
+    assert!(error.contains("is not protected"), "{error}");
+    let error = custody::check(&path, Kind::File, &user_only()).expect_err("the file");
+    assert!(error.contains("is not protected"), "{error}");
+    let error = custody::read_checked(&path, &user_only()).expect_err("not read");
+    assert!(error.contains("is not protected"), "{error}");
+    let temporary = parent.join("agent.toml.hygiene-tmp");
+    let error = custody::replace_keeping_security(&path, &temporary, b"x", &user_only())
+        .expect_err("not replaced");
+    assert!(error.contains("is not protected"), "{error}");
+    assert_eq!(std::fs::read(&path).expect("read"), b"token");
+    assert!(!temporary.exists(), "no temporary file");
+
+    let protected = parent.join("protected");
+    custody::create_new_directory(&protected, &sddl(true, "")).expect("protected");
+    assert!(
+        stored_dacl(&protected).starts_with("D:P"),
+        "stored protected"
+    );
+    custody::check(&protected, Kind::Directory, &user_only()).expect("passes");
+}
+
 /// Creation: `ensure_directory` creates with its security, or checks what
 /// is there; `create_new_file` never writes over a file.
 #[test]
@@ -222,6 +280,7 @@ fn install_ac_005_the_replacement_keeps_owner_and_dacl() {
     custody::replace_keeping_security(&path, &temporary, b"rewritten\n", &policy).expect("replace");
     assert_eq!(std::fs::read(&path).expect("read"), b"rewritten\n");
     assert_eq!(owner_and_dacl(&path), before, "owner and DACL kept");
+    assert!(stored_dacl(&path).starts_with("D:P"), "stored protected");
     assert!(!temporary.exists(), "the temporary file is gone");
     custody::check(&path, Kind::File, &policy).expect("still passes");
 }

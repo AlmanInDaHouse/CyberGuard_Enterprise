@@ -1074,7 +1074,8 @@ pub fn create_directory_with(path: &Path, sddl: &str) {
 }
 
 /// Create the file `path`, which must not exist, with `sddl` as its
-/// security (a DACL given at creation comes out protected), and write
+/// security (a DACL given at creation is stored as given, protected only
+/// when its SDDL has `P`), and write
 /// `bytes` to it.
 pub fn create_file_with(path: &Path, sddl: &str, bytes: &[u8]) {
     enable_backup_and_restore();

@@ -18,7 +18,7 @@ use windows_sys::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT,
 };
 use windows_sys::Win32::Security::{
-    GetLengthSid, GetTokenInformation, TokenOwner, DACL_SECURITY_INFORMATION,
+    GetFileSecurityW, GetLengthSid, GetTokenInformation, TokenOwner, DACL_SECURITY_INFORMATION,
     OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_OWNER, TOKEN_QUERY,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -200,4 +200,61 @@ pub fn owner_and_dacl(path: &Path) -> String {
     // SAFETY: allocated by GetNamedSecurityInfoW.
     unsafe { LocalFree(descriptor.cast()) };
     sddl
+}
+
+/// The DACL of `path` as the file system stores it, as SDDL: read with
+/// `GetFileSecurityW`, which does not recompute it against the parent's as
+/// `GetNamedSecurityInfoW` (`owner_and_dacl`) does.
+pub fn stored_dacl(path: &Path) -> String {
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut needed = 0u32;
+    // SAFETY: a NUL-terminated name and a size query.
+    unsafe {
+        GetFileSecurityW(
+            wide.as_ptr(),
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            0,
+            &mut needed,
+        )
+    };
+    let mut buffer = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+    // SAFETY: `buffer` holds at least `needed` bytes, u64-aligned.
+    let ok = unsafe {
+        GetFileSecurityW(
+            wide.as_ptr(),
+            DACL_SECURITY_INFORMATION,
+            buffer.as_mut_ptr().cast(),
+            (buffer.len() * 8) as u32,
+            &mut needed,
+        )
+    };
+    assert_ne!(ok, 0, "GetFileSecurityW {}", path.display());
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the descriptor in `buffer`; `text` is LocalAlloc'd, freed below.
+    let ok = unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            buffer.as_mut_ptr().cast(),
+            SDDL_REVISION_1,
+            DACL_SECURITY_INFORMATION,
+            &mut text,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_ne!(
+        ok, 0,
+        "ConvertSecurityDescriptorToStringSecurityDescriptorW"
+    );
+    // SAFETY: a NUL-terminated string from the call, read then freed.
+    unsafe {
+        let len = (0..).take_while(|&i| *text.add(i) != 0).count();
+        let sddl = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+        LocalFree(text.cast());
+        sddl
+    }
 }

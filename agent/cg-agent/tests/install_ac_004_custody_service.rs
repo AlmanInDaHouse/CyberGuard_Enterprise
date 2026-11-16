@@ -248,8 +248,8 @@ async fn install_ac_002_a_configuration_others_can_reach_is_code_2() {
 
     // Owned by SYSTEM, with a DACL only inherited from the data root
     // (SYSTEM and Administrators): protection is the one failing condition.
-    // A DACL given at creation comes out protected, so the file is created
-    // without one and SYSTEM made its owner after.
+    // The file is created with no DACL of its own, so that it inherits the
+    // data root's, and SYSTEM is made its owner after.
     privileged_delete(&config);
     create_file_inheriting(&config, WinLocalSystemSid, toml.as_bytes());
     let security = parse_sddl(&owner_and_dacl(&config));
