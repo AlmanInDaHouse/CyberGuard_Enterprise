@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 57** at Session 75's close, the count `docs/handoff-session-75.md` states
-(Session 75 finished C9, the purge: the review residuals, SPEC-024 Amendment 2026-11-16 and the setup's purge step; no debt opened or closed).
+**Open: 56** at Session 76's close, the count `docs/handoff-session-76.md` states
+(Session 76 closed #163 with SPEC-024 Amendment 2026-11-16 (second) and the custody fix, and planned C10; no debt opened).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 75's close, `docs/handoff-session-75.md#how-session-76-resumes`);
+Session N resumes* (at Session 76's close, `docs/handoff-session-76.md#how-session-77-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -90,12 +90,12 @@ Session N resumes* (at Session 75's close, `docs/handoff-session-75.md#how-sessi
 | 159 | `cargo audit` prints an allowed warning: RUSTSEC-2026-0440 (`astral-tokio-tar` 0.6.2, unmaintained, no patched release), which only the agent's tests compile through testcontainers 0.27; Manuel accepted it as this debt on 2026-11-14. RUSTSEC-2026-0486 (`rustix`) and RUSTSEC-2026-0386 (`tokio`) were moved within their ranges in Session 72 | `handoff-session-70.md#debts`; `handoff-session-72.md#debts` | Reopens when testcontainers drops astral-tokio-tar (move with it), or when an advisory of a vulnerability covers it. |
 | 161 | `ac-001-marquee` failed once in the elevated gate, unreproduced: the harness ends the agent at 4 s and checks its ETW session once after `logman stop`, and found it still running (`services/ingest/test/helpers/marquee-agent.ts`); 0 failures in 17 runs since | `handoff-session-72.md#debts` | A stop that waits for the session to go, with a bound, when the harness next changes or the failure recurs. |
 | 162 | The release's checks beyond SPEC-024 Amendment 2026-11-14's wording: payloads outside a container and a second string table are not read; `MsiEmbeddedUI`, `MsiEmbeddedChainer` and a downloaded package are not refused; the engine and `wixstdba.exe` are not compared with the nuget content; and `images` runs alongside `agent`, so a failed Windows build can leave attested images of a version with no release | `handoff-session-72.md#debts` | Before the first release (F4): the job order to Manuel (packaging); the checks with an amendment if they narrow the contract. |
-| 163 | `custody::check` passed a directory created with the SDDL `D:(A;OICI;FA;;;<user>)` against a policy with `protected: true`, while `GetFileSecurityW` renders its DACL without `P`: what `GetSecurityInfo` reports of `SE_DACL_PROTECTED`, and whether a DACL inheritance can still reach passes the configuration and identity policies, is unread | `handoff-session-74.md#debts` | Read with a test of the custody check before C10's runbooks cite the policies; a fix that narrows a check goes through an amendment first. |
 
 ## Closed
 
 | # | Debt | Closed by | Entry |
 |---|---|---|---|
+| 163 | `custody::check` passed a directory created with the SDDL `D:(A;OICI;FA;;;<user>)` against a policy with `protected: true`: `GetSecurityInfo` recomputes a DACL not stored auto-inherited against its parent's and reported it protected, though stored unprotected | `d333442`: `custody::security_of` reads the owner and DACL as stored (`GetKernelObjectSecurity`), after SPEC-024 Amendment 2026-11-16 (second) (`9f2a780`) read every protected DACL as stored | `handoff-session-74.md#debts`; `handoff-session-76.md#debts` |
 | 158 | A release build given `-p:CgInjectFailure=1` would carry the MSI's test-build custom action, which fails inside the transaction; `package-ci` checks only the MSIs it builds | `df48f45`: the release builds the MSI with the define empty and checks, before it attests, that the MSI it publishes and the one the setup carries have no custom action, no `Binary` table and one file (SPEC-024 Amendment 2026-11-14, points 1 and 2) | `handoff-session-69.md#debts`; `handoff-session-72.md#debts` |
 | 149 | `ubuntu-latest` serves Ubuntu 26.04, where the dashboard's `next build` dies with `kill EACCES` under deploy-ci's plain `docker build`; its images job is pinned to `ubuntu-24.04` (`ae4110c`), while `release.yml` stays on `ubuntu-latest`, exercised there only by the release dry run's buildx container builder, and `docs/specs/SPEC-023-production-deployment.md:342` still names `ubuntu-latest` | `df48f45`: `release.yml`'s Ubuntu jobs and deploy-ci's release dry run run on `ubuntu-24.04`, with deploy-ci's images job, and SPEC-023's line reads so by scope (SPEC-024 Amendment 2026-11-14, point 7); the cause stays unknown, and a move to another image is a reviewed change of both workflows | `handoff-session-59.md#debts`; `handoff-session-72.md#debts` |
 | 140 | A development build's version resource carries Cargo's numbers `X.Y.Z.0` and no prerelease flag, so a reader of the numbers alone cannot tell it from the same-numbered release (SPEC-024 Amendment 2026-11-01, point 2) | `c0ad344`: a development build of `cg-agent.exe` and `cg-setup.exe` carries `VS_FF_PRERELEASE`, read in both builds by the version matrix (SPEC-024 Amendment 2026-11-14, point 8) | `handoff-session-51.md#debts`; `handoff-session-72.md#debts` |

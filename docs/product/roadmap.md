@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-75.md](../handoff-session-75.md)).
+([handoff-session-76.md](../handoff-session-76.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -487,7 +487,10 @@ This dependency-ordered document supersedes both for planning.
   the setup is installed and the setup's action as the purge's guard, approved
   by Manuel (`205c5f4`), and the bundle's step with `package-ci`'s tests
   (`ad8050d`), seen red first on probes #138 and #140
-  (`docs/handoff-session-75.md`). C9 is done; C10, the runbooks, follows.
+  (`docs/handoff-session-75.md`). C9 is done. S76 closed #163 (SPEC-024
+  Amendment 2026-11-16 (second), `9f2a780`; the custody fix, `d333442`) and
+  planned C10, the runbooks, in five commits (`docs/handoff-session-76.md`),
+  which follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
