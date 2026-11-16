@@ -3252,6 +3252,120 @@ runbook, and the reading of ADR-0008's reclaim above, which changes no ADR text 
 chose on 2026-11-15, in chat ("Lectura por alcance"). He approved this text, at `21f0344`, on
 2026-11-15, in chat: "Apruebo". Status stays **Accepted**.
 
+## Amendment 2026-11-16: the purge step's detection and the setup's action
+
+**What surfaced it.** C9's third commit, the bundle's `Purge` step of the Amendment 2026-11-15,
+point 2. The probe pull request #138 (closed without landing; run 43774679884, `package-ci`'s
+`bundle` job, its leg with no mutant) ran the purge's tests against the step as point 2 gives it,
+and read that a fresh installation preflight refuses with 22 leaves the setup registered among the
+installed programs, with nothing else installed: the step, detected present by its condition, is
+the one package Burn expects present after the rollback (`i201: Planned package: Purge, state:
+Present, ... execute: None, rollback: None, ... expected install registration state: Present`), so
+Burn keeps the setup's registration. That contradicts the Amendment 2026-11-09, item 3: "Before
+changing the host" excludes Burn's own registration and package cache, "which Burn removes on a
+refusal"; the setup's host test asserts it of preflight's refusals
+(`package_bundle_refusals_pass_through_with_the_reversal`) and of the wizard's cancellation (the
+Amendment 2026-11-13). The probe pull request #139 (closed without landing; run 43776864823, job
+"The setup on the host", every test of the setup's host test passed, 16) read the step detected
+present by Burn's variable `WixBundleInstalled`, true once the setup is installed:
+
+- A fresh installation, a second build of the same version and an upgrade's newer setup detect the
+  step absent and run its installation, `cg-setup.exe purge` with no option, which exits 0, after
+  the MSI and before configure. A fresh installation preflight refuses never reaches it, and Burn
+  removes its cached payload and the setup's registration (`i351: Removing cached package: Purge`,
+  `install registration state: Absent`): nothing is registered or cached, as before the step.
+- A repair detects it present and plans no action for it (`default requested: Repair, ...
+  execute: None, rollback: None`).
+- Every uninstallation of an installed setup runs it as point 2 says: with no value, 0; with
+  `CG_PURGE=yes`, the purge; another value 40, then its rollback, `cg-setup.exe purge`, 0; and the
+  setup an upgrade or a second build replaces runs its own with no value.
+- An upgrade whose configure fails rolls the newer setup's step back with its uninstallation,
+  `cg-setup.exe purge --confirm=""` (read with no `CG_PURGE`), 0.
+
+That last reading is the purge's hazard: Burn formats the uninstallation's arguments with the
+variables of the run it rolls back, so an installation or an upgrade given `CG_PURGE=yes` whose
+configure fails would roll the step back with `--confirm="yes"`, and purge the agent the failed run
+leaves installed (not read: inferred from the formatting Burn applies to every other argument; a
+fresh installation's rollback of the step is inferred from the upgrade's). Burn's own variable
+`WixBundleAction`, read in each of these runs' logs, is 4 on an uninstallation, the replaced
+setup's included, 6 on an installation and an upgrade, and 8 on a repair.
+
+**Amendment.** These points amend the Amendment 2026-11-15, points 1, 2 and 3, and its *Tests*.
+
+1. **The step's detection.** Point 2's "detected present by a condition that is always true"
+   becomes "detected present once the setup is installed", Burn's `WixBundleInstalled`. Its
+   installation, `cg-setup.exe purge` with no option, runs on every installation of a setup not
+   installed, a second build and an upgrade's newer setup included, after the MSI and before
+   configure, and as Burn's rollback of its uninstallation; with no confirmation it reads nothing
+   and exits 0 (point 3), after the platform and the elevation, which preflight before it needed
+   too, so it changes nothing. A code other than 0 there, from a cached payload missing or a
+   process that cannot start, ends the run after the MSI and before configure, as configure's own
+   failure does, with that code (not read): Burn's own error, outside item 7's codes, which name
+   the setup's refusals and outcomes and not Burn's failure to run a step. Burn rolls an installation's step back, when configure
+   fails after it, with its uninstallation, which point 2 below makes change nothing; a rollback
+   that exits other than 0, such as 40 for a `CG_PURGE` of another value, does not change the code
+   `setup.exe` exits with (read on probe #134 for the uninstallation's rollback). A repair runs
+   nothing of the step. Every uninstallation of an installed setup runs the step's
+   uninstallation, before the MSI.
+2. **The setup's action.** The step's uninstallation arguments gain `--action="[WixBundleAction]"`:
+   `cg-setup.exe purge --confirm="[CG_PURGE]" --action="[WixBundleAction]"`. The Amendment
+   2026-11-15, point 3's verb takes `--action=` at most once, as it takes `--confirm=`, its absence
+   or an empty value as not given, and a value of ASCII decimal digits alone, read as a number,
+   leading zeros included (`0004` is 4); any other value, a sign or a space included, is 40 before
+   anything changes. Given, a number other than 4, Burn's
+   uninstallation as `v7.0.1` numbers it (read), one too large to read included, makes
+   `--confirm=yes` not given: the verb reads nothing under `<P>`, opens no service and exits 0, so
+   that no run but an uninstallation, an installation's rollback included, purges whatever
+   `CG_PURGE` is. Not given, as when an elevated administrator runs `cg-setup purge --confirm=yes`
+   themselves (point 8 of that amendment), `--confirm=` alone decides, as before. An
+   uninstallation with `-unsafeuninstall`, and Burn's update-replace actions, which Burn numbers
+   otherwise (not read), purge nothing. `WixBundleAction` is Burn's own variable, which a command
+   line does not set: Burn ignores a command line's attempt to set its own variables (read of
+   `WixBundleUILevel`, the Amendment 2026-11-12 (second), point 1; inferred of this one), and the
+   value is an elevated administrator's own command in any case. That Burn formats the rollback's
+   `[WixBundleAction]` with the action of the run it rolls back, 6, is what the *Tests* below
+   read.
+
+**Tests.** `cg-setup purge`'s command line gains: `--action=` absent, empty, of digits, leading
+zeros and a number too large included, given twice 40, not of digits 40, a sign or a space
+included; `--confirm=yes` with `--action=4` or `04` confirmed, with no action confirmed, with
+`--action=6`, `8`, `3` or `0` not given. `cg-setup.exe purge
+--confirm=yes --action=6` checks the platform and the elevation first, which
+`package_setup_executable` reads as 20 and 21 under a filtered token; its exit 0 having read
+nothing is the command line's unit tests and the `bundle` job's. In `package-ci`'s `bundle` job: a
+fresh installation runs the step's installation, `purge`, 0, and a refused one leaves nothing
+registered or cached (`package_bundle_refusals_pass_through_with_the_reversal` and the wizard's,
+unchanged); a repair runs nothing of the step; an installation, a second build and an upgrade with
+`CG_PURGE=yes` never purge, and the step of each uninstallation carries `--action="4"`; and an
+upgrade with `CG_PURGE=yes` whose configure fails (44) rolls the newer setup's step back with
+`--confirm="yes" --action="6"`, exits 0, and the agent keeps its data and its one enrollment, seen
+red first on a probe pull request against a `cg-setup` whose `--action=` is ignored.
+
+**Effect.** In the Amendment 2026-11-15: point 1's "a fresh installation plans the step as they
+do" reads as point 1 above says: an installation runs the step's installation, which changes
+nothing. Point 2's "whose installation, which only Burn's rollback of that uninstallation runs" and
+"Burn runs it on every uninstallation, before the MSI, and on no installation or repair" read as:
+its installation runs on every installation of a setup not installed and as that rollback, its
+uninstallation on every uninstallation, before the MSI, and no installation or repair purges. Point 3's "takes `--confirm=` at most once" gains `--action=`, and
+its "Not given, ... which is every uninstallation with no `CG_PURGE` or an empty one, the replaced
+setup's on an upgrade included, and the rollback of the step" gains every installation's run of
+the step and `--confirm=yes` with another action. Its *Tests*' "an upgrade, a repair and a second
+build with `CG_PURGE=yes`, the data kept and no step run with `yes`" stays true of each run that
+succeeds, and of a run that fails reads as no step run with `yes` and Burn's uninstallation, 4,
+since an installation's rollback of the step carries `yes` with an action, 6, that makes it not
+given. The Amendment 2026-11-09, item 3's "which Burn removes on a refusal" and the Amendment
+2026-11-13's cancellation stand as written. The threat model's Amendment 2026-11-15 records in its
+*Context* what the probe pull request #134 read ("on no installation or repair", "on an upgrade only the replaced
+setup's step runs") and is not changed: no threat is accepted, point 2 closes the route the hazard
+above opened before any code relies on it, and its Denial-of-Service entry's step that blocks an
+uninstallation until it exits 0 now also runs on an installation, where with no confirmation it
+needs only what preflight needed. No ADR changes, and no dependency or privilege is added. Manuel
+chose on 2026-11-16, in chat, each in the recommended option: the step detected by
+`WixBundleInstalled` ("WixBundleInstalled (Recomendado)") and the setup's action as the guard of
+the installation's rollback ("Acción de Burn (Recomendado)"); his approval of this text decides the
+rest. He approved this text, at `fa09dc8`, on 2026-11-16, in chat: "Doy mi OK y mi sí". Status stays
+**Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
