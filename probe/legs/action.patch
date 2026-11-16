@@ -1,0 +1,16 @@
+diff --git a/agent/cg-setup/src/cli.rs b/agent/cg-setup/src/cli.rs
+index d6a26da..06de078 100644
+--- a/agent/cg-setup/src/cli.rs
++++ b/agent/cg-setup/src/cli.rs
+@@ -88,9 +88,8 @@ pub fn parse(arguments: &[OsString]) -> Result<Command, Refusal> {
+                 }
+                 Some(_) => return Err(refused("--action= is not of digits")),
+             };
+-            Ok(Command::Purge {
+-                confirmed: yes && uninstallation,
+-            })
++            let _ = uninstallation;
++            Ok(Command::Purge { confirmed: yes })
+         }
+         "preflight" => {
+             let [bootstrap, migrate_legacy, trust_anchors, ui] = take(
