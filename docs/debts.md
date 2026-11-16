@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 56** at Session 76's close, the count `docs/handoff-session-76.md` states
-(Session 76 closed #163 with SPEC-024 Amendment 2026-11-16 (second) and the custody fix, and planned C10; no debt opened).
+**Open: 58** at Session 77's close, the count `docs/handoff-session-77.md` states
+(Session 77 landed C10's first commit, `install.md` on the setup, and opened #164 and #165; none closed).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 76's close, `docs/handoff-session-76.md#how-session-77-resumes`);
+Session N resumes* (at Session 77's close, `docs/handoff-session-77.md#how-session-78-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -90,6 +90,8 @@ Session N resumes* (at Session 76's close, `docs/handoff-session-76.md#how-sessi
 | 159 | `cargo audit` prints an allowed warning: RUSTSEC-2026-0440 (`astral-tokio-tar` 0.6.2, unmaintained, no patched release), which only the agent's tests compile through testcontainers 0.27; Manuel accepted it as this debt on 2026-11-14. RUSTSEC-2026-0486 (`rustix`) and RUSTSEC-2026-0386 (`tokio`) were moved within their ranges in Session 72 | `handoff-session-70.md#debts`; `handoff-session-72.md#debts` | Reopens when testcontainers drops astral-tokio-tar (move with it), or when an advisory of a vulnerability covers it. |
 | 161 | `ac-001-marquee` failed once in the elevated gate, unreproduced: the harness ends the agent at 4 s and checks its ETW session once after `logman stop`, and found it still running (`services/ingest/test/helpers/marquee-agent.ts`); 0 failures in 17 runs since | `handoff-session-72.md#debts` | A stop that waits for the session to go, with a bound, when the harness next changes or the failure recurs. |
 | 162 | The release's checks beyond SPEC-024 Amendment 2026-11-14's wording: payloads outside a container and a second string table are not read; `MsiEmbeddedUI`, `MsiEmbeddedChainer` and a downloaded package are not refused; the engine and `wixstdba.exe` are not compared with the nuget content; and `images` runs alongside `agent`, so a failed Windows build can leave attested images of a version with no release | `handoff-session-72.md#debts` | Before the first release (F4): the job order to Manuel (packaging); the checks with an amendment if they narrow the contract. |
+| 164 | `docs/security/threat-model.md:357` (R17) cites `docs/operations/install.md` for the console runbook's `New-Item` and its code-13 remedy, which `fdd0ea5` removed from it | `handoff-session-77.md#debts` | C10 commit 4's threat-model proposal (M4); threat-model text is Manuel's. |
+| 165 | No runbook route sets `agent.toml`'s tuning keys (`configuration.md`'s *The agent's tuning*) on a service host: the bootstrap file takes five keys, and an edit that replaces the SYSTEM-owned file is refused at the next start | `handoff-session-77.md#debts` | C10 commit 3: an in-place edit with its custody, or a SPEC if the route is new. |
 
 ## Closed
 
