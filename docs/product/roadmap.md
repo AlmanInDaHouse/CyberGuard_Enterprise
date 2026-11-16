@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-74.md](../handoff-session-74.md)).
+([handoff-session-75.md](../handoff-session-75.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -482,8 +482,12 @@ This dependency-ordered document supersedes both for planning.
   `docs/handoff-session-73.md`). S74 landed C9's first two commits, the
   service's purge start (`a2b2016`, `851664a`) and `cg-setup purge` with the
   codes 46 and 47 (`c3307cb`), seen red first on probe #136
-  (`docs/handoff-session-74.md`). C9's third commit, the bundle's step and its
-  package tests, and C10 follow.
+  (`docs/handoff-session-74.md`). S75 landed C9's third part: the review
+  residuals (`6311f58`), SPEC-024 Amendment 2026-11-16, the step detected once
+  the setup is installed and the setup's action as the purge's guard, approved
+  by Manuel (`205c5f4`), and the bundle's step with `package-ci`'s tests
+  (`ad8050d`), seen red first on probes #138 and #140
+  (`docs/handoff-session-75.md`). C9 is done; C10, the runbooks, follows.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the

@@ -47,12 +47,13 @@ release's (install_ac_015), below.
 ## The setup
 
 `bundle/` is the agent's setup, `cyberguard-agent-<version>-x64-setup.exe` (SPEC-024 Amendments
-2026-11-09, items 1 and 2, 2026-11-12 (second) and (third), and 2026-11-15): WiX's Burn engine and
+2026-11-09, items 1 and 2, 2026-11-12 (second) and (third), 2026-11-15 and 2026-11-16): WiX's Burn engine and
 standard bootstrapper application with the project's theme (`bundle/theme/`), whose chain runs
 `cg-setup` preflight, the MSI with `CG_SETUP_CHAIN=1`, a vital rollback boundary, `cg-setup` purge
 and `cg-setup` configure. The purge step runs on every uninstallation, before the MSI, and purges
 only with `CG_PURGE=yes` on the setup's command line (`setup.exe -uninstall CG_PURGE=yes`); with no
-value it changes nothing.
+value it changes nothing. An installation runs it with no option, which changes nothing, and its
+rollback passes Burn's action, with which `cg-setup` purges only on an uninstallation.
 Preflight is told the setup's window, `--ui="[WixBundleUILevel]"`: only with the full window, on a
 fresh or pending host given no bootstrap file or migration variable, does it show the wizard
 (SPEC-024 Amendment 2026-11-13, points 1 to 3); with `-quiet` or `-passive` it asks nothing. `Directory.Build.targets` checks, before WiX compiles, that the MSI and `cg-setup.exe` it carries
