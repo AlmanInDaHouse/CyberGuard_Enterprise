@@ -3,13 +3,14 @@ name: release
 # SPEC-023 §Operational §12 and its Amendment 2026-10-26, item 4: a tag v<major>.<minor>.<patch>
 # cuts a release. The tag's version is checked first (SPEC-024 Amendment 2026-11-01, point 3,
 # debt #139): its form and MSI's limits, before any job pushes, attests or publishes. Then
-# the licence check; then the four images are built for linux/amd64 with BuildKit's SBOM and
-# provenance attestations, pushed to GHCR with the tags <version> and sha-<commit>, and
-# attested; the agent's executable, its MSI and setup and WiX's source archive are built,
-# checked against each other and attested on Windows (SPEC-024 Amendment 2026-11-14); the
-# bundle names each image by its digest and is attested; and the GitHub Release carries six
-# payload assets and SHA256SUMS. Each job has the permissions it uses alone, and every
-# third-party action is pinned by commit SHA, the release it points to in the comment.
+# the licence check; then the agent's executable, its MSI and setup and WiX's source archive are
+# built, checked against each other and attested on Windows (SPEC-024 Amendment 2026-11-14);
+# then the four images are built for linux/amd64 with BuildKit's SBOM and provenance
+# attestations, pushed to GHCR with the tags <version> and sha-<commit>, and attested
+# (Amendment 2026-11-17, point 2); the bundle names each image by its digest and is attested;
+# and the GitHub Release carries six payload assets and SHA256SUMS. Each job has the permissions
+# it uses alone, and every third-party action is pinned by commit SHA, the release it points to
+# in the comment.
 # deploy-ci.yml runs the image builds and the bundle step as a dry run, and package-ci.yml the
 # Windows assets' build and checks, pushing and attesting nothing; their runners are pinned
 # images (#149), changed together. The first release waits for F2 to F4 and for Manuel's
@@ -91,9 +92,11 @@ jobs:
           path: licences-*.md
           if-no-files-found: error
 
+  # SPEC-024 Amendment 2026-11-17, point 2 (debt #162): after the agent job, so that a failed
+  # Windows build leaves no image pushed or attested and no bundle attested.
   images:
     name: The four images, pushed and attested
-    needs: licences
+    needs: [licences, agent]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

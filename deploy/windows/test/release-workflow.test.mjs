@@ -1,7 +1,8 @@
 // SPEC-024 Amendment 2026-11-14, points 1, 5, 6 and 7: what release.yml itself must hold, read
 // from its text. Its six payload assets in SHA256SUMS and in the publish step; each job's
 // permissions; each job that pushes or attests waiting for the licence check, directly or through
-// another job; no step passing the MSI's test-build define, using an action outside the list it
+// another job; the images job, and the bundle after it, waiting for the agent job (Amendment
+// 2026-11-17, point 2); no step passing the MSI's test-build define, using an action outside the list it
 // may use or one not pinned by its commit, or naming a cache, and Rust installed through rustup
 // before the build; the Windows assets made by the script package-ci's dry run runs, into the same
 // relative directory, by a step that cannot mint an OIDC token, with the licence report fetched
@@ -87,6 +88,21 @@ test("each job that pushes, attests or publishes waits for the licence check", (
     const acts = job.permissions.some((p) => /^(packages|id-token|attestations): write$|^contents: write$/.test(p));
     if (acts) assert.ok(dependsOn(releaseJobs, name, "licences"), `${name} must wait for the licence check`);
   }
+});
+
+// SPEC-024 Amendment 2026-11-17, point 2 (debt #162): a failed Windows build leaves no image
+// pushed or attested and no bundle attested, so the images job, and the bundle after it, wait
+// for the agent job.
+function orderProblems(all) {
+  return ["images", "bundle"].filter((name) => !dependsOn(all, name, "agent")).map((name) => `${name} does not wait for the agent job`);
+}
+
+test("the images job, and the bundle after it, wait for the agent job", () => {
+  assert.deepEqual(orderProblems(releaseJobs), []);
+  const images = "  images:\n    name: The four images, pushed and attested\n    needs: [licences, agent]\n";
+  assert.ok(release.includes(images), "the images job needs the licence check and the agent job");
+  const alongside = jobs(release.replace(images, () => images.replace("[licences, agent]", "licences")));
+  assert.deepEqual(orderProblems(alongside), ["images does not wait for the agent job", "bundle does not wait for the agent job"]);
 });
 
 test("the agent job makes the Windows assets with the dry run's script, then attests and keeps them", () => {
