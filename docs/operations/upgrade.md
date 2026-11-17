@@ -1,8 +1,6 @@
 # Upgrade
 
-This document covers two cases: an installation of the bundle upgraded to a newer release, and a deployment built from the repository before SPEC-023, which meets the changes SPEC-023 makes when it runs its code. The installation is in [install.md](install.md), the variables in [configuration.md](configuration.md), and the backups in [backup-and-restore.md](backup-and-restore.md).
-
-It covers the server. The agent is installed and run by hand until its installer ships (SPEC-023 §Scope); each release publishes its executable as `cg-agent-<version>-x86_64-pc-windows-msvc.exe`.
+This document covers three cases: an installation of the bundle upgraded to a newer release; the agent on a Windows endpoint, which the agent's setup installed as a service, upgraded by a newer release's setup; and a deployment built from the repository before SPEC-023, which meets the changes SPEC-023 makes when it runs its code. The installation is in [install.md](install.md), the variables in [configuration.md](configuration.md), and the backups in [backup-and-restore.md](backup-and-restore.md).
 
 ## Upgrading to a newer release
 
@@ -183,14 +181,137 @@ Two kinds of change need no step: the rights on each Postgres table, which the s
 
 No release brings such a step yet.
 
+## Upgrading the agent on an endpoint
+
+The agent that the agent's setup installed ([install.md](install.md#on-the-endpoint-install-and-run-the-agent)) is upgraded by the setup of a newer release, run on the endpoint without a bootstrap file. On an endpoint whose agent is enrolled, the agent keeps its configuration, its trust anchor and its identity, and reports again as the same agent, with no token and no new enrollment (SPEC-024 §Operational §4, install_ac_011). On one whose agent never enrolled, the upgrade starts the service on the configuration already there, with its token, which may have expired meanwhile (42; not read for an upgrade). CI's tests have run the upgrade between two versions built from one source tree; an upgrade between two releases has not been run, and, like the installation's, these endpoint steps have not yet been run on an endpoint (SPEC-024 install_ac_016). Read the newer release's notes before scheduling it.
+
+### The newer setup
+
+Download the newer release's `cyberguard-agent-<version>-x64-setup.exe`, `cg-agent-<version>-x86_64-pc-windows-msvc.exe` and `SHA256SUMS`, and check them as [install.md](install.md#verify-the-files) does, with `sha256sum` and `gh attestation verify`: the executable's attestation ties its line in `SHA256SUMS`, which the check after the upgrade reads, to the release's build. Below, `<version>` is the newer release's version.
+
+On the endpoint, open Windows PowerShell with *Run as administrator* and confirm with `net session` that it is elevated, as [install.md](install.md#on-the-endpoint-install-and-run-the-agent) does; a setup started without elevation copies its engine where the starting user's other processes can reach it. `$dir` is the inputs' directory the installation created ([A directory for the setup and its inputs](install.md#a-directory-for-the-setup-and-its-inputs)), `C:\CyberGuardSetup` or the path the installation chose instead. Before a setup runs elevated from it, check that the directory is still the one the installation created; this prints its attributes, its owner and its DACL:
+
+<!-- upgrade: endpoint-directory -->
+
+```powershell
+$dir = 'C:\CyberGuardSetup'
+$item = Get-Item -Force $dir
+'{0} {1}' -f $item.Attributes, $item.GetAccessControl().GetSecurityDescriptorSddlForm('Owner, Access')
+```
+
+It prints `Directory O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`. Stop if it prints anything else: a directory that is a reparse point, or has another owner or DACL, is one an account other than SYSTEM and Administrators may have changed, and a setup run elevated from it may not be the one checked. Use a new directory instead, created as [A directory for the setup and its inputs](install.md#a-directory-for-the-setup-and-its-inputs) does, with `$dir` set to it in every step below. When the directory is gone, create it as [A directory for the setup and its inputs](install.md#a-directory-for-the-setup-and-its-inputs) does, and copy the installed version's setup into it too, checked against its SHA-256 in the installation's change record.
+
+Then copy the newer setup into the directory, beside the installed version's setup, where `<setup>` is its path on the endpoint, and check it against its line in `SHA256SUMS`:
+
+<!-- upgrade: endpoint-copy -->
+
+```powershell
+Copy-Item '<setup>' "$dir\cyberguard-agent-<version>-x64-setup.exe"
+(Get-FileHash -Algorithm SHA256 "$dir\cyberguard-agent-<version>-x64-setup.exe").Hash -eq '<its SHA-256 in SHA256SUMS>'
+```
+
+It prints `True`. Stop if it prints `False`. The upgrade needs neither the trust anchor nor a bootstrap file: if `bootstrap.toml` is still there, delete it as [install.md](install.md#install-with-a-bootstrap-file) does. Keep the installed version's setup in the directory until the upgrade has ended with 0 or 3010.
+
+### Run the newer setup
+
+<!-- upgrade: endpoint-setup -->
+
+```powershell
+$log = "$dir\upgrade-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+$run = Start-Process -FilePath "$dir\cyberguard-agent-<version>-x64-setup.exe" -ArgumentList '-quiet', '-norestart', '-log', $log -Wait -PassThru
+$run.ExitCode
+```
+
+It is the installation's command without `CG_BOOTSTRAP` ([install.md](install.md#install-with-a-bootstrap-file)): `-quiet` shows no window, `-norestart` keeps the setup from restarting the computer, and `-log` writes Burn's log to `$log`, outside `C:\ProgramData\CyberGuard`. On an endpoint whose agent is enrolled, the setup takes no input: a bootstrap file is refused (30), and the setup run without `-quiet` shows its window but no dialog. A deployment tool that runs as SYSTEM runs the same command.
+
+The setup runs these steps, as Burn's log names them:
+
+1. Before any step, Burn checks each package the setup carries against its digest, and refuses a setup older than the setup installed (1638).
+2. `Preflight` reads the endpoint's state and refuses an installed agent newer than this setup (29), both before it stops anything. It removes what an earlier attempt staged and its record, `agent.toml.setup` with any token in it among them, writes its own record, `setup-attempt.json`, then stops the service and waits up to 75 seconds for its stop (31). The stop ends the agent's capture ([The window without events](#the-window-without-events)).
+3. `Agent`, the MSI, removes the older version and installs this one in one transaction: when it fails, Windows Installer rolls both back. Its Restart Manager closes a program that holds the agent's executable open (read for a test's own process; the SPEC names an agent run by hand from the executable among them, which has not been read). An executable that a program it cannot close holds is replaced at the next restart, which Windows Installer asks for: the setup then ends with 3017.
+4. `Purge` changes nothing: an upgrade never purges, with `CG_PURGE=yes` too ([install.md](install.md#the-purge)).
+5. `Configure` sets the service's failure actions, starts the service with no argument, deletes the record once the service control manager has accepted the start, and waits up to 60 seconds for the agent's identity line and its first acknowledged heartbeat, as on an installation.
+
+On an enrolled endpoint the upgrade neither writes nor removes `agent.toml`, `server-ca.pem` or `identity\` in `C:\ProgramData\CyberGuard\agent` (from the setup's code; no test compares them across an upgrade), and the agent goes on writing its log in `logs\`. The service, which the MSI removes and installs again, comes back as the setup installs it, its start type automatic and its failure actions and security the setup's, and `Configure` starts it, one an administrator had stopped or set to start by hand included (read for a repair, which set back a start type changed to manual).
+
+### The upgrade's result
+
+The setup's exit code is the result. [The setup's result](install.md#the-setups-result) gives each code's hexadecimal value, as Burn's log writes it, and its cause. On an upgrade, a failure is followed by the installed setup's own run, which applies the older version's setup to the endpoint the failure left, without its MSI when Windows Installer still holds the older version or the newer one has superseded it: it may stop and start the agent, set its failure actions and start a service an administrator had left stopped. `setup.exe` exits with the newer setup's code whatever that run does, unless Windows Installer asked for a restart (3017).
+
+| Code | The endpoint after it | Retry |
+|---|---|---|
+| 0 | The newer version installed and reporting, as the same agent. One setup is registered among the installed programs, the newer one (read). | None. Check the agent (below). |
+| 3010 | As 0, and Windows Installer asked for a restart, which `-norestart` held (not read on an upgrade). | Restart the computer when convenient. |
+| 3017 | As the step's code in Burn's log gives it, after a restart; the installed setup's run after it has not been read. | That code's, after a restart. |
+| 1638 | Unchanged: no step ran, and the agent was not stopped (read). | None: there is no downgrade ([No downgrade](#no-downgrade)). |
+| 29 | Refused before the stop; the installed setup's run follows, and its outcome has not been read. This setup's own 29, an agent installed newer than the setup installed, has not been read either. | Find the release of the executable in place by its SHA-256 (below), and run that release's setup or a newer one. |
+| 30 | The older version still installed, and its agent running after the installed setup's run (read). | The command above, without `CG_BOOTSTRAP`. |
+| 1603 | The MSI's changes rolled back; after the installed setup's run, the older version installed and its agent running (read). After another Windows Installer code, the installed setup's run follows the same way; its outcome has not been read. | Read the MSI's log, correct its cause, run the newer setup again. |
+| -2146889721 | Unchanged: nothing ran (read on an installation, not on an upgrade). | Download and verify the newer setup again. |
+| 20 to 28, 31 | Refused by the newer setup's checks. The installed setup's run follows; its outcome has not been read. After 31, the service may be left stopped. | Correct the cause [The setup's result](install.md#the-setups-result) gives for that code, then run the newer setup again, without input on an enrolled endpoint. |
+| 40 to 43 | The newer version may be installed (40 after the MSI, 41 to 43 always). The installed setup's run follows; its outcome has not been read. | Correct the cause [The setup's result](install.md#the-setups-result) gives for that code, check the agent (below), then run the newer setup again, without input on an enrolled endpoint: the SPEC's retry, whose run has not been read. |
+| 44 | The newer version installed and its agent running, though its identity line and acknowledged heartbeat were not both seen within the 60 seconds. The installed setup's run refused the downgrade (29) before it changed anything, and both setups stay registered (read). | Read the agent's log ([install.md](install.md#check-that-the-agent-reports)), then run the newer setup again: the SPEC's retry, whose run has not been read. |
+| 45 | The newer version installed, but a rename onto the agent's executable, such as one an earlier run left, waits for the next restart. Until then another executable stays in place, and the installed setup's run may start it under the newer version (not read). | Restart the computer, then run the newer setup again: the SPEC's retry, whose run has not been read. |
+| 1602 | Cancelled; on an upgrade, its outcome has not been read, and the service may be left stopped. | Check the agent first, then run the newer setup again (not read). |
+
+A code that is not in the table is Burn's own or Windows Installer's: Burn's log gives the step it came from.
+
+After a failure the version installed may not be the one the change record holds. The executable in place is the release whose line in `SHA256SUMS` its SHA-256 matches, read as [install.md](install.md#check-that-the-agent-reports) reads it; after 40 and 45 it may not be the version installed. While both setups are registered (after 44, read; after 41 to 43 and 45, and 40 after the MSI, not read), which of them uninstalls the agent has not been read: complete the upgrade before an uninstallation.
+
+On an upgrade, Burn's log holds more lines than an installation's ([Burn's log](install.md#burns-log)): the steps the newer setup rolled back, and the installed setup's own run, which a line naming that setup's bundle code, a GUID in braces, gives. These carry them:
+
+<!-- upgrade: endpoint-log -->
+
+```powershell
+Select-String -Path $log -Pattern 'Applied execute package', 'Applied rollback package', 'Applied non-vital package', 'Apply complete', 'Exit code'
+```
+
+- `Applied execute package:` with a bundle code in braces is the older setup, which a successful upgrade removes; its result is `0x0` (read).
+- `Applied rollback package:` is a step the failed run reversed, or, with a bundle code in braces, the installed setup's own run (read); by the SPEC, `Applied non-vital package:` with that code is that run failed (not read).
+- The other lines read as on an installation.
+
+### Check the upgraded agent
+
+Check the agent as [Check that the agent reports](install.md#check-that-the-agent-reports) does, with the newer release's `SHA256SUMS`: the installed executable matches the line of the newer `cg-agent-<version>-x86_64-pc-windows-msvc.exe`; the Application log's latest entry 1000 names the newer version, after an entry 1001 or 1003 of the older version's stop, which counts the events it did not deliver; and, on an enrolled endpoint, the agent's log has an `agent identity ready` line written after the upgrade began, and no `enrollment response received` line written since: the agent loaded the identity it had, and enrolled nothing. On an endpoint whose agent never enrolled, the agent enrolls with its token, as on an installation, or stops with code 3 when the token has expired (42).
+
+Then record in the installation's change record the newer version, its setup's SHA-256, the installed executable's SHA-256, the setup's exit code and Burn's log. The newer setup, in the inputs' directory, is now the one to uninstall with ([install.md](install.md#the-setup-to-uninstall-with)); once the upgrade has ended with 0 or 3010, the older setup can be deleted from the directory.
+
+### A repair
+
+A repair runs the installed version's setup again, with `-repair`. It puts back the agent's executable, the service's start type and its failure actions, with no new enrollment (read), and resets neither the configuration, the trust anchor nor the identity (SPEC-024 §Operational §4). Open the elevated PowerShell, check the inputs' directory as [the upgrade's first block](#the-newer-setup) does, and check the installed version's setup in it as [The setup to uninstall with](install.md#the-setup-to-uninstall-with) does; then, with `<version>` the installed version:
+
+<!-- upgrade: endpoint-repair -->
+
+```powershell
+$log = "$dir\repair-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+$run = Start-Process -FilePath "$dir\cyberguard-agent-<version>-x64-setup.exe" -ArgumentList '-repair', '-quiet', '-norestart', '-log', $log -Wait -PassThru
+$run.ExitCode
+```
+
+It runs `Preflight`, the MSI and `Configure`, as an upgrade does, and its codes are [The setup's result](install.md#the-setups-result)'s. Run without `-repair`, the installed version's setup has not been read. A second build of the same version, which a rebuild of a release would be, replaces the first as an upgrade does (read).
+
+### No downgrade
+
+There is no downgrade. A setup older than the setup installed is refused (1638) before any step runs, and one older than the agent installed (29) before it stops anything, though the installed setup's run follows a 29. An uninstallation followed by an older version's setup is not a route these runbooks give: whether an older agent reads what a newer one wrote has not been read. After a failed upgrade, the retry is the newer setup, as the table above gives it.
+
+### Settings an administrator set in agent.toml
+
+The keys of [The agent's tuning](configuration.md#the-agents-tuning) that an administrator set in `agent.toml` stay through an upgrade, a repair and the installed setup's run after a failed upgrade, on an endpoint whose agent is enrolled: none of them writes `agent.toml` there (from the setup's code; no test compares the file across an upgrade). On an endpoint whose agent never enrolled, a setup given a bootstrap file or the wizard's input replaces `agent.toml`, and those keys with it.
+
+A `[log] level` above `info`, such as `warn`, hides the agent's identity and heartbeat lines, which `Configure` waits for at `info`: an installation, upgrade or repair that starts the service on that configuration then ends with 44 (inferred from the setup's code, not read), and an upgrade that ends with 44 leaves both setups registered (read). Keep the level at `info` on an endpoint the setup maintains.
+
+### The window without events
+
+From the service's stop in `Preflight` until `Configure` starts the newer version's service, the endpoint captures nothing, and the events the agent has not delivered when its stop ends are lost ([install.md](install.md#the-window-without-events)). After a failure, the installed setup's own run may stop and start the agent again, and a result that may leave the service stopped or not running (31, 40 to 43, 45, 3017, 1602) keeps the window open until the service starts.
+
 ## A deployment built before SPEC-023
 
-The bundle comes with SPEC-023, and no release of it predates SPEC-023's code. Moving a deployment built from the repository before SPEC-023 to the bundle is a new installation, from [install.md](install.md), whose stores start empty and whose CA is new; its agents enroll again (*Agents*, below). A stack that keeps running the services built from the repository, the development stack of `infra/dev/` among them, meets the changes below when it runs SPEC-023's code. For such a stack, in order:
+The bundle comes with SPEC-023, and no release of it predates SPEC-023's code. Moving a deployment built from the repository before SPEC-023 to the bundle is a new installation, from [install.md](install.md), whose stores start empty and whose CA is new; its agents must enroll again (*Agents*, below). A stack that keeps running the services built from the repository, the development stack of `infra/dev/` among them, meets the changes below when it runs SPEC-023's code. For such a stack, in order:
 
 1. Before SPEC-023's code first runs, set the retention periods (*Retention*) and write the integer variables in digits (*Integer values*).
 2. Stop the stack and preserve its databases, configuration and certificates before planning the schema transition (*The database*). The development stack's disposable database has its own recreation procedure.
 3. Start SPEC-023's code, and create an admin, as [install.md](install.md#create-the-first-admin) does.
-4. Enroll each agent again (*Agents*).
+4. Each agent must enroll again, which these runbooks do not give yet (*Agents*).
 
 ### Retention
 
@@ -207,7 +328,7 @@ Ingest and the api read each integer variable they check, the ports, `INGEST_SMT
 Code from before SPEC-023 created its Postgres tables in the schema `public`. The services now keep theirs in the schemas `ingest` and `api`, each connection's search path naming its own (SPEC-023 §Operational §4). On such a database, the first run of SPEC-023's migrations creates the services' tables again in those schemas, empty, beside the old ones, which are no longer read. What the old tables hold is then lost to the services, whether or not the database is recreated afterwards; among it:
 
 - the agents and their enrollment tokens, the alerts, the incidents, the playbook records, the users and the audit log are no longer read;
-- the CA and the forensic key are no longer read either: ingest generates a new CA at its next start, and the api a new forensic key, whose fingerprint is recorded as [forensic-verification.md](forensic-verification.md#recording-the-fingerprint-at-installation) says; the agents enroll again (*Agents*, below);
+- the CA and the forensic key are no longer read either: ingest generates a new CA at its next start, and the api a new forensic key, whose fingerprint is recorded as [forensic-verification.md](forensic-verification.md#recording-the-fingerprint-at-installation) says; the agents must enroll again (*Agents*, below);
 - the detection cursor starts again: once an agent of an org has enrolled again, the rules read that org's process events (class 1007) again from the first one ClickHouse keeps and write their alerts and incidents again, and for each incident created again ingest sends its notification, when notification is set up, and runs its playbooks, when playbooks are loaded.
 
 There is no automatic import from `public`. Preserve the old database and keys for access to the old records; starting new tables is not a migration of that evidence. For a non-development deployment, plan and validate the data transition separately before running the newer services. Do not delete its database on the strength of this runbook. The development stack's recreation step below is for its disposable data only.
@@ -218,45 +339,17 @@ For the development stack, [infra/dev/README.md](../../infra/dev/README.md) give
 
 ### Agents
 
+An agent of such a deployment was run by hand, before the agent's setup (SPEC-024), with a client certificate the old internal CA issued. The new installation has its own CA: a new installation from the bundle has its own, and a stack that starts with the new, empty schemas generates a new one when ingest starts (*The database*, above). So each agent must enroll again, and its server trust anchor changes to the new internal CA only when that CA also issues the server pair; for an operator-provided server pair, its actual issuer stays the anchor. With an internally issued server pair, until the agent enrolls again:
+
+- while ingest serves a certificate the new CA issued, the agent refuses it and exits with code 6, its line beginning `cg-agent: tls: server certificate verification failed:`;
+- while ingest still serves the pair the old CA signed, the heartbeat listener refuses the agent's certificate, which the new CA did not issue, and the agent exits with code 7, its line `cg-agent: tls: server rejected client certificate`.
+
 Ingest's enrollment listener serves HTTPS, TLS 1.3 only, by default, and the agent enrolls over TLS, trusting the roots of its trust anchor alone (SPEC-023 §Operational §6). An agent keeps its `[enrollment]` section after it enrolls, with the token alone removed. With `[enrollment]`, `server.url` must be `https://` and `server.trust_anchor_path` must be set:
 
 - an agent whose `agent.toml` keeps an `http://` `server.url` beside `[enrollment]` exits with code 2 at its next start, and its line on standard error ends with `server.url must use https when [enrollment] is set`;
 - an agent without `server.trust_anchor_path` exits with code 2, its line ending with `missing key 'server.trust_anchor_path'`.
 
-Its `[server]` section then reads:
-
-```toml
-[server]
-url = "https://<server name>:<enrollment port>"
-heartbeat_url = "https://<server name>:<heartbeat port>"
-trust_anchor_path = "C:/ProgramData/CyberGuard/agent/server-ca.pem"
-```
-
-`<server name>` is one of the names the server certificate carries: `CG_AGENT_SERVER_NAMES` in the bundle, `INGEST_SERVER_NAMES` for ingest, `localhost` and `127.0.0.1` by default. The bundle's ports are `CG_ENROLL_PORT` (8444) and `CG_HEARTBEAT_PORT` (8443); the development stack publishes 8080 and 8443 on `127.0.0.1` (`CG_INGEST_ENROLL_PORT` and `CG_INGEST_HEARTBEAT_PORT`). The anchor file holds the CA certificate that `export-ca.js` prints, as [install.md](install.md#on-the-server-the-trust-anchor-and-a-token) writes it, or, with an operator-provided server certificate, the CA that issued it.
-
-The internal CA changes too: a new installation from the bundle has its own, and a stack that starts with the new, empty schemas generates a new one when ingest starts (*The database*, above). An agent's client certificate came from the old internal CA, so each agent enrolls again. Its server trust anchor changes to the new internal CA only when that CA also issues the server pair. For an operator-provided server pair, keep trusting its actual issuer instead. With an internally issued server pair, until reenrollment:
-
-- while ingest serves a certificate the new CA issued, the agent refuses it and exits with code 6, its line beginning `cg-agent: tls: server certificate verification failed:`;
-- while ingest still serves the pair the old CA signed, the heartbeat listener refuses the agent's certificate, which the new CA did not issue, and the agent exits with code 7, its line `cg-agent: tls: server rejected client certificate`.
-
-Enrolling again needs ingest to serve a certificate its new CA issued (*The database*, above), unless its pair is operator-provided, whose CA stays the anchor. Then, for each agent:
-
-1. On the server, prepare `server-ca.pem`: for the internally issued server pair, export the new internal CA as [install.md](install.md#on-the-server-the-trust-anchor-and-a-token) does; for an operator-provided pair, use its verified issuing CA, never substitute `export-ca.js` output. Issue a new enrollment token in either case.
-2. On the endpoint, stop the agent. From an elevated PowerShell, install that server trust anchor and remove the certificate and key it enrolled with, the files its `enrollment.cert_path` and `enrollment.key_path` name. For an unchanged operator-provided pair its existing verified anchor can be retained. With the paths of [install.md](install.md#on-the-endpoint-install-and-run-the-agent), and the correct issuer file selected in step 1:
-
-   ```powershell
-   Copy-Item '<server-ca.pem>' 'C:\ProgramData\CyberGuard\agent\server-ca.pem'
-   Remove-Item 'C:\ProgramData\CyberGuard\agent\cert.pem', 'C:\ProgramData\CyberGuard\agent\key.dat'
-   ```
-
-3. Set its `[server]` section as above, and the new token in its `[enrollment]` section, keeping the section's other keys:
-
-   ```toml
-   [enrollment]
-   token = "<token>"
-   ```
-
-4. Start it from the elevated PowerShell, as [install.md](install.md#on-the-endpoint-install-and-run-the-agent) does. With either file absent, it enrolls with the token and writes both again (SPEC-002 FR-001, FR-002).
+Enrolling such an agent again with the new installation is not in these runbooks yet. The agent's setup refuses an endpoint that holds an enrolled agent installed by hand, its identity's files directly in `C:\ProgramData\CyberGuard\agent` (code 28), until SPEC-024's migration moves that installation into the service ([install.md](install.md#the-setups-result)), a procedure the runbooks do not give yet; the migration keeps the agent's identity, the one the old CA issued; and a setup run on an endpoint whose agent is enrolled enrolls it neither again nor with a new token (code 30). Keep each such agent's directory as it is until that procedure is given: [install.md](install.md#the-agents-exit-codes) says why it is not removed.
 
 ### Browsers
 

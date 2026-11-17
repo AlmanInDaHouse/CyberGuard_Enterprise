@@ -15,6 +15,142 @@ function command(id) {
   return match[1].replaceAll("\r", "");
 }
 
+const install = readFileSync(join(REPO, "docs/operations/install.md"), "utf8").replaceAll("\r", "");
+// The agent's upgrade on an endpoint (SPEC-024 §Operational §4, the Amendment 2026-11-12
+// (second), points 3, 4 and 9): its PowerShell blocks, in the document's order. They run on
+// Windows alone (install_ac_016); these tests read what the contract asks of them.
+const AGENT = ["directory", "copy", "setup", "log", "repair"];
+
+/** The section under `heading`, up to the next heading of its level or a higher one. */
+function section(text, heading) {
+  const start = text.indexOf(`\n${heading}\n`);
+  assert.ok(start >= 0, heading);
+  const level = heading.match(/^#+/)[0].length;
+  const rest = text.slice(start + heading.length + 2);
+  const next = new RegExp(`^#{1,${level}} `, "m").exec(rest);
+  return rest.slice(0, next ? next.index : undefined);
+}
+
+/** Every PowerShell fence of `text`, each marked `<!-- <prefix>: <id> -->`: id to text. */
+function powershell(text, prefix) {
+  const result = new Map();
+  // A fence indented in a list item is a block too.
+  for (const fence of text.matchAll(/^([ \t]*)```powershell\n([\s\S]*?)^\1```/gm)) {
+    const id = new RegExp(`<!-- ${prefix}: ([a-z-]+) -->\\n\\n$`).exec(text.slice(0, fence.index))?.[1];
+    assert.ok(id, `an unmarked PowerShell block at line ${text.slice(0, fence.index).split("\n").length}`);
+    assert.ok(!result.has(id), `duplicate block ${id}`);
+    result.set(id, fence[2]);
+  }
+  return result;
+}
+
+/** install.md's endpoint block `id`. */
+function installBlock(id) {
+  const match = new RegExp(`<!-- deploy_ac_021: endpoint-${id} -->\\n\\n\x60\x60\x60powershell\\n([\\s\\S]*?)^\x60\x60\x60`, "m").exec(install);
+  assert.ok(match, `install.md's endpoint-${id}`);
+  return match[1];
+}
+
+/** The codes of a result table's first column, "20 to 28, 31" expanded. */
+function codes(cell) {
+  return cell.split(", ").flatMap((part) => {
+    const range = /^(\d+) to (\d+)$/.exec(part);
+    if (!range) return [part];
+    return Array.from({ length: Number(range[2]) - Number(range[1]) + 1 }, (_, i) => String(Number(range[1]) + i));
+  });
+}
+
+test("SPEC-024: the agent's upgrade runs the newer setup as the installation does, without a bootstrap file", () => {
+  const blocks = powershell(document, "upgrade");
+  assert.deepEqual([...blocks.keys()], AGENT.map((id) => `endpoint-${id}`), "the agent's blocks, in order");
+  const agent = section(document, "## Upgrading the agent on an endpoint");
+  for (const [id, block] of blocks) {
+    assert.ok(agent.includes(block), `${id} belongs to the agent's section`);
+    // §Data contracts §3: no token on a command line; the setup creates %ProgramData%\CyberGuard.
+    assert.doesNotMatch(block, /<token>|token=|CG_TOKEN|\$env:[A-Z_]+ *=/i, id);
+    assert.doesNotMatch(block, /(New-Item|Copy-Item|Set-Content|Out-File|CreateDirectory)[^\n]*ProgramData/i, id);
+  }
+  // The installation's inputs' directory, checked again before a setup runs elevated from it:
+  // its attributes, owner and DACL as install.md's block prints them at its creation.
+  const check = blocks.get("endpoint-directory");
+  const created = installBlock("directory");
+  assert.equal(check.match(/^\$dir = '([^']+)'$/m)?.[1], created.match(/^\$dir = '([^']+)'$/m)[1], check);
+  assert.ok(check.includes("$item = Get-Item -Force $dir\n") && created.includes("$item = Get-Item -Force $dir\n"), check);
+  assert.ok(check.endsWith("'{0} {1}' -f $item.Attributes, $item.GetAccessControl().GetSecurityDescriptorSddlForm('Owner, Access')\n"), check);
+  const sddl = created.match(/SetSecurityDescriptorSddlForm\('([^']+)'\)/)[1];
+  assert.ok(install.includes(`It prints \`Directory ${sddl} 0\`.`), "install.md's directory block prints that form");
+  assert.ok(agent.includes(`It prints \`Directory ${sddl}\`. Stop if it prints anything else`), "the check's expected output");
+  // The newer setup, checked against its digest there.
+  const copy = blocks.get("endpoint-copy");
+  assert.ok(copy.includes(installBlock("checksum").trim()), copy);
+  assert.doesNotMatch(copy, /server-ca\.pem|bootstrap|^\$dir =/m);
+  assert.ok(agent.includes("It prints `True`. Stop if it prints `False`."), "the copy block's expected output");
+  // A repair checks the directory and the installed version's setup, as the uninstallation checks it.
+  const repair = section(document, "### A repair");
+  assert.ok(repair.includes("(#the-newer-setup)") && repair.includes("(install.md#the-setup-to-uninstall-with)"), "the repair checks its directory and setup");
+  // The installation's command, without CG_BOOTSTRAP (30 on an enrolled endpoint): quiet,
+  // never restarting the computer (the Amendment 2026-11-09, item 2), Burn's log in the
+  // inputs' directory, outside %ProgramData%\CyberGuard (the Amendment 2026-11-15, point 7).
+  const setup = blocks.get("endpoint-setup");
+  const installation = installBlock("setup").replace(', "CG_BOOTSTRAP=$dir\\bootstrap.toml"', "").replace("$dir\\setup-", "$dir\\upgrade-");
+  assert.notEqual(installation, installBlock("setup"), "install.md's command carries CG_BOOTSTRAP");
+  assert.equal(setup, installation);
+  // A repair is the same command with -repair (point 9), never with a purge or a bootstrap file.
+  assert.equal(blocks.get("endpoint-repair"), setup.replace("$dir\\upgrade-", "$dir\\repair-").replace("-ArgumentList '-quiet'", "-ArgumentList '-repair', '-quiet'"));
+  for (const block of [setup, blocks.get("endpoint-repair")]) {
+    assert.doesNotMatch(block, /CG_BOOTSTRAP|CG_PURGE|-uninstall|unsafeuninstall|-passive|CG_MIGRATE|CG_TRUST/);
+  }
+  // Burn's log on an upgrade: the installation's lines, and the restore's (the third Amendment
+  // 2026-11-12, point 1: "Applied rollback package", or "Applied non-vital package" when it fails).
+  const log = blocks.get("endpoint-log");
+  for (const pattern of ["'Applied execute package'", "'Apply complete'", "'Exit code'"]) {
+    assert.ok(installBlock("log").includes(pattern) && log.includes(pattern), pattern);
+  }
+  assert.ok(log.includes("'Applied rollback package'") && log.includes("'Applied non-vital package'"), log);
+  assert.match(log, /^Select-String -Path \$log -Pattern /);
+});
+
+test("SPEC-024: the upgrade's result lists every code an upgrade ends with, as install.md's table writes it", () => {
+  const table = section(document, "### The upgrade's result");
+  const rows = [...table.matchAll(/^\| ([-\d][^|]*?) \|/gm)].map((m) => m[1]);
+  const listed = rows.flatMap(codes);
+  assert.equal(new Set(listed).size, listed.length, "each code once");
+  // cg-setup's codes but the purge's, which only an uninstallation ends with, and Burn's.
+  const setup = [...readFileSync(join(REPO, "agent/cg-setup/src/codes.rs"), "utf8").matchAll(/^pub const ([A-Z_]+): u8 = (\d+);/gm)];
+  assert.ok(setup.some(([, name]) => name === "DOWNGRADE") && setup.some(([, name]) => name === "ALREADY_CONFIGURED"), "cg-setup's codes are read");
+  const expected = [...setup.filter(([, name]) => !name.startsWith("PURGE_")).map(([, , code]) => code), "0", "3010", "3017", "1602", "1638", "1603", "-2146889721"];
+  assert.deepEqual([...listed].sort(), [...new Set(expected)].sort());
+  // Each is a code of install.md's table, which gives its hexadecimal value and cause.
+  const installed = section(install, "#### The setup's result");
+  for (const code of listed) {
+    assert.match(installed, new RegExp(`^\\| ${code.replace("-", "\\-")}[ ,|]`, "m"), code);
+  }
+  // What has not been read stays marked (the Amendment 2026-11-12 (second), points 3 and 4).
+  // The marks are read in the column of the endpoint's state.
+  const after = (code) => table.split("\n").find((line) => line.startsWith(`| ${code} |`)).split(" | ")[1];
+  for (const code of ["29", "20 to 28, 31", "40 to 43", "45", "1602"]) {
+    assert.match(after(code), /not been read|not read/, code);
+  }
+  for (const code of ["0", "1638", "30", "1603", "44"]) {
+    assert.match(after(code), /\(read\)/, code);
+  }
+});
+
+test("SPEC-024: upgrade.md teaches no console route, and names re-enrollment as not in the runbooks (M6)", () => {
+  // The service's identity is SYSTEM's alone, in identity\ (the Amendment 2026-11-04); files
+  // directly in the data root are a console installation the setup refuses (28).
+  assert.doesNotMatch(document, /cert\.pem|key\.dat|identity\.json|enrollment\.(cert|key)_path|run by hand until|^```toml/m);
+  assert.doesNotMatch(document, /(Remove-Item|Copy-Item)[^\n]*ProgramData/i);
+  assert.match(section(document, "### Agents"), /Enrolling such an agent again with the new installation is not in these runbooks yet\./);
+  // SPEC-023 §Operational §6, as its upgrade document must say it.
+  assert.ok(document.includes("`server.url must use https when [enrollment] is set`"));
+  assert.ok(install.includes("Re-enrolling an enrolled endpoint is not in this document."));
+});
+
+test("upgrade: every PowerShell block of upgrade.md is classified, including newly added ones", () => {
+  assert.throws(() => powershell(`${document}\n\x60\x60\x60powershell\nWrite-Output unhandled\n\x60\x60\x60\n`, "upgrade"), /an unmarked PowerShell block/);
+});
+
 test("upgrade: both migration commands finish before writers restart, and a failure stops the block (#127)", {
   skip: !(IS_ROOT && process.env.CG_TEST_STACK === "1") && "set CG_TEST_STACK=1 as POSIX root",
   timeout: 5 * 60_000,

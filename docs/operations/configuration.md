@@ -529,7 +529,7 @@ Ingest answers `GET /health` on `CG_ENROLL_PORT`, over TLS with its server certi
 
 ## The agent's tuning
 
-The agent reads its configuration from `agent.toml`, which the agent's setup writes ([install.md](install.md)) with none of these keys, so each has the default shown. These keys tune it. Each is optional.
+The agent reads its configuration from `agent.toml`, in `C:\ProgramData\CyberGuard\agent`, at each start of its service. The agent's setup writes it ([install.md](install.md)) with none of these keys, so each has the default shown; the migration of an agent installed by hand keeps those its earlier `agent.toml` set (SPEC-024 Amendment 2026-11-05). These keys tune it. Each is optional.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -540,7 +540,7 @@ The agent reads its configuration from `agent.toml`, which the agent's setup wri
 | `[heartbeat] backoff_factor` | `2.0` | The factor each further wait is multiplied by. |
 | `[heartbeat] backoff_max_ms` | `60000` | The longest wait, in milliseconds. |
 | `[enrollment] timeout_seconds` | `30` | The enrollment request's timeout, in seconds. |
-| `[enrollment] max_retries` | `3` | Enrollment attempts in all while the server answers with a server error or cannot be reached; then the agent exits 4. |
+| `[enrollment] max_retries` | `3` | Enrollment attempts in a round while the server answers with a server error or cannot be reached. The service waits 60 seconds after a round, then tries again; the agent run by hand exits 4. |
 | `[enrollment] backoff_initial_ms` | `1000` | The first wait before a retry, in milliseconds. |
 | `[enrollment] backoff_factor` | `2.0` | The factor each further wait is multiplied by. |
 | `[log] level` | `info` | The agent's log level. |
@@ -555,4 +555,6 @@ backoff_factor = 2.0
 backoff_max_ms = 60000
 ```
 
-`interval_seconds`, `request_timeout_seconds`, `backoff_initial_ms` and `backoff_max_ms` are above 0, and `backoff_factor` is 1.0 or more. The agent refuses a configuration that breaks a rule: it prints a line that starts `cg-agent: invalid config:` on standard error and exits 2.
+`interval_seconds`, `request_timeout_seconds`, `backoff_initial_ms` and `backoff_max_ms` are above 0, and `backoff_factor` is 1.0 or more. The agent refuses a configuration that breaks a rule with code 2, its message beginning `cg-agent: invalid config`: the service stops, its Application-log entry 1002 holds the message, and it is not restarted; and the agent run by hand prints it on standard error ([install.md](install.md#the-agents-exit-codes)).
+
+A `[log] level` above `info`, such as `warn`, hides the lines the agent's setup waits for after it starts the service, its identity and its first acknowledged heartbeat: an installation, upgrade or repair that starts the service on that configuration then ends with 44 (from the setup's code, not read; [upgrade.md](upgrade.md#settings-an-administrator-set-in-agenttoml)).

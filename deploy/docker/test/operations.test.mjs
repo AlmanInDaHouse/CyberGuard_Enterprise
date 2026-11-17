@@ -23,14 +23,32 @@ function retryBlock(id) {
   return found[1].replaceAll("\r", "");
 }
 
-test("deploy_ac_021: all operator documents exist and their local document links resolve", () => {
+/** The anchors GitHub gives the headings of a Markdown document, fenced blocks left out. */
+function anchors(file) {
+  const text = readFileSync(file, "utf8").replaceAll("\r", "").replace(/^```[^\n]*\n[\s\S]*?^```$/gm, "");
+  const seen = new Map();
+  for (const [, heading] of text.matchAll(/^#{1,6} (.+)$/gm)) {
+    const slug = heading.toLowerCase().replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, "").replaceAll(" ", "-");
+    const count = seen.get(slug) ?? 0;
+    seen.set(slug, count + 1);
+    if (count > 0) seen.set(`${slug}-${count}`, 1);
+  }
+  return new Set(seen.keys());
+}
+
+test("deploy_ac_021: all operator documents exist and their local document links resolve, their anchors included", () => {
   for (const name of ["README", "install", "configuration", "backup-and-restore", "upgrade", "data-protection", "forensic-verification"]) {
     const file = join(DOCS, `${name}.md`);
     assert.ok(existsSync(file), name);
     const text = readFileSync(file, "utf8");
     for (const [, target] of text.matchAll(/\[[^\]]+\]\(([^\s)]+)\)/g)) {
-      if (/^[a-z]+:|^#/.test(target)) continue;
-      assert.ok(existsSync(resolve(dirname(file), target.split("#")[0])), `${name}: ${target}`);
+      if (/^[a-z]+:/.test(target)) continue;
+      const [path, anchor] = target.split("#");
+      const linked = path ? resolve(dirname(file), path) : file;
+      assert.ok(existsSync(linked), `${name}: ${target}`);
+      if (anchor !== undefined && linked.endsWith(".md")) {
+        assert.ok(anchors(linked).has(anchor), `${name}: ${target} names a heading`);
+      }
     }
   }
 });
