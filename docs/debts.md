@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 58** at Session 77's close, the count `docs/handoff-session-77.md` states
-(Session 77 landed C10's first commit, `install.md` on the setup, and opened #164 and #165; none closed).
+**Open: 59** at Session 78's close, the count `docs/handoff-session-78.md` states
+(Session 78 landed C10's second commit, the uninstallation and the purge in `install.md`, and opened #166; none closed).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 77's close, `docs/handoff-session-77.md#how-session-78-resumes`);
+Session N resumes* (at Session 78's close, `docs/handoff-session-78.md#how-session-79-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -92,6 +92,7 @@ Session N resumes* (at Session 77's close, `docs/handoff-session-77.md#how-sessi
 | 162 | The release's checks beyond SPEC-024 Amendment 2026-11-14's wording: payloads outside a container and a second string table are not read; `MsiEmbeddedUI`, `MsiEmbeddedChainer` and a downloaded package are not refused; the engine and `wixstdba.exe` are not compared with the nuget content; and `images` runs alongside `agent`, so a failed Windows build can leave attested images of a version with no release | `handoff-session-72.md#debts` | Before the first release (F4): the job order to Manuel (packaging); the checks with an amendment if they narrow the contract. |
 | 164 | `docs/security/threat-model.md:357` (R17) cites `docs/operations/install.md` for the console runbook's `New-Item` and its code-13 remedy, which `fdd0ea5` removed from it | `handoff-session-77.md#debts` | C10 commit 4's threat-model proposal (M4); threat-model text is Manuel's. |
 | 165 | No runbook route sets `agent.toml`'s tuning keys (`configuration.md`'s *The agent's tuning*) on a service host: the bootstrap file takes five keys, and an edit that replaces the SYSTEM-owned file is refused at the next start | `handoff-session-77.md#debts` | C10 commit 3: an in-place edit with its custody, or a SPEC if the route is new. |
+| 166 | The runbook gives no removal or repair, safe against a planted junction and without taking ownership of the identity, for an untrusted `%ProgramData%\CyberGuard` or `agent` directory (the setup's 27, the service's 13, the purge's 27 and its 46 for 13 or 14) nor for a name the purge leaves (47; SPEC-024 Amendment 2026-11-15, point 6); `14afeb3` withdrew the removal the setup's 27 and the service's 13 taught | `handoff-session-78.md#debts` | C10 commit 4, with the repairs' elevated reading (#87). |
 
 ## Closed
 
