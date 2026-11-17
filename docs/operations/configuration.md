@@ -558,3 +558,49 @@ backoff_max_ms = 60000
 `interval_seconds`, `request_timeout_seconds`, `backoff_initial_ms` and `backoff_max_ms` are above 0, and `backoff_factor` is 1.0 or more. The agent refuses a configuration that breaks a rule with code 2, its message beginning `cg-agent: invalid config`: the service stops, its Application-log entry 1002 holds the message, and it is not restarted; and the agent run by hand prints it on standard error ([install.md](install.md#the-agents-exit-codes)).
 
 A `[log] level` above `info`, such as `warn`, hides the lines the agent's setup waits for after it starts the service, its identity and its first acknowledged heartbeat: an installation, upgrade or repair that starts the service on that configuration then ends with 44 (from the setup's code, not read; [upgrade.md](upgrade.md#settings-an-administrator-set-in-agenttoml)).
+
+### Change a key on an endpoint
+
+`agent.toml` is owned by SYSTEM, with a protected DACL that allows SYSTEM and Administrators alone, and the service refuses it, with code 2, at its next start when it has another owner, or a DACL that is not protected or allows another account; an editor that replaces the file with a new one, rather than writing into it, makes that start refuse it ([install.md](install.md#the-agents-exit-codes)). So edit a copy of it, then write the copy's text into the file. From an elevated Windows PowerShell, as [install.md](install.md#on-the-endpoint-install-and-run-the-agent) opens it, and in that one PowerShell throughout, since each block uses the variables of the ones before it, check the inputs' directory first, since the copy may hold the token:
+
+<!-- configuration: agent-directory -->
+
+```powershell
+$dir = 'C:\CyberGuardSetup'
+$item = Get-Item -Force $dir
+'{0} {1}' -f $item.Attributes, $item.GetAccessControl().GetSecurityDescriptorSddlForm('Owner, Access')
+```
+
+It prints `Directory O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`. Stop if it prints anything else: a directory that is a reparse point, or has another owner or DACL, is one an account other than SYSTEM and Administrators may have changed, and could read the copy or change it before it is written into `agent.toml`. Use a new directory instead, created as [A directory for the setup and its inputs](install.md#a-directory-for-the-setup-and-its-inputs) does, with `$dir` set to it in every step below; when the directory is gone, create it so. Then stop the service, so that the agent neither enrolls nor rewrites `agent.toml` while its copy is edited, copy the file, and keep the copy's hash:
+
+<!-- configuration: agent-copy -->
+
+```powershell
+$config = "$env:ProgramData\CyberGuard\agent\agent.toml"
+Stop-Service CyberGuardAgent
+Copy-Item $config "$dir\agent.toml.edit"
+$before = (Get-FileHash "$dir\agent.toml.edit").Hash
+```
+
+A service stopped after a process that died (`sc.exe query CyberGuardAgent` shows the Win32 exit code 1067) is started again by the service control manager after its delay ([The agent's service](install.md#the-agents-service)), which the stop may not cancel (not read); the write block below finds such a start out. On an endpoint whose agent never enrolled, a stop during an enrollment request the server has already taken may leave the token used and no identity: the next start then ends with code 3, which needs a new token ([The agent's exit codes](install.md#the-agents-exit-codes)). Edit the copy with an editor started from this elevated PowerShell, since an unelevated one cannot open it; when the copy holds the token, use one that keeps no copy of what it opens, such as a session state or a backup, in the user's profile, where the administrator's unelevated processes can read it. Save it. Then write its text into `agent.toml` and start the service, which takes its configuration from `agent.toml` only when it starts:
+
+<!-- configuration: agent-write -->
+
+```powershell
+if ($before -and (Get-Service CyberGuardAgent).Status -eq 'Stopped' -and (Get-FileHash $config).Hash -eq $before) { try { [System.IO.File]::WriteAllText($config, [System.IO.File]::ReadAllText("$dir\agent.toml.edit")); 'written'; Start-Service CyberGuardAgent } catch { "not written: $_" } } else { 'not written: the service is not stopped, or agent.toml changed since the copy' }
+sc.exe query CyberGuardAgent
+```
+
+The block checks, just before it writes, that the service is stopped and `agent.toml` is still as it was copied, and prints `written` when it wrote; a start in the instant between that check and the write is not excluded. When the check fails, it prints `not written: the service is not stopped, or agent.toml changed since the copy` and writes nothing: the service is still running, starting or stopping, or it started again meanwhile and may have enrolled and rewritten `agent.toml`, and the copy may be stale. Stop the service, delete the copy, and start again from the copy block. A `not written` with an error is one from reading the copy or writing `agent.toml`, and the write may have begun: correct its cause and run the block again, which writes if the error came before the write began and `agent.toml` is unchanged. If it then prints that `agent.toml` changed since the copy, either the write began and left it partly written, or the service started meanwhile and rewrote it; telling the two apart, and so `agent.toml`'s recovery, is not in these runbooks yet. An error after `written` is the start's, not the write's.
+
+`WriteAllText` writes into the existing `agent.toml`, which keeps its file ID, its owner, its DACL and its single link, and writes it in UTF-8 without a byte-order mark, also from a copy the editor saved in UTF-8 with a byte-order mark or in UTF-16 with one (read on Windows PowerShell 5.1, elevated, on a file owned by SYSTEM with that DACL, with ASCII text: save the copy in UTF-8 or UTF-16). `Copy-Item` over `agent.toml` kept the file too, in that reading, but a copy saved in UTF-16 would stay UTF-16, which the service refuses as not UTF-8, with code 2.
+
+After `written`, `sc.exe query` shows the state `4 RUNNING` once the service has read the configuration and accepted it; a changed `[server]` or `[enrollment]` key can still stop it afterwards, with code 2 for a token removed before the agent enrolled, or another code ([The agent's exit codes](install.md#the-agents-exit-codes)), so check the agent as [Check that the agent reports](install.md#check-that-the-agent-reports) does. A configuration the service refuses when it reads it stops the service with code 2 before it runs: `sc.exe query` shows it stopped with the Win32 exit code 1066 and the service-specific exit code 2, and Application-log entry 1002 holds the message. When the message names a key or its value, correct the copy, run `$before = (Get-FileHash $config).Hash` and the block again. When it names `agent.toml`'s owner or DACL, which `WriteAllText` keeps, the file's repair is not in these runbooks yet. Then delete the copy:
+
+<!-- configuration: agent-cleanup -->
+
+```powershell
+Remove-Item "$dir\agent.toml.edit"
+```
+
+When `agent.toml` holds the token, on an endpoint whose agent never enrolled or whose removal of the token after its enrollment failed ([install.md](install.md#the-agents-service)), its copy holds it too: close this PowerShell, whose memory held the copy's text. Deleting the copy does not erase it from a backup or a shadow copy of the volume taken meanwhile, from the volume's free space, nor from any copy the editor kept. After its enrollment the agent removes the token from `agent.toml`, best effort, keeping the file's owner and DACL; the file then keeps its other keys, sorted by name, but not its comments. The stop opens the window without events until the service runs again ([install.md](install.md#the-window-without-events)). On an endpoint whose agent is enrolled, the keys stay through an upgrade or a repair (from the setup's code); on one whose agent never enrolled, a setup given a bootstrap file or the wizard's input replaces `agent.toml`, and the keys with it ([upgrade.md](upgrade.md#settings-an-administrator-set-in-agenttoml)).

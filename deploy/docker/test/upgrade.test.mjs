@@ -16,6 +16,7 @@ function command(id) {
 }
 
 const install = readFileSync(join(REPO, "docs/operations/install.md"), "utf8").replaceAll("\r", "");
+const configuration = readFileSync(join(REPO, "docs/operations/configuration.md"), "utf8").replaceAll("\r", "");
 // The agent's upgrade on an endpoint (SPEC-024 §Operational §4, the Amendment 2026-11-12
 // (second), points 3, 4 and 9): its PowerShell blocks, in the document's order. They run on
 // Windows alone (install_ac_016); these tests read what the contract asks of them.
@@ -145,6 +146,24 @@ test("SPEC-024: upgrade.md teaches no console route, and names re-enrollment as 
   // SPEC-023 §Operational §6, as its upgrade document must say it.
   assert.ok(document.includes("`server.url must use https when [enrollment] is set`"));
   assert.ok(install.includes("Re-enrolling an enrolled endpoint is not in this document."));
+});
+
+test("#165: the agent's keys change by a rewrite of agent.toml in place, never by its replacement", () => {
+  const blocks = powershell(section(configuration, "### Change a key on an endpoint"), "configuration");
+  assert.deepEqual([...blocks.keys()], ["agent-directory", "agent-copy", "agent-write", "agent-cleanup"]);
+  // The copy may hold the token: the inputs' directory is checked first, as the upgrade checks it.
+  assert.equal(blocks.get("agent-directory"), powershell(document, "upgrade").get("endpoint-directory"));
+  assert.equal(blocks.get("agent-directory").match(/^\$dir = '([^']+)'$/m)?.[1], installBlock("directory").match(/^\$dir = '([^']+)'$/m)[1]);
+  // The service is stopped before the copy, and the copy's hash kept for the write-back's guard.
+  assert.equal(blocks.get("agent-copy"), '$config = "$env:ProgramData\\CyberGuard\\agent\\agent.toml"\nStop-Service CyberGuardAgent\nCopy-Item $config "$dir\\agent.toml.edit"\n$before = (Get-FileHash "$dir\\agent.toml.edit").Hash\n');
+  // The one write into %ProgramData%: into the existing file, which keeps its owner and DACL, only
+  // while the service is stopped and agent.toml unchanged since the copy (no start meanwhile
+  // enrolled and rewrote it), and the service started only after a write that did not fail.
+  assert.equal(blocks.get("agent-write"), 'if ($before -and (Get-Service CyberGuardAgent).Status -eq \'Stopped\' -and (Get-FileHash $config).Hash -eq $before) { try { [System.IO.File]::WriteAllText($config, [System.IO.File]::ReadAllText("$dir\\agent.toml.edit")); \'written\'; Start-Service CyberGuardAgent } catch { "not written: $_" } } else { \'not written: the service is not stopped, or agent.toml changed since the copy\' }\nsc.exe query CyberGuardAgent\n');
+  assert.equal(blocks.get("agent-cleanup"), 'Remove-Item "$dir\\agent.toml.edit"\n');
+  for (const [id, block] of blocks) {
+    assert.doesNotMatch(block, /(\bMove-Item|Set-Content|Out-File|\bNew-Item|(Remove-Item|Copy-Item)[^\n]*(ProgramData|\$config\s*$))/im, id);
+  }
 });
 
 test("upgrade: every PowerShell block of upgrade.md is classified, including newly added ones", () => {
