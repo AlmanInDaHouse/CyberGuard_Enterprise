@@ -150,6 +150,8 @@ test("SPEC-024: upgrade.md teaches no console route; install.md names the re-enr
   assert.ok(install.includes("To enroll an enrolled endpoint again, as when its certificate has expired (code 7) or its server is a new installation with another CA, purge it ([Remove the agent from an endpoint](#remove-the-agent-from-an-endpoint)) and run the setup again with a new token, and the server's current anchor and fingerprints, in a new bootstrap file or the wizard: the endpoint then enrolls a new agent."));
   assert.ok(install.includes("The purge revokes nothing: the old agent stays on the server that enrolled it, which has no command that removes it yet, and its certificate stays valid there until it expires or an operator deletes its row"));
   assert.ok(install.includes("The purge followed by an enrollment with a new token has not been run, in CI or on an endpoint."));
+  assert.ok(install.includes("for a copy of its key that a backup or a shadow copy kept (R5 and R1 of the [threat model](../security/threat-model.md))."));
+  assert.ok(install.includes("Between the purge and the new setup an ordinary user can create `C:\\ProgramData\\CyberGuard` first, and the setup then refuses it (27 or 28)."));
   assert.doesNotMatch(install, /Re-enrolling an enrolled endpoint is not in this document/);
 });
 
