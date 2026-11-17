@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 59** at Session 78's close, the count `docs/handoff-session-78.md` states
-(Session 78 landed C10's second commit, the uninstallation and the purge in `install.md`, and opened #166; none closed).
+**Open: 60** at Session 79's close, the count `docs/handoff-session-79.md` states
+(Session 79 landed C10's third commit, the agent's upgrade in `upgrade.md`, opened #167 and re-routed #165; none closed).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 78's close, `docs/handoff-session-78.md#how-session-79-resumes`);
+Session N resumes* (at Session 79's close, `docs/handoff-session-79.md#how-session-80-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -91,8 +91,9 @@ Session N resumes* (at Session 78's close, `docs/handoff-session-78.md#how-sessi
 | 161 | `ac-001-marquee` failed once in the elevated gate, unreproduced: the harness ends the agent at 4 s and checks its ETW session once after `logman stop`, and found it still running (`services/ingest/test/helpers/marquee-agent.ts`); 0 failures in 17 runs since | `handoff-session-72.md#debts` | A stop that waits for the session to go, with a bound, when the harness next changes or the failure recurs. |
 | 162 | The release's checks beyond SPEC-024 Amendment 2026-11-14's wording: payloads outside a container and a second string table are not read; `MsiEmbeddedUI`, `MsiEmbeddedChainer` and a downloaded package are not refused; the engine and `wixstdba.exe` are not compared with the nuget content; and `images` runs alongside `agent`, so a failed Windows build can leave attested images of a version with no release | `handoff-session-72.md#debts` | Before the first release (F4): the job order to Manuel (packaging); the checks with an amendment if they narrow the contract. |
 | 164 | `docs/security/threat-model.md:357` (R17) cites `docs/operations/install.md` for the console runbook's `New-Item` and its code-13 remedy, which `fdd0ea5` removed from it | `handoff-session-77.md#debts` | C10 commit 4's threat-model proposal (M4); threat-model text is Manuel's. |
-| 165 | No runbook route sets `agent.toml`'s tuning keys (`configuration.md`'s *The agent's tuning*) on a service host: the bootstrap file takes five keys, and an edit that replaces the SYSTEM-owned file is refused at the next start | `handoff-session-77.md#debts` | C10 commit 3: an in-place edit with its custody, or a SPEC if the route is new. |
+| 165 | No runbook route sets `agent.toml`'s tuning keys (`configuration.md`'s *The agent's tuning*) on a service host: the bootstrap file takes five keys, and an edit that replaces the SYSTEM-owned file is refused at the next start | `handoff-session-77.md#debts`; `handoff-session-79.md#debts` | C10 commit 3's second half: the in-place edit in `configuration.md`, written and staged (`handoff-session-79.md`, *#165: written, not landed*), after the elevated reading of its command; the route is in the contract (SPEC-024 Amendment 2026-11-04, *Effect*). |
 | 166 | The runbook gives no removal or repair, safe against a planted junction and without taking ownership of the identity, for an untrusted `%ProgramData%\CyberGuard` or `agent` directory (the setup's 27, the service's 13, the purge's 27 and its 46 for 13 or 14) nor for a name the purge leaves (47; SPEC-024 Amendment 2026-11-15, point 6); `14afeb3` withdrew the removal the setup's 27 and the service's 13 taught | `handoff-session-78.md#debts` | C10 commit 4, with the repairs' elevated reading (#87). |
+| 167 | `install.md` states as known outcomes no test or reading has shown: its retries after 40 to 45 on an installation rerun the registered setup without `-repair`, whose run has not been read; the setup's 27 "when the agent never enrolled there" holds only while the hand-made directory keeps its inherited DACL; and its uninstallation runs the setup elevated from `$dir` after a hash check alone, where `upgrade.md` checks the directory first | `handoff-session-79.md#debts` | C10 commit 4's pass over `install.md`, and install_ac_016's run (M3). |
 
 ## Closed
 

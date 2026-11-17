@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-78.md](../handoff-session-78.md)).
+([handoff-session-79.md](../handoff-session-79.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -492,8 +492,9 @@ This dependency-ordered document supersedes both for planning.
   planned C10, the runbooks, in five commits (`docs/handoff-session-76.md`).
   S77 landed C10's first, `install.md`'s endpoint on the setup (`fdd0ea5`,
   `docs/handoff-session-77.md`); S78 its second, the uninstallation and the
-  purge in `install.md` (`14afeb3`, `docs/handoff-session-78.md`); commits 3
-  to 5 follow.
+  purge in `install.md` (`14afeb3`, `docs/handoff-session-78.md`); S79 its third, the
+  agent's upgrade in `upgrade.md` (`1a04d1b`, `docs/handoff-session-79.md`), #165's edit
+  waiting on an elevated reading; commits 4 and 5 follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
