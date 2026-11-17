@@ -137,7 +137,7 @@ test("SPEC-024: the upgrade's result lists every code an upgrade ends with, as i
   }
 });
 
-test("SPEC-024: upgrade.md teaches no console route, and names re-enrollment as not in the runbooks (M6)", () => {
+test("SPEC-024: upgrade.md teaches no console route; install.md names the re-enrollment of an enrolled endpoint (M6)", () => {
   // The service's identity is SYSTEM's alone, in identity\ (the Amendment 2026-11-04); files
   // directly in the data root are a console installation the setup refuses (28).
   assert.doesNotMatch(document, /cert\.pem|key\.dat|identity\.json|enrollment\.(cert|key)_path|run by hand until|^```toml/m);
@@ -145,7 +145,12 @@ test("SPEC-024: upgrade.md teaches no console route, and names re-enrollment as 
   assert.match(section(document, "### Agents"), /Enrolling such an agent again with the new installation is not in these runbooks yet\./);
   // SPEC-023 §Operational §6, as its upgrade document must say it.
   assert.ok(document.includes("`server.url must use https when [enrollment] is set`"));
-  assert.ok(install.includes("Re-enrolling an enrolled endpoint is not in this document."));
+  // M6 (Manuel, 2026-11-17): an enrolled endpoint enrolls again by the purge and a new token, the
+  // old agent left on the server (R5; SPEC-024 Amendment 2026-11-15, point 8).
+  assert.ok(install.includes("To enroll an enrolled endpoint again, as when its certificate has expired (code 7) or its server is a new installation with another CA, purge it ([Remove the agent from an endpoint](#remove-the-agent-from-an-endpoint)) and run the setup again with a new token, and the server's current anchor and fingerprints, in a new bootstrap file or the wizard: the endpoint then enrolls a new agent."));
+  assert.ok(install.includes("The purge revokes nothing: the old agent stays on the server that enrolled it, which has no command that removes it yet, and its certificate stays valid there until it expires or an operator deletes its row"));
+  assert.ok(install.includes("The purge followed by an enrollment with a new token has not been run, in CI or on an endpoint."));
+  assert.doesNotMatch(install, /Re-enrolling an enrolled endpoint is not in this document/);
 });
 
 test("#165: the agent's keys change by a rewrite of agent.toml in place, never by its replacement", () => {
