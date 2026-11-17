@@ -3426,6 +3426,78 @@ dependency or privilege is added. Taken by Claude Code under *Decision authority
 inside the accepted ADRs, nothing of Manuel's list), as the destination of debt #163 asks before
 the fix that narrows the check. Status stays **Accepted**.
 
+## Amendment 2026-11-17: the token's copies in the setup's checks, and the images job after the agent's
+
+**What surfaced it.**
+
+- Debt #160 (`docs/handoff-session-71.md#debts`): the Amendment 2026-11-13, point 6, says that
+  preflight reads the token "into memory it zeroes after use", and gives the memory Windows'
+  control keeps for the field as the reason the token may stay in `cg-setup`'s process. Preflight
+  zeroes the copies it reads and the configuration it stages, but it also serializes the
+  configuration it generates and checks it by parsing it, with the check the service applies at
+  adoption (`cg_agent::service::check_staged_config`), and those steps leave copies of the token
+  that are freed without being zeroed (`agent/cg-setup/src/staged.rs`,
+  `agent/cg-agent/src/config.rs`, `agent/cg-agent/src/service/mod.rs`). The threat model's
+  Amendment 2026-11-13 says that `cg-setup` "zeroes its own copy after use".
+- Debt #162 (`docs/handoff-session-72.md#debts`): the release's images job runs alongside the agent
+  job, so a failed Windows build can leave the version's images pushed and attested, and its
+  bundle attested, with no GitHub Release.
+
+Manuel chose, on 2026-11-17, a correction of the text for the first, not a zeroed secret type for
+`enrollment.token`, and, for the second, that the images job waits for the agent job.
+
+**Amendment.**
+
+1. **The token's copies in the setup's process.** The Amendment 2026-11-13, point 6's "Preflight
+   reads it at each submission into memory it zeroes after use" reads: preflight reads it, at each
+   submission and from the bootstrap file, into memory it zeroes after use, and zeroes the
+   configuration it generates and stages; other steps leave copies of the token in `cg-setup`'s
+   process that are freed without being zeroed, among them: the serialization of that
+   configuration and its check, which parses it, once for each submission or bootstrap file whose
+   inputs and anchor pass and reach that check; the parse of a bootstrap file whose token is
+   written with an escape, whose parser builds the token in buffers it frees as it grows; and a
+   bootstrap file refused as invalid (24), the parser's error keeping the text of a file that is
+   not valid TOML, with the token when it holds one, and a token under a key the file does not
+   admit not being zeroed. Its "The memory of the field itself, which Windows' control keeps, is
+   not the setup's to zero: the token may stay in `cg-setup`'s process until it exits" reads:
+   neither those copies nor, on the wizard's route, the memory of the field itself, which Windows'
+   control keeps, are zeroed, so the token may stay in `cg-setup`'s process until it exits, on the
+   bootstrap file's route as on the wizard's. Who can read that memory is unchanged: SYSTEM and
+   elevated administrators. The runbook's disclosure that the token may stay in `cg-setup`'s
+   memory until it exits is to name these copies and both routes. The service applies the same
+   check at adoption, in its own process, which runs as SYSTEM.
+2. **The images job after the agent job.** The release's images job waits for the agent job, and
+   for the licence check as before (`needs: [licences, agent]`, which `.github/workflows/release.yml` is to
+   carry).
+   The Amendment 2026-11-14, point 2's "the images job runs alongside it, so its images, and the
+   bundle after them, may already be pushed and attested, as they may be today" reads: the images
+   job waits for it, so no image is pushed or attested and no bundle is attested. A failure of a
+   later job, the images', the bundle's or the release's, leaves the agent job's four assets
+   attested with no GitHub Release, and a failure of the bundle's or the release's job leaves the
+   images pushed and attested too, as before. A release starts its images only once the agent job
+   has passed, which lengthens it by that job's run. By scope, SPEC-023's first Amendment
+   2026-10-26, item 4's "The images and agent jobs start once it has passed" reads: the agent job starts once
+   it has passed, and the images job once the agent job has; and this SPEC's Amendment
+   2026-10-31's *Effect*, on "the images and bundle jobs, which do not wait for the agent's", reads as this
+   point says.
+
+**Tests.** Point 1 changes no code: its copies are read from the code it names and the libraries
+that code calls, not from the process's memory. Point 2: `deploy/windows/test/release-workflow.test.mjs`
+asserts that the images job depends on the agent job, and is seen failing on a `release.yml` whose
+images job does not.
+
+**Effect.** The Amendment 2026-11-13's *Effect*, "point 4 and point 6, whose control memory is
+disclosed", reads "point 4 and point 6, whose memory, the control's and the
+Amendment 2026-11-17, point 1's copies, the runbook is to disclose". The threat model's Amendment 2026-11-13 entry on the token in the setup's dialog is
+corrected by its Amendment 2026-11-17. Point 2 changes the images job's order alone: what each job
+builds, pushes, attests and publishes, and the permissions it holds, are unchanged, as ADR-0022 §7
+and the Amendment 2026-11-14, point 1, state them. No ADR changes, and no dependency or privilege is added. Debt #160 closes when the
+runbook names the copies (C10); debt #162 keeps the release's checks beyond the Amendment
+2026-11-14's wording, its job-order clause leaving the register with the commit that changes
+`needs`. Point 1 bears on the security posture's text and point 2 on packaging, both
+on Manuel's list: he chose them on 2026-11-17, and approved this text on 2026-11-17, in chat:
+"doy el ok a la enmeinda y a claude.md". Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.

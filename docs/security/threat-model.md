@@ -488,6 +488,20 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 
 **Effect on other sections.** None is restated; the two sentences named in *Status* are read with the limits above. R1, R5 and R17's destinations are unchanged.
 
+## Amendment 2026-11-17 (SPEC-024): the token's copies in the setup's checks
+
+**Status.** Proposed by Claude Code on 2026-11-17 with SPEC-024's Amendment 2026-11-17, point 1, which Manuel chose on 2026-11-17 (debt #160), and ratified by Manuel on 2026-11-17, in chat, with it: "doy el ok a la enmeinda y a claude.md". It corrects one entry of the Amendment 2026-11-13 (SPEC-024) above and adds to the accepted threats. The threat model remains `Accepted`.
+
+**Context.** SPEC-024's Amendment 2026-11-17, point 1, reads the setup's code: `cg-setup` zeroes the copies of the enrollment token it reads and the configuration it stages, but the serialization of that configuration and its check, the one the service applies at adoption, which parses it, leave copies of the token in its process that are freed without being zeroed, on the bootstrap file's route as on the wizard's; so do the parser's buffers for a token written with an escape in the bootstrap file, and a bootstrap file refused as invalid: the parser's error keeps the text of a file that is not valid TOML, and a token under a key the file does not admit is not zeroed.
+
+**Amendment.**
+
+- **§1 Agent, Information Disclosure**, correct the Amendment 2026-11-13 (SPEC-024) above's entry *the token in the setup's dialog*, where it says "`cg-setup` zeroes its own copy after use" and gives the memory Windows' control keeps for the field as the reason the token may stay in `cg-setup`'s process: `cg-setup` zeroes the copies it reads, from the dialog or the bootstrap file, and the configuration it stages, but other steps leave copies of the token in its process that it frees without zeroing them, among them the serialization and the check of that configuration, the parse of a token written with an escape in the bootstrap file, and a bootstrap file refused as invalid. They are why the token may stay in `cg-setup`'s elevated process until it exits, on either route, with the memory of the control on the wizard's, readable by SYSTEM and elevated administrators, as the staged file is; a dump of that process would hold it, as that entry says.
+- **Threats explicitly accepted in MVP**, add:
+  - **The token in `cg-setup`'s memory on the bootstrap file's route.** On the bootstrap file's route too, the token may stay in the memory of `cg-setup`'s elevated process until it exits, in the copies the corrected entry above names; SYSTEM and elevated administrators can read it there, as can whoever reads a dump of that process, as on the wizard's route (the Amendment 2026-11-13 (SPEC-024) above). The runbook (C10) is to disclose it. Manuel's ratification of this amendment, with SPEC-024's Amendment 2026-11-17, is its acceptance.
+
+**Effect on other sections.** None is restated but the entry corrected above. The Amendment 2026-11-13 (SPEC-024)'s accepted threat on the setup's dialog stands as written.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
