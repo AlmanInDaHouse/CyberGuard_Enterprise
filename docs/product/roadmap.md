@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-79.md](../handoff-session-79.md)).
+([handoff-session-80.md](../handoff-session-80.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -494,7 +494,11 @@ This dependency-ordered document supersedes both for planning.
   `docs/handoff-session-77.md`); S78 its second, the uninstallation and the
   purge in `install.md` (`14afeb3`, `docs/handoff-session-78.md`); S79 its third, the
   agent's upgrade in `upgrade.md` (`1a04d1b`, `docs/handoff-session-79.md`), and #165's
-  in-place edit of `agent.toml` in `configuration.md` (`711f8cb`); commits 4 and 5 follow.
+  in-place edit of `agent.toml` in `configuration.md` (`711f8cb`); S80 its fifth, the
+  disclosures (`241d14e`), after SPEC-024 Amendment 2026-11-17 (`a4bb95a`, Manuel's M1 and
+  M2, with the release's images job after the agent's, `12b1d0b`), and designed its fourth, the
+  migration's runbook and the repairs, on three elevated readings (`docs/handoff-session-80.md`);
+  commit 4 follows.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
