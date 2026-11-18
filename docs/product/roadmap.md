@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-80.md](../handoff-session-80.md)).
+([handoff-session-81.md](../handoff-session-81.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -498,7 +498,9 @@ This dependency-ordered document supersedes both for planning.
   disclosures (`241d14e`), after SPEC-024 Amendment 2026-11-17 (`a4bb95a`, Manuel's M1 and
   M2, with the release's images job after the agent's, `12b1d0b`), and designed its fourth, the
   migration's runbook and the repairs, on three elevated readings (`docs/handoff-session-80.md`);
-  commit 4 follows.
+  S81 wrote commit 4 and SPEC-024 Amendment 2026-11-18 on two branches, after reading 4, and
+  checkpointed when a second review found its repair primitives need a redesign
+  (`docs/handoff-session-81.md`); commit 4 follows.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
