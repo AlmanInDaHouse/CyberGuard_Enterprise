@@ -17,7 +17,7 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, OwnedHandle, RawHandle};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
@@ -164,7 +164,7 @@ pub(crate) fn wide(path: &Path) -> Vec<u16> {
         .collect()
 }
 
-pub(crate) fn last_error() -> u32 {
+pub fn last_error() -> u32 {
     // SAFETY: reads the calling thread's last-error value.
     unsafe { GetLastError() }
 }
@@ -206,13 +206,13 @@ fn known_folder(id: &windows_sys::core::GUID, name: &str) -> Result<PathBuf, Str
 
 /// A security descriptor, built from SDDL (LocalAlloc'd, freed on drop) or
 /// read from an object into a buffer of its own (`stored`).
-pub(crate) struct Descriptor {
+pub struct Descriptor {
     pointer: PSECURITY_DESCRIPTOR,
     stored: Option<Vec<u64>>,
 }
 
 impl Descriptor {
-    pub(crate) fn from_sddl(sddl: &str) -> Result<Self, String> {
+    pub fn from_sddl(sddl: &str) -> Result<Self, String> {
         let text: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         // SAFETY: the string lives for the call; the descriptor is freed on
@@ -235,6 +235,11 @@ impl Descriptor {
             pointer: descriptor,
             stored: None,
         })
+    }
+
+    /// The descriptor, for a call that reads it while this value lives.
+    pub fn as_ptr(&self) -> PSECURITY_DESCRIPTOR {
+        self.pointer
     }
 
     pub(crate) fn attributes(&self) -> SECURITY_ATTRIBUTES {
@@ -384,6 +389,19 @@ impl Drop for Handle {
     fn drop(&mut self) {
         // SAFETY: a handle CreateFileW returned, closed once.
         unsafe { CloseHandle(self.0) };
+    }
+}
+
+impl From<OwnedHandle> for Handle {
+    /// Take a handle the caller owns, which this value closes.
+    fn from(handle: OwnedHandle) -> Self {
+        Handle(handle.into_raw_handle() as HANDLE)
+    }
+}
+
+impl AsRawHandle for Handle {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.0 as RawHandle
     }
 }
 
@@ -776,7 +794,7 @@ pub fn replace_keeping_security(
 /// marked auto-inherited it recomputes the control and the entries against
 /// the parent's current DACL, reporting the DACL protected when one of the
 /// parent's inheritable entries is not in it, though the stored one is not.
-pub(crate) fn security_of(handle: &Handle, path: &Path) -> Result<Descriptor, String> {
+pub fn security_of(handle: &Handle, path: &Path) -> Result<Descriptor, String> {
     let information = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
     let mut buffer: Vec<u64> = Vec::new();
     loop {
