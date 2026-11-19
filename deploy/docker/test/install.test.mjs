@@ -206,8 +206,20 @@ test("SPEC-024: the runbook names the purge's closed list of names, as the servi
     const expanded = names.replace(/`agent\.1\.jsonl` to `agent\.5\.jsonl`/, [1, 2, 3, 4, 5].map((n) => `\`agent.${n}.jsonl\``).join(", "));
     listed.set(directory, [...expanded.matchAll(/`([^`]+)`/g)].map((m) => m[1]).sort());
   }
+  // purge.rs takes each list from the product's names (service/names.rs, SPEC-024 Amendment
+  // 2026-11-19, point 4), whose lists spell a name or a single name's constant.
   const purge = readFileSync(join(REPO, "agent/cg-agent/src/service/purge.rs"), "utf8");
-  const names = (constant) => [...purge.match(new RegExp(`^const ${constant}: \\[&str; \\d+\\] = \\[([^\\]]+)\\]`, "m"))[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const source = readFileSync(join(REPO, "agent/cg-agent/src/service/names.rs"), "utf8");
+  const single = Object.fromEntries([...source.matchAll(/^pub const ([A-Z_]+): &str = "([^"]+)";/gm)].map((m) => [m[1], m[2]]));
+  const names = (constant) => {
+    const list = purge.match(new RegExp(`^const ${constant}: \\[&str; \\d+\\] = names::([A-Z_]+);`, "m"))[1];
+    const items = source.match(new RegExp(`^pub const ${list}: \\[&str; \\d+\\] = \\[([^\\]]+)\\]`, "m"))[1];
+    return items.split(",").map((item) => item.trim()).filter(Boolean).map((item) => {
+      const name = item.startsWith('"') ? item.slice(1, -1) : single[item];
+      assert.ok(name, `names.rs spells ${item}`);
+      return name;
+    });
+  };
   // The data root's names are the configuration's and the rest's (purge.rs CONFIGURATION, REST).
   assert.deepEqual(Object.fromEntries(listed), {
     agent: [...names("CONFIGURATION"), ...names("REST")].sort(),

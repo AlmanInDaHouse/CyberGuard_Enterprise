@@ -33,6 +33,10 @@ use zeroize::Zeroizing;
 
 pub(super) use super::anchor::check_anchor;
 use super::anchor::is_fingerprint;
+use super::names::{
+    self, ANCHOR, CERT, CONFIG, CONSOLE_DATA_ROOT, IDENTITY, IDENTITY_DIRECTORY, IDENTITY_FILES,
+    KEY, RECORD, RECORD_TEMPORARY, REQUIRED, TEMPORARY,
+};
 use super::purge::Area;
 pub(super) use super::READ_LIMIT;
 use super::{
@@ -52,21 +56,6 @@ pub const DEFAULT_REFUSAL: &str = "the data directory holds a console installati
 
 /// How long an operation may wait on another process.
 pub const OPERATION_WAIT: Duration = custody::OPEN_WAIT;
-
-const CONFIG: &str = "agent.toml";
-const ANCHOR: &str = "server-ca.pem";
-const CERT: &str = "cert.pem";
-const KEY: &str = "key.dat";
-const IDENTITY: &str = "identity.json";
-const IDENTITY_DIRECTORY: &str = "identity";
-/// FR-014's leftover: never read or adopted, restricted as a copy.
-const TEMPORARY: &str = "agent.toml.hygiene-tmp";
-const RECORD: &str = "migration.json";
-/// `migration.json`'s rewrite goes through this name beside it.
-const RECORD_TEMPORARY: &str = "migration.json.rewrite-tmp";
-/// What a console layout's data root must hold.
-const REQUIRED: [&str; 5] = [CONFIG, ANCHOR, CERT, KEY, IDENTITY];
-const IDENTITY_FILES: [&str; 3] = [CERT, KEY, IDENTITY];
 
 /// Any access an unrelated handle may hold while the service opens an object
 /// for its attributes or its security.
@@ -452,9 +441,8 @@ fn with_state(environment: &Environment<'_>, line: String) -> String {
         .into_iter()
         .filter(|(path, plain)| *plain && custody::has_security(path, policy, wait))
         .map(|(path, _)| path.display().to_string());
-    let files = REQUIRED
+    let files = CONSOLE_DATA_ROOT
         .iter()
-        .chain(std::iter::once(&TEMPORARY))
         .filter(|name| plain && custody::has_security(&paths.data_root.join(name), policy, wait))
         .map(|name| name.to_string());
     let restricted: Vec<String> = directories.chain(files).collect();
@@ -957,11 +945,7 @@ struct Checked {
 
 /// The product's name for an entry of the data root.
 fn known_name(entry: &str) -> Option<&'static str> {
-    REQUIRED
-        .iter()
-        .chain(std::iter::once(&TEMPORARY))
-        .find(|name| name.eq_ignore_ascii_case(entry))
-        .copied()
+    names::product_name_str(&CONSOLE_DATA_ROOT, entry, false)
 }
 
 /// Item 2.2.
@@ -1037,8 +1021,8 @@ fn check_root_entries(environment: &Environment<'_>, staging: bool) -> Result<()
     let staging_name = file_name(&paths.staging());
     let mut seen = HashSet::new();
     for entry in custody::entries(&paths.product_root, environment.wait)? {
-        let accepted = entry.eq_ignore_ascii_case(&data_root_name)
-            || (staging && entry.eq_ignore_ascii_case(&staging_name));
+        let accepted = names::same_str(&entry, &data_root_name, false)
+            || (staging && names::same_str(&entry, &staging_name, false));
         if !accepted || !seen.insert(entry.to_ascii_lowercase()) {
             return Err(format!(
                 "{} holds {entry}, which is not the agent's; {REPAIR_ENTRY}",
@@ -1448,7 +1432,7 @@ fn record_and_stage(
 fn clear_staged(environment: &Environment<'_>) -> Result<(), String> {
     let staging = environment.paths.staging();
     for entry in custody::entries(&staging, environment.wait)? {
-        if entry.eq_ignore_ascii_case(RECORD) {
+        if names::same_str(&entry, RECORD, false) {
             continue;
         }
         let path = staging.join(&entry);

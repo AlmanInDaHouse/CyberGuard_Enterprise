@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use cg_agent::custody;
 use cg_agent::service::layout::{classify, HostState};
+use cg_agent::service::names;
 use cg_agent::service::InstalledPaths;
 use windows_sys::Win32::Foundation::ERROR_SERVICE_SPECIFIC_ERROR;
 
@@ -68,9 +69,9 @@ impl Machine<'static> {
 /// The installed binary under `program_files`.
 pub fn installed_binary(program_files: &std::path::Path) -> PathBuf {
     program_files
-        .join("CyberGuard")
-        .join("Agent")
-        .join("cg-agent.exe")
+        .join(names::PRODUCT_ROOT)
+        .join(names::SERVICE_DIRECTORY)
+        .join(names::EXECUTABLE)
 }
 
 impl Machine<'_> {
@@ -80,7 +81,7 @@ impl Machine<'_> {
 
     /// The agent's log directory, under the data root configure holds.
     pub fn log_dir(&self) -> PathBuf {
-        self.paths().data_root.join("logs")
+        self.paths().data_root.join(names::LOGS_DIRECTORY)
     }
 }
 

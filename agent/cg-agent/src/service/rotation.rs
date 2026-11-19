@@ -34,9 +34,9 @@ pub const ARCHIVES: usize = 5;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 
 /// The active file's name.
-pub const ACTIVE: &str = "agent.jsonl";
+pub const ACTIVE: &str = super::names::LOGS[0];
 /// The active file's name while it rotates.
-pub const ROTATING: &str = "agent.rotating.jsonl";
+pub const ROTATING: &str = super::names::LOGS[6];
 
 /// How long rotation may keep failing before the log counts it as a
 /// persistent failure; meanwhile the active file grows past its bound.

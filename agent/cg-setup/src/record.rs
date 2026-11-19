@@ -7,11 +7,12 @@
 use std::collections::BTreeSet;
 
 use cg_agent::service::anchor::is_fingerprint;
+use cg_agent::service::names;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
 /// The record's name in the data root.
-pub const RECORD: &str = "setup-attempt.json";
+pub const RECORD: &str = names::ATTEMPT;
 
 /// `format`'s one value.
 pub const FORMAT: u64 = 1;

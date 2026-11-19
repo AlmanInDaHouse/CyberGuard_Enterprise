@@ -12,16 +12,12 @@
 use std::path::Path;
 use std::time::Duration;
 
+use super::names::{self, CONFIG, DATA_ROOT, IDENTITY_DIRECTORY, LEGACY, STAGING};
 use super::InstalledPaths;
 use crate::custody::{self, Kind, Policy, Shape};
 
-const DATA_ROOT: &str = "agent";
-const STAGING: &str = "agent.migrating";
-const LEGACY: &str = "agent.legacy";
-const IDENTITY_DIRECTORY: &str = "identity";
-const CONFIG: &str = "agent.toml";
 /// What makes a data root a console layout (Amendment 2026-11-05).
-const CONSOLE_FILES: [&str; 3] = ["cert.pem", "key.dat", "identity.json"];
+const CONSOLE_FILES: [&str; 3] = names::IDENTITY_FILES;
 
 /// The state of the host (item 3), the first that applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,7 +50,7 @@ pub struct Names {
 fn lookup(listing: &[(String, Shape)], name: &str) -> Option<Shape> {
     listing
         .iter()
-        .find(|(entry, _)| entry.eq_ignore_ascii_case(name))
+        .find(|(entry, _)| names::same_str(entry, name, false))
         .map(|(_, shape)| *shape)
 }
 
