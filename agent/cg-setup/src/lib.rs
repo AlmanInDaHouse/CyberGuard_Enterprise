@@ -20,6 +20,8 @@
 pub mod cli;
 pub mod codes;
 #[cfg(windows)]
+pub mod custody;
+#[cfg(windows)]
 pub mod dialog;
 pub mod inputs;
 #[cfg(windows)]

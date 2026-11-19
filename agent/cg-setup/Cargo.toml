@@ -73,9 +73,13 @@ zeroize = "1.8"
 # the next restart (Win32_System_Registry), and NtQueryInformationProcess for
 # the process that started the setup (Wdk_System_Threading, whose structure
 # Win32_System_Kernel enables), and the wizard's dialog
-# (Win32_UI_WindowsAndMessaging, user32 alone).
+# (Win32_UI_WindowsAndMessaging, user32 alone); and the custody verb's
+# native file calls (Wdk_Foundation, Wdk_Storage_FileSystem, Win32_System_IO,
+# ntdll alone; SPEC-024 Amendment 2026-11-19).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
+    "Wdk_Foundation",
+    "Wdk_Storage_FileSystem",
     "Wdk_System_SystemServices",
     "Wdk_System_Threading",
     "Win32_Foundation",
@@ -84,6 +88,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Kernel",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
+    "Win32_System_IO",
     "Win32_System_Services",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
