@@ -24,6 +24,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_READ, OPEN_ALWAYS, READ_CONTROL,
 };
 
+use super::names::{DATA_ROOT, LOGS_DIRECTORY, PRODUCT_ROOT};
 use crate::custody::{self, Descriptor, Handle, Policy};
 
 /// `CyberGuard` and `CyberGuard\agent`: SYSTEM and Administrators only.
@@ -35,15 +36,12 @@ const LOG_FILE: &str = "O:SYD:P(A;;FA;;;SY)(A;;FR;;;BA)";
 
 /// Open (creating as needed) the service's rotating log.
 pub(super) fn open() -> Result<super::rotation::RotatingLog, String> {
-    let agent = custody::program_data()?.join("CyberGuard").join("agent");
+    let product_root = custody::program_data()?.join(PRODUCT_ROOT);
+    let agent = product_root.join(DATA_ROOT);
     let shared = Policy::shared();
-    custody::ensure_directory(
-        agent.parent().expect("CyberGuard"),
-        PRIVATE_DIRECTORY,
-        &shared,
-    )?;
+    custody::ensure_directory(&product_root, PRIVATE_DIRECTORY, &shared)?;
     custody::ensure_directory(&agent, PRIVATE_DIRECTORY, &shared)?;
-    let logs = agent.join("logs");
+    let logs = agent.join(LOGS_DIRECTORY);
     custody::ensure_directory(&logs, LOG_DIRECTORY, &shared)?;
     super::rotation::RotatingLog::open(
         &logs,

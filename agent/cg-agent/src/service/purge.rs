@@ -28,6 +28,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 
 use super::layout::{classify, HostState};
 use super::migration::{refused, Environment, Injected, Point, Stop, SHARE_ALL};
+use super::names::{self, IDENTITY_DIRECTORY, LOGS_DIRECTORY};
 use super::{EXIT_PURGE_LEFT, EXIT_PURGE_REFUSED, EXIT_SERVICE_LOG};
 use crate::custody::{self, Handle, Kind, Policy};
 
@@ -51,37 +52,14 @@ pub enum Area {
 }
 
 /// Point 6's first step: the staged configuration before `agent.toml`.
-const CONFIGURATION: [&str; 3] = ["agent.toml.setup", "agent.toml", "agent.toml.hygiene-tmp"];
+const CONFIGURATION: [&str; 3] = names::CONFIGURATION;
 /// The legacy directory's names (the Amendment 2026-11-05, item 2.2), its
 /// `agent.toml` first.
-const LEGACY: [&str; 6] = [
-    "agent.toml",
-    "server-ca.pem",
-    "cert.pem",
-    "key.dat",
-    "identity.json",
-    "agent.toml.hygiene-tmp",
-];
-const IDENTITY: [&str; 3] = ["cert.pem", "key.dat", "identity.json"];
+const LEGACY: [&str; 6] = names::CONSOLE_DATA_ROOT;
+const IDENTITY: [&str; 3] = names::IDENTITY_FILES;
 /// The data root's other names.
-const REST: [&str; 5] = [
-    "server-ca.pem",
-    "server-ca.pem.setup",
-    "setup-attempt.json",
-    "migration.json",
-    "migration.json.rewrite-tmp",
-];
-const LOGS: [&str; 7] = [
-    "agent.jsonl",
-    "agent.1.jsonl",
-    "agent.2.jsonl",
-    "agent.3.jsonl",
-    "agent.4.jsonl",
-    "agent.5.jsonl",
-    "agent.rotating.jsonl",
-];
-const IDENTITY_DIRECTORY: &str = "identity";
-const LOGS_DIRECTORY: &str = "logs";
+const REST: [&str; 5] = names::REST;
+const LOGS: [&str; 7] = names::LOGS;
 
 /// What a directory is held open with: listing binds its share mode, which
 /// admits readers and writers and no deletion or rename of the directory.
@@ -235,11 +213,11 @@ fn hold_root(
 fn matching<'a>(listing: &'a [String], name: &'a str) -> impl Iterator<Item = &'a String> + 'a {
     listing
         .iter()
-        .filter(move |entry| entry.eq_ignore_ascii_case(name))
+        .filter(move |entry| names::same_str(entry, name, false))
 }
 
-fn known(names: &[&str], entry: &str) -> bool {
-    names.iter().any(|name| name.eq_ignore_ascii_case(entry))
+fn known(list: &[&'static str], entry: &str) -> bool {
+    names::product_name_str(list, entry, false).is_some()
 }
 
 /// One run of the removals.
@@ -348,8 +326,8 @@ impl Purge<'_, '_> {
             }
         }
         for entry in &root_entries {
-            let product = entry.eq_ignore_ascii_case(&data_root_name)
-                || entry.eq_ignore_ascii_case(&legacy_name);
+            let product = names::same_str(entry, &data_root_name, false)
+                || names::same_str(entry, &legacy_name, false);
             if !product {
                 self.leave(
                     &paths.product_root.join(entry),
@@ -388,7 +366,7 @@ impl Purge<'_, '_> {
         }
         // The legacy directory is checked as the migration counts it, under
         // `agent.toml`'s policy (the Amendment 2026-11-05, item 4).
-        let (names, policy, strict): (&[&'static str], Policy, bool) = match area {
+        let (list, policy, strict): (&[&'static str], Policy, bool) = match area {
             Area::Legacy => (
                 &LEGACY,
                 self.environment.custody.configuration.clone(),
@@ -415,7 +393,7 @@ impl Purge<'_, '_> {
             }
         };
         let mut emptied = true;
-        for name in names {
+        for name in list {
             for entry in matching(&entries, name) {
                 let gone = self.file(area, name, &path.join(entry))?;
                 emptied &= gone;
@@ -424,7 +402,7 @@ impl Purge<'_, '_> {
                 }
             }
         }
-        for entry in entries.iter().filter(|entry| !known(names, entry)) {
+        for entry in entries.iter().filter(|entry| !known(list, entry)) {
             self.leave(&path.join(entry), "not a name of the product's");
             emptied = false;
         }

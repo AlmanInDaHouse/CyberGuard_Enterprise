@@ -20,14 +20,10 @@ use super::migration::{
     check_anchor, close, counts, identity_line, in_place, invalid_arguments, naming,
     other_combination, refused, Environment, Injected, Point, Stop, READ_LIMIT, SHARE_ALL,
 };
+use super::names::{ANCHOR, CONFIG, STAGED_ANCHOR, STAGED_CONFIG};
 use super::{check_staged_config, config_error_line, stderr_service_log, EXIT_SERVICE_LOG};
 use crate::custody::{self, Handle, Policy};
 use crate::errors::{ConfigError, TlsError};
-
-const STAGED_CONFIG: &str = "agent.toml.setup";
-const STAGED_ANCHOR: &str = "server-ca.pem.setup";
-const CONFIG: &str = "agent.toml";
-const ANCHOR: &str = "server-ca.pem";
 
 /// A cut step's stop: `render` makes the refusal of its reason.
 fn cut_short(cut: Injected, render: impl FnOnce(&str) -> Stop) -> Stop {

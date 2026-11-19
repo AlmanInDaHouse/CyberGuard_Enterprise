@@ -39,6 +39,7 @@ pub mod layout;
 mod log_file;
 #[cfg(windows)]
 pub mod migration;
+pub mod names;
 #[cfg(windows)]
 pub mod purge;
 pub mod rotation;
@@ -276,15 +277,15 @@ pub struct InstalledPaths {
 
 impl InstalledPaths {
     pub fn under(program_data: &Path) -> Self {
-        let product_root = program_data.join("CyberGuard");
-        let data_root = product_root.join("agent");
-        let identity_dir = data_root.join("identity");
+        let product_root = program_data.join(names::PRODUCT_ROOT);
+        let data_root = product_root.join(names::DATA_ROOT);
+        let identity_dir = data_root.join(names::IDENTITY_DIRECTORY);
         InstalledPaths {
-            config: data_root.join("agent.toml"),
-            trust_anchor: data_root.join("server-ca.pem"),
-            cert: identity_dir.join("cert.pem"),
-            key: identity_dir.join("key.dat"),
-            identity: identity_dir.join("identity.json"),
+            config: data_root.join(names::CONFIG),
+            trust_anchor: data_root.join(names::ANCHOR),
+            cert: identity_dir.join(names::CERT),
+            key: identity_dir.join(names::KEY),
+            identity: identity_dir.join(names::IDENTITY),
             product_root,
             data_root,
             identity_dir,
@@ -293,34 +294,34 @@ impl InstalledPaths {
 
     /// FR-014's temporary file in the data root.
     pub fn hygiene_temporary(&self) -> PathBuf {
-        self.data_root.join("agent.toml.hygiene-tmp")
+        self.data_root.join(names::TEMPORARY)
     }
 
     /// `agent.migrating` beside the data root, the migration's staging
     /// directory (Amendment 2026-11-05).
     pub fn staging(&self) -> PathBuf {
-        self.product_root.join("agent.migrating")
+        self.product_root.join(names::STAGING)
     }
 
     /// `agent.legacy` beside the data root, the console installation's
     /// directory after the migration's commit.
     pub fn legacy(&self) -> PathBuf {
-        self.product_root.join("agent.legacy")
+        self.product_root.join(names::LEGACY)
     }
 
     /// `migration.json` in the data root, after the commit.
     pub fn record(&self) -> PathBuf {
-        self.data_root.join("migration.json")
+        self.data_root.join(names::RECORD)
     }
 
     /// The configuration the setup staged (Amendment 2026-11-09, item 3).
     pub fn staged_config(&self) -> PathBuf {
-        self.data_root.join("agent.toml.setup")
+        self.data_root.join(names::STAGED_CONFIG)
     }
 
     /// The trust anchor the setup staged (Amendment 2026-11-09, item 3).
     pub fn staged_anchor(&self) -> PathBuf {
-        self.data_root.join("server-ca.pem.setup")
+        self.data_root.join(names::STAGED_ANCHOR)
     }
 }
 
