@@ -6,7 +6,7 @@ showed that the runbook cannot repair the agent's directories safely with Window
 Manuel decided that the primitives live in a new verb of `cg-setup`, and chose its delivery, its
 privilege posture and what it keeps. SPEC-024's Amendment 2026-11-18 was revised and its Amendment
 2026-11-19, the verb, written, with the threat model's Amendment 2026-11-18 rewritten around it, on
-the owner-review branch, through three rounds of the fixed prompt and a security lens, the third in this session's next commit. No code changed; nothing of the branches landed. No
+the owner-review branch, through eleven rounds of the fixed prompt and a security lens. No code changed; nothing of the branches landed. No
 tag was pushed: the release freeze stays.
 
 ## Start and resulting state
@@ -17,12 +17,14 @@ tag was pushed: the release freeze stays.
   agreed with Session 81's handoff. `C:\tmp\s81-read5.log` did not exist: reading 5 never ran. 3.3
   GB of 15.8 GB of memory free, 19.6 GB on `C:`; Docker Desktop down (Manuel's `aura_*` containers
   not touched).
-- Resulting `main`: this close's commit, on `33a1719`.
+- Resulting `main`: this close's commit `40194b0`, on `33a1719`, and the commit that completes this
+  handoff.
 - Branches, both pushed with no PR, so that no workflow ran on them:
-  - `docs/spec-024-amendment-2026-11-18`, rebased on this close: the SPEC commit (SPEC-024
-    Amendments 2026-11-18, revised, and 2026-11-19, the catalog's line and the
-    SPEC-024 → SPEC-023 edge, install_ac_017's row) and the threat model's commit, both subjects
-    `NOT YET RATIFIED`. Its worktree is `C:\Users\manul\cg-s82-am`.
+  - `docs/spec-024-amendment-2026-11-18` at `179c106`, on `40194b0`: `efcb582`, the SPEC commit
+    (SPEC-024 Amendments 2026-11-18, revised, and 2026-11-19, the catalog's line and the
+    SPEC-024 → SPEC-023 edge), and `179c106`, the threat model's commit, both subjects
+    `NOT YET RATIFIED`. The SPEC's diff is one hunk at its end, so no `SPEC-024:<line>` cited
+    elsewhere moves (round 6). Its worktree is `C:\Users\manul\cg-s82-am`.
   - `docs/c10-migration` at `1cf1b12`, unchanged: Session 81's commit 4, whose repair blocks the
     verb replaces (C8 below). Its worktree is still `C:\Users\manul\cg-s80-c4`.
 - Catalogs unchanged on `main`: 22 ADRs / 23 SPECs.
@@ -56,9 +58,11 @@ The readings SPEC-024's Amendment 2026-11-19 cites, each by a subagent under its
   their e1, E1/E3, E2, exp 2); also through a child the caller could not list (its security judge's
   w2: `icacls A /grant me:(OI)(CI)F` rewrote a hard-linked file's DACL through an unlistable child);
   and for a grant that does not inherit (`icacls D /grant me:(S)`, the second workflow's J2).
-- Renaming or deleting an object whose DACL admits the caller nothing fails through Windows' commands
-  and .NET, which ask for `SYNCHRONIZE`; the parent's `FILE_DELETE_CHILD` does not grant it (the
-  second workflow, its contract and experiments refuters).
+- Moving an object, or deleting a directory or a read-only file, whose DACL admits the caller
+  nothing fails through Windows' commands and .NET, which ask for `SYNCHRONIZE`; the parent's
+  `FILE_DELETE_CHILD` does not grant it (the second workflow, its contract and experiments
+  refuters). A regular file is deleted through the parent's grant (`File.Delete`, `Remove-Item`,
+  `del`; round 9's security reviewer, `C:\tmp\s82-experiments-e.md`).
 - A path acted on after a listing follows a junction put in place of a directory on it, `\\?\`
   included: a `File.Delete` and a `Directory.Move` landed in the junction's target (its security
   refuter's X1).
@@ -120,9 +124,8 @@ These are choices, not the approval of the texts, which waits for the compare UR
 
 The fixed prompt for a SPEC or ADR text (CLAUDE.md compensating control 5) and a security lens, each
 reviewer in its own isolated worktree, given no summary, on the branch's two commits as
-committed (runs `wf_a3163459-2a8`, `wf_246eddbd-4c4`; their lists `C:\tmp\s82-review-r1.json`,
-`C:\tmp\s82-review-r2.json`). Round 3, on the branch rebased on this close, follows in this
-session's next commit.
+committed, eleven rounds, each list kept in `C:\tmp\s82-review-r<N>.json`. List-A points per round,
+fixed prompt + security lens: 8+5, 6+5, 4+5, 4+5, 3+5, 6+3, 3+3, 2+1, 3+2, 2+2, 1+3.
 
 ### Round 1, on `91c2855` (fixed prompt 8, security lens 5 list-A points)
 
@@ -169,7 +172,41 @@ Fixed in the branch's commits rebased on this close:
 - From list B, taken: the plan's prefix names the version and the mode; a token with one of the four
   privileges already enabled is refused; a DACL printed between brackets.
 
-List B of both rounds, not taken, is for the implementation (C1 to C9): what `show` prints first when
+### Rounds 3 to 11, on the branch rebased on `40194b0`
+
+Each fixed in the next round's commits (`0c06c93`, `69c6561`, `4e07cf6`, `893a797`, `e5ffa25`,
+`f75871b`, `9c991ee`, `1cbf3a7`, `ac5eaa6`), and round 11's in `efcb582`/`179c106`, which no round
+read. The design points among them:
+
+- Round 3: closing a planted data root made its planted `identity` the service's (`aside` then
+  closes only a console installation's); `%SystemDrive%` from the session's environment moves
+  `SHGetKnownFolderPath`'s `%ProgramData%` (whole paths compared with the kernel's Windows drive's
+  `ProgramData` and `Program Files`, `<P>` opened from the drive's root); a legacy directory planted
+  beside a console data root left no route (foreign there); `executable` checks the owner.
+- Round 4: a planted `cert.pem` turned a service data root into a console one, and `identity\` would
+  move (an `identity` or `logs` is the service's unless another account readably owns it, and moves
+  only with `<P>` whole); `<P>` itself a link (moved as the link by `aside` alone); the inputs'
+  directory created new.
+- Round 5: the purge's names decided by owner; the temporary moved when its deletion fails; the
+  verb lists only its four directories; R1's residual routes named.
+- Round 6: the `install_ac_017` row shifted 37 `SPEC-024:<line>` citations in the threat model and
+  three ADRs (row removed, *Effect* reads it); the setup's staged files, owned by Administrators,
+  read as foreign so `in-place` would have moved the token (only another owner makes them foreign);
+  `aside` changed a foreign directory's owner (it closes only SYSTEM's or Administrators').
+- Rounds 7 to 11: the name-scope of a file's repair is `<P>` and the data root; the objects opened
+  by name listed in one place; the image's own security checked and the asset copied, not moved;
+  `agent.toml` and `server-ca.pem` of a console under the owner policy repaired, not moved; the
+  unelevated console agent beside the verb; a name added after the read, or held by a transaction;
+  *held* requires `FILE_LIST_DIRECTORY`, so its share mode binds; the restart and another
+  administrator's session required by the runbook for every mode; who keeps access to what `aside`
+  cannot restrict; the threat model's lines updated in place, four with *New risks*.
+
+Claude Code stopped after round 11, fixing its points without a twelfth round: from round 7 the
+points were wording and residuals, not what the verb does (`feedback-contract-review-convergence`).
+Manuel asked on 2026-11-19 how many rounds remained; Claude Code proposed round 11 as the last,
+with a further round only for a design hole, and he did not answer before the compare URL.
+
+List B of the eleven rounds, not taken, is for the implementation (C1 to C9): what `show` prints first when
 many names are planted; the floor build's primitives (a new debt at C9); a staging or legacy
 directory planted closed to Administrators before item 2.1, which the verb keeps (an accepted
 threat); an unelevated console agent beside the verb; the enrolling account's SID taken from the
