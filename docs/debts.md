@@ -23,11 +23,11 @@ At its close, each session (CLAUDE.md *Session protocol*, §At the close):
 - sets *Open* below to the number its handoff states, and the two agree
   with the rows of *Open debts*.
 
-**Open: 58** at Session 82's close, the count `docs/handoff-session-82.md` states
-(Session 82 redesigned C10's repairs as `cg-setup custody`, SPEC-024 Amendment 2026-11-19, on the owner-review branch, which did not land; it closed and opened no debt).
+**Open: 59** at Session 83's close, the count `docs/handoff-session-83.md` states
+(Session 83 landed `cg-setup custody`'s first two commits and opened #169, four points of the amendment's fresh reading that C3 waits on; it closed no debt).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 82's close, `docs/handoff-session-82.md#how-session-83-resumes`);
+Session N resumes* (at Session 83's close, `docs/handoff-session-83.md#how-session-84-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -92,6 +92,7 @@ Session N resumes* (at Session 82's close, `docs/handoff-session-82.md#how-sessi
 | 166 | The runbook gives no removal or repair, safe against a planted junction and without taking ownership of the identity, for an untrusted `%ProgramData%\CyberGuard` or `agent` directory (the setup's 27, the service's 13, the purge's 27 and its 46 for 13 or 14) nor for a name the purge leaves (47; SPEC-024 Amendment 2026-11-15, point 6); `14afeb3` withdrew the removal the setup's 27 and the service's 13 taught | `handoff-session-78.md#debts`; `handoff-session-81.md#debts`; `handoff-session-82.md#debts` | C10 commit 4, with the repairs' elevated reading (#87). SPEC-024 Amendment 2026-11-19's `cg-setup custody` (`docs/handoff-session-82.md#how-session-83-resumes`), approved by Manuel and on `main` (`b2fbb1a`): its implementation (C1 to C7), C10 commit 4 rewritten on it (C8), then the threat model's amendment (C9). |
 | 167 | `install.md` states as known outcomes no test or reading has shown: its retries after 40 to 45 on an installation rerun the registered setup without `-repair`, whose run has not been read; the setup's 27 "when the agent never enrolled there" holds only while the hand-made directory keeps its inherited DACL; and its uninstallation runs the setup elevated from `$dir` after a hash check alone, where `upgrade.md` checks the directory first | `handoff-session-79.md#debts`; `handoff-session-81.md#debts`; `handoff-session-82.md#debts` | C10 commit 4's pass over `install.md`, and install_ac_016's run (M3). SPEC-024 Amendment 2026-11-19's `cg-setup custody` (`docs/handoff-session-82.md#how-session-83-resumes`), approved by Manuel and on `main` (`b2fbb1a`): its implementation (C1 to C7), C10 commit 4 rewritten on it (C8), then the threat model's amendment (C9). |
 | 168 | The threat model's Amendment 2026-11-15 says an Application-log entry "loses its message text once the MSI removes the source", while the entries keep their strings, which hold the text (`agent/cg-agent/build_resource.rs`, `agent/cg-agent/src/service/windows.rs`), as `install.md` says since `241d14e` | `handoff-session-80.md#debts`; `handoff-session-81.md#debts`; `handoff-session-82.md#debts` | C10 commit 4's threat-model amendment (threat-model text, Manuel's). SPEC-024 Amendment 2026-11-19's `cg-setup custody` (`docs/handoff-session-82.md#how-session-83-resumes`), approved by Manuel and on `main` (`b2fbb1a`): its implementation (C1 to C7), C10 commit 4 rewritten on it (C8), then the threat model's amendment (C9). |
+| 169 | SPEC-024 Amendment 2026-11-19's points 2 to 7, read with a fresh context in Session 83 (the fixed prompt for a text), hold four list-A points that change what the verb classifies: a planted staging directory Administrators cannot read taken for the agent's (A1); a never-enrolled console installation's 27, whose data root point 4 gives the service's layout, that no mode takes (A2); an `identity` or `logs` whose owner Administrators cannot read, planted where an ordinary user could write, with no route (A3); point 5's link count of an entry point 3 may not open (A4) | `handoff-session-83.md#debts` | A SPEC-024 amendment, Manuel's (the verb is on his list), before C3. A5, the copy's owner on a host whose policy makes the creator its owner, is C8's runbook (no contract change). |
 
 ## Closed
 

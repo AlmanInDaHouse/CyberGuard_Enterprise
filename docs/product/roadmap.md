@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-82.md](../handoff-session-82.md)).
+([handoff-session-83.md](../handoff-session-83.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -501,8 +501,11 @@ This dependency-ordered document supersedes both for planning.
   S81 wrote commit 4 and SPEC-024 Amendment 2026-11-18 on two branches, after reading 4, and
   checkpointed when a second review found its repair primitives need a redesign
   (`docs/handoff-session-81.md`); S82 redesigned them as a verb of `cg-setup`, `cg-setup custody`,
-  on Manuel's choices, in SPEC-024 Amendment 2026-11-19 on the owner-review branch
-  (`docs/handoff-session-82.md`); the verb, then commit 4 on it, follow his OK.
+  on Manuel's choices, in SPEC-024 Amendment 2026-11-19, which he approved (`b2fbb1a`,
+  `docs/handoff-session-82.md`); S83 landed the verb's first two commits, the product's names
+  in one module and the handle primitives, and stopped before the third on four points of the
+  amendment's fresh reading (#169, `docs/handoff-session-83.md`); the verb, then commit 4 on
+  it, follow.
   The phase is four SPECs, in this order:
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
