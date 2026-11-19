@@ -3498,6 +3498,348 @@ runbook names the copies (C10); debt #162 keeps the release's checks beyond the 
 on Manuel's list: he chose them on 2026-11-17, and approved this text on 2026-11-17, in chat:
 "doy el ok a la enmeinda y a claude.md". Status stays **Accepted**.
 
+## Amendment 2026-11-18: a console installation whose compromise is suspected, the routes that enroll anew, and the old agent on the server
+
+**What surfaced it.** C10's migration runbook (debt #87). The Amendment 2026-11-05, item 7, ends:
+"When a compromise is suspected the remedy is a new enrollment and the removal of the old agent on
+the server, not the migration." Its item 6 gives the one route that keeps a console installation's
+files aside, removes `<P>` and installs anew, for a console installation the migration refuses for a
+cause item 2 gives no repair for; and its *Effect* has the installation runbook say not to remove a
+console installation's identity files "before migrating them, or before keeping them aside when the
+migration refuses them (item 6)". For a console installation whose compromise is suspected the two
+pull apart: item 7's remedy, without a migration, removes what the *Effect* keeps until a migration
+has run or refused it. A migration also needs the fingerprints of the anchor, obtained apart from
+the host (item 1), which a deployment built before SPEC-023 may not hold for its old CA. Item 2
+names no route for a refusal that a restart and a retry do not clear, a file held by a process or a
+file transaction among them, and item 2.2's repair of a file with another link removes names that
+may lie in directories another account controls, which can put a junction on such a name's path
+between the listing and the removal. And item 6's "the old agent removed on the server", item 7's
+"the removal of the old agent on the server" and the service's line for item 6 (`REPAIR_ANEW`,
+`agent/cg-agent/src/service/migration.rs`) name what no command of the server does (the Amendment
+2026-11-15, point 8; the threat model's R5). Manuel chose, on 2026-11-17, that a suspected
+compromise goes to item 6's route without a migration, by an amendment of this SPEC, and that a
+console installation whose anchor is another CA's, or whose identity has expired, is migrated
+first.
+
+**Amendment.**
+
+1. **A suspected compromise.** A console installation whose compromise an administrator suspects,
+   of the host or of the account that set up or enrolled the agent, takes item 6's route without a
+   migration: an administrator keeps its files aside, removes `<P>` and installs anew with a new
+   token. Any other console installation whose anchor's fingerprints were recorded (point 2) is
+   migrated first, one whose trust anchor is another CA's
+   than the server's, or whose identity has expired, included; it takes item 6's route once the
+   migration refuses it for a cause item 2 gives no repair for, or once an owner that item 2.2's
+   repair asks the administrator to confirm cannot be confirmed, which item 2.2 already sends to it.
+2. **No fingerprints to give.** A console installation whose anchor's fingerprints were not recorded
+   apart from the host cannot be asked to migrate (item 1), and takes item 6's route as well. The
+   fingerprints are never computed from the host's own `server-ca.pem`.
+3. **What a retry does not clear.** A console installation the migration refuses again, after a
+   restart and a retry from the session of an administrator other than the account that set up or
+   enrolled the agent, with code 1, or with code 5 for a file another process holds, a file
+   transaction holds, that is not the file that was checked, or that exceeds the Amendment
+   2026-11-07 (second), item 3's bound, takes item 6's route.
+4. **A file with another link.** Item 2.2's repair of a file with another link is `cg-setup
+   custody`'s (the Amendment 2026-11-19, point 6): once `<P>` and the data root are closed and
+   held, it reads every name of the file through the file's handle, each as its parent's file ID,
+   and only when each of them lies in one of those two directories does it give the file owner
+   Administrators where another account owns it, by the plan that printed that owner once the
+   administrator has checked that it is the account that set up or enrolled the agent, and a
+   protected DACL that allows SYSTEM and Administrators, then remove its names that are not the
+   product's; a file two product names share is not repaired; it changes no owner, DACL or attribute of a file one
+   of whose names lies elsewhere. A console installation one of whose files has a name elsewhere
+   takes item 6's route instead, which leaves that name where it is.
+5. **The old agent on the server.** Item 6's "the old agent removed on the server", item 7's "the
+   removal of the old agent on the server", and the service's line for item 6, which keeps its
+   words, read: the old agent stays on the server, which has no command that removes it, and its
+   certificate stays valid there until it expires or an operator deletes its row, which no runbook
+   gives (the Amendment 2026-11-15, point 8; the threat model's R5); the runbook says so.
+
+**Tests.** No product code changes. `deploy/docker/test/install.test.mjs` is to assert that the runbook
+quotes the service's repair lines as `migration.rs` writes them, item 6's included, that its section
+on enrolling anew names the routes of points 1 to 3 and that the old agent stays on its server, and
+that each of its blocks that repairs the agent's directories, keeps a console installation's files
+aside or removes the console
+executable is a `cg-setup custody` command of the Amendment 2026-11-19, none holding `cmd`,
+`takeown`, `icacls`, `attrib`, `rmdir`, `Remove-Item` or a placeholder for a name;
+`deploy/docker/test/upgrade.test.mjs` is to assert
+that `upgrade.md` sends an agent of a deployment built before SPEC-023 to the migration, to the
+re-enrollment after it, and, without its old CA's fingerprints, to item 6's route.
+
+**Effect.** Item 7's last sentence reads with point 1: its new enrollment is item 6's route, taken
+without a migration. Item 6's causes gain those of points 2 to 4. Item 2.2's repair of a file with
+another link reads with point 4. The Amendment 2026-11-05's *Effect*, "The installation runbook's
+code-13 repair says not to remove a console installation's identity files before migrating them, or
+before keeping them aside when the migration refuses them (item 6)", reads: before migrating them, or
+before keeping them aside when the migration refuses them, when no fingerprints were recorded for
+their anchor, or when their compromise is suspected (item 6 and this amendment). The threat model's
+R1, R17, §1 and accepted threats are to be amended once C10's migration runbook has landed (its
+Amendment 2026-11-18). This amendment changes no code, exit code, setting, dependency, privilege
+or ADR; item 2.2's repairs and item 6's route are the Amendment 2026-11-19's verb. Point 1
+bears on the security posture, and points 2 to 5 on what the operator of a deployment is told to
+do, all on Manuel's list: he chose point 1 on 2026-11-17, and approved this text, points 2 to 5
+included, on 2026-11-19, in chat: "ok a la url". Status stays **Accepted**.
+
+## Amendment 2026-11-19: the setup's custody verb
+
+**What surfaced it.** C10's repairs of the agent's directories (debts #87, #166 and #167). The
+runbook repaired the setup's 27, the service's 13, the migration's refusals (the Amendment
+2026-11-05, item 2.2) and what a purge leaves (the Amendment 2026-11-15, point 6), and took item 6's
+route and the Amendment 2026-11-18's, with Windows' commands an administrator ran in PowerShell.
+Their second review (`docs/handoff-session-81.md:141-176`) found that the administrator pasted names
+another account chose into commands that PowerShell and `cmd` parse, and that the commands changed a
+file's owner, DACL or attributes before its other names were known. Read unelevated in Session 82
+on Windows 11 build 26200 (`docs/handoff-session-82.md`): a DACL that Windows' commands or .NET
+write to a directory is written to each of its children whose DACL is not protected, a planted hard
+link's target included, even through a child no administrator can list and for a grant that does
+not inherit; Windows' commands and .NET ask for `SYNCHRONIZE`, which only the object's own DACL
+grants, to move an object and to delete a directory or a read-only file, so none of them does
+these to an object whose DACL admits no administrator without first writing its security, though
+they delete a regular file through the parent's grant; and a path an administrator acts on is resolved
+again at each command, so an account that can rename a directory on it can put a junction in its
+place between a listing and the act. An open through the native API that asks for `DELETE` and
+`FILE_READ_ATTRIBUTES` alone, relative to a handle held on the parent and without following a
+reparse point, is granted by the parent's `FILE_DELETE_CHILD` and `FILE_LIST_DIRECTORY` on a file,
+a read-only file, a hard link, a junction and a directory whose own DACL admits no one; a rename
+through that handle into another held directory, never over an existing name, moves the object with
+its descriptor, attributes and contents unchanged, a junction as a link; a deletion through it
+removes a file or a junction, and fails for a read-only file, which such a handle cannot clear; a
+file's names, each with its parent's file ID, are read through a handle that holds
+`FILE_READ_ATTRIBUTES` alone; a directory a handle holds without sharing deletion is neither renamed
+nor opened for deletion; and a directory beneath which a file is open is not renamed. Manuel decided
+on 2026-11-19 that these repairs live in a new verb of `cg-setup`, in Rust, not in the runbook nor
+in a helper that PowerShell compiles.
+
+**Amendment.** `<P>`, the data root, the staging directory and the legacy directory are the
+Amendment 2026-11-05's; the console executable is `%ProgramFiles%\CyberGuard\cg-agent.exe`;
+`%ProgramData%` and `%ProgramFiles%` are the folders Windows reports, which the verb takes on the
+system drive that the Windows directory the kernel reports names, refusing (48) known folders other
+than that drive's `ProgramData` and `Program Files`, so that no environment variable of the session
+moves them. A directory is *closed* when it
+is a directory, not a reparse point, owned by SYSTEM or Administrators, with a protected DACL that
+holds allow entries for SYSTEM and Administrators and no other entry. A directory is *held* while
+the verb has it open without following a reparse point, with `FILE_LIST_DIRECTORY`, so that its
+share mode binds, sharing no deletion.
+
+1. **The verb.** `cg-setup custody` reads and changes nothing (*show*); `cg-setup custody
+   --mode=<mode>`, `<mode>` one of `in-place`, `aside`, `legacy` and `executable`, reads what that
+   mode would act on, changes nothing, and prints its plan (*dry run*); the same with
+   `--plan=<plan>`, 32 lowercase hexadecimal digits, acts. Each option is given at most once, an
+   empty value counting as not given; any other command line is 40 (the Amendment 2026-11-10,
+   item 9, whose verbs gain `custody`). It checks the platform and the elevation as the other
+   verbs do (20, 21). The operator types a mode and the plan the verb printed: no name, path or SID
+   is an input. No step of the setup's chain runs it. The runbook runs every mode after a restart,
+   from the session of an administrator other than any account that owned, or could change, what it
+   acts on, as item 2.2's repair asks; the verb cannot check it.
+2. **What it trusts.** The inputs' directory is the directory that holds the running
+   `cg-setup.exe`. The verb opens it without following a reparse point and holds it while it runs,
+   and refuses (48) when it is not a directory, its final path is not the one opened, it is not
+   local or not on the NTFS volume of `<P>`, it is not closed, or the verb's own file has another
+   name or lies elsewhere, or SYSTEM or Administrators does not own it or its DACL lets another
+   account write it or change it. No environment variable decides a path it acts on. `in-place`, `aside` and `legacy` hold
+   the per-host instance lock (install_ac_009) for the whole run and refuse (48) when it is held;
+   `in-place` and `legacy` refuse (29) an installed agent newer than the verb, as preflight does
+   (the Amendment 2026-11-10, item 4). It enables no privilege and does not adjust its token (the
+   Amendment 2026-11-09, item 1), and refuses (48) a token in which the backup, restore,
+   take-ownership or security privilege is already enabled. It lists no directory but `<P>`, the
+   data root, `%ProgramFiles%\CyberGuard` and the inputs' directory, and opens only names a listing
+   gave, but for the objects point 3 opens by name, so it does not reach what the staging and the
+   legacy directory hold; the data root's `identity` and `logs`, which that token could open for deletion
+   through the data root's grant, it leaves by point 3's rule.
+   It writes no file;
+   what it moves goes into a new directory it creates in the inputs' directory, owned by
+   Administrators with the DACL `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`, where it stays. Once the
+   inputs' directory holds such a directory, the runbook is not to remove it, take it or write its
+   security or that of anything in it, which would reach what the verb moved there, and is to run
+   a later setup either from it or from a new directory. The runbook is to create the inputs'
+   directory new, with its security given at its creation, failing when the name exists, before it copies
+   anything into it.
+3. **How it opens and acts.** It opens `<P>` and `%ProgramFiles%\CyberGuard` from the system
+   drive's root, one name at a time, each relative to the directory above it, and refuses (48) a
+   directory above them that is a reparse point; `<P>` or `%ProgramFiles%\CyberGuard` that is
+   itself a reparse point it opens as the link, which `aside` alone moves, `<P>` as a link, and
+   every other mode refuses (48); it opens the inputs' directory by its
+   path, checking its final path (point 2); it opens the service's `Agent\cg-agent.exe` below
+   `%ProgramFiles%\CyberGuard`, through `Agent`, without following a reparse point, to read its
+   presence and version; and it opens every other object below them only by one name its parent's listing
+   gave, relative to its held handle on that parent, each without following a reparse point and
+   without backup intent. It lists a directory through its handle, each entry with its file ID,
+   name as stored, attributes and reparse tag, and acts on an entry only through a handle whose
+   file ID is the one listed. It writes an owner or a DACL only through a handle on the one object,
+   which no other object receives, and gives an owner only where SYSTEM or Administrators do not
+   own the object: Administrators. It changes a file's owner or DACL only when every name of the
+   file, read through its handle as its parent's file ID, lies in `<P>` or the data root while it
+   holds them closed, as that read gives them: a name an account with access to the file adds after
+   it, or one a file transaction has not committed, it does not see. It
+   removes an entry that is not the product's by moving it whole, unopened beyond its handle, into
+   its new directory under a number, never over another name, writing nothing of its owner, DACL or
+   attributes; it deletes only another name of a product file, a temporary that item 2.2 refuses,
+   and the console executable; nothing is recursive. Each open, write, rename and deletion is
+   cancelled after 30 seconds, as the Amendment 2026-11-05's are; an open that Windows would make
+   wait on another process's lock, and a hold that another process's open for deletion refuses, are
+   refused as in use: 48 before any act, 49 after one. It takes an entry of the data root named
+   `identity` or `logs`, in any case of their ASCII letters and whatever its kind, for the service's
+   unless Administrators can read its owner and it is an account other than SYSTEM and
+   Administrators; it never opens such an entry beyond reading its owner, moves it
+   except with `<P>` whole (point 7), or deletes it or anything it holds.
+4. **What it tells apart.** It compares each entry's name with the product's names for that
+   directory and layout, held in one module of `cg-agent` that the migration, the purge and the
+   reading of the host's layout also use. A name is the product's when its UTF-16 units equal those
+   of a product name or, in a directory whose case-sensitive lookup is off, differ from them only
+   in the case of ASCII letters. An entry is the agent's when its name is the product's and its
+   kind is the one the layout gives that name there; the staging and the legacy directory are the
+   agent's only when they count (the Amendment 2026-11-05, item 4); two entries with one product
+   name are *twice*; every other entry is foreign. A data root is of the service's layout when it
+   holds none of `cert.pem`, `key.dat` and `identity.json`, and a console installation's
+   otherwise. In any data root, `identity` and `logs` that point 3 does not take for the service's,
+   and an entry named `agent.toml.setup`, `server-ca.pem.setup`, `setup-attempt.json` or
+   `migration.json` whose owner Administrators can read and is an account other than SYSTEM and
+   Administrators, are foreign; and a legacy directory beside a console installation's
+   data root, which no migration leaves there, is foreign whatever the next sentence reads.
+   The
+   verb reads item 4's count where Administrators can read a staging or legacy directory's
+   security; where they cannot, it takes the directory for the agent's when SYSTEM owns `<P>` with
+   a protected DACL that allows SYSTEM and Administrators alone, as item 2.1 leaves it, and for a
+   foreign one otherwise.
+5. **The plan.** A dry run's plan is the first 128 bits of the SHA-256 of a fixed prefix, which
+   names the verb's version and the mode, and the lines it printed before it: for each directory it holds, its file ID, kind, owner, DACL as
+   stored and case-sensitive lookup; for each entry it lists, its verdict, kind, link count,
+   attributes, file ID and name; for each file of the agent's, its owner, DACL and every name; and
+   each act. Run with `--plan=`, the verb takes its holds, reads with the same code and, when the
+   plan differs, refuses (48), changing nothing and printing no plan. A mode that must first close
+   a directory plans that close alone, binding each directory's file ID, owner and DACL and not what
+   it holds; its next dry run plans the rest.
+6. **`in-place`.** For the setup's 27 on an installed host or a console installation, the
+   service's 13, item 2.2's repairs and what the purge left in `<P>` and the data root while the data
+   root is there, a name it left in `<P>` once it removed the data root being `aside`'s once the
+   setup is uninstalled; the product
+   service absent or stopped, and, when it is absent, a console installation. It refuses (48) when
+   `<P>` or the data root is not a directory Administrators can list, and a console installation's
+   data root that holds an `identity` or `logs` point 3 takes for the service's, which `aside` moves
+   with `<P>`. It closes `<P>`, then the data root, each
+   not closed: an owner other than SYSTEM and Administrators is replaced only by the plan that
+   printed it, after the administrator checked that it is the account that set up or enrolled the
+   agent. Then, with both closed and held, it refuses (48) an entry twice; repairs each file of the
+   agent's with another link as the Amendment 2026-11-18, point 4, says; gives each file of the
+   agent's that another account owns, with one name, owner Administrators, its DACL unchanged, only
+   by the plan that printed that owner, after the administrator checked it as for a directory;
+   deletes `agent.toml.hygiene-tmp` that item 2.2 refuses, or moves it when the deletion fails; moves each foreign entry of `<P>` and the
+   data root, a staging or legacy directory it does not take for the agent's included, but not
+   another name of a file of the agent's; and turns case-sensitive lookup off. It deletes no name of the agent's
+   files but their other names and the temporary item 2.2 refuses. What an administrator's token cannot change it prints as not
+   repaired, with item 6's route for a console installation.
+7. **`aside`.** Item 6's route, and the removal of a `<P>` that holds nothing of the agent's or is a
+   link or a file; the product service absent. It refuses (48) a data root of the service's layout,
+   whose owner Administrators can read and is SYSTEM or Administrators, that holds an `identity` or
+   `logs` point 3 takes for the service's, an `agent.toml.setup`, `server-ca.pem.setup`,
+   `setup-attempt.json` or `migration.json` that point 4 does not make foreign, or an `agent.toml` or
+   `server-ca.pem` that SYSTEM owns; and a legacy directory it takes for the agent's, which are the purge's (the Amendment 2026-11-15, points 5 and
+   9). Where the data root is a console installation's, SYSTEM or Administrators owns `<P>` and the
+   data root, and Administrators can list and close them, it closes `<P>` and the data root,
+   writing no owner; gives each
+   console installation's file that SYSTEM or Administrators owns, every name of which lies in
+   `<P>` or the data root, held closed, a protected DACL that allows SYSTEM and Administrators; and prints each
+   such file's size and SHA-256, read through one handle, for a file within the Amendment 2026-11-07
+   (second), item 3's bound. It then moves `<P>`, whole and unopened beyond
+   its handle, as `CyberGuard` into its new directory, a staging directory with it, unopened, its
+   `identity\` unchanged. Any other `<P>` it moves whole without closing or reading what it holds.
+   A file it cannot so restrict or read, and every file of a `<P>` or a data root it cannot close,
+   are kept unread with their own owners and DACLs; a name of a file outside `<P>` stays where it
+   is and is printed.
+8. **`legacy`.** For a purge the setup ends with 47, the service's line naming the legacy directory
+   or a name in it; the product
+   service stopped, `<P>` closed and the data root holding `identity` and neither `agent.toml` nor
+   `agent.toml.setup`. It moves the legacy directory whole into its new directory; the purge run
+   again goes on without it.
+9. **`executable`.** After a migration's 0 or 44, the purge that follows a committed migration, or
+   item 6's new installation. With `%ProgramFiles%\CyberGuard` a directory that SYSTEM,
+   Administrators or TrustedInstaller owns and whose DACL lets no other account write in it or
+   change it, it deletes
+   `cg-agent.exe` there, a regular file of one link; one that runs is refused (48). It says
+   whether the console executable and the service's `Agent\cg-agent.exe` are present.
+10. **Output and codes.** Lines go to standard output in ASCII and English, each beginning with its
+    verdict or keyword. Every name, path and DACL the verb prints, on either stream, is printed with
+    every UTF-16 unit outside `!` to `~`, and `[`, `]` and `\`, written `\u` and four hexadecimal
+    digits, a name and a DACL between brackets, so that no character another account chose moves the cursor
+    or rewrites a line; an owner is printed as its full SID, an error as its Win32 or NTSTATUS
+    number without Windows' message text; the last line, after a dry run's plan, names the backup,
+    restore, take-ownership and security privileges as disabled or absent, read from its token. Codes: 0, a
+    reading printed or every act of the plan made; 20, 21, 29 and 40 as the other verbs'; 48,
+    refused, nothing changed; 49, something changed and the verb stopped, its lines naming what it
+    made. A refusal is one line on standard error that names a path and a condition, never a SID.
+11. **The release's asset.** `cg-setup.exe` at the release's version is an asset of its own,
+    `cg-setup-X.Y.Z-x86_64-pc-windows-msvc.exe`, in `SHA256SUMS` and attested with the agent job's
+    assets; before it attests, the job checks its `ProductVersion`, that it has no pre-release flag,
+    that its imports name only DLLs every supported Windows ships, and that it is byte-identical to
+    the `cg-setup.exe` it built, and so to each one the setup carries. The runbook verifies it as it
+    verifies the setup, copies it into the inputs' directory, where it takes that directory's
+    security, and runs it from there.
+12. **The readings this gives.** Item 2.2's "removes it" is `in-place`'s move; its repairs of a file
+    with another link, of an owner and of the temporary are `in-place`'s, its "owner SYSTEM" reading
+    owner Administrators where another account owns the object, which item 2.4 or item 2.1 then
+    makes SYSTEM. Item 6's "keeps the files aside, removes `<P>`" is `aside`. The service's repair
+    lines keep their words (`agent/cg-agent/src/service/migration.rs:79-87`). The Amendment
+    2026-11-15, point 6's "until the runbook's repair (C10) removes it" is `in-place` for `<P>` and
+    the data root and `legacy` for the legacy directory, and a name left in `identity\` or `logs\`
+    keeps its refusal; the `<P>` an ordinary user created first, which its point 8 leaves to the
+    service's 13, is `aside`, once the setup is uninstalled.
+
+**Tests.** install_ac_017, the custody verb, against points 1 to 12. In the local gate and
+`rust-ci`, enabling no privilege, over temporary roots, with the current user's SID in the places
+of the accounts each fixture names, as the migration's tests put it in SYSTEM's: the command line and its 40s; the names, which the migration, the purge,
+the layout and the verb take from one module; the escaping; the plan; the primitives on objects
+whose own DACL admits the current user nothing, each kept resettable by its owner: a move of each
+kind of entry and a deletion of a link with descriptors, targets and contents unchanged, a close that
+leaves an unprotected child and a hard-linked canary unchanged, names read through a handle, a held
+directory that refuses an open for deletion, and names that end with a dot or a space or hold a
+quote, `&`, `%`, a right-to-left mark, a soft hyphen or an unpaired surrogate acted on exactly, and
+printed escaped, as a DACL whose conditional entry holds a control character is; each
+mode's acts and refusals, nothing changed on a refusal, a stale plan refused, a failure injected
+after each act; and a static reading of the verb's source. In `package-ci`'s `host` job, under
+`cg-setup`'s `host-tests` feature, as the runner's Administrator, with a standard local account the
+test creates and removes on every exit path, against the runner's `%ProgramData%` and
+`%ProgramFiles%`: that account's planted `<P>`, preflight's 27, `aside`, then preflight past 27; a
+console installation's fixture with that account's entries, `in-place` and then the migration's
+checks; `aside` with the hashes of the fixture; a plan refused after that account changed what it
+controls; another process holding `<P>` for deletion; the verb run from a directory that account can
+change; `legacy` on a purge's leftover; `executable` running and stopped; the token's privileges.
+This test runs in `package-ci` because it runs the real `cg-setup` against the host (the Amendment
+2026-11-09), and creates an account as the MSI's install test does (the Amendment 2026-11-12,
+*Tests*); CLAUDE.md's *Local pre-commit gate* names it beside that test when it lands, which
+Manuel's approval of this amendment covers. In
+its `bundle` job: a first installation refused with 27, the release build's `cg-setup.exe` run from
+the inputs' directory with `aside`, then the setup's 0. Each `package-ci` test is seen red first on
+a probe pull request, as the Amendment 2026-11-09 provides. The release's dry run checks point 11.
+
+**Effect.** The Amendment 2026-11-10, item 9's verbs gain `custody`; the Amendment 2026-11-09,
+item 7's codes gain 48 and 49, `cg-setup`'s alone, which the setup never exits with; item 1's "it
+enables no privilege and does not adjust its token" stands. The Amendment 2026-11-05, items 2.2 and
+6, the Amendment 2026-11-15, points 6 and 8, and the Amendment 2026-11-18, point 4, read as point 12
+says. The Amendment 2026-11-14, point 1's four attested assets of the agent job are five, its point
+2's checks gain point 11's, and its point 5's six payload assets, and its point 6's test's, are
+seven, `cg-setup.exe` being an asset of its own; the Amendment 2026-11-17, point 2's "the agent
+job's four assets" reads five; SPEC-023 §Operational §12 reads with it, by scope. The service's name comparison
+moves into the shared module, its behaviour unchanged. The Amendment 2026-11-10's *Effect*, "item
+9's command line is Burn's, not the operator's", holds for the chain's verbs; `custody` is the
+operator's, and §Data contracts §3's operator inputs gain it. §Acceptance criteria reads with
+install_ac_017: `cg-setup custody` repairs as points 1 to 12 say, its tests above passing in
+`rust-ci` and `package-ci`. No ADR changes, and no privilege,
+environment variable, setting or crate is added: `cg-setup` takes `sha2` at `cg-agent`'s
+requirement, already in its executable, and features of the workspace's Windows binding. What the
+verb moves stays in the inputs' directory, the old key's copies among them, until an
+administrator's later route removes it, which this amendment does not give; it prints the SIDs it
+reads for the administrator's comparison and writes them nowhere. The threat model is amended with
+it, once the runbook gives the verb (its Amendment 2026-11-18). The verb, its codes, the release's
+asset, the moves that keep what they move and the readings of items 2.2 and 6 are on Manuel's
+list. He chose on 2026-11-19, each in the recommended option, in chat: the repairs in a verb of
+`cg-setup`; its delivery as the release's asset of its own; no privilege; the restriction, hashes
+and move of item 6's files, the legacy directory's move after a purge, the staging directory moved
+with `<P>`, what the verb moves kept in the inputs' directory with no removal given, and the
+"owner SYSTEM" of item 2.2's repairs read as Administrators; and the verb's name, modes, plan,
+codes and the shape of this amendment. He approved this text on 2026-11-19, in chat: "ok a la url",
+which covers the custody host test's venue and CLAUDE.md's naming of it. Status stays
+**Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
