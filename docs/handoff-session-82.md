@@ -95,7 +95,14 @@ The readings SPEC-024's Amendment 2026-11-19 cites, each by a subagent under its
   Amendment 2026-11-19; no reserved `<P>` after `aside`; an optional read-only `show` on his host
   before the runbook lands.
 
-These are choices, not the approval of the texts, which waits for the compare URL.
+These are choices, not the approval of the texts. On the compare URL, 2026-11-19, in chat: "ok a la
+url, gate elevado corrido, ok a lo demas que necesites", read as: the texts of both commits
+approved (SPEC-024 Amendments 2026-11-18, points 2 to 5 included, and 2026-11-19, with the custody
+host test's venue and CLAUDE.md's naming of it; the threat model's Amendment 2026-11-18, its
+accepted residuals included); `C:\tmp\s82-cleanup.ps1` run elevated; and the rest of what this
+handoff lists for him. The SPEC commit landed as `b2fbb1a`, the marker stripped and the approval
+recorded in both amendments' *Effect* and in the catalog; the threat model's commit, its *Status*
+recording the approval, stays on the branch as `1f06f31` until the verb and the runbook land.
 
 ### Anticipated (Claude Code)
 
@@ -233,13 +240,8 @@ Unchanged on `main` from Session 81: no code, test or runbook changed there.
 
 ## Waiting on Manuel
 
-- His OK on the owner-review branch, SPEC-024 Amendments 2026-11-18 and 2026-11-19 and the threat
-  model's Amendment 2026-11-18, by the compare URL in this session's last message. It covers the
-  custody host test's account in `package-ci` and its later naming in CLAUDE.md.
-- `C:\tmp\s82-cleanup.ps1`, elevated, which removes two probe trees Session 82's experiments left
-  under `C:\tmp` (`s82-e-x1`, `s82-v-min`) whose directories admit no administrator:
-  `powershell -NoProfile -ExecutionPolicy Bypass -File C:\tmp\s82-cleanup.ps1`, log
-  `C:\tmp\s82-cleanup.log`.
+- Nothing of this session's: he approved the texts and ran `C:\tmp\s82-cleanup.ps1` on 2026-11-19
+  (its log `C:\tmp\s82-cleanup.log`: `elevated: yes`, both trees `left: False`).
 - Reading 5 is withdrawn: the verb replaces the blocks it read. No reading 6.
 - The release freeze stays; Authenticode stays ADR-0022's Open question 1; M3 waits.
 
@@ -248,9 +250,10 @@ Unchanged on `main` from Session 81: no code, test or runbook changed there.
 1. Run the start protocol. `main` is this close's commit; `docs/spec-024-amendment-2026-11-18` and
    `docs/c10-migration` (`1cf1b12`) are pushed with no PR; 58 open debts; 22 ADRs / 23 SPECs.
    Read `C:\tmp\s82-cleanup.log` if Manuel ran it.
-2. If Manuel has given his OK on the branch, land its SPEC commit on `main` with the marker stripped
-   (CLAUDE.md *Integration path* §3, §4), keep the threat model's commit on the branch; if he asked
-   for changes, make them, review again, and send the URL again.
+2. SPEC-024's Amendments 2026-11-18 and 2026-11-19 are on `main` (`b2fbb1a`); the threat model's
+   approved commit `1f06f31` stays on `docs/spec-024-amendment-2026-11-18` and lands, rebased, after
+   C8. Round 11's fixes were read by no reviewer before Manuel's approval: C1's self-review reads
+   points 2 to 7 of the 2026-11-19 amendment against the code it writes.
 3. Then implement the verb as `C:\tmp\s82-verb-design.md` §9 orders it, each commit through a PR,
    true at its SHA, one per push: C1 the names module in `cg-agent`; C2 the handle primitives in
    `agent/cg-setup/src/custody/nt.rs`; C3 the reading (show and dry runs, every act 48); probe A,
