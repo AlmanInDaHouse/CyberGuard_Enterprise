@@ -56,7 +56,11 @@ records them as debt #169. No tag was pushed: the release freeze stays.
 
 ### Manuel's
 
-None this session.
+- #169, 2026-11-19, in chat, to the question whether Session 84 drafts a SPEC-024 amendment for A1
+  to A4 on an owner-review branch, reviewed with the fixed prompt and a security lens, and gives
+  him the compare URL: "digo que si". Read as: the amendment is drafted in Session 84 as that
+  question states it; its text, and how each of A1 to A4 is settled, wait for his OK on the
+  compare URL. It is not an approval of any text.
 
 ### Anticipated (Claude Code)
 
@@ -243,14 +247,16 @@ inheritable entries, nor a missing owner (the caller's SDDL is fixed by point 2)
 
 ## Waiting on Manuel
 
-- #169: how points A1 to A4 are settled (the question in chat), which C3 needs.
+- #169: his OK on the compare URL of the amendment Session 84 drafts (he chose that route on
+  2026-11-19), which C3 needs.
 
 ## How Session 84 resumes
 
 1. Run the start protocol. `main` is this close's commit; the two docs branches unchanged; 59 open
    debts; 22 ADRs / 23 SPECs.
-2. With Manuel's answer on #169, draft SPEC-024's amendment for A1 to A4 on an owner-review branch
-   (`NOT YET RATIFIED`), the fixed prompt and a security lens on it, then the compare URL.
+2. Draft SPEC-024's amendment for A1 to A4 on an owner-review branch (`NOT YET RATIFIED`), as
+   Manuel chose on 2026-11-19 (#169), the fixed prompt and a security lens on it, then the compare
+   URL.
 3. After his OK, C3 as `C:\tmp\s82-verb-design.md` §9 orders it, with this handoff's C2 caller
    duties and review list B: `names.rs` gains the per-directory and per-layout table with each
    name's kind; the inputs' check (final path, volume identity, `GetModuleFileNameW`), the lock, the
