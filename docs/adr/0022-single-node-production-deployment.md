@@ -202,7 +202,7 @@ Each change the api makes to an ingest table commits in the same transaction as 
 - Close or reassign incidents and alerts to hide them. The owner's history of item 3 keeps each change, whether or not the api writes its `audit_log` row.
 - Read the activity and source addresses of every operator in `audit_log`.
 
-**Effect on other sections.** §Context 9: the dashboard SPEC adds those pages. *Consequences*: R3 stays closed; R7's "the api's credentials write no event and no alert" reads "write no event, and of an alert its status alone", as the threat model's amendment with SPEC-026 records. §Compliance and §5 to §10: unchanged. *Out of scope*: the dashboard SPEC is SPEC-026, and takes the triage of alerts and incidents and the audit view besides the pages its list names; the agents' renewal with the rest of debt #89 is SPEC-025. Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day; awaiting his ratification. Status stays `Accepted`.
+**Effect on other sections.** §Context 9: the dashboard SPEC adds those pages. *Consequences*: R3 stays closed. The threat model's R7 says that "the api's credentials write no event and no alert" (`docs/security/threat-model.md:322`); the threat model's amendment that comes with SPEC-026 makes it read "write no event, and of an alert its status alone". §Compliance and §5 to §10: unchanged. *Out of scope*: the dashboard SPEC is SPEC-026, and takes the triage of alerts and incidents and the audit view besides the pages its list names; the agents' renewal with the rest of debt #89 is SPEC-025. Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day; awaiting his ratification. Status stays `Accepted`.
 
 ## References
 
