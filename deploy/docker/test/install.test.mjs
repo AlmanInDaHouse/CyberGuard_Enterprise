@@ -190,11 +190,54 @@ test("SPEC-024: the agent's exit codes list every code of the service, the purge
     assert.ok(purge.includes(line), `purge.rs writes ${line}`);
     assert.ok(exits.includes(`\`${line}`), `the runbook gives ${line}`);
   }
-  // The purge start's argument refusal (migration.rs) and its entry 1001 (mod.rs).
-  for (const [file, line] of [["migration.rs", "cg-agent: invalid purge arguments:"], ["mod.rs", "cg-agent: the purge removed the product's data and left nothing"]]) {
+  // The purge start's argument refusal (migration.rs) and its entry 1001 (mod.rs); the start's
+  // refusals of the migration's argument (2) and of a staging or legacy directory that counts (5),
+  // SPEC-024 Amendment 2026-11-20, point 2.
+  for (const [file, line] of [
+    ["migration.rs", "cg-agent: invalid purge arguments:"],
+    ["mod.rs", "cg-agent: the purge removed the product's data and left nothing"],
+    ["migration.rs", "cg-agent: invalid migration arguments: --migrate-legacy is given, and the migration of a console installation is not supported"],
+    ["migration.rs", "no release of the setup writes a console installation's migration directory, and the product neither adopts nor migrates one; nothing was changed"],
+  ]) {
     assert.ok(readFileSync(join(REPO, "agent/cg-agent/src/service", file), "utf8").includes(line), `${file} writes ${line}`);
     assert.ok(exits.includes(`\`${line}`), `the runbook gives ${line}`);
   }
+});
+
+test("SPEC-024 Amendment 2026-11-20: install.md offers no migration and no removal by hand, and gives R18's lines", () => {
+  const text = readFileSync(FILE, "utf8").replaceAll("\r", "");
+  // Point 5: the migration has no route; no line offers it, awaits it or takes a migrated host as a condition.
+  assert.doesNotMatch(text, /unless its migration|SPEC-024's migration|migration of SPEC-024|Amendment 2026-11-05|migrates a console installation|migrated from a console installation|migrated endpoint|other than a migration|a migration (left|kept)|interrupted migration|does not give yet|not in this document yet|R5 and R1|R1 of the \[threat model\]/);
+  // Point 6: one paragraph, which every refusal's row cites, gives no repair and warns against a removal by hand.
+  const warning = section(text, "#### No repair, and no removal by hand");
+  for (const phrase of ["junction", "by hand", "(code 5)", "neither adopts nor migrates", "formatted, not migrated", "`CG_MIGRATE_LEGACY`", "`CG_TRUST_ANCHORS`"]) {
+    assert.ok(warning.includes(phrase), `the warning says ${phrase}`);
+  }
+  const cite = "(#no-repair-and-no-removal-by-hand)";
+  const row = (heading, code) => section(text, heading).split("\n").find((line) => line.startsWith(`| ${code} |`));
+  for (const [heading, codes] of [["#### The setup's result", ["27", "28", "42"]], ["### The uninstallation's result", ["27", "28", "46", "47"]], ["### The agent's exit codes", ["13", "14"]]]) {
+    for (const code of codes) assert.ok(row(heading, code).includes(cite), `${heading} ${code} cites the warning`);
+  }
+  // Point 3: 28 is what the product does not support, and nothing changed.
+  for (const heading of ["#### The setup's result", "### The uninstallation's result"]) {
+    assert.match(row(heading, "28"), /neither adopts nor migrates/, heading);
+    assert.doesNotMatch(row(heading, "28"), /set `?CG_MIGRATE|run [^|]*with `?CG_MIGRATE/, heading);
+  }
+  assert.ok(row("#### The setup's result", "28").includes("a migration asked for, a non-empty `CG_MIGRATE_LEGACY` or `CG_TRUST_ANCHORS`"));
+  // Point 2: the service's 2 and 5 gain their causes.
+  assert.ok(row("### The agent's exit codes", "2").includes("`--migrate-legacy=`"));
+  assert.ok(row("### The agent's exit codes", "5").includes("`agent.migrating`"));
+  // Point 1, and the threat model's R18: imaged before the setup, a copy purged and installed anew, the volume encrypted.
+  const endpoint = section(text, "### The Windows endpoint");
+  for (const sentence of [
+    "An endpoint imaged before the setup runs on it, never after:",
+    "A copy of an enrolled endpoint, an image or a clone, is purged and installed anew with a new token",
+    "its old certificate staying valid on the server until it expires or its row is deleted (R5).",
+    "The system volume encrypted, for instance with BitLocker: that is the deployment's control against an offline read",
+  ]) {
+    assert.ok(endpoint.includes(sentence), sentence);
+  }
+  assert.ok(text.includes("is a console installation, which the setup refuses (28) and the product neither adopts nor migrates: its development host is formatted, then the product is installed on it with the setup and a new token"));
 });
 
 test("SPEC-024: the runbook names the purge's closed list of names, as the service removes them", () => {

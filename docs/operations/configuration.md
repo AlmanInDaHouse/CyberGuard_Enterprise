@@ -529,7 +529,7 @@ Ingest answers `GET /health` on `CG_ENROLL_PORT`, over TLS with its server certi
 
 ## The agent's tuning
 
-The agent reads its configuration from `agent.toml`, in `C:\ProgramData\CyberGuard\agent`, at each start of its service. The agent's setup writes it ([install.md](install.md)) with none of these keys, so each has the default shown; the migration of an agent installed by hand keeps those its earlier `agent.toml` set (SPEC-024 Amendment 2026-11-05). These keys tune it. Each is optional.
+The agent reads its configuration from `agent.toml`, in `C:\ProgramData\CyberGuard\agent`, at each start of its service. The agent's setup writes it ([install.md](install.md)) with none of these keys, so each has the default shown. These keys tune it. Each is optional.
 
 | Key | Default | Meaning |
 |---|---|---|

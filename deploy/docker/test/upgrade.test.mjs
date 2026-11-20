@@ -129,7 +129,7 @@ test("SPEC-024: the upgrade's result lists every code an upgrade ends with, as i
   // What has not been read stays marked (the Amendment 2026-11-12 (second), points 3 and 4).
   // The marks are read in the column of the endpoint's state.
   const after = (code) => table.split("\n").find((line) => line.startsWith(`| ${code} |`)).split(" | ")[1];
-  for (const code of ["29", "20 to 28, 31", "40 to 43", "45", "1602"]) {
+  for (const code of ["29", "20 to 27, 31", "28", "40 to 43", "45", "1602"]) {
     assert.match(after(code), /not been read|not read/, code);
   }
   for (const code of ["0", "1638", "30", "1603", "44"]) {
@@ -139,10 +139,14 @@ test("SPEC-024: the upgrade's result lists every code an upgrade ends with, as i
 
 test("SPEC-024: upgrade.md teaches no console route; install.md names the re-enrollment of an enrolled endpoint (M6)", () => {
   // The service's identity is SYSTEM's alone, in identity\ (the Amendment 2026-11-04); files
-  // directly in the data root are a console installation the setup refuses (28).
+  // directly in the data root are a console installation the setup refuses (28), a development
+  // layout the product neither adopts nor migrates (the Amendment 2026-11-20, point 1).
   assert.doesNotMatch(document, /cert\.pem|key\.dat|identity\.json|enrollment\.(cert|key)_path|run by hand until|^```toml/m);
   assert.doesNotMatch(document, /(Remove-Item|Copy-Item)[^\n]*ProgramData/i);
-  assert.match(section(document, "### Agents"), /Enrolling such an agent again with the new installation is not in these runbooks yet\./);
+  const agents = section(document, "### Agents");
+  assert.match(agents, /the product neither adopts nor migrates it: it is a development layout, and its host is formatted, not migrated, before the agent is installed on it with the setup and a new token/);
+  assert.ok(agents.includes("(install.md#no-repair-and-no-removal-by-hand)"), "no removal by hand");
+  assert.doesNotMatch(agents, /migration|not in these runbooks yet|until that procedure/);
   // SPEC-023 §Operational §6, as its upgrade document must say it.
   assert.ok(document.includes("`server.url must use https when [enrollment] is set`"));
   // M6 (Manuel, 2026-11-17): an enrolled endpoint enrolls again by the purge and a new token, the
@@ -150,9 +154,23 @@ test("SPEC-024: upgrade.md teaches no console route; install.md names the re-enr
   assert.ok(install.includes("To enroll an enrolled endpoint again, as when its certificate has expired (code 7) or its server is a new installation with another CA, purge it ([Remove the agent from an endpoint](#remove-the-agent-from-an-endpoint)) and run the setup again with a new token, and the server's current anchor and fingerprints, in a new bootstrap file or the wizard: the endpoint then enrolls a new agent."));
   assert.ok(install.includes("The purge revokes nothing: the old agent stays on the server that enrolled it, which has no command that removes it yet, and its certificate stays valid there until it expires or an operator deletes its row"));
   assert.ok(install.includes("The purge followed by an enrollment with a new token has not been run, in CI or on an endpoint."));
-  assert.ok(install.includes("for a copy of its key that a backup or a shadow copy kept (R5 and R1 of the [threat model](../security/threat-model.md));"));
+  assert.ok(install.includes("for a copy of its key that a backup or a shadow copy kept (R5, and the copies of the key outside the product's custody that the [threat model](../security/threat-model.md) accepts);"));
   assert.ok(install.includes("Between the purge and the new setup an ordinary user can create `C:\\ProgramData\\CyberGuard` first, and the setup then refuses it (27 or 28)."));
   assert.doesNotMatch(install, /Re-enrolling an enrolled endpoint is not in this document/);
+});
+
+test("SPEC-024 Amendment 2026-11-20: upgrade.md, configuration.md and data-protection.md offer no migration of a console installation", () => {
+  const protection = readFileSync(join(REPO, "docs/operations/data-protection.md"), "utf8").replaceAll("\r", "");
+  // The server's migration one-shots (ingest-migrate, api-migrate) are not the agent's migration.
+  for (const [name, text] of [["upgrade.md", document.replaceAll("\r", "")], ["configuration.md", configuration], ["data-protection.md", protection]]) {
+    assert.doesNotMatch(text, /SPEC-024's migration|Amendment 2026-11-05|migration of an agent installed by hand|console installation's migration|migrated from a console installation|migration's record|procedure the runbooks do not give|until that procedure/, name);
+  }
+  assert.doesNotMatch(section(document, "## A deployment built before SPEC-023"), /do not give yet|not in these runbooks yet/);
+  // Point 3: the upgrade's 28 is what the product does not support, with no removal by hand.
+  const row28 = section(document, "### The upgrade's result").split("\n").find((line) => line.startsWith("| 28 |"));
+  assert.ok(row28, "the upgrade's 28 has a row of its own");
+  assert.match(row28, /neither adopts nor migrates/);
+  assert.ok(row28.includes("(install.md#no-repair-and-no-removal-by-hand)"), row28);
 });
 
 test("#165: the agent's keys change by a rewrite of agent.toml in place, never by its replacement", () => {
