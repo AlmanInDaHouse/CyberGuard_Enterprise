@@ -176,6 +176,26 @@ test("SPEC-024: the setup's result lists every code cg-setup exits with, and Bur
   assert.ok(row46.includes(`(${before})`), row46);
 });
 
+test("#167: a retry that runs a registered setup again without -repair is marked unread, the uninstallation checks the inputs' directory, and a C:\\CyberGuardSetup that existed before is not removed", () => {
+  const text = readFileSync(FILE, "utf8").replaceAll("\r", "");
+  const result = section(text, "#### The setup's result").split("\n");
+  const row = (code) => result.find((line) => line.startsWith(`| ${code} |`));
+  for (const code of ["40", "45"]) {
+    assert.ok(row(code).includes("When the MSI ran, this version's setup is registered, and its run again with a bootstrap file and without `-repair` has not been read"), code);
+  }
+  assert.ok(row("41").includes("then as for 40"), "41 retries as 40");
+  assert.ok(row("42").includes("This version's setup is then registered, and its run again with a bootstrap file has not been read."), "42");
+  assert.ok(row("1602").includes("when this version's setup is installed, that run with a bootstrap file and without `-repair` has not been read"), "1602");
+  const removal = section(text, "### The setup to uninstall with");
+  const check = removal.indexOf("first check the inputs' directory as [the upgrade's first block](upgrade.md#the-newer-setup) does");
+  assert.ok(check >= 0 && check < removal.indexOf("<!-- deploy_ac_021: endpoint-removal-setup -->"), "the directory is checked before the setup");
+  assert.ok(removal.includes("when it prints anything but `Directory O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`, use a new directory instead"), "its expected line and its route");
+  assert.ok(removal.includes("or the directory failed its check, create a new directory"), "the route of a directory that failed");
+  // A directory that existed before may hold a junction a recursive removal follows.
+  assert.doesNotMatch(text, /Remove it, or set `\$dir` to another new path/);
+  assert.ok(text.includes("Do not remove it: a recursive removal can follow a junction planted in it into the junction's target. Set `$dir` to another new path"), "no removal of a directory that existed before");
+});
+
 test("SPEC-024: the agent's exit codes list every code of the service, the purge start's 14 and 15 included", () => {
   const text = readFileSync(FILE, "utf8");
   const exits = section(text, "### The agent's exit codes");
