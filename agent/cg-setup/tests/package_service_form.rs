@@ -167,6 +167,8 @@ fn package_service_the_start_arguments() {
 #[test]
 fn package_service_the_migration_arguments() {
     use cg_agent::service::migration::{parse_start, Choice, Request, Start};
+    // SPEC-024 Amendment 2026-11-20, point 2: the setup no longer passes
+    // them, and the service refuses them with code 2.
     use cg_setup::service::migration_arguments;
     for choice in [Choice::Remove, Choice::Keep] {
         let request = Request {
@@ -181,11 +183,9 @@ fn package_service_the_migration_arguments() {
                 Choice::Keep => "--migrate-legacy=keep",
             }
         );
-        assert_eq!(
-            parse_start(&arguments),
-            Ok(Start::Migrate(request)),
-            "the service reads them as the migration they ask for"
-        );
+        let line = parse_start(&arguments).expect_err("the service refuses them");
+        assert!(line.contains("--migrate-legacy"), "{line}");
+        assert!(line.contains("not supported"), "{line}");
     }
     let fingerprints: BTreeSet<String> = [fingerprint('e')].into();
     assert_eq!(

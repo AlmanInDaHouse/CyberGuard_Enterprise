@@ -17,8 +17,9 @@ use windows_sys::Win32::Storage::FileSystem::{DELETE, FILE_READ_ATTRIBUTES};
 
 use super::layout::Names;
 use super::migration::{
-    check_anchor, close, counts, identity_line, in_place, invalid_arguments, naming,
-    other_combination, refused, Environment, Injected, Point, Stop, READ_LIMIT, SHARE_ALL,
+    check_anchor, close, counts, identity_line, in_place, invalid_arguments,
+    migration_directory_refused, naming, refused, Environment, Injected, Point, Stop, READ_LIMIT,
+    SHARE_ALL,
 };
 use super::names::{ANCHOR, CONFIG, STAGED_ANCHOR, STAGED_CONFIG};
 use super::{check_staged_config, config_error_line, stderr_service_log, EXIT_SERVICE_LOG};
@@ -37,6 +38,11 @@ fn anchor_line(reason: &str) -> String {
     TlsError::ClientConfig(format!("adoption: {reason}")).stderr_line()
 }
 
+/// What a refusal to close `<P>` or the data root ends with: the
+/// migration's repair is not the adoption's, and the installation runbook
+/// gives none (SPEC-024 Amendment 2026-11-20, points 3 and 6).
+const ADOPTION_REPAIR: &str = "see the installation runbook, install.md";
+
 /// Code 13 for `<P>` and the data root, the file log's reason.
 fn directories_line(reason: &str) -> Stop {
     refused(EXIT_SERVICE_LOG, stderr_service_log(reason))
@@ -49,7 +55,7 @@ fn read_names(environment: &Environment<'_>) -> Result<Names, Stop> {
         .map_err(|reason| directories_line(&reason))?;
     let wrong_host = || {
         let line = invalid_arguments(
-            "--adopt-staged-config is not accepted on a console layout or a migration in progress",
+            "--adopt-staged-config is not accepted beside a console installation or its migration directory, which the product neither adopts nor migrates; see the installation runbook, install.md",
         );
         // The Amendment 2026-11-07 (second), item 5: beside a console layout
         // with a staging directory that counts, the refusal says what is
@@ -245,9 +251,13 @@ pub fn adopt(
     }
     // The Amendment 2026-11-05, item 4: a data root beside a legacy directory
     // that counts, with no identity, is no state a migration leaves, and
-    // nothing is changed.
+    // nothing is changed; its line is the Amendment 2026-11-20, point 3's.
     if counts(environment, &paths.legacy()) {
-        return Err(other_combination(environment));
+        return Err(migration_directory_refused(
+            environment,
+            &[paths.legacy()],
+            false,
+        ));
     }
 
     let config = hold_config(environment)?;
@@ -257,7 +267,7 @@ pub fn adopt(
         (&paths.product_root, Point::CloseProductRoot),
         (&paths.data_root, Point::CloseDataRoot),
     ] {
-        close(environment, path, point)
+        close(environment, path, point, ADOPTION_REPAIR)
             .map_err(|cut| cut_short(naming(path, cut), directories_line))?;
     }
     let config = restrict(environment, &paths.staged_config(), STAGED_CONFIG, config)

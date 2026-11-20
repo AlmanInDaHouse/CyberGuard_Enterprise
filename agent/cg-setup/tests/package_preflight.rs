@@ -4,8 +4,9 @@
 //! The table of item 3 for each state and request; the states read from a
 //! temporary host by the service's own `classify`, with the service's check
 //! of the directories; an enrolled host refusing a bootstrap without reading
-//! it; the migration route reading no file under `<P>`; nothing changed; and
-//! the platform and elevation checks.
+//! it; a migration variable refused with 28 before any other input is read
+//! (SPEC-024 Amendment 2026-11-20, point 2); nothing changed; and the
+//! platform and elevation checks.
 #![cfg(windows)]
 
 mod fixtures;
@@ -103,7 +104,6 @@ fn package_preflight_each_state_takes_what_item_3_says() {
         Some(&fingerprint(1)),
     );
     let anchors_alone = Request::new(None, None, Some(&fingerprint(1)));
-    let migrate = Decision::Migrate(parse_migration(Some("keep"), Some(&fingerprint(1))).unwrap());
     let stage = Decision::Stage("C:\\operator\\bootstrap.toml".into());
     let none = Request::default();
     let (bootstrap, migration) = (bootstrap_request(), migration_request());
@@ -113,12 +113,15 @@ fn package_preflight_each_state_takes_what_item_3_says() {
         (&untrusted, &none, Err(codes::UNTRUSTED_PATH)),
         (&untrusted, &bootstrap, Err(codes::UNTRUSTED_PATH)),
         (&untrusted, &migration, Err(codes::UNTRUSTED_PATH)),
-        // A migration in progress and a console layout: the migration route
-        // alone, its variables in their form.
+        (&untrusted, &malformed, Err(codes::UNTRUSTED_PATH)),
+        (&untrusted, &anchors_alone, Err(codes::UNTRUSTED_PATH)),
+        (&untrusted, &both, Err(codes::UNTRUSTED_PATH)),
+        // A migration in progress and a console layout: 28, whatever is
+        // asked (SPEC-024 Amendment 2026-11-20, point 2: no migration route).
         (
             &HostState::MigrationInProgress,
             &migration,
-            Ok(migrate.clone()),
+            Err(codes::CONSOLE_LAYOUT),
         ),
         (
             &HostState::MigrationInProgress,
@@ -138,14 +141,18 @@ fn package_preflight_each_state_takes_what_item_3_says() {
         (
             &HostState::MigrationInProgress,
             &malformed,
-            Err(codes::INVALID_INPUT),
+            Err(codes::CONSOLE_LAYOUT),
         ),
         (
             &HostState::MigrationInProgress,
             &anchors_alone,
-            Err(codes::INVALID_INPUT),
+            Err(codes::CONSOLE_LAYOUT),
         ),
-        (&HostState::ConsoleLayout, &migration, Ok(migrate.clone())),
+        (
+            &HostState::ConsoleLayout,
+            &migration,
+            Err(codes::CONSOLE_LAYOUT),
+        ),
         (&HostState::ConsoleLayout, &none, Err(codes::CONSOLE_LAYOUT)),
         (
             &HostState::ConsoleLayout,
@@ -156,7 +163,12 @@ fn package_preflight_each_state_takes_what_item_3_says() {
         (
             &HostState::ConsoleLayout,
             &malformed,
-            Err(codes::INVALID_INPUT),
+            Err(codes::CONSOLE_LAYOUT),
+        ),
+        (
+            &HostState::ConsoleLayout,
+            &anchors_alone,
+            Err(codes::CONSOLE_LAYOUT),
         ),
         // Any other state: a migration is refused, well formed or not.
         (&HostState::Enrolled, &migration, Err(codes::CONSOLE_LAYOUT)),
@@ -169,6 +181,7 @@ fn package_preflight_each_state_takes_what_item_3_says() {
         ),
         (&HostState::Enrolled, &none, Ok(Decision::Start)),
         (&HostState::Pending, &migration, Err(codes::CONSOLE_LAYOUT)),
+        (&HostState::Pending, &both, Err(codes::CONSOLE_LAYOUT)),
         (&HostState::Pending, &bootstrap, Ok(stage.clone())),
         (&HostState::Pending, &none, Ok(Decision::Start)),
         (&HostState::Fresh, &migration, Err(codes::CONSOLE_LAYOUT)),
@@ -250,17 +263,18 @@ fn package_preflight_states_are_read_with_the_services_classification() {
         Ok(Plan::Start)
     ));
 
-    // A console layout: 28 by default, the migration route when asked.
+    // A console layout: 28, asked or not (SPEC-024 Amendment 2026-11-20,
+    // point 2).
     let root = Root::empty();
     root.touch("cert.pem");
     assert_eq!(
         assess_unchanged(&root, &Request::default()).err(),
         Some(codes::CONSOLE_LAYOUT)
     );
-    match assess_unchanged(&root, &migration_request()) {
-        Ok(Plan::Migrate(request)) => assert_eq!(request.choice, Choice::Keep),
-        other => panic!("the migration route: {other:?}"),
-    }
+    assert_eq!(
+        assess_unchanged(&root, &migration_request()).err(),
+        Some(codes::CONSOLE_LAYOUT)
+    );
 
     // A migration in progress.
     let root = Root::empty();
@@ -269,10 +283,10 @@ fn package_preflight_states_are_read_with_the_services_classification() {
         assess_unchanged(&root, &Request::default()).err(),
         Some(codes::CONSOLE_LAYOUT)
     );
-    assert!(matches!(
-        assess_unchanged(&root, &migration_request()),
-        Ok(Plan::Migrate(_))
-    ));
+    assert_eq!(
+        assess_unchanged(&root, &migration_request()).err(),
+        Some(codes::CONSOLE_LAYOUT)
+    );
 
     // Directories ordinary users can create in: the service's check refuses
     // them, 27.
@@ -320,49 +334,161 @@ fn package_preflight_an_enrolled_host_refuses_a_bootstrap_without_reading_it() {
     );
 }
 
+/// SPEC-024 Amendment 2026-11-20, point 2: a non-empty migration variable
+/// is 28 once the state is read, on every state but an untrusted one (27),
+/// before any other input is read and with nothing changed: the bootstrap
+/// file beside it, its anchor and the files under `<P>`, each held with no
+/// sharing, are opened by none of it. Its line names the variables, says
+/// that the migration is not supported and sends to the installation
+/// runbook.
 #[test]
-fn package_preflight_the_migration_route_reads_no_file_under_p() {
-    let root = Root::empty();
-    for name in [
-        "agent.toml",
-        "server-ca.pem",
-        "cert.pem",
-        "key.dat",
-        "identity.json",
-    ] {
-        root.touch(name);
+fn package_preflight_a_migration_variable_is_28_before_any_other_input() {
+    let fresh = Root::bare;
+    let pending = || {
+        let root = Root::empty();
+        root.touch("agent.toml");
+        root
+    };
+    let enrolled = || {
+        let root = Root::empty();
+        root.touch("agent.toml");
+        std::fs::create_dir(root.paths.data_root.join("identity")).expect("identity");
+        root
+    };
+    let console = || {
+        let root = Root::empty();
+        for name in DATA_FILES {
+            root.touch(name);
+        }
+        root
+    };
+    let in_progress = || {
+        let root = Root::empty();
+        std::fs::create_dir(root.paths.staging()).expect("agent.migrating");
+        root
+    };
+    // A console layout under directories ordinary users can create in: its
+    // names are read before the directories' security, so 28, not 27.
+    let open_console = || {
+        let root = Root::bare();
+        root.directories(&open_directory_sddl());
+        root.touch("key.dat");
+        root
+    };
+    let hosts: [(&str, &dyn Fn() -> Root); 6] = [
+        ("fresh", &fresh),
+        ("pending", &pending),
+        ("enrolled", &enrolled),
+        ("a console layout", &console),
+        ("a migration in progress", &in_progress),
+        ("a console layout under open directories", &open_console),
+    ];
+    let requests = [
+        (
+            "both",
+            Request::new(None, Some("keep"), Some(&fingerprint(1))),
+        ),
+        (
+            "CG_MIGRATE_LEGACY alone",
+            Request::new(None, Some("remove"), None),
+        ),
+        (
+            "CG_TRUST_ANCHORS alone",
+            Request::new(None, None, Some(&fingerprint(1))),
+        ),
+        (
+            "malformed",
+            Request::new(None, Some("s86"), Some("sha256:00")),
+        ),
+    ];
+    for (what, host) in hosts {
+        for (asked, request) in &requests {
+            let root = host();
+            let ca = certificate("ca.setup.test");
+            let anchor = root.anchor(&[&ca]);
+            let bootstrap = root.bootstrap(&bootstrap_text(
+                anchor.to_str().expect("UTF-8"),
+                &[&ca.fingerprint],
+            ));
+            // Held with no sharing: any open of them by preflight would fail.
+            let held: Vec<std::fs::File> = [bootstrap.clone(), anchor]
+                .into_iter()
+                .chain(
+                    DATA_FILES
+                        .iter()
+                        .map(|name| root.paths.data_root.join(name))
+                        .filter(|path| path.is_file()),
+                )
+                .map(|path| {
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .share_mode(0)
+                        .open(&path)
+                        .expect("held")
+                })
+                .collect();
+            let request = Request {
+                bootstrap: Some(bootstrap),
+                ..request.clone()
+            };
+            let before = root.tree();
+            let refusal = match assess(&root.host, &request) {
+                Err(refusal) => refusal,
+                Ok(plan) => panic!("{what}, {asked}: {plan:?}"),
+            };
+            assert_eq!(root.tree(), before, "{what}, {asked}: nothing changed");
+            drop(held);
+            assert_eq!(
+                refusal.code,
+                codes::CONSOLE_LAYOUT,
+                "{what}, {asked}: {}",
+                refusal.line
+            );
+            assert_clean(&refusal.line);
+            for fragment in [
+                "CG_MIGRATE_LEGACY",
+                "CG_TRUST_ANCHORS",
+                "not supported",
+                "installation runbook",
+            ] {
+                assert!(
+                    refusal.line.contains(fragment),
+                    "{what}, {asked}: {}",
+                    refusal.line
+                );
+            }
+            for offer in [
+                "only the migration route",
+                "with CG_MIGRATE_LEGACY and",
+                "to migrate",
+            ] {
+                assert!(!refusal.line.contains(offer), "{}", refusal.line);
+            }
+        }
     }
-    // Each file held with no sharing: preflight could open none of them.
-    let _held: Vec<std::fs::File> = [
-        "agent.toml",
-        "server-ca.pem",
-        "cert.pem",
-        "key.dat",
-        "identity.json",
-    ]
-    .iter()
-    .map(|name| {
-        std::fs::OpenOptions::new()
-            .read(true)
-            .share_mode(0)
-            .open(root.paths.data_root.join(name))
-            .expect("held")
-    })
-    .collect();
-    assert!(matches!(
-        assess_unchanged(&root, &migration_request()),
-        Ok(Plan::Migrate(_))
-    ));
-    // Its directories are the console runbook's, which the migration's
-    // service checks, not preflight.
+
+    // An untrusted state stays 27, the variable unread.
     let root = Root::bare();
-    root.directories(&open_directory_sddl());
-    root.touch("key.dat");
-    assert!(matches!(
-        assess_unchanged(&root, &migration_request()),
-        Ok(Plan::Migrate(_))
-    ));
+    let elsewhere = root.dir.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).expect("elsewhere");
+    fixtures::junction(&root.paths.product_root, &elsewhere);
+    for (asked, request) in &requests {
+        assert_eq!(
+            assess_unchanged(&root, request).err(),
+            Some(codes::UNTRUSTED_PATH),
+            "{asked}"
+        );
+    }
 }
+
+/// A console installation's data root.
+const DATA_FILES: [&str; 5] = [
+    "agent.toml",
+    "server-ca.pem",
+    "cert.pem",
+    "key.dat",
+    "identity.json",
+];
 
 #[test]
 fn package_preflight_a_pending_host_stages_new_input() {

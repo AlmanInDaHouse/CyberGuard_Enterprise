@@ -171,7 +171,9 @@ pub fn classify_names(
     }
     if names.has_legacy() && !names.holds_identity() {
         return HostState::Untrusted(format!(
-            "{} is beside a data root with no identity",
+            "{} is beside a data root with no identity: a console installation's migration \
+             directory, which the product neither adopts nor migrates; see the installation \
+             runbook, install.md",
             paths.legacy().display()
         ));
     }

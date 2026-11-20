@@ -1485,25 +1485,27 @@ fn package_scm_verbs_preflight_a_conflicting_service_is_26_before_the_staging() 
     assert!(!host.root.paths.staged_config().exists());
 }
 
-/// On the migration route configure reads no record and starts the service
-/// with the migration's arguments, from its own variables.
-fn package_scm_verbs_configure_on_the_migration_route_starts_with_its_arguments() {
+/// SPEC-024 Amendment 2026-11-20, point 2: configure with a migration
+/// variable is 40 before it changes anything: it starts no service, with the
+/// migration's arguments or any, and writes no record; its line says that
+/// the migration is not supported.
+fn package_scm_verbs_configure_with_a_migration_variable_is_40_and_starts_nothing() {
     let host = verbs_host(operational(), SERVICE_DEMAND_START);
     let request = Request::new(
         None,
         Some("keep"),
         Some(&format!("sha256:{}", "ab".repeat(32))),
     );
-    assert_eq!(
-        verbs::configure(&host.machine(&unwatched), &request),
-        Ok(())
+    let refusal = verbs::configure(&host.machine(&unwatched), &request).expect_err("40");
+    assert_eq!(refusal.code, codes::OWN_STATE, "{}", refusal.line);
+    assert!(refusal.line.contains("not supported"), "{}", refusal.line);
+    assert!(
+        refusal.line.contains("CG_MIGRATE_LEGACY"),
+        "{}",
+        refusal.line
     );
-    let migration = cg_setup::preflight::parse_migration(
-        request.migrate_legacy.as_deref(),
-        request.trust_anchors.as_deref(),
-    )
-    .unwrap();
-    assert_eq!(host.starts(), vec![migration_arguments(&migration)]);
+    assert!(host.starts().is_empty(), "{:?}", host.starts());
+    assert!(!host.record().exists());
 }
 
 /// A log position that cannot be recorded is 40: configure starts nothing
@@ -2148,8 +2150,8 @@ const TESTS: &[(&str, fn())] = &[
         package_scm_verbs_preflight_a_conflicting_service_is_26_before_the_staging,
     ),
     (
-        "package_scm_verbs_configure_on_the_migration_route_starts_with_its_arguments",
-        package_scm_verbs_configure_on_the_migration_route_starts_with_its_arguments,
+        "package_scm_verbs_configure_with_a_migration_variable_is_40_and_starts_nothing",
+        package_scm_verbs_configure_with_a_migration_variable_is_40_and_starts_nothing,
     ),
     (
         "package_scm_verbs_configure_an_unrecordable_log_position_is_40",

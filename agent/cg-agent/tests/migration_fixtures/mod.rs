@@ -29,8 +29,8 @@ use cg_agent::enrollment::EnrolledIdentity;
 use cg_agent::identity::installed::{self, InstalledCustody};
 use cg_agent::identity::Identity;
 use cg_agent::service::migration::{
-    copies, prepare, Choice, Copies, Environment, Injected, MigrationCustody, Point, Prepared,
-    Record, Request, Stop, Watch,
+    copies, prepare, prepare_start, Choice, Copies, Environment, Injected, MigrationCustody, Point,
+    Prepared, Record, Request, Stop, Watch,
 };
 use cg_agent::service::InstalledPaths;
 use chrono::{DateTime, Utc};
@@ -729,6 +729,12 @@ impl Console {
     /// One start whose lock is free.
     pub fn start(&self, request: Option<&Request>, script: &Script) -> Result<Prepared, Stop> {
         self.start_with_lock(request, script, &mut || Ok(()))
+    }
+
+    /// The service's start without arguments (SPEC-024 Amendment
+    /// 2026-11-20, point 2), which never migrates.
+    pub fn start_plain(&self, script: &Script) -> Result<Prepared, Stop> {
+        prepare_start(&self.environment(script))
     }
 
     /// A migrating start that commits, with nothing injected.

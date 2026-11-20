@@ -22,7 +22,10 @@ pub const ANCHOR: u8 = 25;
 pub const CONFLICTING_SERVICE: u8 = 26;
 /// An untrusted path: a reparse point, or what fails the service's check.
 pub const UNTRUSTED_PATH: u8 = 27;
-/// A console layout, or a migration asked otherwise.
+/// What the product does not support (SPEC-024 Amendment 2026-11-20, point
+/// 3): a layout no release of the setup writes, a console installation on a
+/// development host or its names another account made on an endpoint, or a
+/// migration asked for; the host unchanged.
 pub const CONSOLE_LAYOUT: u8 = 28;
 /// A downgrade.
 pub const DOWNGRADE: u8 = 29;

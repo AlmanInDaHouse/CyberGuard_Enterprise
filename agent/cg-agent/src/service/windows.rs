@@ -61,8 +61,8 @@ const STOP_POLL: Duration = Duration::from_millis(250);
 const WAIT_HINT_MS: u32 = 15_000;
 /// How long `START_PENDING` may advance its checkpoint without news of the
 /// start: past it the SCM sees no progress, which shows a start that hangs.
-/// A migration's or an adoption's steps renew it, each being bounded by its
-/// 30-second wait (SPEC-024 Amendment 2026-11-05, item 1).
+/// An adoption's steps renew it, each being bounded by its 30-second wait
+/// (SPEC-024 Amendment 2026-11-05, item 1).
 const START_PENDING_CAP: Duration = Duration::from_secs(120);
 /// The same for `STOP_PENDING`, past the stop deadline.
 const STOP_PENDING_CAP: Duration = Duration::from_secs(75);
@@ -204,7 +204,7 @@ unsafe extern "system" fn service_main(argc: u32, argv: *mut PWSTR) {
 }
 
 /// A start argument's text; one that is not valid Unicode is refused by
-/// `parse_start_arguments` for what it then holds.
+/// `parse_start` for what it then holds.
 unsafe fn wide_argument(argument: PWSTR) -> String {
     if argument.is_null() {
         return String::new();
@@ -289,12 +289,14 @@ async fn serve(
     if let Err(line) = check_config_path(&paths, &config_path) {
         return failed(2, line);
     }
-    // SPEC-024 Amendment 2026-11-05: the start arguments, which directories
-    // exist, a migration asked for or in progress (the lock before any
-    // change), and then item 3's check of the data root and its parent, as
-    // the file log checks them (code 13); absent, `agent.toml` is absent too.
-    // The Amendment 2026-11-09, item 6: an adoption asked for comes first, and
-    // the start goes on from what it committed.
+    // SPEC-024 Amendment 2026-11-05, as the Amendment 2026-11-20, point 2,
+    // leaves it: the start arguments, the migration's refused; which
+    // directories exist, a staging or legacy directory that counts refused
+    // before any change; and then item 3's check of the data root and its
+    // parent, as the file log checks them (code 13); absent, `agent.toml` is
+    // absent too. The Amendment 2026-11-09, item 6: an adoption asked for
+    // comes first, under the lock, and the start goes on from what it
+    // committed.
     let start = match migration::parse_start(&arguments) {
         Ok(start) => start,
         Err(line) => return failed(2, line),
@@ -317,17 +319,10 @@ async fn serve(
                     _instance_lock = Some(lock);
                     Ok(())
                 }
-                // A migration or an adoption changes the host only under the
-                // lock.
+                // The adoption changes the host only under the lock.
                 LockOutcome::Unprivileged => Err(Stop::Refused {
                     code: 1,
-                    line: stderr_lock_failed(
-                        match start {
-                            Start::Adopt(_) => "the adoption's token cannot create the lock",
-                            _ => "the migration's token cannot create the lock",
-                        },
-                        5,
-                    ),
+                    line: stderr_lock_failed("the adoption's token cannot create the lock", 5),
                 }),
                 outcome => Err(Stop::Refused {
                     code: outcome.exit_code().unwrap_or(1),
@@ -336,23 +331,16 @@ async fn serve(
             }
         };
         tokio::task::block_in_place(|| {
-            let request = match &start {
-                Start::Plain | Start::Purge => None,
-                Start::Migrate(request) => Some(request),
-                Start::Adopt(fingerprints) => {
-                    adoption::adopt(&environment, fingerprints, &mut lock)?;
-                    None
-                }
-            };
-            migration::prepare(&environment, request, &mut lock)
+            if let Start::Adopt(fingerprints) = &start {
+                adoption::adopt(&environment, fingerprints, &mut lock)?;
+            }
+            migration::prepare_start(&environment)
         })
     };
     let prepared = match prepared {
         Ok(prepared) => prepared,
         Err(Stop::Refused { code, line }) => return failed(code, line),
-        Err(Stop::Crashed) => {
-            return failed(1, "cg-agent: the migration ended abnormally".to_string())
-        }
+        Err(Stop::Crashed) => return failed(1, "cg-agent: the start ended abnormally".to_string()),
     };
     // Item 6: on a console layout each refusal adds why.
     let console = prepared == Prepared::ConsoleLayout;
@@ -416,22 +404,6 @@ async fn serve(
     if status.running() {
         events.write(&running_entry());
     }
-    // SPEC-024 Amendment 2026-11-05, item 5: the old copies, beside the
-    // identity step and capture, which they do not stop; under the lock,
-    // like every deletion of the migration.
-    if prepared == Prepared::Committed && !holds_lock {
-        tracing::warn!("the migration's old copies wait for a start that holds the lock");
-    }
-    if prepared == Prepared::Committed && holds_lock {
-        let paths = paths.clone();
-        tokio::task::spawn_blocking(move || {
-            let environment = Environment::service(paths, &SERVICE_WATCH);
-            if let Err(reason) = migration::copies(&environment) {
-                tracing::warn!(reason, "the migration's old copies were not reached");
-            }
-        });
-    }
-
     // SPEC-024 Amendment 2026-11-04, item 3: once per start, after RUNNING
     // and before the first round, the trust anchor's custody (code 6); then
     // the identity's, and (SPEC-002 Amendment 2026-10-27) only an absent

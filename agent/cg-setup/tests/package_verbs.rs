@@ -217,8 +217,32 @@ fn package_verbs_preflight_refuses_a_downgrade_before_it_stages() {
     assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
 }
 
-/// A pending host with no input: the record alone; the migration route on a
-/// console layout: nothing under `<P>`, no record.
+/// SPEC-024 Amendment 2026-11-20, point 2: a migration variable is 28 before
+/// the conflicting service and the downgrade, and creates nothing.
+#[test]
+fn package_verbs_preflight_a_migration_variable_is_28_before_the_downgrade() {
+    let root = Root::bare();
+    let [x, y, z, _] = own_numbers();
+    let binary = installed(&root, [x, y, z, 1], "9.9.9");
+    let (request, _) = bootstrap(&root);
+    let request = Request {
+        migrate_legacy: Some("keep".to_string()),
+        ..request
+    };
+    let recorder = Recorder::new();
+    let on = machine(&root, &recorder, binary);
+    assert_code(
+        verbs::preflight(&on, &request),
+        codes::CONSOLE_LAYOUT,
+        &["CG_MIGRATE_LEGACY", "not supported", "installation runbook"],
+    );
+    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+    assert!(program_data(&root).is_empty(), "{:?}", program_data(&root));
+}
+
+/// A pending host with no input: the record alone; a migration asked on a
+/// console layout: 28 (SPEC-024 Amendment 2026-11-20, point 2), nothing
+/// under `<P>`, no record.
 #[test]
 fn package_verbs_preflight_the_routes_that_stage_nothing() {
     let root = Root::empty();
@@ -245,7 +269,11 @@ fn package_verbs_preflight_the_routes_that_stage_nothing() {
         Some("keep"),
         Some(&format!("sha256:{}", "ab".repeat(32))),
     );
-    assert_eq!(verbs::preflight(&on, &request), Ok(()));
+    assert_code(
+        verbs::preflight(&on, &request),
+        codes::CONSOLE_LAYOUT,
+        &["CG_MIGRATE_LEGACY", "not supported", "installation runbook"],
+    );
     assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
     assert_eq!(root.tree(), before);
 }
@@ -606,7 +634,7 @@ fn package_verbs_wizard_shows_only_where_point_2_says() {
     assert_code(
         verbs::preflight(&on, &migration),
         codes::CONSOLE_LAYOUT,
-        &["no console installation"],
+        &["CG_MIGRATE_LEGACY", "not supported", "installation runbook"],
     );
 
     let root = Root::empty();
@@ -908,36 +936,45 @@ fn package_verbs_configure_without_its_record_or_staged_files_is_40() {
     );
 }
 
-/// On the migration route configure holds nothing and reads no record; its
-/// variables in another form than the service's are 40.
+/// SPEC-024 Amendment 2026-11-20, point 2: configure takes no value of a
+/// migration variable; a non-empty one, well formed or not, is 40 before it
+/// holds, reads or starts anything, its line naming the variables, never a
+/// value, saying that the migration is not supported and sending to the
+/// installation runbook.
 #[test]
-fn package_verbs_configure_on_the_migration_route_reads_no_record() {
+fn package_verbs_configure_with_a_migration_variable_is_40() {
     let root = Root::bare();
     let recorder = Recorder::new();
     let configure = machine(&root, &recorder, root.operator.join("absent.exe"));
-    let migration = Request::new(
-        None,
-        Some("remove"),
-        Some(&format!("sha256:{}", "cd".repeat(32))),
-    );
-    assert_code(
-        verbs::configure(&configure, &migration),
-        codes::OWN_STATE,
-        &["no installed agent"],
-    );
-    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
-
+    let before = root.tree();
     for (legacy, anchors) in [
-        (Some("purge"), Some("sha256:00")),
-        (None, Some("sha256:00")),
+        (Some("remove"), Some(format!("sha256:{}", "cd".repeat(32)))),
+        (Some("keep"), None),
+        (None, Some("sha256:00".to_string())),
+        (Some("s86-not-a-choice"), Some("sha256:00".to_string())),
     ] {
-        assert_code(
-            verbs::configure(&configure, &Request::new(None, legacy, anchors)),
+        let request = Request::new(None, legacy, anchors.as_deref());
+        let refusal = assert_code(
+            verbs::configure(&configure, &request),
             codes::OWN_STATE,
-            &["migration variables"],
+            &[
+                "CG_MIGRATE_LEGACY",
+                "CG_TRUST_ANCHORS",
+                "not supported",
+                "installation runbook",
+            ],
+        );
+        for value in ["remove", "keep", "s86-not-a-choice", "sha256:"] {
+            assert!(!refusal.line.contains(value), "{}", refusal.line);
+        }
+        assert!(
+            !refusal.line.contains("no installed agent"),
+            "{}",
+            refusal.line
         );
     }
-    assert!(recorder.steps().is_empty());
+    assert!(recorder.steps().is_empty(), "{:?}", recorder.steps());
+    assert_eq!(root.tree(), before);
 }
 
 // --- reverse -----------------------------------------------------------------------
@@ -1212,6 +1249,17 @@ fn package_verbs_purge_refuses_the_states_preflight_refuses() {
         let refusal = assert_code(verbs::purge(&on, PURGE_WITHIN), code, &["purge"]);
         assert_one_line(&refusal);
         assert_eq!(root.tree(), before, "{what}: {}", refusal.line);
+        // SPEC-024 Amendment 2026-11-20, point 3: a layout's line names it,
+        // says that the product neither adopts nor migrates it and sends to
+        // the installation runbook; none offers the migration.
+        if code == codes::CONSOLE_LAYOUT {
+            for fragment in ["neither adopts nor migrates", "installation runbook"] {
+                assert!(refusal.line.contains(fragment), "{what}: {}", refusal.line);
+            }
+        }
+        for offer in ["finish or reverse", "migrate them", "CG_MIGRATE_LEGACY"] {
+            assert!(!refusal.line.contains(offer), "{what}: {}", refusal.line);
+        }
     }
 }
 

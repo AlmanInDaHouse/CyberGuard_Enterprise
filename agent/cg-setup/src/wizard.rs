@@ -6,6 +6,7 @@
 //! dialog, the process that started the setup (`crate::starter`) and the
 //! verb's route (`crate::verbs`) are Windows'.
 
+use cg_agent::service::names::migration_layout;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::codes::{
@@ -40,8 +41,9 @@ pub enum Kind {
     Fresh,
 }
 
-/// What preflight is asked: a bootstrap file, either migration variable, and
-/// the setup's full window.
+/// What preflight is asked: a bootstrap file, either migration variable,
+/// which it refuses (SPEC-024 Amendment 2026-11-20, point 2), and the
+/// setup's full window.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Asked {
     pub bootstrap: bool,
@@ -59,11 +61,10 @@ pub enum Offer {
     Pending,
 }
 
-/// Where item 3's table leaves a request, before any input is read.
+/// Where item 3's table leaves a request, before any input is read. There
+/// is no migration route (SPEC-024 Amendment 2026-11-20, point 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
-    /// The migration route, its variables still to be read in their form.
-    Migrate,
     /// The service is started with no argument; no token is taken.
     Start,
     /// The bootstrap file's input is staged.
@@ -72,40 +73,35 @@ pub enum Route {
     Ask(Offer),
 }
 
-fn migration_only(what: &str, input: &str) -> Refusal {
-    Refusal::new(
-        CONSOLE_LAYOUT,
-        format!(
-            "{what}: only the migration route continues, with CG_MIGRATE_LEGACY and \
-             CG_TRUST_ANCHORS and {input}"
-        ),
+/// SPEC-024 Amendment 2026-11-20, point 3: the 28 of a migration variable,
+/// whatever the host's state but an untrusted one.
+const MIGRATION_REQUESTED: &str = "a migration variable, CG_MIGRATE_LEGACY or CG_TRUST_ANCHORS, \
+     is given, and the migration of a console installation is not supported; see the \
+     installation runbook, install.md";
+
+/// Point 3: the 28 of a migration in progress, naming its layout.
+fn migration_in_progress() -> String {
+    format!(
+        "the product's data folder holds a console installation's migration directory, {}, \
+         which the product neither adopts nor migrates; see the installation runbook, \
+         install.md",
+        migration_layout()
     )
 }
 
-const MIGRATION_IN_PROGRESS: &str =
-    "a migration is in progress, which the service completes with the arguments it recorded";
-
 /// Item 3's table, with point 2: the state and what is asked. `console` is
-/// the console layout's refusal, the service's own text.
+/// the console layout's refusal, the service's own text. A migration
+/// variable is 28 once the state is read, on every state but an untrusted
+/// one, before any other input (the Amendment 2026-11-20, point 2).
 pub fn route(kind: &Kind, asked: Asked, console: &str) -> Result<Route, Refusal> {
-    let migration = |what: &str| {
-        if asked.bootstrap || !asked.migration {
-            Err(migration_only(what, "no bootstrap"))
-        } else {
-            Ok(Route::Migrate)
-        }
-    };
     match kind {
         Kind::Untrusted(reason) => Err(Refusal::new(
             UNTRUSTED_PATH,
             format!("an untrusted path: {reason}"),
         )),
-        Kind::MigrationInProgress => migration(MIGRATION_IN_PROGRESS),
-        Kind::ConsoleLayout => migration(console),
-        _ if asked.migration => Err(Refusal::new(
-            CONSOLE_LAYOUT,
-            "a migration is requested, but this host holds no console installation to migrate",
-        )),
+        _ if asked.migration => Err(Refusal::new(CONSOLE_LAYOUT, MIGRATION_REQUESTED)),
+        Kind::MigrationInProgress => Err(Refusal::new(CONSOLE_LAYOUT, migration_in_progress())),
+        Kind::ConsoleLayout => Err(Refusal::new(CONSOLE_LAYOUT, console)),
         Kind::Enrolled if asked.bootstrap => Err(Refusal::new(
             ALREADY_CONFIGURED,
             "the agent is already configured: the data directory holds identity, an enrolled \
@@ -153,14 +149,11 @@ pub fn route_again(kind: &Kind, choice: Choice, console: &str) -> Result<Again, 
             UNTRUSTED_PATH,
             format!("an untrusted path, {since}: {reason}"),
         )),
-        Kind::MigrationInProgress => Err(migration_only(
-            &format!("{MIGRATION_IN_PROGRESS}, {since}"),
-            "no other input",
+        Kind::MigrationInProgress => Err(Refusal::new(
+            CONSOLE_LAYOUT,
+            format!("{since}, {}", migration_in_progress()),
         )),
-        Kind::ConsoleLayout => Err(migration_only(
-            &format!("{console}, {since}"),
-            "no other input",
-        )),
+        Kind::ConsoleLayout => Err(Refusal::new(CONSOLE_LAYOUT, format!("{since}, {console}"))),
         Kind::Enrolled => Err(Refusal::new(
             ALREADY_CONFIGURED,
             format!(

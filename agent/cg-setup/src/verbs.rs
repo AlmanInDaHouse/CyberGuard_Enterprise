@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use cg_agent::custody;
 use cg_agent::service::layout::{classify, HostState};
+use cg_agent::service::migration::DEFAULT_REFUSAL;
 use cg_agent::service::names;
 use cg_agent::service::InstalledPaths;
 use windows_sys::Win32::Foundation::ERROR_SERVICE_SPECIFIC_ERROR;
@@ -21,11 +22,9 @@ use crate::codes::{
 };
 use crate::dialog::SystemWizard;
 use crate::observer::{self, LogPosition};
-use crate::preflight::{self, decide_again, parse_migration, take_fields, Host, Plan, Request};
+use crate::preflight::{self, decide_again, take_fields, Host, Plan, Request};
 use crate::scm::{self, Ended, Manager, Product, Route};
-use crate::service::{
-    migration_arguments, start_arguments, PRODUCT_SERVICE, PURGE, PURGE_BEFORE_REMOVAL,
-};
+use crate::service::{start_arguments, PRODUCT_SERVICE, PURGE, PURGE_BEFORE_REMOVAL};
 use crate::staging::{self, Files, Setup};
 use crate::version::{self, numeric, SETUP_VERSION};
 use crate::wizard::{Again, Answer, Choice, Closed, Offer, Wizard};
@@ -95,29 +94,25 @@ fn own_numeric() -> [u16; 3] {
 /// 2026-11-10, items 2 to 6, and the Amendment 2026-11-11, point 1): the
 /// state, the request and, on a route that stages, its inputs; the
 /// conflicting service; the downgrade; on the wizard's route, the wizard and
-/// the second reading (the Amendment 2026-11-13, points 2 and 3); on every
-/// route but a migration's, the staging and its record; the stop; then,
-/// after it, the record's rewrite and a refusal's removal.
+/// the second reading (the Amendment 2026-11-13, points 2 and 3); the
+/// staging and its record; the stop; then, after it, the record's rewrite
+/// and a refusal's removal. A migration variable is 28 at `assess`, before
+/// the conflicting service and the downgrade (the Amendment 2026-11-20,
+/// point 2).
 pub fn preflight(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal> {
     let request = match machine.wizard {
         Some(_) => request.clone(),
         None => request.clone().with_ui(None),
     };
     let plan = preflight::assess(&machine.host, &request)?;
-    let route = match plan {
-        Plan::Migrate(_) => Route::Migration,
-        Plan::Start | Plan::Stage(_) | Plan::Ask(_) => Route::Other,
-    };
     let scm = Manager::open()?;
-    let product = check(machine, &scm, route)?;
+    let product = check(machine, &scm, Route::Other)?;
     let (plan, product) = match (plan, machine.wizard) {
         (Plan::Ask(offer), Some(wizard)) => ask(machine, wizard, &scm, offer)?,
         (Plan::Ask(_), None) => return Err(inconsistent("a wizard to ask on a machine with none")),
         (plan, _) => (plan, product),
     };
     let attempt = match &plan {
-        // It creates and changes nothing under <P>, and writes no record.
-        Plan::Migrate(_) => return scm::stop(&scm, &machine.service).result,
         Plan::Start => staging::stage(&machine.setup, None, product.running())?,
         Plan::Stage(staged) => staging::stage(
             &machine.setup,
@@ -197,53 +192,36 @@ fn ask(
 }
 
 /// `configure` (the Amendment 2026-11-09, items 5, 7 and 8, with the
-/// Amendment 2026-11-10, item 8, and the Amendment 2026-11-11, point 4): on
-/// a route other than a migration's, `<P>` and the data root held and the
-/// record and the staged files checked; the installed binary's version; the
+/// Amendment 2026-11-10, item 8, and the Amendment 2026-11-11, point 4): a
+/// migration variable refused with 40 before anything (the Amendment
+/// 2026-11-20, point 2); `<P>` and the data root held and the record and the
+/// staged files checked; the installed binary's version; the
 /// failure actions; the log's position; the start; the record's deletion;
 /// then the outcome, observed for 60 seconds from the start request. A
 /// deletion of the record that fails keeps the outcome's code, its line
 /// naming the record left: with 0, `Err` carries code 0 and that line (the
 /// Amendment 2026-11-11 (second), point 4).
 pub fn configure(machine: &Machine<'_>, request: &Request) -> Result<(), Refusal> {
-    // Configure takes the migration's variables from its own command line,
-    // which preflight checked in the same form (item 8).
-    let migration = request
-        .migration_requested()
-        .then(|| {
-            parse_migration(
-                request.migrate_legacy.as_deref(),
-                request.trust_anchors.as_deref(),
-            )
-        })
-        .transpose()
-        .map_err(|reason| {
-            Refusal::new(
-                OWN_STATE,
-                format!("configure's migration variables are refused: {reason}"),
-            )
-        })?;
-    let held = match migration {
-        Some(_) => None,
-        None => Some(staging::configure(&machine.setup)?),
-    };
+    // The Amendment 2026-11-20, point 2: configure no longer takes a
+    // migration variable's value; in the chain, preflight refused it first.
+    if request.migration_requested() {
+        return Err(Refusal::new(
+            OWN_STATE,
+            "configure: a migration variable, CG_MIGRATE_LEGACY or CG_TRUST_ANCHORS, is given, \
+             and the migration of a console installation is not supported; see the \
+             installation runbook, install.md",
+        ));
+    }
+    let held = staging::configure(&machine.setup)?;
     version::configure_version(&machine.binary, own_numeric(), SETUP_VERSION)?;
     let scm = Manager::open()?;
     scm::set_failure_actions(&scm, &machine.service)?;
     let log_dir = machine.log_dir();
     let position = LogPosition::record(&log_dir)?;
-    let arguments = match (&migration, &held) {
-        (Some(migration), _) => migration_arguments(migration),
-        (None, Some(held)) => start_arguments(&held.record().fingerprints),
-        (None, None) => {
-            unreachable!("configure holds the record on a route other than a migration's")
-        }
-    };
+    let arguments = start_arguments(&held.record().fingerprints);
     let started = Instant::now();
     scm::start(&scm, &machine.service, &arguments)?;
-    let deleted = held
-        .as_ref()
-        .map_or(Ok(()), |held| held.delete_record(&machine.setup));
+    let deleted = held.delete_record(&machine.setup);
     let observed = observer::observe(&scm, &machine.service, &log_dir, position, started);
     match (observed, deleted) {
         (Ok(()), Ok(())) => Ok(()),
@@ -298,16 +276,24 @@ pub fn purge(machine: &Machine<'_>, within: Duration) -> Result<(), Refusal> {
                 format!("the purge refuses an untrusted path: {reason}"),
             ))
         }
+        // The Amendment 2026-11-20, point 3: each names the layout, says
+        // that the product neither adopts nor migrates it and sends to the
+        // installation runbook.
         HostState::MigrationInProgress => {
             return Err(Refusal::new(
                 CONSOLE_LAYOUT,
-                "the purge refuses a migration in progress: finish or reverse it first",
+                format!(
+                    "the purge refuses a console installation's migration directory, {}, \
+                     which the product neither adopts nor migrates; see the installation \
+                     runbook, install.md",
+                    names::migration_layout()
+                ),
             ))
         }
         HostState::ConsoleLayout => {
             return Err(Refusal::new(
                 CONSOLE_LAYOUT,
-                "the purge refuses a console layout: the data directory holds a console installation's identity files",
+                format!("the purge refuses a console layout: {DEFAULT_REFUSAL}"),
             ))
         }
         HostState::Enrolled | HostState::Pending | HostState::Fresh => {}

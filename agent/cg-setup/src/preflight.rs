@@ -77,15 +77,17 @@ impl Request {
         full_window(self.ui.as_deref())
     }
 
-    /// Either migration variable is given.
+    /// Either migration variable is given, which preflight refuses with 28
+    /// and configure with 40 (SPEC-024 Amendment 2026-11-20, point 2).
     pub fn migration_requested(&self) -> bool {
         self.migrate_legacy.is_some() || self.trust_anchors.is_some()
     }
 }
 
-/// `CG_MIGRATE_LEGACY` and `CG_TRUST_ANCHORS` in the form the service takes
+/// `CG_MIGRATE_LEGACY` and `CG_TRUST_ANCHORS` in the form the service took
 /// them (the Amendment 2026-11-05, item 1): `remove` or `keep`, and one or
-/// more comma-separated fingerprints. The error is the reason.
+/// more comma-separated fingerprints. The error is the reason. The migration's
+/// code, which no verb reaches since the Amendment 2026-11-20, point 2.
 pub fn parse_migration(
     migrate_legacy: Option<&str>,
     trust_anchors: Option<&str>,
@@ -119,8 +121,6 @@ pub fn parse_migration(
 /// What a state and a request allow, before any input is read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
-    /// The migration route: the service checks what it migrates.
-    Migrate(migration::Request),
     /// The service is started with no argument; no token is taken.
     Start,
     /// New input, from this bootstrap file, is staged.
@@ -150,17 +150,6 @@ pub fn decide(state: &HostState, request: &Request) -> Result<Decision, Refusal>
         full_window: request.full_window(),
     };
     Ok(match route(&kind(state), asked, DEFAULT_REFUSAL)? {
-        Route::Migrate => parse_migration(
-            request.migrate_legacy.as_deref(),
-            request.trust_anchors.as_deref(),
-        )
-        .map(Decision::Migrate)
-        .map_err(|reason| {
-            Refusal::new(
-                INVALID_INPUT,
-                format!("invalid migration request: {reason}"),
-            )
-        })?,
         Route::Start => Decision::Start,
         Route::Stage => Decision::Stage(
             request
@@ -226,7 +215,6 @@ fn own_state(reason: String) -> Refusal {
 /// Where preflight leaves the request.
 #[derive(Debug)]
 pub enum Plan {
-    Migrate(migration::Request),
     Start,
     Stage(Staged),
     /// The wizard shows, after the conflicting service and the downgrade.
@@ -354,7 +342,6 @@ fn take_inputs(
 pub fn assess(host: &Host, request: &Request) -> Result<Plan, Refusal> {
     let state = classify(&host.paths, &host.directories, host.wait);
     match decide(&state, request)? {
-        Decision::Migrate(request) => Ok(Plan::Migrate(request)),
         Decision::Start => Ok(Plan::Start),
         Decision::Stage(path) => take_in(host, &path).map(Plan::Stage),
         Decision::Ask(offer) => Ok(Plan::Ask(offer)),

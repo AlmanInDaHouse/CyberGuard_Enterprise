@@ -214,6 +214,7 @@ fn install_ac_002_wizard_shows_on_a_fresh_or_pending_host_with_the_full_window_a
             (&untrusted, none, Err(codes::UNTRUSTED_PATH)),
             (&untrusted, bootstrap, Err(codes::UNTRUSTED_PATH)),
             (&untrusted, migration, Err(codes::UNTRUSTED_PATH)),
+            (&untrusted, both, Err(codes::UNTRUSTED_PATH)),
             (&Kind::MigrationInProgress, none, Err(codes::CONSOLE_LAYOUT)),
             (
                 &Kind::MigrationInProgress,
@@ -221,10 +222,16 @@ fn install_ac_002_wizard_shows_on_a_fresh_or_pending_host_with_the_full_window_a
                 Err(codes::CONSOLE_LAYOUT),
             ),
             (&Kind::MigrationInProgress, both, Err(codes::CONSOLE_LAYOUT)),
-            (&Kind::MigrationInProgress, migration, Ok(Route::Migrate)),
+            // SPEC-024 Amendment 2026-11-20, point 2: no migration route.
+            (
+                &Kind::MigrationInProgress,
+                migration,
+                Err(codes::CONSOLE_LAYOUT),
+            ),
             (&Kind::ConsoleLayout, none, Err(codes::CONSOLE_LAYOUT)),
             (&Kind::ConsoleLayout, bootstrap, Err(codes::CONSOLE_LAYOUT)),
-            (&Kind::ConsoleLayout, migration, Ok(Route::Migrate)),
+            (&Kind::ConsoleLayout, migration, Err(codes::CONSOLE_LAYOUT)),
+            (&Kind::ConsoleLayout, both, Err(codes::CONSOLE_LAYOUT)),
             (&Kind::Enrolled, none, Ok(Route::Start)),
             (&Kind::Enrolled, bootstrap, Err(codes::ALREADY_CONFIGURED)),
             (&Kind::Enrolled, migration, Err(codes::CONSOLE_LAYOUT)),
@@ -255,6 +262,82 @@ fn install_ac_002_wizard_shows_on_a_fresh_or_pending_host_with_the_full_window_a
         for (kind, asked, outcome) in expected {
             let got = route(kind, asked, CONSOLE);
             check(&got, &outcome, &format!("{kind:?} {asked:?}"));
+        }
+    }
+}
+
+/// What no line of the setup says any longer (SPEC-024 Amendment
+/// 2026-11-20, point 3; Session 85's round 12, list B, item 13).
+const OFFERS: [&str; 6] = [
+    "only the migration route",
+    "with CG_MIGRATE_LEGACY and",
+    "completes with the arguments",
+    "migrate them",
+    "finish or reverse",
+    "to migrate",
+];
+
+/// SPEC-024 Amendment 2026-11-20, point 3: a 28 for a migration variable
+/// names the variables and says that the migration is not supported; a 28
+/// for a migration in progress names its layout and says that the product
+/// neither adopts nor migrates it; a 28 for a console layout gives the
+/// service's reason; each sends to the installation runbook but the console
+/// layout's, whose reason does (the service's `DEFAULT_REFUSAL`); and no line
+/// of item 3's table, before the wizard or after it, offers the migration.
+#[test]
+fn install_ac_002_wizard_no_refusal_offers_the_migration() {
+    let kinds = [
+        Kind::Untrusted("C:\\x is a reparse point".to_string()),
+        Kind::MigrationInProgress,
+        Kind::ConsoleLayout,
+        Kind::Enrolled,
+        Kind::Pending,
+        Kind::Fresh,
+    ];
+    let check_28 = |kind: &Kind, migration: bool, line: &str| {
+        if migration {
+            assert!(line.contains("CG_MIGRATE_LEGACY"), "{kind:?}: {line}");
+            assert!(line.contains("CG_TRUST_ANCHORS"), "{kind:?}: {line}");
+            assert!(line.contains("not supported"), "{kind:?}: {line}");
+            assert!(line.contains("installation runbook"), "{kind:?}: {line}");
+        } else if *kind == Kind::MigrationInProgress {
+            assert!(line.contains("agent.migrating"), "{kind:?}: {line}");
+            assert!(line.contains("agent.legacy"), "{kind:?}: {line}");
+            assert!(
+                line.contains("neither adopts nor migrates"),
+                "{kind:?}: {line}"
+            );
+            assert!(line.contains("installation runbook"), "{kind:?}: {line}");
+        } else {
+            assert_eq!(*kind, Kind::ConsoleLayout, "{line}");
+            assert!(line.contains(CONSOLE), "{kind:?}: {line}");
+        }
+    };
+    let mut lines = Vec::new();
+    for kind in &kinds {
+        for (bootstrap, migration, window) in (0..8).map(|n| (n & 1 != 0, n & 2 != 0, n & 4 != 0)) {
+            if let Err(refusal) = route(kind, asked(bootstrap, migration, window), CONSOLE) {
+                if refusal.code == codes::CONSOLE_LAYOUT {
+                    check_28(kind, migration, &refusal.line);
+                }
+                lines.push(refusal.line);
+            }
+        }
+        for choice in [Choice::Input, Choice::Keep] {
+            if let Err(refusal) = route_again(kind, choice, CONSOLE) {
+                if refusal.code == codes::CONSOLE_LAYOUT {
+                    check_28(kind, false, &refusal.line);
+                }
+                lines.push(refusal.line);
+            }
+        }
+    }
+    for line in lines {
+        for offer in OFFERS {
+            assert!(
+                !line.contains(offer),
+                "offers the migration ({offer}): {line}"
+            );
         }
     }
 }

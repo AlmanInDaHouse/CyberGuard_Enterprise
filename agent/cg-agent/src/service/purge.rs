@@ -78,6 +78,11 @@ fn refused_line(state: &str) -> String {
     format!("cg-agent: the purge refuses this host: {state}; nothing was removed")
 }
 
+/// What code 14 adds to a layout no release of the setup writes (the
+/// Amendment 2026-11-20, point 3).
+const UNSUPPORTED: &str =
+    "which the product neither adopts nor migrates; see the installation runbook, install.md";
+
 /// Code 15's line: what was left, at most `NAMED` names and then their
 /// number (point 7). Each item names its path.
 fn left_line(left: &[String]) -> String {
@@ -157,8 +162,13 @@ pub fn run(
         })?;
     let refusal = match classify(paths, &policy, environment.wait) {
         HostState::Untrusted(reason) => Some(format!("an untrusted state ({reason})")),
-        HostState::MigrationInProgress => Some("a migration in progress".to_string()),
-        HostState::ConsoleLayout => Some("a console layout".to_string()),
+        HostState::MigrationInProgress => Some(format!(
+            "a console installation's migration directory, {}, {UNSUPPORTED}",
+            names::migration_layout()
+        )),
+        HostState::ConsoleLayout => Some(format!(
+            "a console installation's identity files in the data directory, {UNSUPPORTED}"
+        )),
         HostState::Enrolled | HostState::Pending | HostState::Fresh => None,
     };
     if let Some(state) = refusal {

@@ -50,9 +50,20 @@ use crate::errors::{EnrollmentError, TlsError};
 use crate::identity::{check_consistency, installed, PersistedIdentity};
 use crate::secure_storage::default_store;
 
-/// The reason a start without migration arguments adds on a console layout
-/// (item 6).
-pub const DEFAULT_REFUSAL: &str = "the data directory holds a console installation's identity files: migrate them before removing anything";
+/// The reason a start without arguments adds on a console layout (item 6,
+/// as the Amendment 2026-11-20, point 3, words it): the product neither
+/// adopts nor migrates a console installation. The setup's 28 and the
+/// purge's refusals of a console layout give it too.
+pub const DEFAULT_REFUSAL: &str = "the data directory holds a console installation's identity files, which the product neither adopts nor migrates; see the installation runbook, install.md";
+
+/// The Amendment 2026-11-20, point 2: the start argument the service no
+/// longer takes, code 2's whole line.
+const MIGRATE_LEGACY_REFUSED: &str = "cg-agent: invalid migration arguments: --migrate-legacy is given, and the migration of a console installation is not supported; see the installation runbook, install.md";
+
+/// The Amendment 2026-11-20, point 2: what a start without arguments says,
+/// after the directories it names, beside a staging or legacy directory that
+/// counts.
+const MIGRATION_DIRECTORY_REFUSED: &str = "no release of the setup writes a console installation's migration directory, and the product neither adopts nor migrates one; nothing was changed; see the installation runbook, install.md";
 
 /// How long an operation may wait on another process.
 pub const OPERATION_WAIT: Duration = custody::OPEN_WAIT;
@@ -154,7 +165,6 @@ pub fn parse_start_arguments(arguments: &[String]) -> Result<Option<Request>, St
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Start {
     Plain,
-    Migrate(Request),
     /// The Amendment 2026-11-09, item 6: the anchor's fingerprints.
     Adopt(BTreeSet<String>),
     /// The Amendment 2026-11-15, point 4: `--purge`, alone.
@@ -162,8 +172,10 @@ pub enum Start {
 }
 
 /// The SCM start arguments after the service's name (item 1, item 6 of the
-/// Amendment 2026-11-09 and point 4 of the Amendment 2026-11-15): the error is
-/// code 2's whole line, which never repeats a value.
+/// Amendment 2026-11-09, point 4 of the Amendment 2026-11-15 and point 2 of
+/// the Amendment 2026-11-20, which refuses the migration's argument): the
+/// error is code 2's whole line, which never repeats a value. The migration's
+/// own `parse_start_arguments` is no longer the start's.
 pub fn parse_start(arguments: &[String]) -> Result<Start, String> {
     if arguments.iter().any(|argument| argument == PURGE) {
         if arguments.len() != 1 {
@@ -174,8 +186,24 @@ pub fn parse_start(arguments: &[String]) -> Result<Start, String> {
         }
         return Ok(Start::Purge);
     }
+    if arguments
+        .iter()
+        .any(|argument| argument.starts_with("--migrate-legacy="))
+    {
+        return Err(MIGRATE_LEGACY_REFUSED.to_string());
+    }
+    if arguments.is_empty() {
+        return Ok(Start::Plain);
+    }
     if !arguments.iter().any(|argument| argument == ADOPT) {
-        return Ok(parse_start_arguments(arguments)?.map_or(Start::Plain, Start::Migrate));
+        let alone = arguments
+            .iter()
+            .all(|argument| argument.starts_with("--trust-anchor-sha256="));
+        return Err(invalid_arguments(if alone {
+            "--trust-anchor-sha256 is given without --adopt-staged-config"
+        } else {
+            "a start argument is neither --adopt-staged-config nor --trust-anchor-sha256"
+        }));
     }
     let mut seen = false;
     let mut fingerprints = BTreeSet::new();
@@ -588,7 +616,7 @@ fn check_data_directories(environment: &Environment<'_>, console: bool) -> Resul
     Ok(())
 }
 
-pub(super) fn other_combination(environment: &Environment<'_>) -> Stop {
+fn other_combination(environment: &Environment<'_>) -> Stop {
     refused(
         5,
         identity_line(&format!(
@@ -633,6 +661,62 @@ pub fn prepare(
         (_, false, false) => plain(environment, request),
         _ => Err(other_combination(environment)),
     }
+}
+
+/// What a start without arguments does before it reads the configuration
+/// (the Amendment 2026-11-20, point 2): it never migrates. A staging or
+/// legacy directory that counts is code 5 before any change, the line naming
+/// it; otherwise a console layout is checked as item 6 says and refused
+/// later with its reason, and any other host is `plain`. It completes,
+/// reverses or continues no migration, deletes no old copy and takes no
+/// lock: `prepare`, which does, is no longer the service's start.
+pub fn prepare_start(environment: &Environment<'_>) -> Result<Prepared, Stop> {
+    let paths = &environment.paths;
+    let data_root = is_there(&paths.data_root);
+    let console = data_root
+        && IDENTITY_FILES
+            .iter()
+            .any(|name| is_there(&paths.data_root.join(name)));
+    let counting: Vec<PathBuf> = [paths.staging(), paths.legacy()]
+        .into_iter()
+        .filter(|path| counts(environment, path))
+        .collect();
+    if !counting.is_empty() {
+        return Err(migration_directory_refused(environment, &counting, console));
+    }
+    if console {
+        check_data_directories(environment, true)?;
+        return Ok(Prepared::ConsoleLayout);
+    }
+    plain(environment, None)
+}
+
+/// Code 5 for a staging or legacy directory that counts, `counting`, which
+/// a start without arguments and the adoption refuse (the Amendment
+/// 2026-11-20, point 2): the line names each, and the console layout beside
+/// them when there is one.
+pub(super) fn migration_directory_refused(
+    environment: &Environment<'_>,
+    counting: &[PathBuf],
+    console: bool,
+) -> Stop {
+    let named = counting
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let beside = if console {
+        format!(
+            ", beside a console installation's identity files in {}",
+            environment.paths.data_root.display()
+        )
+    } else {
+        String::new()
+    };
+    refused(
+        5,
+        identity_line(&format!("{named}{beside}: {MIGRATION_DIRECTORY_REFUSED}")),
+    )
 }
 
 /// A data root alone, or none of the three, without a console layout.
@@ -856,7 +940,7 @@ fn close_directories(environment: &Environment<'_>) -> Result<(), Stop> {
         (&environment.paths.product_root, Point::CloseProductRoot),
         (&environment.paths.data_root, Point::CloseDataRoot),
     ] {
-        close(environment, path, point).map_err(|cut| {
+        close(environment, path, point, REPAIR_OWNER).map_err(|cut| {
             cut_in_place(
                 environment,
                 naming(path, cut),
@@ -868,15 +952,23 @@ fn close_directories(environment: &Environment<'_>) -> Result<(), Stop> {
     Ok(())
 }
 
+/// Item 2.1's closing of a directory; a refusal ends with `repair`, the
+/// migration's or the adoption's.
 pub(super) fn close(
     environment: &Environment<'_>,
     path: &Path,
     point: Point,
+    repair: &str,
 ) -> Result<(), Injected> {
     environment.watch.at(point)?;
     let handle = custody::open_waiting(path, SECURITY_ACCESS, SHARE_ALL, environment.wait)?;
     custody::check_shape(&handle, path, Kind::Directory)?;
-    check_closable(environment, &custody::security_of(&handle, path)?, path)?;
+    check_closable(
+        environment,
+        &custody::security_of(&handle, path)?,
+        path,
+        repair,
+    )?;
     custody::set_security(
         handle,
         path,
@@ -892,18 +984,19 @@ fn check_closable(
     environment: &Environment<'_>,
     descriptor: &Descriptor,
     path: &Path,
+    repair: &str,
 ) -> Result<(), String> {
     if !descriptor.owned_by(&environment.custody.owners)? {
         return Err(format!(
-            "{} is owned by another account; {REPAIR_OWNER}",
+            "{} is owned by another account; {repair}",
             path.display()
         ));
     }
     let entries = descriptor
         .allow_entries(path)
-        .map_err(|reason| format!("{reason}; {REPAIR_OWNER}"))?;
+        .map_err(|reason| format!("{reason}; {repair}"))?;
     let Some(entries) = entries else {
-        return Err(format!("{} has no DACL; {REPAIR_OWNER}", path.display()));
+        return Err(format!("{} has no DACL; {repair}", path.display()));
     };
     for entry in entries {
         let trusted = environment
@@ -913,7 +1006,7 @@ fn check_closable(
             .any(|principal| principal.is(&entry.sid));
         if !trusted && entry.mask & (WRITE_DAC | WRITE_OWNER | GENERIC_ALL) != 0 {
             return Err(format!(
-                "{}'s DACL lets another account change it or take its ownership; {REPAIR_OWNER}",
+                "{}'s DACL lets another account change it or take its ownership; {repair}",
                 path.display()
             ));
         }

@@ -50,6 +50,13 @@ pub const STAGED_ANCHOR: &str = "server-ca.pem.setup";
 /// The setup's record of one preflight (the Amendment 2026-11-10, item 5).
 pub const ATTEMPT: &str = "setup-attempt.json";
 
+/// A migration in progress as a refusal names its layout (SPEC-024 Amendment
+/// 2026-11-20, point 3): the staging directory, or the legacy directory with
+/// no data root.
+pub fn migration_layout() -> String {
+    format!("{STAGING}, or {LEGACY} without {DATA_ROOT}")
+}
+
 /// The identity files: in a console installation's data root, which they
 /// make one, and in the service's identity directory.
 pub const IDENTITY_FILES: [&str; 3] = [CERT, KEY, IDENTITY];

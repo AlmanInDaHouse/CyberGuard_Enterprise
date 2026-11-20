@@ -21,7 +21,9 @@ use std::time::Duration;
 
 use cg_agent::custody::{self, Policy, Principal};
 use cg_agent::service::layout::{classify, HostState};
-use cg_agent::service::migration::{parse_start, prepare, Choice, Point, Prepared, Start, Stop};
+use cg_agent::service::migration::{
+    parse_start, prepare_start, Choice, Point, Prepared, Start, Stop,
+};
 use cg_agent::service::purge::{self, Area, ABNORMAL, BOUND};
 use cg_agent::service::{
     ServiceExit, EVENT_FAILED, EVENT_STOPPED, EXIT_PURGE_LEFT, EXIT_PURGE_REFUSED, EXIT_SERVICE_LOG,
@@ -271,9 +273,10 @@ impl Had {
 }
 
 /// Point 6: what an interrupted purge leaves is a state point 3.2 goes on
-/// from, a plain start reads without code 5, and no configuration stands
-/// without its identity, nor a data root without its record beside the
-/// legacy directory.
+/// from, a plain start reads without code 5 but beside a legacy directory
+/// that counts (the Amendment 2026-11-20, point 2), and no configuration
+/// stands without its identity, nor a data root without its record beside
+/// the legacy directory.
 fn assert_goes_on(console: &Console, had: &Had, what: &str) {
     let Had {
         config: had_config,
@@ -318,11 +321,24 @@ fn assert_goes_on(console: &Console, had: &Had, what: &str) {
         ),
         "{what}: {state:?}"
     );
-    let started = prepare(&console.environment(&Script::new()), None, &mut || Ok(()));
-    assert!(
-        matches!(started, Ok(Prepared::Plain | Prepared::Committed)),
-        "{what}: a plain start reads {started:?}"
-    );
+    // The Amendment 2026-11-20, point 2: a start without arguments refuses a
+    // legacy directory that counts with code 5, before any change; without
+    // one it reads a plain host.
+    let started = prepare_start(&console.environment(&Script::new()));
+    if present(&paths.legacy()) {
+        match started {
+            Err(Stop::Refused { code: 5, line }) => assert!(
+                line.contains(&paths.legacy().display().to_string()),
+                "{what}: {line}"
+            ),
+            other => panic!("{what}: a plain start beside agent.legacy reads {other:?}"),
+        }
+    } else {
+        assert!(
+            matches!(started, Ok(Prepared::Plain)),
+            "{what}: a plain start reads {started:?}"
+        );
+    }
 }
 
 // The start argument (point 4).
@@ -837,6 +853,17 @@ fn install_ac_012_states_the_purge_refuses_are_code_14_with_nothing_changed() {
         let (code, line) = refusal(purge(&console, &Script::new()));
         assert_eq!(code, EXIT_PURGE_REFUSED, "{what}: {line}");
         assert!(line.starts_with(REFUSED_LINE), "{what}: {line}");
+        // The Amendment 2026-11-20, point 3: a layout's line names it, says
+        // that the product neither adopts nor migrates it and sends to the
+        // installation runbook; none offers the migration.
+        assert!(
+            line.contains("neither adopts nor migrates"),
+            "{what}: {line}"
+        );
+        assert!(line.contains("installation runbook"), "{what}: {line}");
+        for offer in ["finish or reverse", "migrate them", "CG_MIGRATE_LEGACY"] {
+            assert!(!line.contains(offer), "{what}: {line}");
+        }
         assert_same_tree(&before, &console.whole(), what);
     }
 }

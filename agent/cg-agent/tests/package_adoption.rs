@@ -6,8 +6,8 @@
 //! the host unchanged, a failure and a crash injected at each step, and what
 //! a retry finds. The service and SYSTEM tests are `package_adoption_service`.
 //!
-//! An interruption is `Injected::Crash`; the next start is `prepare` without
-//! arguments, which is what a restart by the SCM runs.
+//! An interruption is `Injected::Crash`; the next start is `prepare_start`,
+//! the start without arguments, which is what a restart by the SCM runs.
 #![cfg(windows)]
 
 mod common;
@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 
 use cg_agent::custody::{self, Kind, Principal};
 use cg_agent::service::adoption::adopt;
-use cg_agent::service::migration::{parse_start, Choice, Point, Prepared, Request, Start, Stop};
+use cg_agent::service::migration::{parse_start, Point, Prepared, Start, Stop};
 
 use migration_fixtures::{
     assert_clean, assert_quotes_none, assert_same_tree, batch_oplock, entries, junction, security,
@@ -216,17 +216,17 @@ fn package_adoption_no_arguments_is_a_plain_start() {
     assert_eq!(start_of(&[]), Ok(Start::Plain));
 }
 
+/// SPEC-024 Amendment 2026-11-20, point 2: the migration's argument is
+/// code 2, its line naming it and saying that the migration is not supported.
 #[test]
-fn package_adoption_a_migrations_arguments_stay_a_migrations() {
+fn package_adoption_a_migrations_arguments_are_refused() {
     let first = fingerprint_of('a');
     let trust = format!("--trust-anchor-sha256={first}");
-    assert_eq!(
-        start_of(&["--migrate-legacy=keep", &trust]),
-        Ok(Start::Migrate(Request {
-            choice: Choice::Keep,
-            fingerprints: BTreeSet::from([first]),
-        }))
-    );
+    let line = start_of(&["--migrate-legacy=keep", &trust]).expect_err("refused");
+    assert!(line.starts_with(ARGUMENTS_LINE), "{line}");
+    assert!(line.contains("--migrate-legacy"), "{line}");
+    assert!(line.contains("not supported"), "{line}");
+    assert_quotes_none(&line, &[first.as_str(), "keep"]);
 }
 
 #[test]
@@ -818,7 +818,7 @@ fn package_adoption_a_fresh_host_adopts_in_the_contracts_order() {
         [CONFIG, ANCHOR, ATTEMPT_RECORD],
         "the setup's record is not the service's"
     );
-    assert_eq!(console.start(None, &Script::new()), Ok(Prepared::Plain));
+    assert_eq!(console.start_plain(&Script::new()), Ok(Prepared::Plain));
 }
 
 #[test]
@@ -928,7 +928,7 @@ fn assert_left_at(console: &Console, point: Point, crashed: bool) {
     // The closing of step 5 is not undone, and the next start adopts nothing.
     let before = console.whole();
     assert_eq!(
-        console.start(None, &Script::new()),
+        console.start_plain(&Script::new()),
         Ok(Prepared::Plain),
         "{what}"
     );
@@ -1070,7 +1070,7 @@ fn package_adoption_retries_after_an_interruption() {
 fn package_adoption_a_start_without_arguments_adopts_nothing() {
     for console in [fresh_and_staged(), pending()] {
         let before = console.whole();
-        assert_eq!(console.start(None, &Script::new()), Ok(Prepared::Plain));
+        assert_eq!(console.start_plain(&Script::new()), Ok(Prepared::Plain));
         assert_same_tree(&before, &console.whole(), "a start without arguments");
     }
 }
