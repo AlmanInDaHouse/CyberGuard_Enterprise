@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-84.md](../handoff-session-84.md)).
+([handoff-session-85.md](../handoff-session-85.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -508,7 +508,8 @@ This dependency-ordered document supersedes both for planning.
   Amendment 2026-11-19 (second), which Manuel approved (`0a3c64a`, `docs/handoff-session-84.md`);
   S85, on Manuel's choices of 2026-11-20, made the console installation a
   development layout outside the product (SPEC-024 Amendment 2026-11-20, with
-  the threat model's): the migration's triggers are to be refused, by that
+  the threat model's; `9f34228`, approved by Manuel,
+  `docs/handoff-session-85.md`): the migration's triggers are to be refused, by that
   amendment's point 2's code, and its code kept dormant; R1 and #87 close by
   scope; C10's fourth commit is not landed, and
   the custody verb, reduced to the setup's hosts, moves after F3 and F4
