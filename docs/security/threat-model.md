@@ -694,6 +694,27 @@ stands as the record of its condition, which the package met and SPEC-024's Amen
 took the migration out of. The custody verb's entries, which the superseded Amendment 2026-11-18
 (SPEC-024) held, come with SPEC-024's amendment that restates the verb, for Manuel's approval.
 
+## Amendment 2026-11-20 (SPEC-025): the token at rest, renewal, revocation, a copied identity and the CA
+
+**Status.** Proposed by Claude Code on 2026-11-20 with SPEC-025 and ADR-0004's Amendment 2026-11-20, on Manuel's choices of that day ("acepto cambios y sigo tus recomendaciones"); awaiting his ratification. It updates in place two lines of the Amendment 2026-10-15, which keeps itself current (`:278`); closes R4 and R5; narrows R18; reads one sentence of the Amendment 2026-11-20 (SPEC-024); and adds to §8 and to the accepted threats. What it states as built is what SPEC-025's server half brings, and, for renewal on the endpoint, its agent half: until each lands, R4, R5 and R18 stand as written, and no release carries the agent while the release-tag freeze holds. The threat model remains `Accepted`.
+
+**Amendment.**
+
+- **Amendment 2026-10-15, two lines updated in place.**
+  - §1 Agent, the token (`:293`): "is stored as typed (R4)" reads "is stored as its SHA-256 alone; the server checks its scope, its org, its expiry and its uses, under its row's lock, before the CA signs anything, and limits failed enrollments per source address (SPEC-025 §Operational §1, §5). An admin may issue a token for up to 1000 uses and 7 days (SPEC-026)".
+  - Cross-cutting (`:311`): "The agents' certificates last 90 days with no renewal" reads "The agents' certificates last 90 days, and the agent renews its own from 45 days before their end, proving the current key and the new one (SPEC-025)"; "the CA's lasts 10 years (R5)" reads "the CA's lasts 10 years, with no scheduled rotation, and no certificate outlives it (accepted below)".
+- **R4 — closed** with debt #89 by SPEC-025's server half: the token at rest is a hash, it is checked before the CA signs, and failed enrollments are limited per source address.
+- **R5 — closed** with debt #88 by SPEC-025: an agent renews before its certificate ends; a revocation is a write-once time on the agent's row, checked on every request of the agent, which neither running service can undo (ADR-0004 Amendment 2026-11-20, item 5); and an agent's older certificate is refused once it uses a newer one. What remains: a revoked agent keeps sending requests, which the server refuses and logs, until its certificate ends; a restore of the database from a backup taken before a revocation undoes it, and the operator revokes the agent again (`docs/operations/backup-and-restore.md`); and the route that revokes is SPEC-026's, so until F3 lands only the database's owner role revokes.
+- **R18, narrowed.** SPEC-025's server flags an agent whose requests present an older certificate after a newer one, or whose heartbeats come from two processes in turn, and writes no alert and revokes nothing (SPEC-025 §Operational §6). The copy is detected, not prevented: until the operator acts, both copies are accepted, and a copy that renews first leaves the original refused as superseded. The runbook's remedy stands, with the copied agent now revoked rather than its row deleted.
+- **The Amendment 2026-11-20 (SPEC-024)**, its "the server has no command that removes the old agent, whose certificate stays valid there until it expires or an operator deletes its row" reads: until SPEC-026's route lands; then an admin revokes it.
+- **§8 Storage layer, assets at risk**, add: the host name, platform and version each agent sends, kept on its row in Postgres without a period, as the agents are. A host name can carry a person's name; `docs/operations/data-protection.md` names it.
+- **Threats explicitly accepted in MVP**, add:
+  - **One CA, a root for ten years, with no scheduled rotation**, in ingest's process (R6). Its compromise lets the holder issue a certificate for any agent; the runbook's remedy is a new CA, distributed as the agents' trust anchor, and every agent enrolled again. It is reopened by debt #99 or in the CA's ninth year (ADR-0004 Amendment 2026-11-20, item 7).
+  - **A token for several uses is readable wherever it is distributed**, a share that every user of a domain reads among them, until it expires, is used up or is withdrawn; whoever reads it enrolls agents of their own, which the agents' page lists with the token.
+  - Manuel's ratification of this amendment, with ADR-0004's Amendment 2026-11-20, is their acceptance.
+
+**Effect on other sections.** None is restated but the two lines updated in place and the sentence read above. R6's destination is unchanged.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
