@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-85.md](../handoff-session-85.md)).
+([handoff-session-86.md](../handoff-session-86.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -513,7 +513,10 @@ This dependency-ordered document supersedes both for planning.
   amendment's point 2's code, and its code kept dormant; R1 and #87 close by
   scope; C10's fourth commit is not landed, and
   the custody verb, reduced to the setup's hosts, moves after F3 and F4
-  (*The remaining order to sale*, below).
+  (*The remaining order to sale*, below). S86 landed that point 2's code
+  and the runbooks with it (`8ea9a8e` to `9bd8f83`) and #167's fixes for
+  every installation (`7f1b449`), and deleted C10's two branches
+  (`docs/handoff-session-86.md`): step 1 is done.
   The phase is four SPECs, F1 to F4 (the order of their remaining work is
   *The remaining order to sale*, below):
   - F1, SPEC-023: the server's installation (the bundle, the configuration
@@ -605,7 +608,8 @@ recommended option:
    model's; then its point 2's code (the migration's triggers and completions
    refused, the 28's line) with the runbooks' lines in one change; and, in a
    change of their own, #167's fixes for every installation, from C10's fourth
-   commit (`docs/c10-migration`).
+   commit (`docs/c10-migration`). Done: `9f34228` (S85), `8ea9a8e` to
+   `9bd8f83` and `7f1b449` (S86).
 2. **Owner items with calendar time, started now and in parallel:** the
    Authenticode decision and its purchase (ADR-0022 Open question 1; an
    application-control policy such as WDAC may also ask for a signature); #130's legal
