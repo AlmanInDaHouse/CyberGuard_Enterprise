@@ -716,6 +716,32 @@ took the migration out of. The custody verb's entries, which the superseded Amen
 
 **Effect on other sections.** None is restated but the two lines to update in place and the three sentences read above. R6's destination is unchanged.
 
+## Amendment 2026-11-20 (SPEC-026): the dashboard's rights, invitations, the login's prior session and the audit view
+
+**Status.** Proposed by Claude Code on 2026-11-20 with SPEC-026, on Manuel's choices of that day ("acepto cambios y sigo tus recomendaciones") and the Amendments 2026-11-20 of ADR-0022 and ADR-0014; awaiting his ratification. It updates six lines of the Amendment 2026-10-15, which keeps itself current (`:278`), each in place by the commit that lands the code it describes, the lines standing as they are until then; closes R14; restates R3, R7 and R13; reads one sentence of the Amendment 2026-10-14; and adds to §8 and to the accepted threats. What it states as built is what SPEC-026's code brings: until it lands, the lines and R14 stand as written. The threat model remains `Accepted`.
+
+**Amendment.**
+
+- **Amendment 2026-10-15, lines to update in place**, each by the commit that lands its code.
+  - §1 Agent, the token (`:293`), after SPEC-025's update: "An admin may issue a token for up to 1000 uses and 7 days, which they can withdraw (SPEC-026)" is added, by the commit that lands the api's token route.
+  - §3, the audit log (`:302`): "`cg_api` has `INSERT` alone on it: database grants enforce append-only access for that runtime role" reads "`cg_api` has `INSERT` and `SELECT` on it, and no `UPDATE` or `DELETE`: database grants enforce append-only access for that runtime role"; "A read writes none, a refused one aside" reads "A read writes none, a refused one aside, but the audit view's, which writes `audit.read` before its rows are sent, or answers `503` (SPEC-026)"; and "The login, the TOTP confirmation and the password change write one for a failure" reads "The login, the TOTP confirmation, an invitation's completion and the password change write one for a failure".
+  - §3, the users' list (`:303`): "`GET /v1/users` has no pagination." reads "`GET /v1/users` is paginated (SPEC-026); an incident's events, its playbook records and its alerts are answered whole, with the incident."
+  - §3, the session (`:304`): "The login deletes no session the caller already held (debt #102)." reads "A successful login deletes the session its cookie names (SPEC-026)."
+  - §9 Dashboard (`:310`): "The login and the logout are route handlers on the dashboard's origin" reads "The login, the logout and every mutation are route handlers on the dashboard's origin (SPEC-026 §Operational §9)"; "The dashboard enrolls no TOTP and manages no user (debt #83)." reads "The dashboard enrolls a user's TOTP factor at the invitation's completion and manages users (SPEC-026)."; "Its server pages forward the session cookie alone to the api" reads "Its server pages forward the session cookie alone to the api, and `X-Forwarded-For` for the reads that record an address"; and "Admins set users' passwords and receive their TOTP secret (R14)." is removed.
+  - §8 Storage layer (`:309`): "no signed mirror of `audit_log`, and no retention in Postgres" reads "no signed mirror of `audit_log` or of the triage history, and no retention in Postgres".
+- **R3 — closed**, restated: "the api writes `audit_log` and `forensic_key` and changes neither" reads "the api writes `audit_log` and `forensic_key` and changes neither; by column grants it issues and withdraws enrollment tokens, revokes agents, and changes the status and assignee of incidents and the status of alerts (ADR-0022 Amendment 2026-11-20)".
+- **R7**, restated: "In the bundle the api's credentials write no event and no alert, and to `audit_log` they only append" reads "In the bundle the api's credentials write no event, and of an alert its status and the time of its change alone, and of `audit_log` they append and read and change no row". Neither an alert's status nor an incident's is among the evidence an export signs, which is the events its alerts name.
+- **R13**, restated: "The session token, and a login's password and TOTP code" reads "The session token, a login's password and TOTP code, an invitation, a new password, a TOTP provisioning URI and an enrollment token".
+- **R14 — closed** by SPEC-026's code: an admin creates a user with an invitation the user completes, choosing the password and enrolling the factor, whose secret the admin never sees; the reset of ADR-0014's Amendment 2026-11-20 is an invitation too. What remains: whoever holds an invitation before its user completes it takes the account (ADR-0014 Amendment 2026-11-20, *What it leaves*).
+- **The Amendment 2026-10-14**, its "A writer to Postgres can also suppress a trigger, by placing an incident with the same grouping key first" (`:260`) reads, once SPEC-026's detection change lands: by placing an open incident with the same grouping key first; a closed one no longer takes the alerts of its key (SPEC-026 §Operational §7). Neither runtime role can insert an incident but ingest's.
+- **§8 Storage layer, assets at risk**, add: the invitations, kept as their SHA-256, with the TOTP secret of an invitation not yet completed, encrypted as the users' are (R10); the triage history, written by ingest's owner role through a trigger, read by the api, with the ids of the users assigned and the time of each change, without a period.
+- **Threats explicitly accepted in MVP**, add:
+  - **What a compromised api can do through its new rights**: enroll agents of its own within the tokens' caps, revoke every agent, withdraw every token, close or reassign incidents and alerts, and read the operators' activity and source addresses (ADR-0022 Amendment 2026-11-20). Each revocation is undone by the server host's administrator, and each change of triage is kept in the owner's history.
+  - **Admins read the operators' activity and source addresses in the audit view, and analysts see the emails of admins and analysts in the assignee's list**: processing of data about the client's employees, which the buyer's data-protection position states (roadmap step 9).
+  - Manuel's ratification of this amendment, with ADR-0022's Amendment 2026-11-20, is their acceptance.
+
+**Effect on other sections.** None is restated but the lines to update in place, R3, R7, R13 and R14, and the sentence read above.
+
 ## References
 
 - [ADR-0001](../adr/0001-monorepo-layout.md) — Monorepo layout (defines components in scope)
