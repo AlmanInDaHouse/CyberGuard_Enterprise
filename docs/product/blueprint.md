@@ -236,9 +236,7 @@ CyberGuard is a **self-deployable SOC/XDR platform** composed of two artifacts: 
 
 - Client certificates with **90-day** TTL, automatic rotation starting day 75.
 - Instant revocation by `agent_id` (Redis list checked on every connection).
-- Internal CA rotation annually.
-
-**Note — the protocol as built.** ADR-0004's amendments supersede parts of this section: the enrollment token is an opaque value stored as its hash, the agent sends its public key rather than a CSR, the certificate carries no `SAN = org_id`, renewal starts with 45 days left, revocation is a time on the agent's row in PostgreSQL checked on every request, and the internal CA is a ten-year root with no scheduled rotation (ADR-0004 Amendment 2026-11-20). The sequence number is informational only (its Amendment 2026-05-23). ADR-0004 is the binding text.
+- Internal CA rotation annually. *(ADR-0004 and its amendments supersede parts of this section and are the binding text: among them, the token stored as its hash, the public key sent rather than a CSR, no `SAN = org_id`, renewal from 45 days left, revocation on the agent's row in PostgreSQL, and a ten-year CA with no scheduled rotation, by its Amendment 2026-11-20; the sequence number informational and the buffer in memory, by its Amendment 2026-05-23.)*
 
 ### Degraded mode
 
