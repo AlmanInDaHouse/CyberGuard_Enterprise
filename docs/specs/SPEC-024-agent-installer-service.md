@@ -3840,6 +3840,337 @@ codes and the shape of this amendment. He approved this text on 2026-11-19, in c
 which covers the custody host test's venue and CLAUDE.md's naming of it. Status stays
 **Accepted**.
 
+## Amendment 2026-11-19 (second): the custody verb's readings of four states
+
+**What surfaced it.** Debt #169. Session 83 read the Amendment 2026-11-19's points 2 to 7 with a
+fresh context, the fixed prompt for a text (`docs/handoff-session-83.md`, *The reviews*), and found
+four points where the amendment's statements clash with each other or with the states they
+classify:
+
+- **A1.** Point 4 takes a staging or legacy directory whose security Administrators cannot read
+  for the agent's when SYSTEM owns `<P>` with item 2.1's DACL. No staging directory of the
+  product's is such: item 2.5 creates it with a DACL that gives Administrators full access
+  (`agent/cg-agent/src/service/migration.rs:1397`, `agent/cg-agent/src/service/log_file.rs:31`).
+  On a console installation, whose `<P>` an ordinary user can write (the Amendment 2026-11-05,
+  *What surfaced it*), that user's `agent.migrating`, closed to Administrators, makes the setup
+  read a migration in progress (28) and the migration refuse it with item 2.2's repair once item
+  2.1 has closed `<P>`; from then on point 4 takes it for the agent's, and `in-place`, which is
+  item 2.2's repair (point 12), leaves it.
+- **A2.** Point 6 gives `in-place` the setup's 27 on a console installation. The setup's 27 on a
+  console installation that `docs/operations/install.md:7` names is that of one whose agent never
+  enrolled: its data root holds no identity file, so point 4 reads it as the service's layout, and
+  with the product service absent `in-place` takes only a console installation. Read as a condition,
+  point 7's first sentence gives `aside` item 6's route and a `<P>` that holds nothing of the
+  agent's, neither of which it is, so that no mode takes it; and point 7 would refuse it once an
+  ordinary user, who can write its data root, plants there an `identity`, a `logs` or a
+  `setup-attempt.json` whose owner Administrators cannot read.
+- **A3.** In a data root of the service's layout, an `identity` or `logs` whose owner
+  Administrators cannot read is the service's (point 3): `in-place` leaves it, `aside` refuses the
+  data root (point 7), and the purge, which cannot open it or finds it owned by another account,
+  leaves it and ends with the service's 15, which `cg-setup` reads as 47 (the Amendment
+  2026-11-15, points 3, 5 and 6). An ordinary user who could write the data root before `in-place`
+  closed it, as on the setup's 27, plants one, and no route removes it.
+- **A4.** Point 5 prints each listed entry's link count, which a directory's listing does not give
+  and only an open of the entry reads, while point 3 opens an entry it takes for the service's no
+  further than to read its owner, which for the service's `identity\` Administrators cannot do.
+
+The first three share a cause: the amendment takes an entry whose owner Administrators cannot read
+for the product's, and an ordinary user who could write the directory can plant one. Of what the
+product writes in `<P>` and a data root of the service's layout, only `identity\` and its files, the
+legacy directory and its identity files after item 5, and a staging directory's `identity\` and its
+files are closed to Administrators; and a file of the configuration's names that SYSTEM owns with a
+protected DACL is one the service wrote or adopted, one that an administrator or another process
+running as SYSTEM made so, or one another account moved or linked in, which an ordinary user can
+neither create nor give that owner and DACL. Session 83's fifth point, the owner of the copy of
+`cg-setup.exe` on a host whose policy makes an administrator's account the owner of what it creates,
+is the runbook's, which is to create the copy owned by Administrators as it creates the inputs'
+directory.
+
+**Amendment.** Points are the Amendment 2026-11-19's, items the Amendment 2026-11-05's, and §1 to §4
+are this amendment's numbered paragraphs below. Below, a *console installation* is point 4's, a data
+root that holds `cert.pem`, `key.dat` or `identity.json`, as §1's third reading reads them; a
+*console installation whose agent never enrolled* is the console runbook's data root before any
+enrollment wrote an identity file (`docs/operations/install.md:7`), which holds none of them and so
+is no console installation in that sense: point 4 reads it as of the service's layout. An entry's
+owner and DACL are read through an open, by a name its parent's listing gave and through a handle
+whose file ID is the one listed, that asks for `READ_CONTROL` and `FILE_READ_ATTRIBUTES` alone:
+Administrators *cannot read* them when Windows denies that open for its access, and the open is in
+use, 48 before any act and 49 after one (point 3), when an oplock or the 30 seconds end it or the
+entry is pending deletion. An entry *owned so* by an account is a regular file, not a reparse point,
+whose owner Administrators can read and is that account; a file of the agent's that is owned so by
+SYSTEM or Administrators and has another link is repaired as point 6 and the Amendment 2026-11-18,
+point 4, repair one, its names that are not the product's deleted where they lie in `<P>` or the
+data root, and is not repaired where one lies elsewhere; an `agent.toml.hygiene-tmp` that item 2.2
+refuses is §1's sixth reading's instead.
+
+1. **What the verb takes for the product's (A1 to A3).** Points 3 and 4 read as below, each
+   reading taking only what the ones before it give, in this order, so that no verdict depends on
+   one that depends on it:
+   - A *SYSTEM mark* is an entry of the data root, its name compared as point 4 compares names,
+     named `agent.toml`, of any kind and link count, whose owner Administrators can read and is
+     SYSTEM, or `agent.toml.setup` or `agent.toml.hygiene-tmp` owned so by SYSTEM, each with a DACL
+     that is protected, as stored, as the service writes and adopts each (the Amendment 2026-11-04,
+     items 3 and 6, and the Amendment 2026-11-09, item 6, step 5). A configuration the console agent
+     rewrote as LocalSystem has the DACL it inherited and is none, and so is one an administrator's
+     tool replaced, giving it another owner, or made inherit.
+   - An entry of the data root named `logs`, in any case of its ASCII letters, is the service's
+     only when it is a directory, not a reparse point, whose owner Administrators can read and is
+     SYSTEM or Administrators and whose DACL allows no account but SYSTEM and Administrators, as the
+     service's file log requires of it, the service's `logs\` giving Administrators read access
+     (`agent/cg-agent/src/service/log_file.rs:33`); any other is foreign.
+   - In a data root that holds a SYSTEM mark and a `logs` owned by SYSTEM that the previous reading
+     takes for the service's, an entry named `cert.pem`, `key.dat` or `identity.json` that is not
+     owned so by SYSTEM with one link is foreign and does not make the data root a console
+     installation's. The service, as SYSTEM, creates `logs\` when it opens its file log, before it
+     reports `RUNNING` and so before its identity step (the second Amendment 2026-11-01, item 1, and
+     the Amendment 2026-11-04, item 3), and no console installation holds such a `logs\`; a console
+     installation the migration restricted holds its identity files owned so by SYSTEM, each with
+     one link (item 2.4), and one item 2.4 left part-restricted, its `agent.toml` restricted first,
+     holds no such `logs\`, so this reading leaves either one a console installation's. So an
+     ordinary user who could write the data root of a pending or enrolled host, whose data root an
+     administrator opened, does not turn it into a console installation by planting such a name, a
+     hard link included: `in-place` moves it, or, where it is another name of a file of the agent's,
+     deletes it as that file's other name. A regular file with one link that SYSTEM owns, which
+     another account moved in, does, as §2's residual says. The layout of point 4 is then read.
+   - Point 4's last sentence reads: the verb reads item 4's count where Administrators can read a
+     staging or legacy directory's security. Where they cannot, a staging directory is foreign,
+     since item 2.5 creates every staging directory of the product's with a DACL that gives
+     Administrators full access; and a legacy directory, whose DACL item 5 restricts to SYSTEM
+     alone (`agent/cg-agent/src/service/migration.rs:1712-1721`,
+     `agent/cg-agent/src/identity.rs:483`), is the agent's when `<P>` is closed and the data root
+     holds a `migration.json` owned so by SYSTEM, as the committed migration's record is (item 3)
+     until the purge, which removes the legacy directory before it, removes it; it is foreign
+     otherwise. Point 4's "a legacy directory beside a console installation's data root … is
+     foreign" stands. `in-place` reads this once it has closed `<P>` (point 5), so on a migrated
+     host whose `<P>` an administrator opened, an ordinary user's `agent.legacy`, closed to
+     Administrators, is taken for the agent's and kept in `<P>`, which the verb cannot tell from
+     the legacy directory a migration with `keep` leaves; the purge leaves it (15), and `legacy`
+     then moves it.
+   - An entry of the data root named `identity`, in any case of its ASCII letters, is the
+     service's only when it is a directory, not a reparse point, whose owner is SYSTEM or
+     Administrators or Administrators cannot read it, and the data root holds a SYSTEM mark or
+     `<P>` a legacy directory the previous reading takes for the agent's; any other is foreign.
+     The service's `identity\` is unusable by the product's routes without them: a start without
+     `agent.toml` is code 2 (the Amendment 2026-11-04, item 3), the adoption refuses a data root
+     that holds `identity` (the Amendment 2026-11-09, item 6, step 3), and the purge removes the
+     configuration first and the legacy directory before `identity\` (the Amendment 2026-11-15,
+     point 6).
+   - An entry of the data root named `agent.toml.setup`, `server-ca.pem.setup`,
+     `setup-attempt.json`, `migration.json`, `agent.toml.hygiene-tmp` or
+     `migration.json.rewrite-tmp` is foreign unless it is owned so by SYSTEM or by Administrators,
+     as the setup and the service write each (the Amendment 2026-11-09, item 3, the Amendment
+     2026-11-10, item 5, item 3, and the Amendment 2026-11-04, item 6). Item 2.2 refuses an
+     `agent.toml.hygiene-tmp` for its kind, its links or its owner; this reading makes one it
+     refuses for its kind or its owner foreign, and point 3's "deletes … a temporary that item 2.2
+     refuses" and point 6's "deletes `agent.toml.hygiene-tmp` that item 2.2 refuses" read, for a
+     foreign one, as a move, with its owner and DACL; one it refuses for its links alone keeps point
+     6's reading, its own name deleted, or moved when the deletion fails, whatever its other names;
+     it holds at most a consumed token (item 2.2). Point 7's refusal of an `agent.toml.setup`,
+     `server-ca.pem.setup`, `setup-attempt.json` or `migration.json` "that point 4 does not make
+     foreign" is of one this reading does not make foreign.
+   - Point 3's rule that it never opens an entry beyond reading its owner, moves it but with `<P>`
+     whole, or deletes it holds for an `identity` or `logs` it takes for the service's, and
+     point 2's "it leaves by point 3's rule" reads so.
+
+   `in-place` moves each entry these readings make foreign as it moves any foreign entry of `<P>`
+   or the data root, whole and unopened beyond its handle (point 6), and `aside` moves `<P>` with
+   them (point 7); the planted `agent.migrating` of A1 is such an entry.
+2. **A console installation whose agent never enrolled (A2).** Point 6's first sentence reads "For
+   the setup's 27 on an installed host, …", without "or a console installation", and its "a console
+   installation", where the product service is absent, is point 4's. The first sentences of points 6
+   and 7 name the routes the runbook runs `in-place` and `aside` for, and point 7's gains "and the
+   setup's 27 on a console installation whose agent never enrolled, or its 28 where an ordinary user
+   created `agent.migrating` in that `<P>`"; those routes are no condition the verb reads, while the
+   conditions on the product service those sentences state stand; `in-place`'s "when it is absent, a
+   console installation" reads "when it is absent, a console installation, or a data root of the
+   service's layout that holds a SYSTEM mark", which a host uninstalled without the purge keeps (the
+   Amendment 2026-11-15, point 9), so that its directories an administrator opened are repaired
+   before the setup is run again; and the runbook also runs `in-place` where an ordinary user
+   planted a console installation's name beside a service's `identity`, which the setup reads as 28
+   and the service as 5 or 13 (§1): with the product service absent, `aside` acts on any `<P>` its
+   refusals leave, as its "Any other `<P>` it moves whole" says, an ordinary user's pre-created
+   `<P>`, which point 12 gives it, included. Point 7's refusals, of a data root of the service's
+   layout and of a legacy directory, hold only where SYSTEM or Administrators owns `<P>`, as every
+   route of the product's that leaves the service's data there leaves it: a `<P>` an ordinary user
+   created first, in which the console runbook made its data root, is moved whole whatever that data
+   root holds, so that its owner cannot hold `aside` with the administrator's own files renamed.
+   Point 7's refusal of "an `agent.toml` or `server-ca.pem` that SYSTEM owns" reads: an
+   `agent.toml`, `agent.toml.setup`, `server-ca.pem` or `server-ca.pem.setup` that passes
+   `agent.toml`'s policy (the Amendment 2026-11-04, item 3), as the service's adoption and migration
+   leave each (the Amendment 2026-11-09, item 6, step 5, and item 2.5). In a console installation
+   whose agent never enrolled, the `agent.toml` and `server-ca.pem` an administrator put there fail
+   that policy and are no SYSTEM mark, and an entry an ordinary user creates there, but for a hard
+   link, is that user's: foreign by §1 or by point 4, or, named `agent.toml` or `server-ca.pem`
+   where that name is free, the agent's by point 4 and failing that policy, refusing nothing; or,
+   named `cert.pem`, `key.dat` or `identity.json`, it makes the data root a console installation's,
+   whose `<P>` point 7 moves too, after closing it and restricting and hashing its files where
+   SYSTEM or Administrators own them, which reads the token the configuration may hold into the
+   verb's memory. `aside` then moves `<P>` whole; where it neither closes nor restricts it, each
+   file keeps its owner and DACL and each directory the entries that let ordinary users create and
+   read in it, which those users reach by path in the inputs' directory. The verb cannot tell from
+   the product's an object SYSTEM or Administrators owns that another account moved into `<P>` or
+   the data root, which it can do from wherever on the volume it may delete that object, or linked
+   there, or that an administrator made there, nor a configuration an administrator gave owner
+   SYSTEM and a protected DACL; this is the amendment's residual. In a `<P>` that SYSTEM or
+   Administrators owns: a file owned so by such an account, named `agent.toml.setup`,
+   `server-ca.pem.setup`, `setup-attempt.json` or `migration.json`, a directory it owns named `logs`
+   whose DACL §1's second reading admits, or a directory SYSTEM owns, named `agent.legacy` in `<P>`,
+   that item 4 counts, refuses `aside`, and a console installation whose agent never enrolled then
+   has no route; a regular file with one link that SYSTEM owns, named `cert.pem`, `key.dat` or
+   `identity.json` in the data root of a pending or enrolled host whose data root an administrator
+   opened, makes that data root a console installation's, which `in-place` refuses (point 6) and
+   which takes item 6's route, enrolling anew; and a SYSTEM mark beside a directory SYSTEM owns
+   named `logs`, in a console installation's data root, makes that installation's identity files
+   foreign, which `in-place` moves, and the migration can no longer run. The threat model's
+   Amendment 2026-11-18, on its branch, accepts a directory moved in, and is revised to name these
+   (*Effect*). The token the configuration may hold, which every account that could read that file
+   could read (`docs/operations/install.md:7`), stays readable to them by the file's path or file
+   ID; it is single-use and valid for 15 minutes from its issue (`docs/operations/install.md:303`,
+   `:363`); the host is set up with a new one, and one issued less than 15 minutes before stays
+   valid on the server until it expires or is used. A data root the purge left at its `identity\`
+   step, whose `server-ca.pem` and `logs\` are the service's, is refused by `aside` and is
+   `in-place`'s (§3).
+3. **The purge's leftover (A3).** By §1, an `identity` in a data root without a SYSTEM mark, in a
+   `<P>` without a legacy directory the verb takes for the agent's, is foreign: the state the purge
+   leaves when it ends, at its `identity\` step or abnormally, after removing the configuration and
+   the legacy directory (the Amendment 2026-11-15, point 6). The purge that ends at its legacy step,
+   after which `legacy` moves the legacy directory (point 8), leaves it too, and the purge run
+   again, as point 8 says, then removes that `identity\`; no other route of the product's leaves it
+   beside a service's `identity\`; an administrator's tool that replaces the configuration, giving
+   it another owner, or makes its DACL inherit, which the service then refuses (code 2), does, and
+   there too `in-place` takes the enrolled `identity\` for foreign: its plan, which prints it so, is
+   the administrator's only guard, and the runbook stops there and purges. With the product service
+   stopped, as `in-place` requires, `in-place` moves such an `identity`, and the purge run again
+   goes on past it. The verb does not tell an `identity` an ordinary user planted from the service's
+   own `identity\` that a purge has not yet removed, and moves either; the service's, its contents
+   unread and its DACL, which admits SYSTEM alone, unchanged, then stays in the inputs' directory
+   with what the verb keeps (point 2), the private key's machine-sealed copy in it, where the purge
+   would have removed it, and its certificate stays valid on its server until it expires or an
+   operator deletes its row (R5). A directory with a file open beneath it is not moved (the
+   Amendment 2026-11-19, *What surfaced it*). The runbook runs `in-place` on that state only after
+   the purge, run again, has ended with that `identity` left, which its entry 1002 names; a purge
+   that then exits 0 has removed what was left under `<P>`, not what `in-place` moved, and the
+   Amendment 2026-11-15, point 8's "The purge removes the local identity" reads so. A data root that
+   holds a SYSTEM mark and no `identity` the service wrote, such as a pending host's whose data root
+   an administrator opened, keeps an `identity` an ordinary user planted there closed to
+   Administrators as the service's, and the setup, once `in-place` has closed the data root, reads
+   the host as enrolled: its route is `in-place`, which closes the data root, then the purge, which
+   removes the configuration and ends with that `identity` left, `in-place` again, the purge again,
+   and the setup with a new token. In a console installation's data root that holds a SYSTEM mark,
+   as one item 2.4 restricted does, such an `identity` stays the service's, and `in-place` refuses
+   it (point 6), the host taking item 6's route, as before this amendment. Point 12's "a name left
+   in `identity\` or `logs\` keeps its refusal" holds where §1 takes the directory for the
+   service's.
+4. **The link count (A4).** Point 5's link count of an `identity` §1 takes for the service's, whose
+   owner Administrators cannot read, is printed as not read: the verb opens it no further than to
+   read its owner (point 3), and that open is denied. Every other entry's link count, and a file's
+   names, are read as the Amendment 2026-11-19 reads them, through a handle that holds
+   `FILE_READ_ATTRIBUTES`, which the parent's `FILE_LIST_DIRECTORY` grants. The verb's only act on
+   such an `identity` is a move of `<P>` whole, which its link count does not bear on.
+
+**Alternatives.** Claude Code discarded, for each point:
+
+- A1: `in-place` refusing (48) a staging directory Administrators cannot read, the console
+  installation then taking item 6's route: it enrolls a host anew over a name an ordinary user
+  created, where no staging directory of the product's can be in that state.
+- A1 to A3, as one: taking an `identity` for the service's only beside an `agent.toml` that passes
+  `agent.toml`'s policy with one link. A hard link an ordinary user may make to that file, or an
+  administrator's grant on it, would then make the verb move an enrolled host's `identity\`. The
+  SYSTEM mark cannot be lost so, but by an administrator's tool that replaces the file or makes its
+  DACL inherit, or by an account an administrator let delete in the data root, which could move
+  `identity\` itself; and one that an object moved or linked in forges is §2's residual.
+- A2: `in-place` taking a console installation whose agent never enrolled, the product service
+  absent, closing its directories and giving its files owner Administrators, the setup then
+  replacing the configuration: it keeps in place a configuration whose token every account could
+  read, which the service's custody refuses (owner other than SYSTEM, code 2) and the setup
+  replaces anyway. Restricting its files before every such move was discarded too: it reads into
+  the verb's memory a token the host does not use again, and the accounts that could read the
+  file before the move are those that can read it after.
+- A3: `aside` taking a data root of the service's layout that holds such an `identity`, once the
+  setup is uninstalled: it needs a default uninstallation first, and keeps in the inputs'
+  directory everything the purge would remove, `server-ca.pem`, `logs\` and `migration.json`, with
+  the enrolling account's SID, among it. Reading such an entry as foreign wherever the data root
+  was not closed when the verb found it was discarded too: it would move the identity of an
+  enrolled host whose data root an administrator had opened.
+- A4: an open of an `identity` or `logs` taken for the service's for `FILE_READ_ATTRIBUTES` alone,
+  to read its link count: it opens the service's `identity\` beyond what point 3 admits, for a
+  number that binds nothing the verb does to it.
+
+**Tests.** install_ac_017 gains, over temporary roots in the local gate and `rust-ci`, as the
+Amendment 2026-11-19's *Tests* puts them, the current user standing for SYSTEM and Administrators,
+and an entry whose owner Administrators cannot read standing as one whose DACL holds an `OWNER
+RIGHTS` entry that grants nothing, so that its owner, the current user, cannot read its owner or
+DACL, removed through its parent's grant; an `agent.toml` with an unprotected DACL standing as no
+SYSTEM mark: a staging directory so closed in a `<P>` closed as item 2.1 leaves it, beside a console
+installation, read as foreign and moved by `in-place`; a legacy directory so closed, in a closed
+`<P>` beside a data root of the service's layout, taken for the agent's beside a `migration.json`
+the current user owns and foreign without it; an `identity` and a `logs` planted so closed, and as
+files, and the six names of §1's sixth reading so closed, each read as foreign and moved by
+`in-place` in a data root without a SYSTEM mark, and the `identity` left beside one, and taken for
+foreign beside an `agent.toml` with an unprotected DACL; a console installation whose agent never
+enrolled with those entries planted in its data root, moved whole by `aside`, and the same data root
+refused (48) once its `agent.toml` passes `agent.toml`'s policy; a `cert.pem` planted, as a file
+whose owner Administrators cannot read and as a hard link, in a data root that holds a SYSTEM mark
+and a `logs` of SYSTEM's stand-in, with and without an `identity`, read as foreign and moved by
+`in-place`, and the same beside no `logs`, where the data root reads as a console installation's; an
+`agent.toml` with two links staying a SYSTEM mark; a `migration.json` and an `agent.toml.setup`
+given a second name staying the agent's, that name deleted where it lies in the data root; a
+`cert.pem` that is another name of the service's `server-ca.pem`, deleted as that name; an
+`agent.toml.hygiene-tmp` with a second name elsewhere, its own name deleted; a `logs` whose DACL
+admits another account read as foreign; a data root of the service's layout with a SYSTEM mark, the
+product service absent, its directories closed by `in-place`; an `identity` closed to Administrators
+beside a legacy directory taken for the agent's and no SYSTEM mark left; a legacy directory closed
+to Administrators beside a `migration.json` owned so by the stand-in, in a `<P>` that is not closed,
+read as foreign; and a plan that prints as not read the link count of an `identity` so closed. In
+`package-ci`'s `host` job, beside the Amendment 2026-11-19's fixtures, with the test's standard
+account as the ordinary user: a console installation whose agent never enrolled, its `agent.toml`
+and `server-ca.pem` the runner's Administrator's, with an `identity`, a `logs` and a
+`setup-attempt.json` that account planted closed to Administrators, preflight's 27, `aside`, then
+preflight past 27.
+
+**Effect.** The Amendment 2026-11-19's points 2 to 7 and 12 read as §1 to §4 say; its points 1 and 8
+to 11, its codes and its *Tests* stand, install_ac_017 gaining the tests above. No ADR changes, and
+no privilege, environment variable, setting, crate or exit code is added; the verb opens no kind of
+entry its points did not. Its moves gain the entries §1 makes foreign, among them a service's
+`identity\` that a purge has not removed (§3) and a refused temporary, which join what the verb
+keeps in the inputs' directory, the private key's machine-sealed copy among them; the Amendment
+2026-11-15, point 8, reads as §3 says. The threat model's Amendment 2026-11-18, approved and waiting
+on its branch until the runbook gives the verb, is revised to §1 to §3 before it lands, for Manuel's
+approval:
+
+- R17's corrected entry, whose "never the service's `identity\` or what it holds" gains §3's
+  exception;
+- the threat model's own §1, *Elevation of Privilege*'s *the custody verb*, which states point 3's
+  rule unamended and that the verb "deletes only … a refused temporary", which §1 makes a move for a
+  foreign one, and which gains a configuration an administrator's tool replaced or made inherit,
+  which makes `in-place` take an enrolled `identity\` for foreign (§3);
+- the threat model's own §1, *Information Disclosure*'s *what the custody verb keeps*, which gains a
+  service's `identity\` that `in-place` moves, the token file of a console installation whose agent
+  never enrolled, which `aside` moves, and a refused temporary that `in-place` moves;
+- the accepted threat *A directory moved in by another account*, whose "One that holds `identity` …
+  keeps `aside` refused" holds of an `identity` §1 takes for the service's, and which gains §2's
+  residual: a file, a directory or a hard link of SYSTEM's or Administrators' moved or linked into
+  `<P>` or the data root, or made there by an administrator, and its three effects;
+- *What the runbook does not repair*, whose planted staging directory is now foreign and moved;
+  whose planted `identity` and `logs` in a console installation's data root are foreign and moved
+  unless §1's fifth and second readings take them for the service's; whose `agent.legacy` beside a
+  data root of the service's layout with no `identity\` is the agent's when item 4 counts it, or
+  when Administrators cannot read it, `<P>` is closed and a `migration.json` owned so by SYSTEM is
+  beside it, and is foreign and moved otherwise; whose name left in `identity\` or `logs\` after a
+  purge reads as §3 says; and which gains the planted `agent.legacy` of §1 and a pending host's
+  `identity` planted closed to Administrators, whose route is §3's.
+
+The runbooks' statements that the purge removes the local identity (`docs/operations/install.md`,
+`docs/operations/data-protection.md`) are revised with the runbook that gives the verb. Debt #169 is
+settled by this text and closes when it lands. The verb, its moves and its readings of items 2.2 and
+6, which this text changes, are on Manuel's list (the Amendment 2026-11-19's *Effect*). Claude Code
+proposed this text on 2026-11-19, on Manuel's choice of that day that an amendment settle A1 to A4,
+drafted on an owner-review branch ("digo que si"). Manuel approved it, at `0610039`, on 2026-11-20,
+in chat: "doy mi ok y acepto recomendaciones", which takes each point's proposal over its
+alternative, the two readings beyond A1 to A4 (`in-place` for a host uninstalled without the purge,
+and the console's names beside a SYSTEM mark) and the residuals §2 and §3 disclose; the threat
+model's revision waits for his approval with the runbook. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.
