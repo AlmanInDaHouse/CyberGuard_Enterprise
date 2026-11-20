@@ -4,10 +4,10 @@
 - **Title:** Agent certificates — the enrollment token at rest, renewal, revocation and a copied identity
 - **Status:** Proposed
 - **Depends on:**
-  - ADR-0004 Amendment 2026-11-20 — the decisions this SPEC implements: the token opaque and stored as its hash, checked before the certificate is signed (item 1); the raw public key, and the new key proved by both keys at renewal (item 2); no `SAN`, the org from the agent's row (item 3); renewal with 45 days left, and a later certificate that replaces the older one at its first use (item 4); revocation on the agent's row in PostgreSQL, write-once, refused with `403` (item 5); a refused agent keeps running (item 6); the ten-year CA (item 7); a copied identity detected, not refused (item 8).
+  - ADR-0004 Amendment 2026-11-20 — the decisions this SPEC implements: the token opaque and stored as its hash, checked before the certificate is signed (item 1); the raw public key, and the new key proved by both keys at renewal (item 2); no `SAN`, the org from the agent's row (item 3); renewal with 45 days left, and the certificate recorded at the renewal, which replaces the older one at its first use (item 4); revocation on the agent's row in PostgreSQL, write-once, refused with `403` (item 5); a refused agent keeps running (item 6); the ten-year CA (item 7); a copied identity detected, not refused (item 8).
   - ADR-0022 §4 and its Amendment 2026-11-20 — the runtime roles' grants; this SPEC narrows ingest's and leaves the api's to SPEC-026.
   - ADR-0004 (the protocol), ADR-0009 (the agent's ring), ADR-0010 and SPEC-024 (the service and its custody of the identity).
-  - This SPEC amends **by scope**: SPEC-002 (the identity's `expires_at` informational; the renewal), SPEC-003 (the `403` reasons; the renewal request; its "Redis revocation set" (`:44`) read as the agent's row; FR-012 lists a certificate the server "has revoked" among the handshake refusals that end in exit `7`, and a revocation is instead the handler's `403`, which ends in none), SPEC-004 (FR-002, the mTLS listener's renewal route; FR-004; FR-006, the certificate's `notAfter`; FR-007, FR-010, FR-013 and FR-015; and its Postgres schema), SPEC-023 (deploy_ac_004 gains rows for `cg_ingest` on `agents`) and SPEC-024 (the renewal's write of the identity, by an amendment of SPEC-024 that lands before the agent half's code; this SPEC's §Operational §10). Each one's acceptance criteria stand, read with the changes §Data contracts and §Operational state.
+  - This SPEC amends **by scope**: SPEC-002 (the identity's `expires_at` informational; the renewal), SPEC-003 (the `403` reasons; the renewal request; its "Redis revocation set" (`:44`) read as the agent's row; FR-012 lists a certificate the server "has revoked" among the handshake refusals that end in exit `7`, and a revocation is instead the handler's `403`, which ends in none; and FR-012's exit `7` for a client certificate the handshake refuses does not apply while the agent keeps an older pair: a renewed certificate the handshake refuses, or the newer of two pairs at a start, falls back to the older pair with no exit, §Operational §10, and AC-008 stands for an agent with one pair), SPEC-004 (FR-002, the mTLS listener's renewal route; FR-004; FR-006, the certificate's `notAfter`; FR-007, FR-010, FR-013 and FR-015; and its Postgres schema), SPEC-023 (deploy_ac_004 gains rows for `cg_ingest` on `agents`) and SPEC-024 (the renewal's write of the identity, by an amendment of SPEC-024 that lands before the agent half's code; this SPEC's §Operational §10). Each one's acceptance criteria stand, read with the changes §Data contracts and §Operational state.
 - **Authors:** Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -22,7 +22,7 @@ ADR-0004's Amendment 2026-11-20 decides how each is closed. This SPEC is roadmap
 
 1. **The token at rest** (server): its SHA-256 alone, under an identifier; existing tokens hashed by the migration; uses and a withdrawal; the agent's row naming the token that enrolled it.
 2. **Enrollment checks the token before it signs** (server): scope, org, state, expiry, withdrawal and remaining uses, under the token row's lock; the agent's org from the token; a rate limit on failed enrollments.
-3. **Every agent request** (server): the revocation check, the certificate the request presents compared with the agent's, a later one made the agent's, an older one refused; the org from the agent's row; the agent's host name, platform and version kept.
+3. **Every agent request** (server): the revocation check, the certificate the request presents compared with the agent's and its pending one, the pending one made the agent's, any other refused; the org from the agent's row; the agent's host name, platform and version kept.
 4. **The renewal route** (server) on the mTLS listener, and its rate limit.
 5. **Revocation's storage** (server): the columns, the write-once trigger, ingest's runtime role unable to write them. The route that revokes is SPEC-026's (F3); until it lands, nothing but the tests and the owner role writes a revocation.
 6. **A copied identity** (server): two signals, a flag on the agent's row, no alert and no automatic revocation.
@@ -67,6 +67,7 @@ The columns `token` and `consumed_by_agent_id` are dropped, after the latter is 
 | `process_started_at`, `previous_process_started_at` | `timestamptz` | The start of the agent's process, as its last two distinct heartbeats computed it (§Operational §6). |
 | `duplicate_signal` | `text`, `CHECK (duplicate_signal IN ('superseded_certificate', 'interleaved_process'))` | The first signal of a copy (§Operational §6). |
 | `duplicate_signal_at` | `timestamptz` | Its time; both set once. |
+| `pending_cert_pem` | `text` | The certificate the agent's last renewal issued (§Operational §4), until a request under it makes it the agent's (§Operational §3); `NULL` otherwise. |
 
 **The triggers**, each with a function `cg_ingest_owner` owns; those that refuse do so with `SQLSTATE` `P0001`:
 
@@ -76,7 +77,7 @@ The columns `token` and `consumed_by_agent_id` are dropped, after the latter is 
 
 The owner role, which holds the triggers, can disable them; neither runtime role can.
 
-**The grants**, when `cg_ingest` exists: its table-level `INSERT` and `UPDATE` on `agents` are revoked and replaced by `INSERT (agent_id, org_id, pubkey, cert_pem, enrolled_at, expires_at, enrolled_by_token_id, hostname, platform, agent_version)` and `UPDATE (pubkey, cert_pem, expires_at, last_seen, hostname, platform, agent_version, process_started_at, previous_process_started_at, duplicate_signal, duplicate_signal_at)`; on `enrollment_tokens` it keeps `SELECT`, `INSERT` and `UPDATE`. It has no right to write `revoked_at` or `revocation_reason`. The api's grants are SPEC-026's.
+**The grants**, when `cg_ingest` exists: its table-level `INSERT` and `UPDATE` on `agents` are revoked and replaced by `INSERT (agent_id, org_id, pubkey, cert_pem, enrolled_at, expires_at, enrolled_by_token_id, hostname, platform, agent_version)` and `UPDATE (pubkey, cert_pem, expires_at, last_seen, hostname, platform, agent_version, process_started_at, previous_process_started_at, duplicate_signal, duplicate_signal_at, pending_cert_pem)`; on `enrollment_tokens` it keeps `SELECT`, `INSERT` and `UPDATE`. It has no right to write `revoked_at` or `revocation_reason`. The api's grants are SPEC-026's.
 
 ### 2. The renewal request and its answer
 
@@ -106,7 +107,7 @@ The answer to a renewal is SPEC-002's enrollment answer: `{ envelope_version, ag
 | Status | `error` | Where | When |
 |---|---|---|---|
 | `403` | `agent_revoked` | heartbeat, renewal | The agent's row has `revoked_at`. |
-| `403` | `agent_superseded` | heartbeat, renewal | The request presents a certificate issued before the agent's (§Operational §3). |
+| `403` | `agent_superseded` | heartbeat, renewal | The request presents a certificate that is neither the agent's nor its pending one (§Operational §3). |
 | `401` | `bad_new_key_signature` | renewal | `new_key_signature` does not verify under `new_agent_pubkey`. |
 | `409` | `renewal_not_due` | renewal | The certificate presented has more than 45 days left, or a new one would end no later than it (§Operational §4). |
 | `429` | `rate_limited` | enrollment, renewal | §Operational §5. |
@@ -139,17 +140,17 @@ An accepted heartbeat updates `last_seen`, `hostname`, `platform` and `agent_ver
 
 ### 3. The certificate a request presents (server)
 
-The server compares the DER of the certificate the TLS socket presents with the DER of `cert_pem`:
+The server compares the DER of the certificate the TLS socket presents with the DER of `cert_pem` and of `pending_cert_pem`:
 
-- **Equal**: the envelope is verified under `pubkey`.
-- **Different, and the presented certificate is later than `cert_pem`**, by its `notBefore`, or with an equal `notBefore` by its serial read as an unsigned integer: the envelope is verified under the presented certificate's key. If it verifies, and the request passes every later check and its writes succeed (a heartbeat whose events cannot be stored is refused, as `services/ingest/src/routes/heartbeat.ts` refuses it today, and promotes nothing), the server sets `pubkey`, `cert_pem` and `expires_at` to the presented certificate's, with a compare-and-set on the old `cert_pem`; a compare-and-set that finds another certificate there answers `503` and changes nothing, and the agent's next request is compared afresh. It logs `agent certificate promoted` with the agent, both certificates' `notBefore` and their serials. This is the renewal's completion, and a restore's recovery (ADR-0004 Amendment 2026-11-20, item 4). A renewal request can promote too.
-- **Different, and not later**: `403 agent_superseded`, and the copy signal `superseded_certificate` (§6).
+- **Equal to `cert_pem`**: the envelope is verified under `pubkey`.
+- **Equal to `pending_cert_pem`**: the envelope is verified under that certificate's key. If it verifies, and the request passes every later check and its writes succeed (a heartbeat whose events cannot be stored is refused, as `services/ingest/src/routes/heartbeat.ts` refuses it today, and promotes nothing), the server sets `pubkey`, `cert_pem` and `expires_at` to the pending certificate's and clears `pending_cert_pem`, with a compare-and-set on the old `cert_pem` and the pending one; a compare-and-set that finds another certificate there answers `503` and leaves the agent's row as it is, and the agent's next request is compared afresh. It logs `agent certificate promoted` with the agent and both certificates' serials. This is the renewal's completion (ADR-0004 Amendment 2026-11-20, item 4). A renewal request under the pending certificate promotes it too.
+- **Neither**: `403 agent_superseded`, and the copy signal `superseded_certificate` (§6). A certificate the CA signed that the server did not record at a renewal, an older one of the agent's among them, is never made the agent's.
 
 The handshake has already proved that the presented certificate chains to the CA, is within its validity and is held by its key's owner (SPEC-004 FR-008).
 
 ### 4. Renewal (server)
 
-After §2 and §3, the timestamp, the nonce and the current key's signature: `new_key_signature` under `new_agent_pubkey` (`401 bad_new_key_signature`); the presented certificate's `notAfter` 45 days or fewer after the server's `now()`, and the new certificate's `notAfter` (§1) later than it, which the CA's own end can prevent (`409 renewal_not_due`); the rate limit of §5 (`429`). Then the CA signs a certificate with `CN = agent_id`, the new key, and the `notAfter` of §1, and the server answers it. It writes no row beyond §3's promotion: the agent's certificate changes at its first request under the new one (§3), so an answer the agent does not receive changes nothing, and the agent renews again.
+After §2 and §3, the timestamp, the nonce and the current key's signature: `new_key_signature` under `new_agent_pubkey` (`401 bad_new_key_signature`); the presented certificate's `notAfter` 45 days or fewer after the server's `now()`, and the new certificate's `notAfter` (§1) later than it, which the CA's own end can prevent (`409 renewal_not_due`); the rate limit of §5 (`429`). Then the CA signs a certificate with `CN = agent_id`, the new key, and the `notAfter` of §1; the server stores it as the agent's `pending_cert_pem`, replacing any earlier one, and answers it; if it cannot store it, it answers `503` and sends no certificate. The agent's certificate changes at its first request under the new one (§3), so an answer the agent does not receive changes nothing the agent uses, and the agent renews again, which replaces the pending certificate.
 
 ### 5. Rate limits (server)
 
@@ -162,14 +163,14 @@ In the process's memory, constants, no setting, reset at a restart:
 
 Two signals, detect-only:
 
-- **`superseded_certificate`**: a request presents a certificate issued before the agent's (§3).
+- **`superseded_certificate`**: a request presents a certificate that is neither the agent's nor its pending one (§3).
 - **`interleaved_process`**: each accepted heartbeat computes its process's start as `body.sent_at − body.uptime_seconds`. If `process_started_at` is `NULL`, it takes that start. If it is within 120 seconds of `process_started_at`, nothing changes. Otherwise, if it is within 120 seconds of `previous_process_started_at`, two processes are taking turns as the agent: the signal is raised. In both of the last cases the columns shift: `previous_process_started_at` takes `process_started_at`, which takes the new start.
 
 The first signal sets `duplicate_signal` and `duplicate_signal_at`, and logs `agent duplicate suspected` with the agent and the signal; a later one changes neither. No alert is written, no request is refused for it, and nothing revokes the agent: the operator reads the flag on the agent's page (SPEC-026) and decides. A restart, a sleep or a single step of the host's clock moves the start once, so it raises nothing (a step and its correction can, §Risks); a virtual machine reverted to a snapshot can resume the process of the snapshot, and raise `interleaved_process`.
 
 ### 7. A restore (server)
 
-A database restored from a backup taken before an agent renewed holds the older certificate; the agent's next request, under its newer one, makes it the agent's again (§3). A revocation made after the backup is not in the restored database, and must be made again. A copy of the endpoint holding the older certificate is accepted until the agent's next request under the newer one.
+A database restored from a backup taken before an agent renewed holds the older certificate and no pending one: the agent's next request, under its newer certificate, is refused with `403 agent_superseded` and raises the copy signal, until the operator revokes the agent and enrolls the endpoint anew, as the restore runbook says. A revocation made after the backup is not in the restored database, and must be made again. A copy of the endpoint holding the older certificate is accepted until the agent is revoked.
 
 ### 8. The renewal decision (agent)
 
@@ -195,7 +196,7 @@ No environment variable, port, `agent.toml` key or setting is added. The window,
 
 - **The token at rest.** A read of `enrollment_tokens` yields hashes of 256-bit values, which enroll nothing.
 - **Nothing is signed for a refused token.** The check and the lock precede the CA's signature.
-- **Proof of both keys.** A renewal needs the current key, through the handshake and the envelope, and the new key, through its signature: a thief of the certificate alone renews nothing, and the private key never leaves the endpoint.
+- **Proof of both keys.** A renewal needs the current key, through the handshake and the envelope, and the new key, through its signature: a thief of the certificate alone renews nothing, and the private key never leaves the endpoint. A holder of the CA's key alone takes over no enrolled agent: a certificate it signs is not the server's record of a renewal, so it passes the handshake and is refused as superseded (§Operational §3).
 - **Revocation cannot be undone by a running service.** The owner role's trigger refuses it, and `cg_ingest` cannot write the columns.
 - **A copy is detected, not prevented.** Both copies hold the key. The signals flag the agent; the operator purges the endpoint and enrolls it anew, and revokes the copied agent.
 - **The ten-year CA** is accepted with ADR-0004's amendment (item 7); a certificate never outlives it.
@@ -210,9 +211,9 @@ The server half's criteria are vitest tests of `services/ingest` (testcontainers
 - **renew_ac_004 (the org) [server].** An agent enrolled with a token of org `default` has that org; its heartbeat's `cges_events` rows carry its row's org, read from the row (a test that sets another org on the row sees that org on the rows).
 - **renew_ac_005 (the write-once columns) [server].** Setting `revoked_at` with a reason succeeds once, and stores the transaction's time, not a time given a day ahead; a second change of either, clearing them, and `revoked_at` without a reason fail; `duplicate_signal` once set cannot change; a token's `withdrawn_at` once set cannot change or be cleared, and its `expires_at` and `max_uses` cannot change.
 - **renew_ac_006 (a revoked agent) [server].** A heartbeat and a renewal of a revoked agent answer `403 agent_revoked`, write no heartbeat row and no event, and spend no nonce (Redis holds no `nonce:` key for the request).
-- **renew_ac_007 (a later certificate, an older one) [server].** An agent enrolled, renewed, and then heartbeating under the new certificate: the row holds the new key and certificate, and the log has `agent certificate promoted`; a heartbeat under the old one answers `403 agent_superseded` and sets `duplicate_signal = 'superseded_certificate'`. A later certificate for the agent whose key does not verify the envelope answers `401` and changes nothing. A database restored to the row before the renewal: the next heartbeat under the new certificate is accepted and promotes it.
-- **renew_ac_008 (renewal) [server].** With 45 days left on the presented certificate, the answer is `200` with a certificate of `CN = agent_id`, the new key, a chain to the CA and a `notAfter` 90 days after its `notBefore`, and the agent's row is unchanged; with a later certificate presented and due, the row is promoted and the answer is `200`; with 46 days, `409 renewal_not_due`; a bad `new_key_signature`, `401 bad_new_key_signature`; a replayed nonce, `409`; a stale `sent_at`, `422`; a second issuance within 10 minutes, `429`.
-- **renew_ac_009 (the CA's end) [server].** With a CA whose `notAfter` is 60 days away, an enrollment's certificate ends at the CA's `notAfter`; a renewal presenting a certificate with 40 days left, which ends before the CA does (one the test signs with the CA's key), answers `200` with a certificate that ends at the CA's `notAfter`; and a renewal under a certificate that already ends there answers `409 renewal_not_due`. An insert into `enrollment_tokens` with an `issued_at` a year ahead stores the database's time, and its `expires_at` past 7 days from it is refused.
+- **renew_ac_007 (the pending certificate, another one) [server].** An agent enrolled, renewed, and then heartbeating under the new certificate: the row holds the new key and certificate and no pending one, and the log has `agent certificate promoted`; a heartbeat under the old one answers `403 agent_superseded` and sets `duplicate_signal = 'superseded_certificate'`. A certificate for the agent with a later `notBefore` and a key of the test's, signed with the CA's key but by no renewal, answers `403 agent_superseded` and changes neither `pubkey` nor `cert_pem`. A pending certificate whose key does not verify the envelope answers `401` and changes nothing. A database restored to the row before the renewal: the next heartbeat under the new certificate answers `403 agent_superseded`.
+- **renew_ac_008 (renewal) [server].** With 45 days left on the presented certificate, the answer is `200` with a certificate of `CN = agent_id`, the new key, a chain to the CA and a `notAfter` 90 days after its `notBefore`, the row's `pending_cert_pem` is that certificate, and its `pubkey` and `cert_pem` are unchanged; with the pending certificate presented and due, the row is promoted and the answer is `200`; with 46 days, `409 renewal_not_due`; a bad `new_key_signature`, `401 bad_new_key_signature`; a replayed nonce, `409`; a stale `sent_at`, `422`; a second issuance within 10 minutes, `429`.
+- **renew_ac_009 (the CA's end) [server].** With a CA whose `notAfter` is 60 days away, an enrollment's certificate ends at the CA's `notAfter`; a renewal presenting a certificate with 40 days left, which ends before the CA does (one the test signs with the CA's key and writes to the agent's row as its certificate), answers `200` with a certificate that ends at the CA's `notAfter`; and a renewal under a certificate that already ends there answers `409 renewal_not_due`. An insert into `enrollment_tokens` with an `issued_at` a year ahead stores the database's time, and its `expires_at` past 7 days from it is refused.
 - **renew_ac_010 (the enrollment limit) [server].** Ten failed enrollments from one address, then an eleventh with a valid token: `429`, and the token keeps its use; another address enrolls.
 - **renew_ac_011 (what the agent sends) [server].** An enrollment stores the host name, platform and version it carries; a heartbeat with another host name updates it; a host name of 300 characters is stored cut to 255.
 - **renew_ac_012 (an interleaved process) [server].** Heartbeats whose starts are A, B, A raise `interleaved_process` once; A, B, B and A, A + 60 s do not.
@@ -229,6 +230,7 @@ The server half is done when renew_ac_001 to 013 pass, with the elevated gate (i
 
 - **A copy of the endpoint keeps working until it is noticed.** Both hold the key (R18). The signals flag it; nothing refuses it.
 - **A virtual machine reverted to a snapshot can raise `interleaved_process`**, which the operator reads as a copy (§Operational §6).
+- **A restore of the server's database** refuses the agents that renewed after its backup, and flags them as copies, until each is revoked and its endpoint enrolled anew (§Operational §7).
 - **The rate limits are per process.** A restart resets them, and a deployment of one ingest has one. The enrollment limit counts by source address, so ten failures behind one address translation hold every endpoint behind it for 15 minutes.
 - **An endpoint restored from its own backup or snapshot taken before a renewal** presents the older certificate: it is refused as superseded, cannot renew, and is flagged as a copy, until the operator revokes the agent and enrolls the endpoint anew.
 - **A step of a virtual machine's clock and its correction**, more than 120 seconds each, give the starts A, B, A, and raise `interleaved_process`.
@@ -244,8 +246,8 @@ None. ADR-0004's amendment answers the protocol's; the runbooks are listed under
 
 Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day (ADR-0004 Amendment 2026-11-20). Beyond that amendment, each decision with what it discards:
 
-1. **Renewal writes no row; the first use of the new certificate replaces the old one.** Against storing the new certificate when it is signed: a lost answer would strand the agent with a certificate the server refuses, and a restore would need a second mechanism.
-2. **A certificate is later by its `notBefore`, then by its serial.** Against the serial alone, which is random (`services/ingest/src/cert.ts`): `notBefore` is the signing time less 60 seconds, second-granular, and one agent asks again an hour after an attempt (§Operational §8), so two certificates for one agent with an equal `notBefore` come from two requesters, a copy among them; the serial only makes the order total.
+1. **Renewal records the certificate it signs as the agent's pending one; the first request under it makes it the agent's.** Against making it the agent's when it is signed: a lost answer would strand the agent with a certificate the server refuses. Against making any later certificate the CA signed the agent's, which would recover a restore by itself: the CA's key alone would take over an enrolled agent (ADR-0004 §Context, point 1). Manuel's choice of 2026-11-20 ("Registrar al firmar").
+2. **A certificate is recognised by its DER, equal to the agent's or to its pending one.** Against ordering certificates by their `notBefore` and serial, which the pending record makes unnecessary and which would admit a certificate the server never issued.
 3. **A withdrawal is `withdrawn_at`, not a `withdrawn` state.** Against a new enum value, which the migrations' one transaction could not use.
 4. **`consumed_by_agent_id` gives way to `agents.enrolled_by_token_id`.** Against keeping the column: a token for several uses enrolls several agents.
 5. **At most 1000 uses and 7 days.** The cap bounds what one leaked token enrolls; the operator issues another past it.
