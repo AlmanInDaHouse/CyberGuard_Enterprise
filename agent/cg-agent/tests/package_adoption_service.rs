@@ -324,8 +324,11 @@ fn package_adoption_the_arguments_on_an_enrolled_host_are_code_5() {
         .for_each(|file| file.assert_unchanged("an enrolled host"));
 }
 
-/// Step 1: on a console layout these arguments are code 2, the line the
-/// Amendment 2026-11-05, item 1, gives arguments a migration did not record.
+/// Step 1: on a console layout these arguments are code 2 before any change,
+/// the line as the Amendment 2026-11-20, point 3, words a line for a layout:
+/// it names the console installation, says that the product neither adopts
+/// nor migrates it, sends the operator to the installation runbook, and
+/// offers no migration.
 #[test]
 fn package_adoption_the_arguments_on_a_console_layout_are_code_2() {
     let pki = common::generate_test_pki(common::TEST_AGENT_ID);
@@ -347,12 +350,25 @@ fn package_adoption_the_arguments_on_a_console_layout_are_code_2() {
     let trust = trust_arguments(&pki.trust_anchor_pem);
     let mut arguments = vec![ADOPT];
     arguments.extend(trust.iter().map(String::as_str));
-    refused_with_arguments(
+    let entries = refused_with_arguments(
         &service,
         &arguments,
         2,
-        &["cg-agent: invalid migration arguments", "console layout"],
+        &[
+            "cg-agent: invalid migration arguments",
+            "--adopt-staged-config",
+            "console installation",
+            "neither adopts nor migrates",
+            "installation runbook",
+        ],
     );
+    let line = entry(&entries, 1002).data.as_str();
+    for offer in ["--migrate-legacy", "CG_MIGRATE_LEGACY", "CG_TRUST_ANCHORS"] {
+        assert!(
+            !line.contains(offer),
+            "the line offers no migration ({offer:?}): {line}"
+        );
+    }
 
     kept.iter()
         .for_each(|file| file.assert_unchanged("a console layout"));

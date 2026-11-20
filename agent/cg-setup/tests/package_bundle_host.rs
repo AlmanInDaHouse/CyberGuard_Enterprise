@@ -1095,8 +1095,9 @@ fn package_bundle_a_fresh_installation_keeps_the_token_and_survives_a_reinstalla
 
 /// Preflight's refusals pass through Burn with the reversal run, and leave
 /// nothing registered, cached, installed or created (points 1 and 2): no
-/// input (22), an anchor the fingerprints do not match (25), and a quote in
-/// a bundle variable that adds an option (40). Burn refuses to set its own
+/// input (22), an anchor the fingerprints do not match (25), a quote in a
+/// bundle variable that adds an option (40), and a migration variable (28,
+/// SPEC-024 Amendment 2026-11-20, point 2). Burn refuses to set its own
 /// variables from the command line.
 #[test]
 fn package_bundle_refusals_pass_through_with_the_reversal() {
@@ -1105,7 +1106,7 @@ fn package_bundle_refusals_pass_through_with_the_reversal() {
     let servers = Servers::start();
     let wrong = servers.bootstrap_with("wrong.toml", &format!("sha256:{}", "0".repeat(64)));
     let bootstrap = servers.bootstrap("quoted.toml");
-    let cases: [(&str, String, i32); 4] = [
+    let cases: [(&str, String, i32); 5] = [
         ("no-input", String::new(), 22),
         (
             "wrong-anchor",
@@ -1121,6 +1122,7 @@ fn package_bundle_refusals_pass_through_with_the_reversal() {
             40,
         ),
         ("ui-level", "WixBundleUILevel=4".to_string(), 22),
+        ("migration", "CG_MIGRATE_LEGACY=keep".to_string(), 28),
     ];
     for (name, argument, code) in cases {
         let arguments: Vec<&str> = [argument.as_str()]
@@ -1183,6 +1185,79 @@ fn package_bundle_refusals_pass_through_with_the_reversal() {
         }
     }
     assert_eq!(servers.enrollments(), 0, "no enrollment");
+}
+
+/// SPEC-024 Amendment 2026-11-20, point 2: the setup run with a non-empty
+/// `CG_MIGRATE_LEGACY` and `CG_TRUST_ANCHORS` on a console installation's
+/// layout is 28 at preflight, with its reversal: no migration route, the MSI
+/// not run, nothing registered or cached, no service, and the layout's names
+/// and contents as they were.
+#[test]
+fn package_bundle_a_migration_variable_is_28_on_a_console_layout() {
+    let setups = setups();
+    let mut host = Host::take("migration");
+    let data_root = data_root(&host.paths);
+    std::fs::create_dir_all(&data_root).expect("a console layout's data root");
+    let files = [
+        "agent.toml",
+        "server-ca.pem",
+        "cert.pem",
+        "key.dat",
+        "identity.json",
+    ];
+    for name in files {
+        std::fs::write(data_root.join(name), format!("s86 console {name}")).expect("a file");
+    }
+    let listing = |root: &Path| -> Vec<(String, Vec<u8>)> {
+        let mut names: Vec<(String, Vec<u8>)> = std::fs::read_dir(root)
+            .expect("the data root lists")
+            .map(|entry| {
+                let path = entry.expect("an entry").path();
+                let bytes = std::fs::read(&path).unwrap_or_default();
+                (path.display().to_string(), bytes)
+            })
+            .collect();
+        names.sort();
+        names
+    };
+    let before = listing(&data_root);
+    let anchors = format!("CG_TRUST_ANCHORS=sha256:{}", "a".repeat(64));
+    let outcome = host.setup(
+        "console",
+        &setups.current,
+        &["CG_MIGRATE_LEGACY=keep", anchors.as_str()],
+    );
+    let burn = outcome.burn();
+    assert_eq!(outcome.code, 28, "{}", outcome.summary());
+    assert_failed_step(&outcome, "Preflight", 28);
+    assert_eq!(
+        exits(&burn, "Preflight"),
+        [28, 0],
+        "preflight, then its reversal\n{}",
+        outcome.summary()
+    );
+    assert!(!applied(&burn, "execute", "Agent"), "the MSI did not run");
+    assert!(
+        programs().is_empty(),
+        "nothing registered: {:?}",
+        programs()
+    );
+    assert!(cached().is_empty(), "nothing cached: {:?}", cached());
+    assert!(
+        open_service(PRODUCT_SERVICE, SERVICE_QUERY_STATUS).is_err(),
+        "no service"
+    );
+    assert_eq!(
+        listing(&data_root),
+        before,
+        "the console layout is unchanged"
+    );
+    for name in ["agent.migrating", "agent.legacy"] {
+        assert!(
+            !exists(&host.paths.product_root.join(name)),
+            "{name} was not created"
+        );
+    }
 }
 
 /// An upgrade with no new enrollment, then a downgrade Burn refuses with

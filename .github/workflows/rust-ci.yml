@@ -1,68 +1,21 @@
 name: rust-ci
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "agent/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".cargo/**"
-      - ".github/workflows/rust-ci.yml"
-      - ".github/scripts/agent-version-matrix.mjs"
-      # cg-setup reads the endpoint runbook bootstrap file (install_ac_002_setup_runbook.rs).
-      - "docs/operations/install.md"
   pull_request:
     paths:
       - "agent/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".cargo/**"
       - ".github/workflows/rust-ci.yml"
-      - ".github/scripts/agent-version-matrix.mjs"
-      # cg-setup reads the endpoint runbook bootstrap file (install_ac_002_setup_runbook.rs).
-      - "docs/operations/install.md"
 
 permissions:
   contents: read
 
 jobs:
-  check:
-    name: cargo fmt + clippy + test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install Rust toolchain (reads rust-toolchain.toml)
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-
-      - name: cargo clippy (deny warnings)
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: cargo test
-        run: cargo test --all
-
-      # SPEC-024 install_ac_014 (debt #131): the build-time version, malformed inputs
-      # refused, and a rebuild that sets, changes and removes it in one target directory.
-      - name: agent version matrix
-        run: node .github/scripts/agent-version-matrix.mjs
-
-  # SPEC-017 capture_ac_013: the agent's Windows code (ETW session,
-  # side-channel helpers, DPAPI, path translation) is compiled, linted and
-  # tested here. The tests that need real ETW or the real Security log (an
-  # elevated process) are #[ignore]d in `cargo test --all`, and run in a step
-  # of their own, as the runner's built-in Administrator (SPEC-017, the second
-  # Amendment 2026-10-19). The elevated developer-local gate runs them too.
+  # PROBE (S86, closed without landing): SPEC-024 Amendment 2026-11-20's
+  # CI-confined tests, built against main's code without point 2's change,
+  # to see each fail for the missing behaviour (CLAUDE.md compensating
+  # control 1). The test steps cannot fail the job.
   check-windows:
-    name: cargo fmt + clippy + test (windows)
+    name: probe (windows)
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -73,38 +26,10 @@ jobs:
         with:
           rustflags: ""
 
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
+      - name: "probe: install_ac_013's and the adoption's service tests (scm-tests)"
+        continue-on-error: true
+        run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_013_migration --test package_adoption_service -- --test-threads=1
 
-      - name: cargo clippy (deny warnings)
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: cargo test
-        run: cargo test --all
-
-      - name: "cargo test, the #[ignore]d real-ETW and Security-log tests"
-        run: cargo test -p cg-agent --no-fail-fast -- --ignored --test-threads=1
-
-      # SPEC-024 Amendment 2026-11-01, point 4: the tests that create, start,
-      # stop and delete Windows services and run the agent as SYSTEM, built only
-      # with the test-only `scm-tests` feature, run here alone, on this
-      # disposable runner, one at a time. Their red evidence was the probe pull
-      # requests #80 and #82 (install_ac_007, install_ac_010), #84
-      # (install_ac_002/004/005), the migration's probe (install_ac_013) and
-      # the adoption's (package_adoption_service), #105 (install_ac_010's
-      # heartbeat line) and #114 (the adoption's code 10 with the real lock),
-      # closed without landing (CLAUDE.md compensating control 1).
-      - name: "cargo test, the SCM and SYSTEM tests (scm-tests)"
-        run: cargo test -p cg-agent --features scm-tests --no-fail-fast --test install_ac_007_service --test install_ac_004_custody_service --test install_ac_013_migration --test package_adoption_service -- --test-threads=1
-
-      # SPEC-024 Amendment 2026-11-10, *Tests*: cg-setup's SCM tests, on the
-      # same terms, with cg-setup's own test-only `scm-tests` feature; the
-      # test executable is also the service they control. Their red evidence
-      # was the probe pull requests #101 and #103 (the self-review's tests)
-      # and #105, #107 and #108 (configure's observer and its review's tests),
-      # closed without landing.
-      - name: "cargo test, cg-setup's SCM tests (scm-tests)"
+      - name: "probe: cg-setup's service tests (scm-tests)"
+        continue-on-error: true
         run: cargo test -p cg-setup --features scm-tests --no-fail-fast --test package_setup_service -- --test-threads=1
-
-      - name: agent version matrix
-        run: node .github/scripts/agent-version-matrix.mjs
