@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-19
-- Last updated: 2026-10-23
+- Last updated: 2026-11-20
 - Deciders: Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -181,6 +181,28 @@ Proposed by Claude Code on 2026-10-19 under Manuel's delegation of 2026-10-14 an
 - §8, enrollment over TLS with the agent's trust anchor (A8);
 - §8, through ADR-0004's amendment of the same day; §9 and §10, through ADR-0016's, ADR-0003's and ADR-0019's; ADR-0020's two items for roadmap §F, through its Amendment 2026-10-23, which gives them to SPEC-021's code;
 - the later §F SPECs' scope (*Out of scope*): the dashboard SPEC takes the pages the MVP paragraph names (the agents, the enrollment tokens, the alerts) and those the api serves without a page, since an installation must end in a usable product; the agent's key custody (debt #87) goes with the service mode, whose account decides who owns the key; the admins' setting of passwords (debt #98) and the login that keeps a prior session (debt #102) go with the dashboard's user pages, from "a later SPEC-008 change". Each moves a destination Manuel had set, and is a delegated decision.
+
+## Amendment 2026-11-20 (SPEC-026): the api's rights on ingest's tables, for the dashboard
+
+**What surfaced it.** Roadmap §F's F3, the dashboard SPEC that *Out of scope* names, gives the dashboard the agents, the enrollment tokens, the triage of alerts and incidents, and a view of the audit log. §4 gives the api's runtime role `SELECT` on `alerts`, `incidents` and `playbook_executions` alone, and says that it "cannot read ingest's `ca`, `enrollment_tokens` or `agents`"; it foresees that "a later route that reads or writes another ingest table gets a grant scoped to that table, in the SPEC that adds the route". The grants F3 needs do more than read: with them the api issues the tokens ingest honours, revokes agents and changes the state of what detection wrote. That moves the boundary between the human-facing api and the agent-facing ingest (ADR-0014 §3), which is Manuel's to move. He decided on 2026-11-20, in chat, taking the recommendation that put the four rights below to him: "acepto cambios y sigo tus recomendaciones".
+
+**The amendment.** In §4, *PostgreSQL*, the sentence from "The api's runtime role reads the three ingest tables" to "cannot read the api's `users`, `forensic_key` or `audit_log`" reads as follows; the rest of §4 stands. The api's runtime role reads `alerts`, `incidents` and `playbook_executions` through the group role, and has, granted column by column through ingest's migrations, or the api's for its own table, and asserted by the deployment's grant test (SPEC-023 deploy_ac_004):
+
+1. On `enrollment_tokens`: `INSERT` of the columns an issued token has; `SELECT` of every column but the token's hash; `UPDATE` of its state and the time of its withdrawal. With them an admin issues, lists and withdraws tokens (ADR-0004 Amendment 2026-11-20, item 1).
+2. On `agents`: `SELECT` of the columns the agents' pages show; `UPDATE` of the revocation's time and reason alone, which a trigger held by ingest's owner role lets be set once (ADR-0004 Amendment 2026-11-20, item 5).
+3. On `incidents`, `UPDATE` of the status, the assignee and the time of the change; on `alerts`, `UPDATE` of the status and the time of the change. Never a column that detection derives (the alerts an incident groups, an alert's source events, its techniques, its severity or its title among them), never an `INSERT` or a `DELETE`. A trigger held by ingest's owner role records each change of a status or an assignee, with its time, in a history the api reads and cannot change.
+4. On its own `audit_log`: `SELECT`, for the audit view, besides its `INSERT`; still no `UPDATE` or `DELETE`.
+
+Each change the api makes to an ingest table commits in the same transaction as its `audit_log` row. No grant to the api reaches `ca` or a token's hash, and ingest's runtime role still cannot read the api's `users`, `forensic_key` or `audit_log`.
+
+**What a compromised api can now do**, which Manuel accepts by ratifying this amendment:
+
+- Issue enrollment tokens, and so enroll agents of its own, whose events stay after the api is recovered and reach the exports signed later. Bounded by tokens that are single-use and live 15 minutes unless an admin issues one for more uses, and by the agents' pages, which list every agent and the token that enrolled it.
+- Revoke every agent. The agents keep running, and the server host's administrator can undo each revocation (ADR-0004 Amendment 2026-11-20, items 5 and 6).
+- Close or reassign incidents and alerts to hide them. The owner's history of item 3 keeps each change, whether or not the api writes its `audit_log` row.
+- Read the activity and source addresses of every operator in `audit_log`.
+
+**Effect on other sections.** §Context 9: the dashboard SPEC adds those pages. *Consequences*: R3 stays closed; R7's "the api's credentials write no event and no alert" reads "write no event, and of an alert its status alone", as the threat model's amendment with SPEC-026 records. §Compliance and §5 to §10: unchanged. *Out of scope*: the dashboard SPEC is SPEC-026; the agents' renewal with the rest of debt #89 is SPEC-025. Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day; awaiting his ratification. Status stays `Accepted`.
 
 ## References
 
