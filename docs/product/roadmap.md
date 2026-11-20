@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-86.md](../handoff-session-86.md)).
+([handoff-session-87.md](../handoff-session-87.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -623,14 +623,19 @@ recommended option:
    (Manuel's delegation of 2026-11-20, for the enterprise buyer). A
    departure of F4 from ADR-0004 (a CSR, the CA's lifetime, a revocation
    store across Valkey's per-service prefixes) is an ADR amendment, for
-   Manuel's yes.
+   Manuel's yes. S87: Manuel took the recommendation on each question
+   (2026-11-20); the amendments of ADR-0004, ADR-0022 and ADR-0014, the
+   threat model's and SPEC-025 (F4) wait on the branch
+   `docs/f3-f4-adr-amendments` for his ratification; SPEC-026 (F3) is next
+   (`docs/handoff-session-87.md`).
 4. **F4's server half** (#89, revocation, the renewal route), then **F3**
    (the api's routes and grants, the pages), then **F4's agent renewal**,
    under the elevated gate.
 5. **The custody verb for the setup's hosts** (`show`, `in-place`,
    `aside`, and `legacy` if its restatement keeps it; #166), its contract restated first (SPEC-024 Amendment
    2026-11-20, point 6).
-6. **Release preparation:** #162 and #113, the pre-release sweeps, a sizing
+6. **Release preparation:** #162 and #113, #42's connection reuse (moved
+   here from F4 by Manuel on 2026-11-20), the pre-release sweeps, a sizing
    note from #25, #35 and #61, the agent's SBOM, and signing if bought.
 7. **Validation on the isolated machines,** with the release's dry-run
    setup installed as a client installs it: install_ac_003, 008 and 016,

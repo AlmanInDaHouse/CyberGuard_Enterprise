@@ -28,12 +28,12 @@ close, the debts it opens and closes and the destinations it changes, each
 *Entry* that amendment, and *Open* the number the landing states; at its
 close the session adds its handoff to those entries and states the number.
 
-**Open: 56** at Session 86's close, the count `docs/handoff-session-86.md` states (Session 86
-landed SPEC-024 Amendment 2026-11-20's point 2 code and the runbooks, `8ea9a8e` to `9bd8f83`, and the
-fixes of #167, `7f1b449`; it opened #171 and re-routed #167 and #170).
+**Open: 56** at Session 87's close, the count `docs/handoff-session-87.md` states (Session 87
+drafted F3's and F4's ADR amendments and SPEC-025 on the owner-review branch
+`docs/f3-f4-adr-amendments`; it opened and closed none, and re-routed #42).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
-Session N resumes* (at Session 86's close, `docs/handoff-session-86.md#how-session-87-resumes`);
+Session N resumes* (at Session 87's close, `docs/handoff-session-87.md#how-session-88-resumes`);
 "parked" is roadmap §B2, which waits for a SPEC-021 text.
 
 ## Open debts
@@ -52,7 +52,7 @@ Session N resumes* (at Session 86's close, `docs/handoff-session-86.md#how-sessi
 | 35 | The driver's drain ceiling | `handoff-session-33.md:172`; `handoff-session-48.md#debts` | F4 pre-release load measurements with #25/#61; measure backlog/drain behavior before changing the contracted ceiling (S48 delegated). |
 | 38 | The forensic evidence unit carries no `class_uid` | `handoff-session-34.md:310` | A precondition of any rule that cites an event other than a process event (ADR-0018 §9, SPEC-019 §Out of scope). |
 | 39 | The CGES examples' members differ from the wire's (their `time` aligned in S41) | `handoff-session-34.md:317`; `handoff-session-41.md:758`; `handoff-session-48.md#debts` | Pre-release documentary/schema-example sweep (S48 delegated). |
-| 42 | A POST per batch interval when the server shares the agent's host | `handoff-session-35.md:569`; `handoff-session-48.md#debts` | F4 agent renewal/delivery work: measure and implement connection reuse under its contract (S48 delegated). |
+| 42 | A POST per batch interval when the server shares the agent's host | `handoff-session-35.md:569`; `handoff-session-48.md#debts`; `handoff-session-87.md#debts` | Roadmap step 6, release preparation, after F4's renewal: measure and implement connection reuse under its contract (Manuel's choice of 2026-11-20; S48 had delegated it to F4). |
 | 50 | A dead subscription that answered 4317 would not be found | `handoff-session-35.md:604`; `handoff-session-48.md#debts` | F2/F4 isolated Windows fault test; Manuel runs the elevated service-restart experiment, not the development host during ordinary work (S48 delegated destination). |
 | 51 | The S4U success measured only on a local account in a workgroup | `handoff-session-35.md:607` | Watch on any other developer machine. |
 | 52 | The process callback writes a `trace` line per record | `handoff-session-36.md:289` | The next change under `agent/cg-agent/src/etw/` (B2's branch, parked). |
