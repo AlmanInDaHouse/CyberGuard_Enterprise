@@ -1,0 +1,259 @@
+# SPEC-025: Agent certificates — the enrollment token at rest, renewal, revocation and a copied identity
+
+- **ID:** SPEC-025
+- **Title:** Agent certificates — the enrollment token at rest, renewal, revocation and a copied identity
+- **Status:** Proposed
+- **Depends on:**
+  - ADR-0004 Amendment 2026-11-20 — the decisions this SPEC implements: the token opaque and stored as its hash, checked before the certificate is signed (item 1); the raw public key, and the new key proved by both keys at renewal (item 2); no `SAN`, the org from the agent's row (item 3); renewal with 45 days left, and a later certificate that replaces the older one at its first use (item 4); revocation on the agent's row in PostgreSQL, write-once, refused with `403` (item 5); a refused agent keeps running (item 6); the ten-year CA (item 7).
+  - ADR-0022 §4 and its Amendment 2026-11-20 — the runtime roles' grants; this SPEC narrows ingest's and leaves the api's to SPEC-026.
+  - ADR-0004 (the protocol), ADR-0009 (the agent's ring), ADR-0010 and SPEC-024 (the service and its custody of the identity).
+  - This SPEC amends **by scope**: SPEC-002 (the identity's `expires_at` informational; the renewal), SPEC-003 (the `403` reasons; the renewal request; FR-012 lists a certificate the server "has revoked" among the handshake refusals that end in exit `7`, and a revocation is instead the handler's `403`, which ends in none), SPEC-004 (FR-004, FR-007, FR-010, FR-013 and FR-015, and its Postgres schema), SPEC-023 (deploy_ac_004's rows for `cg_ingest` on `agents` and `enrollment_tokens`) and SPEC-024 (the renewal's write of the identity in an installation, by an amendment of its own that lands before the agent half's code; §Operational §10). Each one's acceptance criteria stand, read with the changes §Data contracts and §Operational state.
+- **Authors:** Manuel (project owner), Claude Code (proposal and implementation)
+
+## Context
+
+An agent's certificate lasts 90 days, and nothing renews it: 90 days after its enrollment the server refuses its handshake, and the agent exits with code `7` (R5 of `docs/security/threat-model.md`; debt #88). Nothing revokes one either: a stolen key with its certificate is cut off only by deleting the agent's row, which the enrollment token's reference to it blocks. The enrollment token is stored as typed, its org and scope are not checked, the CA signs a certificate before the token is checked, and enrollment has no rate limit (R4; debt #89). The CA signs every certificate with `org_id` absent and the server writes the org `default` wherever it writes one (debt #119's reading of `services/ingest/src/routes/enroll.ts` and `services/ingest/src/routes/heartbeat.ts`). A copy of an enrolled endpoint's disk presents the same agent, which the server cannot tell from the original (R18; debt #170).
+
+ADR-0004's Amendment 2026-11-20 decides how each is closed. This SPEC is roadmap §F's F4. Roadmap step 4 builds it in two halves, in this order: the server half, before F3's code, and the agent half, after it (`docs/product/roadmap.md`). Each criterion below is labelled by its half.
+
+## Scope
+
+### In scope
+
+1. **The token at rest** (server): its SHA-256 alone, under an identifier; existing tokens hashed by the migration; uses and a withdrawal; the agent's row naming the token that enrolled it.
+2. **Enrollment checks the token before it signs** (server): scope, org, state, expiry, withdrawal and remaining uses, under the token row's lock; the agent's org from the token; a rate limit on failed enrollments.
+3. **Every agent request** (server): the revocation check, the certificate the request presents compared with the agent's, a later one made the agent's, an older one refused; the org from the agent's row; the agent's host name, platform and version kept.
+4. **The renewal route** (server) on the mTLS listener, and its rate limit.
+5. **Revocation's storage** (server): the columns, the write-once trigger, ingest's runtime role unable to write them. The route that revokes is SPEC-026's (F3); until it lands, nothing but the tests and the owner role writes a revocation.
+6. **A copied identity** (server): two signals, a flag on the agent's row, no alert and no automatic revocation.
+7. **The agent's renewal** (agent): the decision from its certificate, the request, the checked answer, the swap of key, certificate and signing key, and its refusals.
+
+### Out of scope
+
+- **The api's routes and grants**: issuing, listing and withdrawing tokens, a multi-use token among them, the agents' pages and their flag, the revocation's route, the audit rows: SPEC-026 (F3), as roadmap step 4 orders. This SPEC builds the server's side of each, so SPEC-026 adds no ingest behaviour.
+- **The runbooks**: revoking an agent and undoing a revocation, the CA's compromise, a restore's effect on renewed agents, the token's wording in `docs/operations/install.md`, and the personal data of `docs/operations/data-protection.md`. They go through a branch and a pull request of their own, since `deploy-ci` reads `docs/operations/`, before the release.
+- **Separating the CA from ingest** (debt #99), which reopens ADR-0004's item 7.
+- **Reusing the agent's connection** (debt #42): roadmap step 6, after renewal (Manuel's choice of 2026-11-20).
+- **The evidence-integrity and database-logging proposals** (debts #124 and #125): F4's pre-release proposals, apart from this SPEC, their destination unchanged.
+- **Comparing the source addresses of an agent's requests, or reading the local addresses of its connections (class 4001), to find a copy**: both are personal data, and neither is used.
+
+## Data contracts
+
+### 1. Ingest's migration `0010_agent_certificates`
+
+One migration, run as `cg_ingest_owner`, in the transaction Kysely runs every pending migration in (`services/ingest/src/db/migrate.ts`). It references no new enum value, which that transaction could not use.
+
+`enrollment_tokens`:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `token_id` | `uuid` `PRIMARY KEY` | The token's identifier, which the pages and the agent's row name. Filled for each existing row by `gen_random_uuid()`. |
+| `token_sha256` | `bytea` `NOT NULL` `UNIQUE`, 32 bytes | SHA-256 of the token's text, its base64url characters as ASCII. Filled for each existing row from its `token`, by `public.digest`. |
+| `org_id`, `scope`, `state`, `issued_at`, `expires_at`, `consumed_at` | as today | `state` is `consumed` once `uses = max_uses`. `consumed_at` is the time of the last use. |
+| `max_uses` | `integer` `NOT NULL` `DEFAULT 1`, `CHECK (max_uses BETWEEN 1 AND 1000)` | The token's cap. |
+| `uses` | `integer` `NOT NULL` `DEFAULT 0`, `CHECK (uses BETWEEN 0 AND max_uses)` | Enrollments it made. Filled with 1 for a row in state `consumed`. |
+| `withdrawn_at` | `timestamptz` | Set once, by the withdrawal, at the database's `now()`; a withdrawn token enrolls nothing. |
+
+The columns `token` and `consumed_by_agent_id` are dropped, after the latter is copied to `agents.enrolled_by_token_id`. A `CHECK` holds `expires_at <= issued_at + interval '7 days'`, and, when `max_uses = 1`, `expires_at <= issued_at + interval '15 minutes'`; an existing row past it fails the migration, which names the number of such rows and never a token.
+
+`agents`:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `enrolled_by_token_id` | `uuid` `REFERENCES enrollment_tokens (token_id)` | The token that enrolled the agent; `NULL` for an agent whose token row was deleted before this migration. |
+| `hostname`, `platform`, `agent_version` | `text` | What the agent last sent, at enrollment and in each accepted heartbeat's agent block, each cut to 255 code points. `NULL` for an agent enrolled before this migration until its next heartbeat. |
+| `revoked_at` | `timestamptz` | The revocation's time. |
+| `revocation_reason` | `text`, `CHECK (char_length(revocation_reason) BETWEEN 1 AND 500)` | Required with `revoked_at` (`CHECK ((revoked_at IS NULL) = (revocation_reason IS NULL))`). |
+| `process_started_at`, `previous_process_started_at` | `timestamptz` | The start of the agent's process, as its last two distinct heartbeats computed it (§Operational §6). |
+| `duplicate_signal` | `text`, `CHECK (duplicate_signal IN ('superseded_certificate', 'interleaved_process'))` | The first signal of a copy (§Operational §6). |
+| `duplicate_signal_at` | `timestamptz` | Its time; both set once. |
+
+**The triggers**, `BEFORE UPDATE`, each with a function `cg_ingest_owner` owns, refusing with `SQLSTATE` `P0001`:
+
+- `agents_write_once` on `agents`: an update that changes `revoked_at` or `revocation_reason` of a row whose `revoked_at` is set (`revocation is write-once`), or `duplicate_signal` or `duplicate_signal_at` once set. An update that sets `revoked_at` on a row without one has it replaced by the transaction's `now()`, whatever value it gave, so a revocation is never dated in the future or the past.
+- `enrollment_tokens_write_once` on `enrollment_tokens`: an update that changes `withdrawn_at` once set (`withdrawal is write-once`), or `token_sha256`, `org_id`, `scope`, `issued_at`, `expires_at` or `max_uses` (`token terms are fixed`). An update that sets `withdrawn_at` has it replaced by `now()`.
+
+The owner role, which holds the triggers, can disable them; neither runtime role can.
+
+**The grants**, when `cg_ingest` exists: its table-level `UPDATE` on `agents` is revoked and replaced by `UPDATE (pubkey, cert_pem, expires_at, last_seen, hostname, platform, agent_version, process_started_at, previous_process_started_at, duplicate_signal, duplicate_signal_at)`; on `enrollment_tokens` it keeps `SELECT`, `INSERT` and `UPDATE`. It has no right to write `revoked_at` or `revocation_reason`. The api's grants are SPEC-026's.
+
+### 2. The renewal request and its answer
+
+`POST /v1/agents/renew` on the mTLS listener. The agent derives its URL from its heartbeat target (`server.heartbeat_url`, or `server.url` without it; `agent/cg-agent/src/config.rs`), replacing the path's last segment, `heartbeat`, with `renew`. No configuration key is added.
+
+The request is SPEC-003's outer envelope with a body of its own, and one more member:
+
+```json
+{
+  "outer_envelope_version": "1",
+  "agent_id": "…",
+  "sequence_number": 0,
+  "nonce": "base64url, 16 bytes",
+  "sent_at": "RFC 3339 UTC",
+  "body": { "renew_version": "1", "new_agent_pubkey": "base64url, 32 bytes" },
+  "signature": "base64url Ed25519, by the current key",
+  "new_key_signature": "base64url Ed25519, by the new key"
+}
+```
+
+Both signatures sign the same bytes: the JCS canonical form of the envelope without `signature` and without `new_key_signature` (SPEC-003's canonicalisation). `sequence_number` is the agent's next one, informational as in SPEC-003.
+
+The answer to a renewal is SPEC-002's enrollment answer: `{ envelope_version, agent_id, client_certificate, issued_at, expires_at }`, with `200`.
+
+### 3. The refusals this SPEC adds
+
+| Status | `error` | Where | When |
+|---|---|---|---|
+| `403` | `agent_revoked` | heartbeat, renewal | The agent's row has `revoked_at`. |
+| `403` | `agent_superseded` | heartbeat, renewal | The request presents a certificate issued before the agent's (§Operational §3). |
+| `401` | `bad_new_key_signature` | renewal | `new_key_signature` does not verify under `new_agent_pubkey`. |
+| `409` | `renewal_not_due` | renewal | The certificate presented has more than 45 days left. |
+| `429` | `rate_limited` | enrollment, renewal | §Operational §5. |
+| `401` | `token_rejected` | enrollment | As today, and also for a withdrawn token, one of another scope, or one whose org is not `default`. |
+| `409` | `token_already_used` | enrollment | As today: the token exists and has no use left. |
+
+A refusal's body names its `error` alone. Its log line carries the `agent_id` when one is known, the reason and the status, and never the token, a key or a signature.
+
+## Operational
+
+### 1. Enrollment (server)
+
+In one transaction: the server computes the token's SHA-256, selects its row `FOR UPDATE`, and checks, refusing on the first failure: the row exists, `scope = 'enroll'`, `org_id = 'default'` (the MVP's one org), `withdrawn_at IS NULL`, `expires_at > now()`, and `uses < max_uses` (else `409 token_already_used` when it has been used, `401 token_rejected` otherwise). Then it assigns the `agent_id`, has the CA sign the certificate, inserts the agent with the token's org, its `enrolled_by_token_id`, and the request's host name, platform and version, and increments `uses`, setting `consumed_at`, and `state = 'consumed'` when no use is left. A refused request signs nothing. The lock serialises enrollments with one token, so two requests cannot spend its last use twice.
+
+The certificate's `notAfter` is the earlier of 90 days after its `notBefore` and the CA's `notAfter`.
+
+`issue-token` (`services/ingest/src/cli/issue-token.ts`) inserts a single-use token of 15 minutes, its SHA-256 and identifier, prints the token once to standard output and its identifier and expiry to standard error, and refuses any `--org` but `default` with exit `2`. It writes no audit row: an operator on the host is outside the api's audit (SPEC-008's audit is the api route's, SPEC-026).
+
+### 2. Every request of an agent (server)
+
+On the heartbeat and the renewal, after the envelope's structure (`400`) and the client certificate's `CN` equal to `agent_id` (`401 unknown_agent`), the server reads the agent's row once: `pubkey`, `cert_pem`, `org_id`, `revoked_at`, and the copy columns. In this order, before the nonce is spent:
+
+1. No row → `401 unknown_agent`, as today.
+2. `revoked_at` set → `403 agent_revoked`.
+3. The certificate check of §3: `403 agent_superseded`, or the key the envelope is then verified under.
+
+The timestamp (`422`), the nonce (`409`) and the signature (`401`) follow, as SPEC-004 FR-010 orders them. Every row the request writes, its heartbeat's events in `cges_events` among them, carries the row's `org_id`, never a constant.
+
+An accepted heartbeat updates `last_seen`, `hostname`, `platform` and `agent_version` from its agent block, and the process columns of §6, in one statement.
+
+### 3. The certificate a request presents (server)
+
+The server compares the DER of the certificate the TLS socket presents with the DER of `cert_pem`:
+
+- **Equal**: the envelope is verified under `pubkey`.
+- **Different, and the presented certificate's `notBefore` is later than `cert_pem`'s**: the envelope is verified under the presented certificate's key. If it verifies, and the request passes every later check, the server sets `pubkey`, `cert_pem` and `expires_at` to the presented certificate's, with a compare-and-set on the old `cert_pem`, and logs `agent certificate promoted` with the agent, both certificates' `notBefore` and their serials. This is the renewal's completion, and a restore's recovery (ADR-0004 Amendment 2026-11-20, item 4).
+- **Different, and not later**: `403 agent_superseded`, and the copy signal `superseded_certificate` (§6).
+
+The handshake has already proved that the presented certificate chains to the CA, is within its validity and is held by its key's owner (SPEC-004 FR-008).
+
+### 4. Renewal (server)
+
+After §2 and §3, the timestamp, the nonce and the current key's signature: `new_key_signature` under `new_agent_pubkey` (`401 bad_new_key_signature`); the presented certificate's `notAfter` 45 days or fewer after the server's `now()` (`409 renewal_not_due`); the rate limit of §5 (`429`). Then the CA signs a certificate with `CN = agent_id`, the new key, and the `notAfter` of §1, and the server answers it. It writes no row: the agent's certificate changes at its first request under the new one (§3), so an answer the agent does not receive changes nothing, and the agent renews again.
+
+### 5. Rate limits (server)
+
+In the process's memory, constants, no setting, reset at a restart:
+
+- **Enrollment**: from one source address, the eleventh failed enrollment within 15 minutes of the first is refused with `429 rate_limited` before its token is read, and so is every request from that address until 15 minutes after the tenth failure. A successful enrollment counts for nothing.
+- **Renewal**: one certificate per agent per 10 minutes; a renewal that would sign a second is `429 rate_limited`.
+
+### 6. A copied identity (server)
+
+Two signals, detect-only:
+
+- **`superseded_certificate`**: a request presents a certificate issued before the agent's (§3).
+- **`interleaved_process`**: each accepted heartbeat computes its process's start as `body.sent_at − body.uptime_seconds`. If it is within 120 seconds of `process_started_at`, nothing changes. Otherwise, if it is within 120 seconds of `previous_process_started_at`, two processes are taking turns as the agent: the signal is raised. In both of the last cases the columns shift: `previous_process_started_at` takes `process_started_at`, which takes the new start.
+
+The first signal sets `duplicate_signal` and `duplicate_signal_at`, and logs `agent duplicate suspected` with the agent and the signal; a later one changes neither. No alert is written, no request is refused for it, and nothing revokes the agent: the operator reads the flag on the agent's page (SPEC-026) and decides. A restart, a sleep or a step of the host's clock moves the start once and never back, so it raises nothing; a virtual machine reverted to a snapshot can resume the process of the snapshot, and raise `interleaved_process`.
+
+### 7. A restore (server)
+
+A database restored from a backup taken before an agent renewed holds the older certificate; the agent's next request, under its newer one, makes it the agent's again (§3). A revocation made after the backup is not in the restored database, and must be made again. A copy of the endpoint holding the older certificate is accepted until the agent's next request under the newer one.
+
+### 8. The renewal decision (agent)
+
+The agent reads its certificate's `notAfter` from the certificate it presents, not from `identity.json`, whose `expires_at` becomes informational (SPEC-002, by scope). At its start, and before each heartbeat, it asks for a new certificate when `notAfter − now` is 45 days or less and its last attempt was more than an hour ago or there was none. The time is injected into the decision, so a test can move it. A certificate already past its `notAfter` cannot renew: the handshake refuses it, and the agent exits `7`, as today.
+
+### 9. The renewal request (agent)
+
+The agent generates a new Ed25519 key pair in memory, builds the request of §Data contracts §2, signs it with its current key and with the new one, and sends it through the same TLS client configuration its heartbeats use, with its current certificate (`build_client_config`, `agent/cg-agent/src/tls.rs`), not the enrollment client's. A failed attempt keeps the current pair, discards the new key, and is tried again after an hour; it never exits the process, whatever its status, the handshake's refusals of SPEC-003 FR-012 aside.
+
+### 10. The swap (agent)
+
+Before it keeps the answer, the agent checks that the certificate's `CN` is its `agent_id`, that its key is the new public key, that it chains to its trust anchor, and that its `notAfter` is later than its current one; otherwise it discards both and logs why. Then it writes the new key, the new certificate and `identity.json` so that a start that follows an interruption at any point finds a key and a certificate that match, the old pair or the new one, never one of each, and with the custody SPEC-024 gives the identity in each layout. Only then does it sign its next envelope with the new key and present the new certificate. SPEC-024's amendment for this write lands before the agent half's code.
+
+### 11. A refusal on the agent
+
+`403` with `agent_revoked` or `agent_superseded` is, as every refusal of the envelope, a `warn` line, retries and a dropped batch, and no exit (ADR-0004 Amendment 2026-11-20, item 6; SPEC-003 FR-012). The agent adds the reason the body names to its line. A revoked agent's renewal is refused too, so it stops at its certificate's `notAfter`.
+
+### 12. No new deployment configuration
+
+No environment variable, port, `agent.toml` key or setting is added. The window, the lifetimes, the caps and the rate limits are constants of the code.
+
+## Security considerations
+
+- **The token at rest.** A read of `enrollment_tokens` yields hashes of 256-bit values, which enroll nothing.
+- **Nothing is signed for a refused token.** The check and the lock precede the CA's signature.
+- **Proof of both keys.** A renewal needs the current key, through the handshake and the envelope, and the new key, through its signature: a thief of the certificate alone renews nothing, and the private key never leaves the endpoint.
+- **Revocation cannot be undone by a running service.** The owner role's trigger refuses it, and `cg_ingest` cannot write the columns.
+- **A copy is detected, not prevented.** Both copies hold the key. The signals flag the agent; the operator purges the endpoint and enrolls it anew, and revokes the copied agent.
+- **The ten-year CA** is accepted with ADR-0004's amendment (item 7); a certificate never outlives it.
+
+## Acceptance criteria
+
+The server half's criteria are vitest tests of `services/ingest` (testcontainers), but renew_ac_013, which is the api's deploy_ac_004 test; the agent half's are Rust tests of `cg-agent`, against its test servers (`agent/cg-agent/tests/common/`) where one is needed.
+
+- **renew_ac_001 (the token at rest) [server].** After the migration over rows inserted with plain tokens, `information_schema.columns` lists no `token` column; each row's `token_sha256` is the SHA-256 of its former token; an issued row's `uses` is 0 and a consumed one's 1, and the agent it enrolled names it in `enrolled_by_token_id`. `issue-token` prints a token whose SHA-256 is the only form of it in the database, and refuses `--org other` with exit `2`.
+- **renew_ac_002 (checked before signing) [server].** Enrollments with an unknown token, an expired one, a withdrawn one, one of scope `other`, and one of org `other` answer `401 token_rejected`, and one with no use left `409 token_already_used`; in each the CA signs nothing (a spy on the signing function counts 0) and no agent row is written. Two concurrent enrollments with one single-use token: one `200`, one `409`.
+- **renew_ac_003 (several uses) [server].** A token of `max_uses` 3 enrolls three agents, each naming it; the fourth answers `409`; after `withdrawn_at` is set on another such token, its next enrollment answers `401`. The migration's checks refuse a single-use token of more than 15 minutes and any token of more than 7 days.
+- **renew_ac_004 (the org) [server].** An agent enrolled with a token of org `default` has that org; its heartbeat's `cges_events` rows carry its row's org, read from the row (a test that sets another org on the row sees that org on the rows).
+- **renew_ac_005 (the write-once columns) [server].** Setting `revoked_at` with a reason succeeds once, and stores the transaction's time, not a time given a day ahead; a second change of either, clearing them, and `revoked_at` without a reason fail; `duplicate_signal` once set cannot change; a token's `withdrawn_at` once set cannot change or be cleared, and its `expires_at` and `max_uses` cannot change.
+- **renew_ac_006 (a revoked agent) [server].** A heartbeat and a renewal of a revoked agent answer `403 agent_revoked`, write no heartbeat row and no event, and spend no nonce (Redis holds no `nonce:` key for the request).
+- **renew_ac_007 (a later certificate, an older one) [server].** An agent enrolled, renewed, and then heartbeating under the new certificate: the row holds the new key and certificate, and the log has `agent certificate promoted`; a heartbeat under the old one answers `403 agent_superseded` and sets `duplicate_signal = 'superseded_certificate'`. A later certificate for the agent whose key does not verify the envelope answers `401` and changes nothing. A database restored to the row before the renewal: the next heartbeat under the new certificate is accepted and promotes it.
+- **renew_ac_008 (renewal) [server].** With 45 days left on the presented certificate, the answer is `200` with a certificate of `CN = agent_id`, the new key, a chain to the CA and a `notAfter` 90 days after its `notBefore`, and the agent's row is unchanged; with 46 days, `409 renewal_not_due`; a bad `new_key_signature`, `401 bad_new_key_signature`; a replayed nonce, `409`; a stale `sent_at`, `422`; a second issuance within 10 minutes, `429`.
+- **renew_ac_009 (the CA's end) [server].** With a CA whose `notAfter` is 30 days away, an enrollment's and a renewal's certificates end at the CA's `notAfter`.
+- **renew_ac_010 (the enrollment limit) [server].** Ten failed enrollments from one address, then an eleventh with a valid token: `429`, and the token keeps its use; another address enrolls.
+- **renew_ac_011 (what the agent sends) [server].** An enrollment stores the host name, platform and version it carries; a heartbeat with another host name updates it; a host name of 300 characters is stored cut to 255.
+- **renew_ac_012 (an interleaved process) [server].** Heartbeats whose starts are A, B, A raise `interleaved_process` once; A, B, B and A, A + 60 s do not.
+- **renew_ac_013 (the grants) [server; the api's deploy_ac_004 test].** As `cg_ingest`: `UPDATE agents SET last_seen` allowed, `UPDATE agents SET revoked_at` refused.
+- **renew_ac_101 (the decision) [agent].** With the time injected, a certificate with 46 days left asks for nothing; with 45, it asks once, and again only after an hour; the decision reads the certificate's `notAfter`, not `identity.json`'s.
+- **renew_ac_102 (the request) [agent].** The request goes to the renewal URL derived from `heartbeat_url`, through the heartbeat's client configuration; its `signature` verifies under the current key and its `new_key_signature` under `new_agent_pubkey`, over the same canonical bytes.
+- **renew_ac_103 (the swap) [agent].** After a `200`, the next heartbeat presents the new certificate and is signed by the new key; an answer whose certificate names another `CN`, another key, another CA or an earlier `notAfter` is discarded, and the next heartbeat uses the old pair.
+- **renew_ac_104 (an interrupted write) [agent].** The write of §Operational §10 interrupted after each of its steps: the next start loads a matching pair.
+- **renew_ac_105 (refusals) [agent].** A `403 agent_revoked` and a `403 agent_superseded` each give a `warn` line naming the reason, and the process keeps running; a `409` or `429` to a renewal is tried again after an hour.
+
+The server half is done when renew_ac_001 to 013 pass, with the elevated gate (it changes `services/ingest/src/routes/heartbeat.ts`); the agent half when renew_ac_101 to 105 pass, with the elevated gate (it changes the secure path of `agent/cg-agent/src/lib.rs` and `agent/cg-agent/src/delivery.rs`), and after F3's code.
+
+## Risks
+
+- **A copy of the endpoint keeps working until it is noticed.** Both hold the key (R18). The signals flag it; nothing refuses it.
+- **A virtual machine reverted to a snapshot can raise `interleaved_process`**, which the operator reads as a copy (§Operational §6).
+- **The rate limits are per process.** A restart resets them, and a deployment of one ingest has one.
+- **A token for several uses** is readable, wherever it is distributed, until it expires, is used up or is withdrawn (SPEC-026 issues it).
+
+## Open questions
+
+None. ADR-0004's amendment answers the protocol's; the runbooks are listed under *Out of scope*.
+
+## Decision record
+
+Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day (ADR-0004 Amendment 2026-11-20). Beyond that amendment, each decision with what it discards:
+
+1. **Renewal writes no row; the first use of the new certificate replaces the old one.** Against storing the new certificate when it is signed: a lost answer would strand the agent with a certificate the server refuses, and a restore would need a second mechanism.
+2. **A certificate is later by its `notBefore`.** Against the serial, which is random (`services/ingest/src/ca.ts`); `notBefore` is the signing time less 60 seconds (`services/ingest/src/cert.ts`), and two signings for one agent are 10 minutes apart at least (§Operational §5).
+3. **A withdrawal is `withdrawn_at`, not a `withdrawn` state.** Against a new enum value, which the migrations' one transaction could not use.
+4. **`consumed_by_agent_id` gives way to `agents.enrolled_by_token_id`.** Against keeping the column: a token for several uses enrolls several agents.
+5. **At most 1000 uses and 7 days.** The cap bounds what one leaked token enrolls; the operator issues another past it.
+6. **The interleaved process from the heartbeat's own fields.** Against the sequence number, which restarts with the process, and the source address, which is personal data.
+7. **The renewal's URL from the heartbeat's.** Against a key of `agent.toml`, which would be deployment configuration.
+8. **`409` for a renewal that is not due, `403` only for a revoked or superseded agent.** So that `403` keeps one meaning: the server refuses this agent.
+9. **Host names cut, not refused, past 255 code points.** Against refusing the request, which would be a check narrower than SPEC-004's.
+
+## References
+
+- [ADR-0004](../adr/0004-agent-server-protocol.md) — the protocol; its Amendment 2026-11-20.
+- [ADR-0022](../adr/0022-single-node-production-deployment.md) — the runtime roles' grants; its Amendment 2026-11-20.
+- [SPEC-002](SPEC-002-agent-enrollment.md), [SPEC-003](SPEC-003-mtls-signed-envelope.md), [SPEC-004](SPEC-004-server-ingest-minimal.md) — enrollment, the envelope, the server.
+- [SPEC-023](SPEC-023-production-deployment.md) — the grants' test, deploy_ac_004.
+- [SPEC-024](SPEC-024-agent-installer-service.md) — the service's custody of the identity.
+- [Threat model](../security/threat-model.md) — R4, R5 and R18.

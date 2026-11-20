@@ -44,11 +44,13 @@ Functional and technical specifications. Every module of CyberGuard is preceded 
 | [SPEC-022](SPEC-022-soar-mvp-playbooks.md) | SOAR for the MVP — playbooks, their execution record, and one playbook | Accepted |
 | [SPEC-023](SPEC-023-production-deployment.md) | Production deployment — the bundle, the operator's configuration and secrets, TLS, published images | Accepted |
 | [SPEC-024](SPEC-024-agent-installer-service.md) | Windows agent installer, service lifecycle and key custody — F2 contract; implementation in progress (S50: build-time version); S51 amendments: packaging tool, version resource, release check, test venue, coverage; second amendment 2026-11-01: instance lock, `--service`, SCM states, Application-log entries, exit codes 10 to 13; amendment 2026-11-04 (approved by Manuel): the service's fixed paths, custody checks, identity write order and consistency (#142) | Accepted |
+| [SPEC-025](SPEC-025-agent-certificate-renewal-revocation.md) | Agent certificates — the enrollment token at rest, renewal, revocation and a copied identity (F4; server half first, agent half after F3) | Proposed |
 
 SPEC-021 is reserved for the contract of roadmap §B2, which is parked (`docs/product/roadmap.md` §B2).
 
 ## Dependencies
 
+- SPEC-025 → ADR-0004 (implements its Amendment 2026-11-20: the token, renewal, revocation, the CA) / ADR-0022 (narrows `cg_ingest`'s grants on `agents`; the api's are SPEC-026's, by ADR-0022's Amendment 2026-11-20) / SPEC-024 (the renewal's write of the identity, by an amendment of SPEC-024 that lands before the agent half's code)
 - SPEC-024 → ADR-0008 (the startup reclaim depends on the instance lock, its Amendment 2026-11-02) / ADR-0010 (the packaging supersession expressly authorized by §Decision part 2 and §Compliance; LocalSystem/MSI, elevated baseline unchanged) / ADR-0022 (F2 and release limits) / SPEC-001, SPEC-002, SPEC-017 and SPEC-023 (Amendments 2026-10-27: service logging/shutdown and product version; SYSTEM custody, partial-identity refusal and version; live-instance guard and lifecycle; setup/MSI release assets, respectively). SPEC-003, SPEC-019 and SPEC-020 retain TLS, wire and capture ordering; SPEC-003's heartbeat-URL fallback (its Amendment 2026-05-22, separate URLs) stays the console's, the service requiring `server.heartbeat_url` (SPEC-024 Amendment 2026-11-04). #87 and #131 require implementation evidence; a contract does not close them.
 
 Cross-document edges surfaced at landing (each SPEC's own "Depends on" header is authoritative; this records the load-bearing catalog edges).
