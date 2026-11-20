@@ -4171,6 +4171,235 @@ alternative, the two readings beyond A1 to A4 (`in-place` for a host uninstalled
 and the console's names beside a SYSTEM mark) and the residuals §2 and §3 disclose; the threat
 model's revision waits for his approval with the runbook. Status stays **Accepted**.
 
+## Amendment 2026-11-20: the console installation is a development layout
+
+**What surfaced it.** Manuel stated on 2026-11-20, in chat, what the product is for: an MVP that
+works on client companies' computers as soon as it is installed, tested on machines that simulate
+them, installed with `setup.exe` as a client installs it, then sold; no client will ever have a
+console installation (the agent set up by hand with the runbook that C10's first commit replaced
+with the setup), which exists only on development machines, and those can be formatted; and a
+client's updates come through the setup's upgrade (`docs/operations/upgrade.md`), with no automatic
+update (§Operational §4). Session 85 read, read-only, what exists only for that installation: the
+Amendment 2026-11-05's migration and its residuals, the Amendment 2026-11-18 but for its point 4, which the custody verb applies, and its point 5, which
+reads the server, C10's fourth commit (the
+migration's runbook, never landed), and the custody verb's mode `executable` serve it alone. The same reading found that its names still reach a host the setup installed: the setup
+reads a migration in progress and a console layout before it reads the directories' security
+(`agent/cg-agent/src/service/layout.rs:150-158`), so a `%ProgramData%\CyberGuard` an ordinary user
+created first, holding a directory `agent.migrating` or a
+`cert.pem` in `agent\`, is the setup's 28, not its 27;
+and the line of that 28 tells an elevated operator to take the migration route with
+`CG_MIGRATE_LEGACY` and `CG_TRUST_ANCHORS` (`agent/cg-setup/src/wizard.rs:75-83`), which on a
+`%ProgramData%\CyberGuard` an administrator had opened starts the migration's code as SYSTEM over
+planted names, closing the directories before it refuses them.
+
+**Amendment.** A *console installation* is the Amendment 2026-11-05's console layout, a data root
+that holds `cert.pem`, `key.dat` or `identity.json` directly; the *staging directory*
+`agent.migrating` and the *legacy directory* `agent.legacy` are that amendment's too.
+
+1. **A development layout.** No release of the setup writes a console installation, a staging
+   directory or a legacy directory. The product supports the agent the setup installs, and nothing
+   else: a console installation exists only on a development host, which is formatted, not migrated,
+   before the product is installed on it, and the agent run by hand on an endpoint, the installed
+   binary's console mode included, is outside support. On an endpoint the setup installed, those
+   names are another account's or an administrator's, never the product's. §Scope's "explicit
+   handling of legacy manual installations" reads: their refusal (point 3). §Operational §2's two
+   paragraphs on an existing manual installation, from "For an existing manual installation" to
+   "never stolen.", are superseded by points 2 and 3: no route migrates it once point 2's code lands. No release carries the setup while the release-tag freeze holds (`docs/security/release-protection.md`), so no client's endpoint has that route; point 2's code lands before the freeze is lifted (the roadmap's *The remaining order to sale*, step 1). Their requirement to disclose that copies
+   of the key already made cannot be recalled stays for every installation, with its remedy when a
+   compromise is suspected: the purge, then a new installation with a new token (an enrolled host's
+   setup refusing a bootstrap, 30), the old agent's certificate staying valid on its server until it
+   expires or an operator deletes its row (the Amendment 2026-11-15, point 8, and the Amendment
+   2026-11-18, point 5; the threat model's R5), until F4's revocation. install_ac_013 reads: "The
+   setup refuses a console layout and a migration in progress (28), and a legacy directory beside a
+   data root with no `identity\` (27), before any change; the service's start without arguments
+   refuses a staging or legacy directory that counts (code 5) before any change, and the purge a console layout and a migration in
+   progress (28; 14); the setup's migration variables and the service's migration argument are
+   refused (Amendment 2026-11-20, point 2)." §Risks' "An ordinary user who previously copied a legacy
+   DPAPI blob may already have the key" has no subject on an endpoint.
+2. **No migration starts or continues.**
+   - `cg-setup preflight` refuses a non-empty `--migrate-legacy=` or `--trust-anchors=`, that is a
+     non-empty `CG_MIGRATE_LEGACY` or `CG_TRUST_ANCHORS`, with 28 once the platform, the elevation and
+     the host's state are read, on every state but an untrusted one, which stays 27 (the Amendment
+     2026-11-10, item 2), before it reads any other input or changes anything and before the conflicting
+     service (26) and the downgrade (29); the Amendment 2026-11-10, item 2's 24 for a
+     migration request whose form is not the service's is 28 too. `cg-setup configure` no longer
+     takes a non-empty value of either: such a command line is 40, as any other the verb does not
+     admit (the Amendment 2026-11-10, item 9), before it changes anything; in the chain, preflight has
+     refused it first. The bundle keeps the two variables,
+     empty by default, and the verbs keep their options' names (the Amendment 2026-11-10, item 9), so that
+     the chain's command lines do not change; neither variable is an operator input any longer
+     (§Data contracts §3; the Amendment 2026-11-09, item 2).
+   - The service refuses the start argument `--migrate-legacy=` with code 2 before any change, as the
+     Amendment 2026-11-05, item 1, refuses a start argument it does not admit; a
+     `--trust-anchor-sha256=` without the adoption's argument stays code 2; the adoption's and the
+     purge's start arguments are unchanged.
+   - A start of the service without arguments refuses a staging or legacy directory that counts (the
+     Amendment 2026-11-05, item 4) with code 5 before any change, its line naming the layout: it
+     completes, reverses or continues no migration, and deletes no old copy. The purge's start and the
+     adoption's keep their own readings: the purge's 14 for a migration in progress or a console
+     layout and its legacy step (the Amendment 2026-11-15, points 4 and 6), and the adoption's code 2
+     on a console layout or a migration in progress, any staging directory or a legacy directory with
+     no data root, whether it counts or not (the Amendment 2026-11-09, item 6.1), and its refusal of a
+     legacy directory that counts beside a data root (by the Amendment 2026-11-05, item 4). Such a directory is owned by SYSTEM
+     under `agent.toml`'s policy; on an endpoint only an administrator, SYSTEM, or an object SYSTEM
+     owns that another account moved into `<P>` (the Amendment 2026-11-19 (second), §2's residual)
+     makes one.
+
+   The migration's route (the Amendment 2026-11-05, items 2.2 to 2.6, 3, 5 and 7, the part of its
+   item 4 that completes, reverses or continues a migration, a committed one's old copies included, and its item 6's route, which keeps the files aside,
+   removes `<P>` and installs anew), its residuals (the Amendment 2026-11-07 (second), items 1, 2, 3
+   and 5) and the Amendment 2026-11-18's points 1 to 3, with its *Tests*' assertions of the routes of those
+   points, of the migration's repair lines and of `upgrade.md`'s route to the migration, are superseded
+   as contract; its *Tests*' assertion that each block repairing the agent's directories is a `cg-setup
+   custody` command stands; that amendment's
+   point 5, that no command of the server removes the old agent, stands. Their code stays in the product, unreachable from the setup and from the service's
+   start, with the tests that call it directly. The purge's legacy step (the Amendment 2026-11-15,
+   point 6) stays: it removes, by the purge's rules, the product's names from a legacy directory
+   that counts, which only the objects above make on an endpoint. A development host whose migration
+   was interrupted is formatted, as any console installation is.
+3. **The readings that stay.** The setup's table (the Amendment 2026-11-09, item 3; the Amendment
+   2026-11-10, item 2) keeps reading a migration in progress and a console layout before the
+   directories' security and refusing them with 28, and keeps refusing a legacy directory beside a
+   data root with no `identity\` with 27; a legacy directory beside `identity\` stays an enrolled
+   host's, whose service then refuses it when it counts (point 2). The service's start without arguments keeps the
+   Amendment 2026-11-05, item 6's reading: it never migrates, and each refusal it makes on a console
+   layout adds a reason that names the layout; that reason no longer says "migrate them before
+   removing anything", and says instead that the product neither adopts nor migrates a console
+   installation. The purge keeps its 28 and its 14 for a migration in progress or a console
+   layout (the Amendment 2026-11-15, points 3 and 4). They detect names another account made. The
+   code 28 reads: what the product does not support, a layout no release of the setup writes (a
+   console installation on a development host, or its names another account made on an endpoint)
+   or a migration asked for; the host unchanged. No refusal line offers the migration or tells the
+   operator to set its variables or arguments, the purge's line for a migration in progress
+   included: a line for a layout names the layout and says that the product neither adopts nor
+   migrates it; a line for a variable or an argument names it and says that the migration is not
+   supported; each sends the operator to the installation runbook.
+4. **What other text cites from the superseded items.** It stays in force for the text that cites
+   it, as if stated there; among it: the Amendment 2026-11-05's definitions of `<P>`, the data root,
+   the staging and legacy directories and the console layout; its rules that an object is opened
+   without following a reparse point, that a security change applies to the object it names and
+   propagates to no child, that an operation that waits on another process, an opportunistic lock included, is
+   cancelled after 30 seconds, and that a reason names a path and the failed condition, never a
+   file's content or a SID; its item 1's form and
+   exact-set rule for `--trust-anchor-sha256=`; its item 2.1's closing of `<P>` and the data root,
+   which the adoption applies (the Amendment 2026-11-09, item 6.5); the Amendment 2026-11-07
+   (second), item 4's code 5 for a failure that has no other code (the Amendment 2026-11-09, item
+   6.6); the Amendment 2026-11-07 (second), item 5's statement of what is in place, which the adoption's
+   refusal beside a console layout gives; the purge's reading of a directory's names again before it
+   removes it (the Amendment 2026-11-15, point 5); and the Amendment 2026-11-18, point 4's repair of a file with another link,
+   which the custody verb applies (the Amendment 2026-11-19, point 6).
+5. **The migration's route in other clauses.** Where an amendment says "on every route but a
+   migration's", "on any route but a migration's", "on a route other than a migration's", "a setup
+   that is not a migration's", "a later preflight that is not a migration's" or "a migration's
+   included", whatever its capitalisation, it reads as if that route did not exist ("on every route", "on any route",
+   "a setup", "a later preflight"); and so does any clause that names the migration route, or a host
+   that took it, as a condition; a clause that applies "on the migration route"
+   alone has no subject; and "unless the migration is requested" and "unless the migration route is
+   asked" are struck, the refusal they qualify holding whatever is asked (points 2 and 3). The Amendment 2026-11-13's interactive migration, the setup run with `CG_MIGRATE_LEGACY`
+   and `CG_TRUST_ANCHORS`, has none either: the setup refuses it (point 2).
+6. **The custody verb.** The Amendment 2026-11-19's point 9 (`executable`) is withdrawn: it acts only
+   on the console installation's executable, which no release installs; its point 1's modes lose
+   `executable`, and its *Tests* lose `executable`'s and the migration's checks. Its other points, `legacy`
+   among them, and the Amendment 2026-11-19 (second) stand for the states they name on a host the
+   setup installed, the setup's 27, the service's 13, what the purge left and a
+   `%ProgramData%\CyberGuard` an ordinary user created first; their uses for item 2.2's repairs and
+   item 6's route, which point 2 supersedes, have no subject. They stand so until an amendment restates the verb for a host
+   the setup installed, with `show`, `in-place` and `aside`, and `legacy` if that amendment keeps it; that amendment lands before the verb's
+   next code, which the roadmap orders after F3 and F4 and before the validation on the machines that
+   simulate a client's, and settles which of their branches for a console installation, a staging or
+   legacy directory taken for the agent's, `migration.json`, item 2.2's repairs, item 6's route and
+   `legacy`, which acts on a legacy directory that counts after a purge's 47, remain. The Amendment 2026-11-19, point 11's release asset stands. Until the verb exists, the
+   setup's 27 and 28 leave the endpoint unchanged, the service's 13 and its 5 for a staging or legacy
+   directory that counts change nothing at that start, each failing closed, an upgrade the setup made
+   before it staying installed, the purge's 47 leaves the product installed with part of
+   its data possibly removed, the identity among what may stay, and the installation runbook gives no repair: it warns that a recursive removal can follow a
+   junction planted in `%ProgramData%\CyberGuard`, and from point 2's change says not to remove it, or
+   what it holds, by hand.
+7. **#87's evidence.** The fresh installation's: the service's custody (install_ac_004 and
+   install_ac_005, `9053513`), the MSI (`b96918c`) and the setup's chain (`3adfcd2`), with the adoption (`8994b50`)
+   that makes the configuration and the anchor SYSTEM's (the Amendment 2026-11-09's *Effect*), their tests
+   passing in `rust-ci` and `package-ci`; install_ac_016's run of the setup on an endpoint confirms it,
+   and R1 reopens if it does not. §Acceptance criteria's "A contract-only change closes neither #87
+   nor #131" reads, for #87: the code above is landed and tested, every part of #87 but the migration's; this
+   text closes #87 by taking the migration out of what it asked for, the one part that code does not
+   do, and not in that code's place.
+
+**Alternatives.**
+
+- *Remove the migration's code*, most of `agent/cg-agent/src/service/migration.rs`'s 1,804 lines,
+  which also hold the start arguments' parse and item 4's reading, and the setup's route, with the about 6,700 lines of install_ac_013's tests: discarded, since no risk
+  requires it once point 2 refuses its triggers and its completions, and the deploy tests read that
+  file (`deploy/docker/test/install.test.mjs:193-197`).
+- *Leave the triggers, or the completion of an interrupted migration*: discarded; the first sends an
+  elevated operator, by the 28's line, to start the migration's code as SYSTEM over planted names; the
+  second renames, as SYSTEM, a directory that on an endpoint only an administrator, SYSTEM or a
+  moved-in object makes.
+- *Fold 28 into 27*, or read a `%ProgramData%\CyberGuard` an ordinary user owns as 27 before its
+  names: discarded; no release carries the codes yet, but the runbooks, the setup's lines and their
+  tests give 28 and 27 their meanings, the second changes the Amendment 2026-11-09, item 3's order,
+  and both leave the host as unchanged as 28 does.
+- *Remove the bundle's two variables*: discarded for now; it changes the chain's command lines and
+  the package's tests, while point 2's refusal already keeps them from acting.
+
+**Tests.** `cg-setup configure` with a non-empty migration variable gives 40 with nothing
+changed;
+`cg-setup preflight` with one gives 28 on a fresh, a pending, an enrolled and a console-layout host
+and on a migration in progress, before any other input is read and with nothing changed, and 27 on an
+untrusted path. The service started with `--migrate-legacy=` gives code 2, and started without
+arguments beside a staging or legacy directory that counts gives code 5, each before any change. No
+refusal line of the setup, the service or the purge offers the migration or tells the operator to set
+`CG_MIGRATE_LEGACY`, `CG_TRUST_ANCHORS` or `--migrate-legacy`. The tests of the migration's code that
+call it directly stay, as tests of unreachable code; those that start the service or the setup with
+migration arguments, or let the service complete an interrupted migration, assert point 2's
+refusals. Four of them run only where CLAUDE.md's control §1 confines them, and are seen red first
+on a probe pull request, the adoption's service test among them, whose line changes: install_ac_013's service test and `cg-setup`'s service test in `rust-ci`'s
+Windows job, and a new case of the setup's host test in `package-ci`'s `bundle` job, the setup run
+with a non-empty `CG_MIGRATE_LEGACY`; the adoption's service test, in the same Windows job, asserts
+the adoption's line on a console layout as point 3 words it; the migration's route then
+has no test that runs it as SYSTEM through the service. The deploy tests that read the installation
+and upgrade runbooks assert their revised lines (*Effect*).
+
+**Effect.** No ADR changes, and no privilege, environment variable, setting, crate or exit code is
+added, the setup's 28 and 40 and the service's codes 2 and 5 gaining point 2's causes; three
+operator inputs are withdrawn: `CG_MIGRATE_LEGACY` and `CG_TRUST_ANCHORS`, kept as bundle
+variables that the setup refuses, and the service's start argument `--migrate-legacy=`, which it
+refuses. SPEC-002's Amendment 2026-10-27, "Legacy adoption is an explicit
+same-machine migration under SPEC-024", reads by scope: there is no legacy adoption, and R1's
+"implementation evidence" is point 7's. The runbooks' lines on a console installation, the migration,
+the setup's 28 and the purge's 14 (`docs/operations/install.md`, `docs/operations/upgrade.md`'s route
+for an agent installed before SPEC-023, `docs/operations/configuration.md` and
+`docs/operations/data-protection.md`) are revised with point 2's code, in its pull request: the 28 as
+point 3 reads it, no migration, on an endpoint no removal by hand, and R18's lines (the threat
+model's R18). The threat model is amended
+with this text (its Amendment 2026-11-20 (SPEC-024)), which closes R1 by scope, accepts the copies of
+the key outside the product's custody and the unelevated processes of an administrator or of an
+account with an administrative privilege, which open R1 held, extends to the setup, the service
+and the purge the residual of an object SYSTEM or Administrators owns moved in or made there by an
+administrator (the Amendment 2026-11-19 (second), §2), adds R18, and supersedes its Amendment 2026-11-18 (SPEC-024), approved on 2026-11-19 on a branch and never landed; the custody
+verb's entries come back with the amendment of point 6. What the *Effect* of the Amendments 2026-11-18,
+2026-11-19 and 2026-11-19 (second) says of the threat model's Amendment 2026-11-18 has no subject, that amendment being superseded; the Amendment 2026-11-19 (second), §2's "The threat
+model's Amendment 2026-11-18, on its branch, accepts a directory moved in" reads: the threat model's
+Amendment 2026-11-20 (SPEC-024) accepts it. From this text's landing until point 2's change, the
+runbooks' lines on a console installation still describe the migration, and `install.md` still
+names R1 open for it: they are what that change revises, the roadmap's first step, before any
+release. The *Decision record*'s "migration and purge
+are explicit" reads: the purge is explicit, and there is no migration. Manuel's choices of
+2026-11-19 that the Amendment 2026-11-19's *Effect* records for the restriction, hashes and move of
+item 6's files and for the legacy directory's move after a purge are settled again by the amendment
+of point 6, on his choice of 2026-11-20; until it lands they stand with the points that hold them. Debt #87 closes with R1; #144's destination, SPEC-024's package, is met, its denial of
+service staying R17's with #166's repair; #166 keeps the setup's hosts alone; #167's part on the
+27 "when the agent never enrolled there" has no subject. C10's fourth commit is not landed; its
+fixes for every installation are carried by a change of their own. Claude Code proposed this text on
+2026-11-20, on Manuel's choices of that day: the console installation unsupported, the migration's
+code kept and its triggers refused, 28 kept and read anew, the custody verb reduced to the setup's
+hosts and built after F3 and F4, and the remaining order of the MVP, F3 taking the triage of
+incidents and alerts and a read view of `audit_log`, each in the recommended option
+("sigo las recomendaciones y lo que tu intuyas que es lo mas beneficiable para que el proyecto sea
+lo mejor del mundo, solamente ten en cuenta que todo esto es para vender a empresas y que funcione
+perfectamente"). Manuel approved this text, at `5198ce6`, on 2026-11-20, in chat: "ok", which
+covers the three threats its threat-model amendment accepts, F3's scope and point 7's reading
+of #87. Status stays **Accepted**.
+
 ## References
 
 - [ADR-0008](../adr/0008-etw-crate-selection.md) — the startup reclaim of the agent's ETW session; its Amendment 2026-11-02 makes it depend on the instance lock.

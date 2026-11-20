@@ -506,8 +506,15 @@ This dependency-ordered document supersedes both for planning.
   in one module and the handle primitives, and stopped before the third on four points of the
   amendment's fresh reading (#169, `docs/handoff-session-83.md`); S84 settled them in SPEC-024
   Amendment 2026-11-19 (second), which Manuel approved (`0a3c64a`, `docs/handoff-session-84.md`);
-  the verb's third commit, then commit 4 on it, follow.
-  The phase is four SPECs, in this order:
+  S85, on Manuel's choices of 2026-11-20, made the console installation a
+  development layout outside the product (SPEC-024 Amendment 2026-11-20, with
+  the threat model's): the migration's triggers are to be refused, by that
+  amendment's point 2's code, and its code kept dormant; R1 and #87 close by
+  scope; C10's fourth commit is not landed, and
+  the custody verb, reduced to the setup's hosts, moves after F3 and F4
+  (*The remaining order to sale*, below).
+  The phase is four SPECs, F1 to F4 (the order of their remaining work is
+  *The remaining order to sale*, below):
   - F1, SPEC-023: the server's installation (the bundle, the configuration
     and secrets, a credential per service, the proxy, the agents' TLS, the
     images and the release, the forensic anchor, retention);
@@ -520,7 +527,8 @@ This dependency-ordered document supersedes both for planning.
   - F3: the dashboard's missing pages (TOTP enrollment and users, #83 and
     #98; the login deleting the prior session, #102; the agents and the
     enrollment tokens; the alerts; the export and the report; an incident's
-    events, the drill; the playbook records; the password change);
+    events, the drill; the playbook records; the password change; since
+    S85, the triage of incidents and alerts and a read view of `audit_log`);
   - F4: the agents' certificate renewal (#88), with the rest of #89.
 
   Criterion 7 is delivered by a timed installation after F1 to F4
@@ -547,9 +555,11 @@ This dependency-ordered document supersedes both for planning.
 - Needs: F2's implementation and Windows/package evidence under SPEC-024,
   F3/F4's SPECs and implementations, the manual endpoint validation,
   and first-release provenance/timed-install evidence. Next in F2: the
-  ADR-0008 and ADR-0010 amendments, then the single-instance guard, the
-  service mode, private rotated logs and SYSTEM custody (#87); the packages and install_ac_015 with WiX v7 (SPEC-024
-  Amendment 2026-11-01). Preserve #59/#50's external/isolated-machine limits.
+  code of SPEC-024 Amendment 2026-11-20's point 2, with the runbooks' lines
+  on the console installation, and the fixes of C10's fourth commit that
+  hold for every installation (#167); then the custody verb for the setup's
+  hosts, after F3 and F4, as the order below gives it. Preserve #59/#50's
+  external/isolated-machine limits.
 - Carries, from S39 (`docs/handoff-session-39.md` §Debts and the threat
   model's Amendment 2026-10-15): the dashboard's TOTP enrollment and user
   management (#83, with #98; its login and logout landed in S40,
@@ -580,6 +590,56 @@ This dependency-ordered document supersedes both for planning.
 - Discharges: `docs/adr/0010-agent-privilege-model-mvp.md:132` (packaging
   SPEC); the `deploy/` placeholders; debt #12.
 - Last by dependency.
+
+### The remaining order to sale (S85, 2026-11-20)
+
+Manuel stated the goal on 2026-11-20: an MVP that works on client
+companies' computers as soon as it is installed, validated on machines
+that simulate them, installed with `setup.exe` as a client installs it,
+then sold to enterprises, whose buyer is a security lead and a
+data-protection officer. He chose this order that day, each step in the
+recommended option:
+
+1. **The console scope.** SPEC-024 Amendment 2026-11-20 and the threat
+   model's; then its point 2's code (the migration's triggers and completions
+   refused, the 28's line) with the runbooks' lines in one change; and, in a
+   change of their own, #167's fixes for every installation, from C10's fourth
+   commit (`docs/c10-migration`).
+2. **Owner items with calendar time, started now and in parallel:** the
+   Authenticode decision and its purchase (ADR-0022 Open question 1; an
+   application-control policy such as WDAC may also ask for a signature); #130's legal
+   readings; the product's commercial licence and terms; the security
+   contact of `SECURITY.md`; the isolated Windows 10, Windows 11 and Server
+   2019 machines Manuel provides (M3); and a penetration test.
+3. **F3's and F4's contracts together.** How F4 stores the enrollment
+   tokens (#89) and revokes an agent shapes F3's tokens and agents pages.
+   F3's scope also takes the incidents' and alerts' triage (acknowledge,
+   assign, close; the Blueprint's P0) and a read view of `audit_log`
+   (Manuel's delegation of 2026-11-20, for the enterprise buyer). A
+   departure of F4 from ADR-0004 (a CSR, the CA's lifetime, a revocation
+   store across Valkey's per-service prefixes) is an ADR amendment, for
+   Manuel's yes.
+4. **F4's server half** (#89, revocation, the renewal route), then **F3**
+   (the api's routes and grants, the pages), then **F4's agent renewal**,
+   under the elevated gate.
+5. **The custody verb for the setup's hosts** (`show`, `in-place`,
+   `aside`, and `legacy` if its restatement keeps it; #166), its contract restated first (SPEC-024 Amendment
+   2026-11-20, point 6).
+6. **Release preparation:** #162 and #113, the pre-release sweeps, a sizing
+   note from #25, #35 and #61, the agent's SBOM, and signing if bought.
+7. **Validation on the isolated machines,** with the release's dry-run
+   setup installed as a client installs it: install_ac_003, 008 and 016,
+   #59, #145 and #50, SPEC-024's Open questions 4 and 5, and the readings
+   of R18 (#170), of a policy that re-applies `%ProgramData%`'s ACLs, and
+   of a changed service account.
+8. **Manuel's approval, the freeze lifted** as
+   `docs/security/release-protection.md` says, the first release,
+   deploy_ac_019's release half and deploy_ac_020 from the published
+   bundle.
+9. **The client-simulation run, the penetration test and the buyer's
+   documents** (a data-processing statement, an incident-response runbook
+   for CyberGuard itself, a security overview from the threat model, the
+   erasure and retention position), then the sale.
 
 ## Out of this plan (post-MVP deferrals — not phases)
 
@@ -635,6 +695,18 @@ This dependency-ordered document supersedes both for planning.
     its EULA and fee, and its toolchain rows (SPEC-024 Amendment 2026-11-01,
     point 1). Only the pin's exact value remains, named by the packaging
     change before WiX is used.
+11. RESOLVED (S85, 2026-11-20) — the console installation: a development
+    layout outside the product, its migration's triggers to be refused by
+    that amendment's point 2's code and its code kept dormant, R1 and #87 closed by scope, the custody verb reduced
+    to the setup's hosts and built after F3 and F4, and the remaining order
+    to sale above (SPEC-024 Amendment 2026-11-20, with the threat model's).
+    Owner decision.
+12. OPEN — before the first release and the sale, Manuel's: the
+    Authenticode decision (ADR-0022 Open question 1); #130's legal
+    readings; the product's commercial licence and terms; the security
+    contact; the isolated machines (M3); a penetration test; the
+    acceptance or control of #99, #124 and #125, which no delegation
+    accepts; and his approval of the release.
 
 Manuel delegated §1–§4 to Claude Code on 2026-10-14 ("lo que este
 pendiente de mi decidelo tu en base al beneficio del proyecto"). They are
@@ -648,4 +720,4 @@ officer.
 - Those ADR decisions no longer wait for ratification. A new ADR or a new
   amendment still needs Manuel's explicit "sí" before it is Accepted.
 
-§5–§8 and §10 are resolved (above), and §9 is parked.
+§5–§8, §10 and §11 are resolved (above), §9 is parked and §12 is open.

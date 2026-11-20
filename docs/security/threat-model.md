@@ -289,9 +289,9 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 
 - **§1 Agent.**
   - The buffer is an in-memory ring, nothing is written to disk (ADR-0009), so "locally buffered events (encrypted at rest)" and the DPAPI-derived buffer key do not apply.
-  - Key custody: the private key is protected with DPAPI at machine scope, and its file's ACL grants the enrolling user and SYSTEM (`agent/cg-agent/src/secure_storage.rs`, `agent/cg-agent/src/identity.rs`). Any process of the enrolling user, unelevated, can read and decrypt it, not only LocalSystem. The files are written before their ACL is tightened, and keep the inherited one if tightening fails (R1).
+  - Key custody: the service holds the private key in SYSTEM's custody, protected with DPAPI at machine scope, `identity\` and its files SYSTEM's alone with a protected DACL, written so from their creation (SPEC-024 install_ac_004, install_ac_005). The agent run by hand, a development surface that no runbook runs on an endpoint, writes it as before: its file's ACL grants the account that runs it and SYSTEM, any process of that account can read and decrypt it, and the files are written before their ACL is tightened, and keep the inherited one if tightening fails (R1, closed by scope).
   - The enrollment token is an opaque random value, single-use with a 15-minute time-to-live (`services/ingest/src/cli/issue-token.ts`), not a scope-bound JWT. It travels over TLS 1.3, the agent trusting the roots of its trust anchor alone (SPEC-023 §Operational §6), and is stored as typed (R4).
-  - There is no code signing (roadmap §F). SPEC-024's setup and MSI are built, and no release carries them: the release-tag freeze is active. The agent runs as an elevated administrator started by hand, or as a Windows service that the service control manager starts as LocalSystem with `--service` (SPEC-024 §Data contracts §3), not as a dedicated service account (ADR-0010 §Decision part 1). An MSI registers that service, with the security of SPEC-024's Amendment 2026-11-12, point 2; it admits an installation only with the property the setup passes, which an elevated administrator can pass too, or on an installed product (its point 1), and no release installs it yet. The service refuses a data directory an ordinary user created first, and fails closed (R17, Amendment 2026-11-03).
+  - There is no code signing (roadmap §F). SPEC-024's setup and MSI are built, and no release carries them: the release-tag freeze is active. The agent runs as a Windows service that the service control manager starts as LocalSystem with `--service` (SPEC-024 §Data contracts §3), not as a dedicated service account (ADR-0010 §Decision part 1). An MSI registers that service, with the security of SPEC-024's Amendment 2026-11-12, point 2; it admits an installation only with the property the setup passes, which an elevated administrator can pass too, or on an installed product (its point 1), and no release installs it yet. The service refuses a data directory an ordinary user created first, and fails closed (R17, Amendment 2026-11-03). Run by hand as an elevated administrator, the agent is a development surface, outside support on an endpoint (SPEC-024 Amendment 2026-11-20).
   - The signature of each batch is verified and not stored, and the sequence number restarts with the process and is informational only, by ADR-0004's Amendment 2026-05-23, so an accepted event is not kept as evidence non-repudiable against the agent's key.
   - Resource limits are fixed constants (the ring, the batch); there is no CPU or memory cap.
   - Command lines and users (Amendment 2026-10-13) are not captured: roadmap §B2 is parked. That amendment describes ADR-0020's design, not what is built: `cges_events` has `process_command_line` and `subject_user_sid`, both empty, no `process_user_uid`, and no column time-to-live on either: they go with their row. The `image_file_name` of a process can hold a user name inside its path; a process event is deleted the period the operator sets after its arrival, 365 days by default (SPEC-023 §Operational §9).
@@ -309,11 +309,11 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
 - **§8 Storage layer.** In the production bundle each service has its own credential in each store (SPEC-023 §Operational §4): in Postgres an owner role that migrates and a runtime role granted table by table what its code uses, neither a superuser, the runtime roles taking no advisory lock; in ClickHouse `cg_ingest` (`SELECT` and `INSERT`) and `cg_api` (read-only, `cges_events` alone, rows of class 1007 alone); in Valkey `cg_ingest` (its nonces) and `cg_api` (its sessions, counters and replay keys), the `default` user off. The stores sit on an internal network with ingest, the api and their two migration one-shots alone, and neither runtime user of ClickHouse reads its system log tables. In the dev stack, ingest and the api share one credential per store: Postgres as the image's superuser, ClickHouse, and Redis (`infra/dev/docker-compose.dev.yml`). There is no TLS to the stores, no signed mirror of `audit_log`, and no retention in Postgres. ClickHouse deletes an event of class 1007, 4001 or 3002 the period the operator sets after its arrival (`INGEST_RETENTION_*`, 365 days by default; another class at the longest of the three), and a heartbeat the period the operator sets after its arrival, 30 days by default (SPEC-023 §Operational §9). The application encrypts three secrets with pgcrypto, passing the passphrase as a SQL parameter (R10). Assets not listed above, both personal data, which the api's ClickHouse credential does not read in the bundle (R11): the logons of class 3002, which hold user names, domains, source addresses and host names; and the connections of class 4001, which hold source and destination addresses and ports by process; both kept for their class's period.
 - **§9 Dashboard.** The login and the logout are route handlers on the dashboard's origin (SPEC-009's second Amendment 2026-10-15). Each refuses a request whose `Origin` is not the host it was addressed to, or whose `Sec-Fetch-Site` is not `same-origin`; with the cookies' `SameSite=Strict`, that check takes the role this section's Tampering line gives Fastify-issued CSRF tokens between the browser and the dashboard. The CSRF token is an `HttpOnly` cookie that the dashboard's server sends to the api. The cookies are named `__Host-cgsess` and `__Host-cgcsrf`, so a sibling host cannot set one the dashboard reads; the dashboard reads no other name (SPEC-023 §Operational §7). The dashboard enrolls no TOTP and manages no user (debt #83). Every response of the dashboard's server carries a Content Security Policy whose `script-src` is `'self'`, the response's nonce, new per response, and `'strict-dynamic'`, with `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and a `Permissions-Policy` (SPEC-023 §Operational §7); `next dev` sets no CSP. The inline scripts Next needs run only with the response's nonce, never under `'unsafe-inline'`: SPEC-023's reading of this section's "inline scripts … forbidden". Public-key pinning, which the Spoofing line names, is not done, browsers having dropped it. HSTS is the proxy's (SPEC-023 §Operational §5), which the production compose puts in front of the dashboard, the dashboard published on no host port (debt #104). Its server pages forward the session cookie alone to the api, over HTTP by default (`API_BASE_URL`), which a login's password and TOTP code now cross too (R13). When the dashboard is listed in `API_TRUSTED_PROXIES` without a proxy in front of it that appends or sets `X-Forwarded-For`, a client chooses the address the api counts (R16). Admins set users' passwords and receive their TOTP secret (R14).
 - **Cross-cutting.** The product images run as non-root users, ingest's, the api's and the dashboard's as uid 1000 and the proxy's as uid 10001. What they run, the code under `/app` and the Caddyfile, the detection rules and the playbooks among them, is not writable by the process: owned by root, but for Caddy's binary, which its image gives uid 1001. The process owns the directories a volume is mounted on, ingest's `/certs` and the proxy's `/data` and `/config`, and, in the three Node images, its home directory; `/tmp` is every user's. The bundle's compose runs each product container read-only, with a tmpfs at `/tmp` (SPEC-023 §Data contracts §2, §Operational §1; R8, R15). Ingest writes its TLS key file `0600` on Linux, where its container runs, since SPEC-004 Amendment 2026-10-15, and at each start sets a key file it issued itself to `0600` when it is wider and its own (SPEC-023 §Operational §6, debt #92); a volume an ingest running as root wrote holds files the non-root ingest cannot narrow or replace, and is removed once (`infra/dev/README.md`; the production bundle has never run ingest as root); an operator-provided key file keeps the mode its operator gave it. The agents' certificates last 90 days with no renewal; the ingest server reissues its own self-issued certificate before it expires (SPEC-004 Amendment 2026-10-15); the CA's lasts 10 years (R5). Service logs are pino lines on standard output, not Loki. In the dev stack `.env.example` supplies the dev values and the compose file sets secrets inline; the production bundle's secrets are generated by `setup.sh` into `.env`, mode `0600`, and every one a container uses is required by the compose, which holds none (SPEC-023 §Operational §1, §3). `dependency-audit.yml` runs `pnpm audit` over the production dependencies and `cargo audit` over `Cargo.lock` on each change to them and every week, and `docs/security/dependency-review.md` is the dependency runbook (debt #93, closed in Session 41); the development pnpm dependencies fail it only on a critical advisory, and `cargo audit` lets its warnings pass (R12).
-- **Threats explicitly accepted in MVP.** "Root-level local compromise of an endpoint defeats agent key custody" understates the exposure: the enrolling user's own processes suffice (R1), which is not accepted.
+- **Threats explicitly accepted in MVP.** "Root-level local compromise of an endpoint defeats agent key custody" understates the exposure: the enrolling user's own processes sufficed (R1); R1 is closed by scope: the product's installations hold the key in SYSTEM's custody, the console installation being a development layout outside the product, and what remains, the unelevated processes of an administrator or of an account with an administrative privilege, and copies of the key outside the product's custody on that machine, is accepted (the Amendment 2026-11-20 (SPEC-024)).
 
-**New risks.** None is accepted. Each open one is a debt with a destination, and a closed one names what closed it (`docs/handoff-session-39.md`; R16, `docs/handoff-session-40.md`; R12, `docs/handoff-session-40.md` and `docs/handoff-session-41.md`):
+**New risks.** None is accepted; R1's closing leaves residuals among the accepted threats (the Amendment 2026-11-20 (SPEC-024)). Each open one is a debt with a destination, and a closed one names what closed it (`docs/handoff-session-39.md`; R16, `docs/handoff-session-40.md`; R12, `docs/handoff-session-40.md` and `docs/handoff-session-41.md`):
 
-- **R1 — The agent's private key is readable by the enrolling user's unelevated processes** (debt #87). Destination: roadmap §F's agent-installation SPEC (F2), whose service account decides the key's owner (ADR-0022, Accepted 2026-10-23).
+- **R1 — The agent's private key was readable by the enrolling user's unelevated processes: closed** with debt #87, by the service's custody of every installation the product makes, for every account's unelevated processes but those of an administrator or of an account with an administrative privilege, which reach it as they reach SYSTEM (accepted), the console installation being a development layout outside the product (the Amendment 2026-11-20 (SPEC-024)); it reopens if install_ac_016's run of the setup on an endpoint finds the identity, the configuration or the anchor outside SYSTEM's custody.
 - **R2 — A compromised ingest could forge an api session: closed** with debt #85, as ADR-0022's *Consequences* foresaw. In the bundle ingest's Valkey user reaches its nonces alone and the api's its sessions, counters and replay keys, the `default` user off (SPEC-023 §Operational §4, deploy_ac_006). The dev stack keeps one password.
 - **R3 — Both services acted as the Postgres superuser: closed** with debt #86, as ADR-0022's *Consequences* foresaw. In the bundle each service connects as its runtime role, granted table by table what its code uses: ingest cannot read `users`, `forensic_key` or `audit_log`, nor replace `ca`; the api writes `audit_log` and `forensic_key` and changes neither (SPEC-023 §Operational §4, deploy_ac_004). The dev stack keeps the superuser.
 - **R4 — Enrollment: a token in clear text at rest, its org and scope ignored, no rate limit**, and the CA signs a certificate for every request before the token is checked (debt #89). On the wire it travels over TLS since SPEC-023 §Operational §6, debt #89's TLS half. Destination: roadmap §F's renewal SPEC, with the rest of debt #89 (SPEC-023 §Out of scope).
@@ -501,6 +501,198 @@ The following threats are recognised and not mitigated in MVP. Each is accompani
   - **The token in `cg-setup`'s memory on the bootstrap file's route.** On the bootstrap file's route too, the token may stay in the memory of `cg-setup`'s elevated process until it exits, in the copies the corrected entry above names; SYSTEM and elevated administrators can read it there, as can whoever reads a dump of that process, as on the wizard's route (the Amendment 2026-11-13 (SPEC-024) above). The runbook (C10) is to disclose it. Manuel's ratification of this amendment, with SPEC-024's Amendment 2026-11-17, is its acceptance.
 
 **Effect on other sections.** None is restated but the entry corrected above. The Amendment 2026-11-13 (SPEC-024)'s accepted threat on the setup's dialog stands as written.
+
+## Amendment 2026-11-20 (SPEC-024): R1 closed by scope, R17 corrected, and an enrolled endpoint's image
+
+**Status.** Proposed by Claude Code on 2026-11-20 with SPEC-024's Amendment 2026-11-20, and
+ratified by Manuel on 2026-11-20, in chat, with it, at `5198ce6`: "ok"; on Manuel's
+choices of that day: the console installation is a development layout outside the product, R1 and
+debt #87 closed by scope, and the custody verb reduced to the setup's hosts and built after F3 and
+F4. It closes R1, updating in place five lines of the Amendment 2026-10-15 that keeps itself
+current (`:278`); reads the entries of the Amendments 2026-11-05 and 2026-11-07 (SPEC-024) and the
+migration's lever in the Amendment 2026-11-11 (SPEC-024) on an endpoint, with a clause each of the
+Amendments 2026-11-09 and 2026-11-15 (SPEC-024), and "R1's actor" in the Amendments 2026-11-12
+and 2026-11-13 (SPEC-024); corrects an entry of the
+Amendment 2026-11-03 (SPEC-024), one of the Amendment 2026-11-05 (SPEC-024) and one of the
+Amendment 2026-11-15 (SPEC-024); adds to §1, to R17 and to the accepted threats, and adds R18. It
+supersedes the Amendment 2026-11-18 (SPEC-024), which Manuel approved on 2026-11-19 on the branch
+`docs/spec-024-amendment-2026-11-18` (`1f06f31`), to land with the migration's runbook, and which
+never landed: two of its entries, the token in an edited configuration and the Application log's
+entries, are carried below as he approved them; its entries on the custody verb come back with
+SPEC-024's amendment that restates the verb. Its statements of the refusals that SPEC-024's Amendment
+2026-11-20, point 2, adds are what that point's code brings: until it lands, a non-empty migration
+variable still starts the migration's route on a console layout or a migration in progress, which an elevated administrator can ask for, as can a standard
+user who starts a setup that an administrator then elevates (the bundle's variables are the starting
+user's), and which the setup's 28 line still offers, and a start of the service without arguments still completes
+or reverses an interrupted migration whose directories count, and continues a committed one's
+restriction and deletion of the old copies. No release carries the setup while the release-tag freeze holds (`docs/security/release-protection.md`), so no client's endpoint has that route; that code lands before the freeze is lifted (the roadmap's *The remaining order to sale*, step 1). The
+threat model remains `Accepted`.
+
+**Context.** SPEC-024's Amendment 2026-11-20 makes the console installation, the agent set up by
+hand with the runbook the setup replaced, a development layout: no release writes it, the product
+neither adopts nor migrates it, and on an endpoint the setup installed its names, with the staging
+and legacy directories', are another account's or an administrator's. Its point 2 has the setup
+refuse the migration's variables (28), and the service the migration's argument (code 2) and, at a
+start without arguments, a staging or legacy directory that counts (code 5); the setup's, the service's and the purge's
+readings of those names stay. R1 named the enrolling user's
+processes reading a console installation's key; its destination, the agent-installation SPEC, is met
+for every installation the product makes, and the migration of a console installation into SYSTEM's
+custody, which the Amendment 2026-11-05 (SPEC-024) kept R1 open for, has no subject.
+
+**Amendment.**
+
+- **R1, closed by scope.** The service holds the key in SYSTEM's custody on every installation the
+  product makes: `identity\` and its files are SYSTEM's alone, with a protected DACL, written so from
+  their creation (SPEC-024 install_ac_004 and install_ac_005, `9053513`), the setup's chain (`3adfcd2`)
+  stages the configuration and the anchor and the adoption (`8994b50`) makes them SYSTEM's (the Amendment 2026-11-09
+  (SPEC-024)'s *Effect*), and the MSI (`b96918c`) installs the service with its security, their tests
+  passing in `rust-ci` and `package-ci`. A console
+  installation is a development layout outside the product (SPEC-024 Amendment 2026-11-20): the setup
+  refuses it (28), the service's start never migrates it and names it in each refusal it makes, and
+  no route migrates it. The agent run by hand still writes
+  its key as the console did, its file's ACL granting the account that runs it and SYSTEM; that is the
+  development surface of SPEC-002's Amendment 2026-10-27, which no runbook runs on an endpoint. R1
+  reopens if install_ac_016's run of the setup on an endpoint finds the identity, the configuration or
+  the anchor outside SYSTEM's custody. As SPEC-024's Amendment 2026-11-20, point 7, reads it, this
+  amendment closes R1 and #87 by taking the migration out of them, the code above having done the
+  rest. Copies of the key outside the product's directories are
+  outside its custody, which against an ordinary local user is the file system's access boundary, not
+  DPAPI (SPEC-024 §Operational §2): a sealed copy of the key's files that a backup, a shadow copy or
+  an antivirus quarantine keeps on that machine, which any account that runs on that machine can unseal once it can read it, and
+  the key in clear in the page file, the hibernation file or a dump of the agent's process (the
+  Amendment 2026-11-03 (SPEC-024)); they are accepted below, and a copy of the whole disk is R18. In the Amendment 2026-10-15, five lines are updated in place:
+  - the *Key custody* line (`:292`) reads: "Key custody: the service holds the private key in
+    SYSTEM's custody, protected with DPAPI at machine scope, `identity\` and its files SYSTEM's alone
+    with a protected DACL, written so from their creation (SPEC-024 install_ac_004, install_ac_005).
+    The agent run by hand, a development surface that no runbook runs on an endpoint, writes it as
+    before: its file's ACL grants the account that runs it and SYSTEM, any process of that account
+    can read and decrypt it, and the files are written before their ACL is tightened, and keep the
+    inherited one if tightening fails (R1, closed by scope).";
+  - the accepted threats' line (`:312`) reads, from "the enrolling user's own processes": "the enrolling user's own processes sufficed (R1); R1 is closed by scope: the product's installations hold the key in SYSTEM's custody, the console installation being a development layout outside the product, and what remains, the unelevated processes of an administrator or of an account with an administrative privilege, and copies of the key outside the product's custody on that machine, is accepted (the Amendment 2026-11-20 (SPEC-024)).";
+  - the *Elevation of Privilege* line on the installer (`:294`) reads, for "The agent runs as an
+    elevated administrator started by hand, or as a Windows service": "The agent runs as a Windows
+    service", and adds at its end "Run by hand as an elevated administrator, the agent is a
+    development surface, outside support on an endpoint (SPEC-024 Amendment 2026-11-20).";
+  - the *New risks* line (`:314`) reads, for "None is accepted.": "None is accepted; R1's closing leaves residuals among the accepted threats (the Amendment 2026-11-20 (SPEC-024)).";
+  - R1's line (`:316`) reads: "**R1 — The agent's private key was readable by the enrolling user's unelevated processes: closed**
+    with debt #87, by the service's custody of every installation the product makes, for every account's unelevated processes but those of an administrator or of an account with an administrative privilege, which reach it as they reach SYSTEM (accepted), the console installation being a development layout outside the product (the
+    Amendment 2026-11-20 (SPEC-024)); it reopens if install_ac_016's run of the setup on an endpoint
+    finds the identity, the configuration or the anchor outside SYSTEM's custody."
+- **The migration's entries, on an endpoint.** The entries the Amendments 2026-11-05 and 2026-11-07
+  (SPEC-024) added for the migration, and the Amendment 2026-11-11 (SPEC-024)'s lever "on a host that
+  was migrated", stand as the record of the migration's contract and describe code the product keeps
+  dormant; on an endpoint they have no subject, since no route migrates a console installation and no
+  release writes a staging or legacy directory. A staging or legacy directory, or a console
+  installation's names, on an endpoint are what another account or an administrator made. Before any
+  change, the setup refuses a migration in progress and a console layout by name (28) and a legacy
+  directory beside a data root with no `identity\` (27), and the purge a migration in progress or a
+  console layout (28 or 14). A legacy directory beside `identity\` the setup takes for an enrolled
+  host's: the service it starts after the MSI refuses that directory when it counts (code 5, the
+  setup's 42), and ignores it otherwise. A staging or legacy directory counts only when SYSTEM owns it
+  under `agent.toml`'s policy, which on an endpoint only an administrator, SYSTEM or an object of
+  SYSTEM's that another account moved into `%ProgramData%\CyberGuard` makes (SPEC-024 Amendment
+  2026-11-19 (second), §2); the purge's legacy step still removes, by the purge's rules, the
+  product's names from such a directory. The
+  Amendment 2026-11-05 (SPEC-024)'s addition to R1 lists exposures of a console installation's key;
+  those of machine-scope DPAPI, backups, shadow copies, dumps, the page file and antivirus quarantine,
+  and a clone of the disk, hold for any installation, as the closing of R1 above and R18 restate for the setup's. Its
+  "the remedy for a suspected compromise is a new enrollment and the removal of the old agent on the
+  server, not the migration" reads: the remedy is the purge, then a new installation with a new
+  token; the server has
+  no command that removes the old agent, whose certificate stays valid there until it expires or an
+  operator deletes its row (R5; the Amendment 2026-11-15 (SPEC-024)'s addition to R1 and R5). The
+  Amendment 2026-11-09 (SPEC-024)'s "on any route but a migration's" reads "on any route", and the
+  Amendment 2026-11-15 (SPEC-024)'s "a link an ordinary user planted before a migration's
+  restriction" reads "a link an ordinary user planted".
+- **R17, the Amendment 2026-11-03 (SPEC-024)'s entry corrected** (debt #164). Its "Until the package
+  exists, the installation runbook's remediation for code 13 applies (`docs/operations/install.md`):
+  an administrator removes that directory, after keeping what it holds, and starts the service again"
+  reads: the package exists, and the setup refuses a pre-existing `%ProgramData%\CyberGuard` that
+  fails the service's own check, before it changes the host (the Amendment 2026-11-09 (SPEC-024)
+  above); the installation runbook gives no repair of it, warns that a recursive removal can follow a
+  junction planted in it and, from SPEC-024 Amendment 2026-11-20, point 2's change, says not to
+  remove it, or what it holds, by hand; its repair is SPEC-024's
+  custody verb, restated for the setup's hosts before it is built. Its sentence from "A host set up by
+  the console runbook" to "not that remediation" cites the console runbook that the installation
+  runbook held until C10's first commit (`fdd0ea5^:docs/operations/install.md`), and has no subject on
+  an endpoint. Its destination, SPEC-024's package, is met; the denial of service stays, with debt
+  #166, the custody verb, as its destination.
+- **R17**, add: a `%ProgramData%\CyberGuard` an ordinary user created first that holds the names of a
+  migration in progress or of a console installation is the setup's 28, not its 27, since the setup
+  reads those names before the directories' security (SPEC-024 Amendment 2026-11-09, item 3); the
+  same denial of service, the host unchanged. SPEC-024's Amendment 2026-11-20, point 2, has the setup
+  refuse the migration's variables, so that such names never start the migration's code.
+- **§1 Agent, Information Disclosure**, add to the entry on the token between staging and
+  enrollment: *the token in an edited configuration.* On an endpoint whose agent never enrolled, or
+  whose removal of the token after its enrollment failed, the configuration runbook's change of a key
+  in `agent.toml` (`docs/operations/configuration.md`) puts the token in a copy of `agent.toml` in
+  the inputs' directory, readable by SYSTEM and Administrators as the bootstrap file there is, until
+  the operator deletes it; in the memory of the elevated PowerShell that wrote it, until it exits; and
+  in any copy the editor keeps, which the runbook avoids with an editor that keeps none. Deleting the
+  copy does not erase it from a backup, a shadow copy or the volume's free space. The token is
+  single-use and valid 15 minutes from its issue; one left in `agent.toml` after an enrollment has
+  been used.
+- **Cross-cutting, Logging and monitoring**, correct the Amendment 2026-11-15 (SPEC-024)'s entry,
+  where it gives the purge's record as "the service's Application log entry, which any interactive
+  user can imitate and which loses its message text once the MSI removes the source" (debt #168):
+  once the MSI removes the source, Windows keeps the entries and their strings without their message
+  text, as SPEC-024's Amendment 2026-11-15, point 7, says; each entry's one string is the service's
+  line, which its message text only repeated, so the line stays readable, and a command that names
+  the source no longer finds them. They remain diagnostics, not evidence.
+- **New risk.**
+  - **R18 — An enrolled endpoint's disk, imaged or cloned, carries its identity.** Machine-scope DPAPI
+    seals the key with the machine's own keys, which a copy of the system volume carries: each copy
+    of an enrolled endpoint's disk, an image a deployment tool or a virtual desktop's template takes
+    after the setup ran included, unseals the same key and presents the same agent, which the server
+    cannot tell from the original; so does any offline read of an unencrypted system volume, a lost or
+    stolen computer's or a virtual machine's backup. Debt #170. Destination: the installation runbook states that an
+    endpoint is imaged before the setup runs on it, never after, and that a copy of an enrolled
+    endpoint is purged and installed anew with a new token, its old certificate staying valid until
+    it expires or its row is deleted (R5); that the system volume's encryption, such as BitLocker, is
+    the deployment's control against an offline read; and F4's renewal SPEC states whether the server
+    detects one identity on several hosts.
+- **Threats explicitly accepted in MVP**, add:
+  - **Copies of the key outside the product's custody.** A backup of the key's files, a shadow copy
+    or an antivirus quarantine can keep the machine-sealed key on that machine, which any account that
+    runs on it can unseal once it can read the copy, a copy of the whole system volume being R18; the page file, the hibernation file and a dump of the agent's process
+    can keep the key in clear, usable on any machine; the purge recalls none (the
+    Amendment 2026-11-15 (SPEC-024)), and the runbook discloses them (R1 and R5). The host's backup and dump policies are the deployment's; the endpoint runbook records its dump,
+    page-file and hibernation settings (the Amendment 2026-11-03 (SPEC-024)).
+  - **The unelevated processes of an administrator, or of an account with an administrative
+    privilege.** R1's closing removes an ordinary account's read
+    of the key, and a filtered administrator token has no access to SYSTEM's custody (SPEC-024
+    §Data contracts §2, install_ac_004); but the unelevated processes of an administrator, the
+    account that runs the setup on its own desktop among them, can obtain an elevated token through a
+    bypass of User Account Control, which Windows does not service as a security boundary, and through
+    it reach SYSTEM's custody, as any elevated administrator can (SPEC-024 §Data contracts §2:
+    elevated administrative maintenance is not a threat boundary). So can an account that holds a
+    privilege Windows treats as administrative, once it uses it: the backup and restore privileges,
+    which Backup Operators hold elevated and which read `identity\` past its DACL and so a key any account on the machine can then
+    unseal, or impersonation, which service accounts hold and from which published techniques reach
+    SYSTEM. Such accounts are the host's administration, which the endpoint's owner grants.
+    "R1's actor" in the Amendments 2026-11-12 and 2026-11-13 (SPEC-024) names the other processes of
+    the desktop where the setup starts, whatever R1's state.
+  - **An object moved in by another account.** An account that can rename a file or a directory
+    SYSTEM or Administrators owns, elsewhere on the volume, into `%ProgramData%\CyberGuard` or as its
+    data root, or link such a file there, or an administrator who makes one there, makes the setup, the service or the purge read it as the
+    product's: a staging or legacy directory SYSTEM owns under `agent.toml`'s policy counts, which the
+    service refuses at a start without arguments (code 5) and from which the purge removes the
+    product's names, and SPEC-024's Amendment 2026-11-19 (second), §2, gives the custody verb's
+    readings of such objects. That account could already move it. Manuel approved this residual for the verb: for a
+    directory on 2026-11-19, in the superseded Amendment 2026-11-18 (SPEC-024), and for a file, a
+    directory or a hard link, moved in or made by an administrator, on 2026-11-20, with SPEC-024's
+    Amendment 2026-11-19 (second), §2; this amendment extends it to the setup, the service and the
+    purge.
+  - Manuel's ratification of this amendment, with SPEC-024's Amendment 2026-11-20, is their
+    acceptance.
+
+**Effect on other sections.** None is restated but the five lines updated in place and the entries
+corrected or read above. R1 is closed and its destination met; R17 stays open, its destination
+debt #166; R18 is open. The Amendment 2026-11-05 (SPEC-024)'s "R1 stays open until the migration and
+the package that writes the configuration and the anchor owned by SYSTEM are implemented (debt #87)"
+stands as the record of its condition, which the package met and SPEC-024's Amendment 2026-11-20
+took the migration out of. The custody verb's entries, which the superseded Amendment 2026-11-18
+(SPEC-024) held, come with SPEC-024's amendment that restates the verb, for Manuel's approval.
 
 ## References
 
