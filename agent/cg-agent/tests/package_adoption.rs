@@ -458,7 +458,13 @@ fn package_adoption_no_staged_configuration_is_code_2() {
 fn package_adoption_a_legacy_directory_that_counts_is_code_5_before_any_change() {
     let console = pending();
     console.counting_directory(&console.paths.legacy());
-    assert_refused_unchanged(&console, 5, IDENTITY_LINE);
+    let line = assert_refused_unchanged(&console, 5, IDENTITY_LINE);
+    // SPEC-024 Amendment 2026-11-20, point 3: the line names the layout and
+    // says that the product neither adopts nor migrates it.
+    let legacy = console.paths.legacy().display().to_string();
+    assert!(line.contains(&legacy), "{line}");
+    assert!(line.contains("neither adopts nor migrates"), "{line}");
+    assert!(line.contains("installation runbook"), "{line}");
 
     let console = pending();
     std::fs::create_dir(console.paths.legacy()).expect("a name that does not count");
@@ -947,6 +953,11 @@ fn package_adoption_directories_that_cannot_be_closed_are_code_13() {
     let (code, line) = refusal(run(&console, &Script::new()));
     assert_eq!(code, 13, "{line}");
     assert!(line.starts_with(LOG_LINE), "{line}");
+    // SPEC-024 Amendment 2026-11-20, points 3 and 6: the adoption's refusal
+    // sends to the installation runbook and gives no repair of the
+    // migration's.
+    assert!(line.contains("installation runbook"), "{line}");
+    assert!(!line.contains("migration"), "{line}");
     let mut after = console.whole();
     let mut expected = before;
     // <P> is closed before the data root is refused, and stays so.

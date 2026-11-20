@@ -1260,6 +1260,16 @@ fn package_verbs_purge_refuses_the_states_preflight_refuses() {
         for offer in ["finish or reverse", "migrate them", "CG_MIGRATE_LEGACY"] {
             assert!(!refusal.line.contains(offer), "{what}: {}", refusal.line);
         }
+        // The legacy directory beside a data root with no identity: its 27
+        // names it as a layout the product neither adopts nor migrates.
+        if what == "untrusted" {
+            assert!(refusal.line.contains("agent.legacy"), "{}", refusal.line);
+            assert!(
+                refusal.line.contains("neither adopts nor migrates"),
+                "{}",
+                refusal.line
+            );
+        }
     }
 }
 

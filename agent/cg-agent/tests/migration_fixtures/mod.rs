@@ -709,7 +709,9 @@ impl Console {
         }
     }
 
-    /// One start, as the next start after any before it: `lock` takes the
+    /// One run of the migration's `prepare`, as the next start after any
+    /// before it was before the Amendment 2026-11-20 (the service's start is
+    /// now `start_plain`): `lock` takes the
     /// instance lock, at most once.
     pub fn start_with_lock(
         &self,

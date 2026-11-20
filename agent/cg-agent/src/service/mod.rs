@@ -11,10 +11,11 @@
 //! `STOPPED` carries code 0 after a clean stop, else
 //! `ERROR_SERVICE_SPECIFIC_ERROR` and the cause's code. The Application log
 //! gets entries 1000 to 1003 under the source `CyberGuardAgent`. A start
-//! asked to by its SCM start arguments migrates a console installation
-//! during `START_PENDING` (`migration`), or adopts the configuration the
-//! setup staged (`adoption`), or removes the product's data from the host
-//! (`purge`, never reporting `RUNNING`).
+//! asked to by its SCM start arguments adopts the configuration the setup
+//! staged (`adoption`), or removes the product's data from the host
+//! (`purge`, never reporting `RUNNING`); none migrates a console
+//! installation, whose code `migration` keeps unreachable from the start
+//! (SPEC-024 Amendment 2026-11-20, point 2).
 //!
 //! This module holds what is portable: the codes, the lines, the outcome
 //! and its entry, and the enrollment rounds. The SCM, the Application log
