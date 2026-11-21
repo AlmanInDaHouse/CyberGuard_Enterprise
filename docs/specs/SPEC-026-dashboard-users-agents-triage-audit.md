@@ -8,7 +8,7 @@
   - ADR-0014 and its Amendment 2026-11-20 — the human authentication model; an admin's reset of another user's credentials by an invitation shown on screen.
   - SPEC-025 — the server's side of tokens, agents and revocation (ingest's migration `0010_agent_certificates`), whose server half lands before this SPEC's code (`docs/product/roadmap.md`, step 4).
   - SPEC-007, SPEC-008, SPEC-009 — grouping, authentication and the read slice, which this SPEC extends.
-  - This SPEC amends **by scope**: SPEC-002 (the sentences that call the token single-use, FR-014's and §Security considerations' on its lifetime, its replay and its mitigations: a token issued for several uses enrolls one agent per use, and a request replayed while a use is left enrolls another), SPEC-004 (FR-015's "no HTTP admin endpoint" and its §Ratification record's decision 2, CLI-only issuance, both superseded for the api's route, as SPEC-008 §Operational §5 asks; the record itself stands), SPEC-007 (§Data contracts §3's unique key and its `cg_mitre` comment, §Operational §1 and §4, and NFR-007-003's "even a direct re-group is idempotent", which holds only while the alert's incident is open: a closed incident takes no new alert, a direct re-group of an alert of a closed incident opens a new one, and an incident's techniques accumulate; NFR-007-003's requirement on re-running the cycle stands, alert dedup still preventing the re-group), SPEC-008 (§Data contracts §1 and §2, §Operational §5, §6 and §8, its *Out of scope* on recovery, and its first Amendment 2026-10-15's items 2, 5, 6, 12 and 13, the host's command keeping a body of its own with a password), SPEC-009 (its *Out of scope*, §Operational §2's "all three roles read", NFR-009-004, and its second and third Amendments 2026-10-15 where they say the dashboard has three views and the reads record no address), SPEC-011 (`cg_mitre` among the preserved fields), SPEC-013 (the report's assignee), SPEC-022 (no dashboard view of executions), SPEC-023 (§Operational §4's grants and "the api names ingest's three tables", deploy_ac_004, its *Out of scope* and §8 on the pages the dashboard lacks, and its third Amendment 2026-10-26's item 1, the later users created on the host until F3) and SPEC-024 (its two sentences that call the token single-use). Each one's acceptance criteria stand, read with the changes §Data contracts and §Operational state.
+  - This SPEC amends **by scope**: SPEC-002 (the sentences that call the token single-use, FR-014's and §Security considerations' on its lifetime, its replay and its mitigations: a token issued for several uses enrolls one agent per use, and a request replayed while a use is left enrolls another), SPEC-004 (FR-015's "no HTTP admin endpoint" and its §Ratification record's decision 2, CLI-only issuance, both superseded for the api's route, as SPEC-008 §Operational §5 asks; the record itself stands; and §Security considerations' *Enrollment-token single-use* and its mitigation's "short token TTL, single-use": a token issued for several uses lasts up to 168 hours and enrolls one agent per use, each use spent under the row's lock, SPEC-025 §Operational §1, and a token for one use is unchanged), SPEC-007 (§Data contracts §3's unique key and its `cg_mitre` comment, §Operational §1 and §4, and NFR-007-003's "even a direct re-group is idempotent", which holds only while the alert's incident is open: a closed incident takes no new alert, a direct re-group of an alert of a closed incident opens a new one, and an incident's techniques accumulate; NFR-007-003's requirement on re-running the cycle stands, alert dedup still preventing the re-group), SPEC-008 (§Data contracts §1 and §2, §Operational §5, §6 and §8, its *Out of scope* on recovery, and its first Amendment 2026-10-15's items 2, 5, 6, 10, 12 and 13, the host's command keeping a body of its own with a password), SPEC-009 (§Scope item 4's "only login → incidents list → incident detail", its *Out of scope*, §Operational §2's "all three roles read", §Operational §3's "Three views only" and "No other view", NFR-009-004, and its second and third Amendments 2026-10-15 where they say the dashboard has three views and the reads record no address), SPEC-011 (`cg_mitre` among the preserved fields), SPEC-013 (the report's assignee), SPEC-022 (no dashboard view of executions), SPEC-023 (§Operational §4's grants and "the api names ingest's three tables", deploy_ac_004, its *Out of scope* and §8 on the pages the dashboard lacks, and its third Amendment 2026-10-26's item 1, the later users created on the host until F3) and SPEC-024 (its two sentences that call the token single-use). Each one's acceptance criteria stand, read with the changes §Data contracts and §Operational state.
 - **Authors:** Manuel (project owner), Claude Code (proposal and implementation)
 
 ## Context
@@ -38,6 +38,7 @@ This SPEC is roadmap §F's F3. Manuel decided its scope and the role of each cap
 - **The retention of `audit_log` and of the triage history**: kept without a period, as the other tables are (`docs/operations/data-protection.md`); the position is roadmap step 9's (*Open questions*).
 - **The runbooks**: the users' creation from the dashboard instead of the api's container (`docs/operations/install.md`), the audit view in `docs/operations/forensic-verification.md`, and the personal data of `docs/operations/data-protection.md` go through the runbooks' branch and pull request, which `deploy-ci` reads, before the release.
 - **Pagination of the reads that have none today**: an incident's events (SPEC-010), its playbook records (SPEC-022) and an incident's alerts (SPEC-009). Their pages show what the routes answer.
+- **The host's audit coverage on the agents page**: ADR-0019's Open question 1 stays open (*Open questions*, 2).
 - **An `activity_id` that follows the status**: an incident's `activity_id` stays `1`, its creation; its triage is its `status` (Decision record 7).
 
 ## Data contracts
@@ -46,7 +47,7 @@ This SPEC is roadmap §F's F3. Manuel decided its scope and the role of each cap
 
 One migration, run as `cg_ingest_owner` in the transaction of every pending migration, after `0010_agent_certificates` (SPEC-025). Its grants act only when the role they name exists, as `0009_runtime_grants` does, so they do nothing in the developer's stack and in tests that run without the bundle's roles.
 
-**The api's grants**, to `cg_api` directly; `cg_api` reaches the schema through `cg_incident_reader`, granted to it by `deploy/docker/postgres/10-roles.sh`, whose `USAGE` on it `0009_runtime_grants` grants:
+**The api's grants**, to `cg_api` directly but for `triage_history`'s, which goes to the existing `cg_incident_reader`; `cg_api` reaches the schema through `cg_incident_reader`, granted to it by `deploy/docker/postgres/10-roles.sh`, whose `USAGE` on it `0009_runtime_grants` grants:
 
 | Table | Grant |
 |---|---|
@@ -56,7 +57,7 @@ One migration, run as `cg_ingest_owner` in the transaction of every pending migr
 | `alerts` | `UPDATE (status, updated_at)`, besides the `SELECT` it has through `cg_incident_reader`. |
 | `triage_history` | `SELECT`, through `cg_incident_reader`, as SPEC-023 §Operational §4 grants a table the api reads. |
 
-No grant reaches `ca`, a token's hash, or an agent's key or certificate, and none writes a column detection derives (`alert_ids`, `source_events`, `cg_mitre`, `severity_id`, `title`, `final_score` among them); none is an `INSERT` or a `DELETE` on `incidents`, `alerts` or `agents`. The writes of the api's role keep the triggers of SPEC-025: an issued token's `issued_at`, `uses` and `state` are the database's, a withdrawal and a revocation are write-once and take the database's time.
+No grant reaches `ca` or an agent's key or certificate, none reads a token's hash (the `INSERT` of a new token's is the only right on it), and none writes a column detection derives (`alert_ids`, `source_events`, `cg_mitre`, `severity_id`, `title`, `final_score` among them); none is an `INSERT` or a `DELETE` on `incidents`, `alerts` or `agents`. The writes of the api's role keep the triggers of SPEC-025: an issued token's `issued_at`, `uses` and `state` are the database's, a withdrawal and a revocation are write-once and take the database's time.
 
 **Ingest's own grant on `incidents`**: its table-level `UPDATE` is revoked and replaced by `UPDATE (alert_ids, severity_id, cg_mitre, updated_at)`, the columns grouping writes, so that neither runtime role but the api changes a status or an assignee.
 
@@ -86,7 +87,7 @@ An index on `(org_id, object_kind, object_id, history_id)`.
 
 Run as `cg_api_owner`, its grants acting only when `cg_api` exists, as `0007_runtime_grants` does.
 
-**`users`.** `password_hash` and `totp_secret` become nullable, under `CHECK ((password_hash IS NULL) = (totp_secret IS NULL))` and `CHECK (totp_secret IS NOT NULL OR NOT totp_enrolled)`. A user with neither cannot sign in until an invitation of theirs is completed.
+**`users`.** `password_hash` and `totp_secret` become nullable, under `CHECK ((password_hash IS NULL) = (totp_secret IS NULL))` and `CHECK (totp_secret IS NOT NULL OR NOT totp_enrolled)`. A user with neither cannot sign in until an invitation of theirs is completed; their login takes the fixed-hash verification an unknown address takes (SPEC-008 Amendment 2026-10-15 item 11), so that its time does not tell an invited address from an unknown one. SPEC-008 Amendment 2026-10-15 item 10's last active admin counts only an admin with a password and a confirmed factor, so that an admin whose credentials were reset does not count.
 
 **`invitations`**:
 
@@ -99,10 +100,10 @@ Run as `cg_api_owner`, its grants acting only when `cg_api` exists, as `0007_run
 | `token_sha256` | `bytea NOT NULL UNIQUE` | SHA-256 of the invitation's text, its base64url characters as ASCII. The text is kept nowhere. |
 | `issued_at` | `timestamptz NOT NULL DEFAULT now()` | |
 | `expires_at` | `timestamptz NOT NULL`, `CHECK (expires_at <= issued_at + interval '72 hours')` | 72 hours after its issue. |
-| `pending_totp_secret` | `bytea` | The TOTP secret last shown to the holder, encrypted as `users.totp_secret` is (`pgp_sym_encrypt` under `API_DB_ENC_PASSPHRASE`), until the invitation is completed. |
+| `pending_totp_secret` | `bytea` | The TOTP secret last shown to the holder, encrypted as `users.totp_secret` is (`pgp_sym_encrypt` under `API_DB_ENC_PASSPHRASE`); cleared at the invitation's completion or withdrawal, and after its expiry by the user's next invitation or reset (§Operational §3). |
 | `completed_at`, `withdrawn_at` | `timestamptz` | At most one set: `CHECK (completed_at IS NULL OR withdrawn_at IS NULL)`. |
 
-A unique index on `user_id` where `completed_at IS NULL AND withdrawn_at IS NULL`: a user has at most one open invitation. `cg_api` gets `SELECT`, `INSERT (invitation_id, user_id, org_id, purpose, token_sha256, expires_at)` and `UPDATE (pending_totp_secret, completed_at, withdrawn_at)` on `invitations`, no `DELETE`, so that `issued_at` is the database's.
+A unique index on `user_id` where `completed_at IS NULL AND withdrawn_at IS NULL`: a user has at most one open invitation. `cg_api` gets `SELECT`, `INSERT (invitation_id, user_id, org_id, purpose, token_sha256, expires_at)` and `UPDATE (pending_totp_secret, completed_at, withdrawn_at)` on `invitations`, and no `DELETE`; `issued_at` is not in its `INSERT`, so it is the database's, and the api writes `expires_at` as `now() + interval '72 hours'` in its statement, so that the database's clock sets it.
 
 **`audit_log`.** `cg_api` gets `SELECT`, besides its `INSERT`; still no `UPDATE` or `DELETE`. An index on `(org_id, id)`.
 
@@ -175,7 +176,7 @@ Each new row has SPEC-008's columns (Amendment 2026-10-15, item 6): the acting u
 |---|---|---|---|
 | `user.create` | `POST /v1/users` | the user | `{ role }`, as today |
 | `invitation.issue` | `POST /v1/users`, `/invitation`, `/reset` | the user | `{ purpose, expires_at }` |
-| `invitation.withdraw` | `/invitation/withdraw`, and an issue or a reset that replaces an open one | the user | `{ purpose }` |
+| `invitation.withdraw` | `/invitation/withdraw`, an issue or a reset that replaces an open one, and `/status` to `disabled` for a user with an open one | the user | `{ purpose }` |
 | `invitation.totp` | `/v1/invitations/totp` | the user | `{ purpose }` |
 | `invitation.complete` | `/v1/invitations/complete` | the user, or `NULL` for an unknown token | `{ purpose }`; outcome `ok` or `denied` |
 | `user.reset` | `/reset` | the user | none |
@@ -214,7 +215,7 @@ An unauthenticated holder of an invitation reaches its two routes alone (§3). A
 
 ### 2. The login and the cookie's session (debt #102)
 
-When `POST /v1/auth/login` carries a `cgsess` cookie that names a session, a successful login deletes that session before it issues the new one, whatever user it belonged to; a failed login leaves it. The dashboard's revocation before a login (SPEC-009 second Amendment 2026-10-15, item 3) stays. The session the login deleted writes no row of its own: the login's `auth.login.ok` is the record.
+When `POST /v1/auth/login` carries a `cgsess` cookie that names a session, a successful login deletes that session, after every check of the login and in the transaction that issues the new one, whatever user it belonged to; a login refused at any check, SPEC-008 Amendment 2026-10-15 item 9's re-read among them, leaves it. The dashboard's revocation before a login (SPEC-009 second Amendment 2026-10-15, item 3) stays. The session the login deleted writes no row of its own: the login's `auth.login.ok` is the record.
 
 ### 3. Invitations (debt #98)
 
@@ -290,7 +291,7 @@ The api's criteria are vitest tests of `services/api` (testcontainers), named `d
 - **dashapi_ac_001 (the roles; blocks CI).** For each route of §Data contracts §3 and each of the three roles, a request with a valid session and CSRF token answers as §Operational §1 says: a capability the role lacks answers `403` with an `access.denied` row and changes nothing; every route but the login, the TOTP confirmation, the invitation's two and `/health` answers `401` without a session, and every mutation but the login, the TOTP confirmation and the invitation's two answers `403` without the CSRF token. Every read route of SPEC-009, SPEC-010 and SPEC-022 answers `200` to each of the three roles, but the forensic export and report, which answer `200` to an admin and an analyst and `403` to a viewer (SPEC-009 third Amendment 2026-10-15).
 - **dashapi_ac_002 (the session).** `GET /v1/auth/session` answers the session's user's id, email and role, and `401` without one.
 - **dashapi_ac_003 (#102).** A login carrying the cookie of a live session deletes that session and issues another; a failed login carrying it leaves it live.
-- **dashapi_ac_004 (an invitation).** `POST /v1/users` answers a token once; the database holds its SHA-256 and no column holds its text; `/v1/invitations/totp` answers the email and a provisioning URI, writes `invitation.totp`, and a second call answers another secret; `complete` with a code of the first secret answers `401` and writes a `denied` row, with one of the second `204`, after which the user signs in with the chosen password and a code of that secret, and the invitation answers `401`. An expired, withdrawn or completed invitation, and a disabled user's, answer `401`; the sixth failure for one invitation within 15 minutes answers `429`. No route that takes the admin's session answers a TOTP secret.
+- **dashapi_ac_004 (an invitation).** `POST /v1/users` answers a token once; the database holds its SHA-256 and no column holds its text; `/v1/invitations/totp` answers the email and a provisioning URI, writes `invitation.totp`, and a second call answers another secret; `complete` with a code of the first secret answers `401` and writes a `denied` row, with one of the second `204`, after which the user signs in with the chosen password and a code of that secret, and the invitation answers `401`. An expired, withdrawn or completed invitation, and a disabled user's, answer `401`; disabling a user with an open invitation withdraws it, with an `invitation.withdraw` row; the sixth failure for one invitation within 15 minutes answers `429`. No route that takes the admin's session answers a TOTP secret.
 - **dashapi_ac_005 (the reset).** A reset clears the user's credentials, raises their `authority_version`, deletes their sessions, withdraws their open invitation and answers a new one, with `user.reset`, `invitation.withdraw` and `invitation.issue`; a login with the old password fails; the user completes the new invitation and signs in. An admin's own reset answers `409 cannot_reset_self`, a disabled user's `409 user_disabled`.
 - **dashapi_ac_006 (the users' lists).** `GET /v1/users` pages through 205 users, 200 and 5; `/assignable` lists the active admins and analysts with a confirmed factor, not a viewer, a disabled user or one with an open invitation.
 - **dashapi_ac_007 (tokens).** A token for one use expires 15 minutes after its issue by the database's clock, and one for 3 uses and 24 hours, 24 hours after; `uses` 1001, `hours` 169, and `hours` with `uses` 1 answer `400`. The answer's token hashes to the row's `token_sha256`, and the list shows no token and no hash. A withdrawal answers `204`, a second `409 already_withdrawn`; `token.issue` and `token.withdraw` are written. A token the api issued enrolls an agent through ingest (SPEC-025 §Operational §1), which the list by `token_id` then shows.
@@ -323,7 +324,7 @@ The api's criteria, the grants' and the dashboard's run in `ts-ci`. incident_ac_
 
 - **An invitation intercepted before its user completes it** gives its holder the account, until an admin resets it; the reset's row, the `invitation.totp` rows and the user's lost access reveal it.
 - **A compromised api can cause and suppress notifications** by closing or reopening incidents (§Security considerations); each change is in the owner's history.
-- **The holder of a valid invitation can request secrets without limit** until it is completed or expires, since only failures count toward its limit, each request writing an `invitation.totp` row: rows bounded by the invitation's 72 hours and by the source address's limit on its failures alone.
+- **The holder of a valid invitation can request secrets without limit** until it is completed or expires, since only failures count toward its limit, each request writing an `invitation.totp` row: rows bounded only by the invitation's 72 hours and by the rate at which the api answers, since no limit counts a successful request.
 - **A notification and a playbook run for each new incident after a close**: an alert of a closed incident's key opens a new one, which notifies, as any creation does. An attack that continues after a close is notified again, which is the intent.
 - **`audit.read` rows grow with each read of the view**, and `audit_log` has no retention (*Open questions*).
 - **The triage history keeps users' ids and the time of each change** without a period, as `audit_log` does.
@@ -335,6 +336,7 @@ The api's criteria, the grants' and the dashboard's run in `ts-ci`. incident_ac_
 ## Open questions
 
 1. **The retention of `audit_log` and of the triage history.** Kept without a period, as `docs/operations/data-protection.md` states for `audit_log`, against ADR-0003's one year in Postgres and seven in MinIO. A period would be a setting of the deployment, which is Manuel's. Reopened by roadmap step 9's retention and erasure position, or by a buyer's requirement.
+2. **The agent's reporting of its host's audit coverage.** ADR-0019's Open question 1, which its Amendment 2026-11-03 (item 2) reopens with F3's agents page or a buyer's requirement (SPEC-024 Amendment 2026-11-01). The agents page shows no audit coverage, since the agent reads and reports none; the installation's evidence records it (SPEC-024 install_ac_016). Taking it would change ADR-0019's boundary, which is Manuel's: deferred, awaiting his disposition. Reopened by a buyer's requirement.
 
 ## Decision record
 
