@@ -718,7 +718,7 @@ took the migration out of. The custody verb's entries, which the superseded Amen
 
 ## Amendment 2026-11-20 (SPEC-026): the dashboard's rights, invitations, the login's prior session and the audit view
 
-**Status.** Proposed by Claude Code on 2026-11-20 with SPEC-026, on Manuel's choices of that day ("acepto cambios y sigo tus recomendaciones") and the Amendments 2026-11-20 of ADR-0022 and ADR-0014; awaiting his ratification. It updates seven lines of the Amendment 2026-10-15, which keeps itself current (`:278`), each in place by the commit that lands the code it describes, the lines standing as they are until then; closes R14; restates R3, R7 and R13; reads one sentence of the Amendment 2026-10-14; and adds to §8 and to the accepted threats. What it states as built is what SPEC-026's code brings: until it lands, the lines and R14 stand as written. The threat model remains `Accepted`.
+**Status.** Proposed by Claude Code on 2026-11-20 with SPEC-026, on Manuel's choices of that day ("acepto cambios y sigo tus recomendaciones") and the Amendments 2026-11-20 of ADR-0022 and ADR-0014; awaiting his ratification. It updates seven lines of the Amendment 2026-10-15, which keeps itself current (`:278`), each in place by the commit that lands the code it describes, the lines standing as they are until then; closes R14; restates R3, R7 and R13; reads one sentence of the Amendment 2026-10-14; and adds to §8 and to the accepted threats. What it states as built is what SPEC-026's code brings: until it lands, the lines, R3, R7, R13 and R14 stand as written, and §8 does not yet hold the assets it adds. The threat model remains `Accepted`.
 
 **Amendment.**
 
