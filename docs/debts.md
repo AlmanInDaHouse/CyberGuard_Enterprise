@@ -28,9 +28,9 @@ close, the debts it opens and closes and the destinations it changes, each
 *Entry* that amendment, and *Open* the number the landing states; at its
 close the session adds its handoff to those entries and states the number.
 
-**Open: 56** at Session 88's close, the count `docs/handoff-session-88.md` states (Session 88
-reviewed the owner-review branch `docs/f3-f4-adr-amendments` and drafted SPEC-026 on
-`docs/f3-spec-026`, stacked on it; it opened, closed and re-routed none).
+**Open: 56** at Session 89's close, the count `docs/handoff-session-89.md` states (Session 89
+ran more review rounds over the owner-review branches `docs/f3-f4-adr-amendments` and
+`docs/f3-spec-026`; it opened, closed and re-routed none).
 
 "Sweep" in a destination is the debt sweep of the latest handoff's *How
 Session N resumes* (at Session 87's close, `docs/handoff-session-87.md#how-session-88-resumes`);
