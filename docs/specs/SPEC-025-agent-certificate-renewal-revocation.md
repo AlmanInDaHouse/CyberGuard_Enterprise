@@ -87,9 +87,9 @@ The request is SPEC-003's outer envelope with a body of its own, and one more me
 
 ```json
 {
-  "outer_envelope_version": "1",
+  "outer_envelope_version": "0.1.0",
   "agent_id": "…",
-  "sequence_number": 0,
+  "sequence_number": 1,
   "nonce": "base64url, 16 bytes",
   "sent_at": "RFC 3339 UTC",
   "body": { "renew_version": "1", "new_agent_pubkey": "base64url, 32 bytes" },
@@ -143,7 +143,7 @@ An accepted heartbeat updates `last_seen`, `hostname`, `platform` and `agent_ver
 The server compares the DER of the certificate the TLS socket presents with the DER of `cert_pem` and of `pending_cert_pem`:
 
 - **Equal to `cert_pem`**: the envelope is verified under `pubkey`.
-- **Equal to `pending_cert_pem`**: the envelope is verified under that certificate's key. If it verifies, and the request passes every later check and its writes succeed (a heartbeat whose events cannot be stored is refused, as `services/ingest/src/routes/heartbeat.ts` refuses it today, and promotes nothing), the server sets `pubkey`, `cert_pem` and `expires_at` to the pending certificate's and clears `pending_cert_pem`, with a compare-and-set on the old `cert_pem` and the pending one; a compare-and-set that finds another certificate there answers `503` and leaves the agent's row as it is, and the agent's next request is compared afresh; so does a request whose promotion the database does not record for any other reason, a failed write among them, and never `200`, so that a `2xx` under the pending certificate always means it is the agent's (§10). It logs `agent certificate promoted` with the agent and both certificates' serials. This is the renewal's completion (ADR-0004 Amendment 2026-11-20, item 4). A renewal request under the pending certificate promotes it too.
+- **Equal to `pending_cert_pem`**: the envelope is verified under that certificate's key. If it verifies, and the request passes every later check and its writes succeed (a heartbeat whose events cannot be stored is refused, as `services/ingest/src/routes/heartbeat.ts` refuses it today, and promotes nothing), the server sets `pubkey`, `cert_pem` and `expires_at` to the pending certificate's and clears `pending_cert_pem`, with a compare-and-set on the old `cert_pem` and the pending one; a compare-and-set that finds another certificate there answers `503` and leaves the agent's row as it is, and the agent's next request is compared afresh; so does a request whose promotion the database does not record for any other reason, a failed write among them, and never `200`, so that a `2xx` under the pending certificate always means it is the agent's (§10). It logs `agent certificate promoted` with the agent and both certificates' serials. This is the renewal's completion (ADR-0004 Amendment 2026-11-20, item 4). A renewal request under the pending certificate that §4 accepts promotes it too; one §4 refuses promotes nothing.
 - **Neither**: `403 agent_superseded`, and the copy signal `superseded_certificate` (§6). A certificate the CA signed that the server did not record at a renewal, an older one of the agent's among them, is never made the agent's.
 
 The handshake has already proved that the presented certificate chains to the CA, is within its validity and is held by its key's owner (SPEC-004 FR-008).
@@ -170,7 +170,7 @@ The first signal sets `duplicate_signal` and `duplicate_signal_at`, and logs `ag
 
 ### 7. A restore (server)
 
-A database restored from a backup taken before an agent renewed holds the older certificate and no pending one: the agent's next request, under its newer certificate, is refused with `403 agent_superseded` and raises the copy signal, until the operator revokes the agent and enrolls the endpoint anew, as the restore runbook says. A revocation made after the backup is not in the restored database, and must be made again. A copy of the endpoint holding the older certificate is accepted until the agent is revoked.
+A database restored from a backup taken before an agent renewed holds the older certificate and no pending one: the agent's next request, under its newer certificate, is refused with `403 agent_superseded` and raises the copy signal, until the operator revokes the agent and enrolls the endpoint anew, as the restore runbook's change that comes with this SPEC states (§Out of scope). A revocation made after the backup is not in the restored database, and must be made again. A copy of the endpoint holding the older certificate is accepted until the agent is revoked.
 
 ### 8. The renewal decision (agent)
 
