@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-91.md](../handoff-session-91.md)).
+([handoff-session-92.md](../handoff-session-92.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -640,8 +640,10 @@ recommended option:
    (the api's routes and grants, the pages), then **F4's agent renewal**,
    under the elevated gate. S91: F4's server half done, landed in `9c67d8a`
    to `11c3832` with SPEC-025 Amendment 2026-11-22 (`f6c363b`), the second
-   elevated gate green (`docs/handoff-session-91.md`); SPEC-025's runbooks'
-   PR is next, then F3.
+   elevated gate green (`docs/handoff-session-91.md`). S92: SPEC-025's
+   runbooks landed (`faae8e5`, `e5e207d`), and F3 began with the session
+   route and #102 (`d259b31`); F3's phase 1, the accounts, is next
+   (`docs/handoff-session-92.md`).
 5. **The custody verb for the setup's hosts** (`show`, `in-place`,
    `aside`, and `legacy` if its restatement keeps it; #166), its contract restated first (SPEC-024 Amendment
    2026-11-20, point 6).
