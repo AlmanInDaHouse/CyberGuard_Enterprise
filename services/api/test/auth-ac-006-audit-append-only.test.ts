@@ -102,11 +102,11 @@ describe("the rows' values", () => {
     const created = await app.inject({
       method: "POST",
       url: "/v1/users",
-      payload: { email: "made@ac006.test", password: "Valid-passw0rd-006", role: "viewer" },
+      payload: { email: "made@ac006.test", role: "viewer" },
       ...as,
     });
     expect(created.statusCode).toBe(201);
-    const { userId } = created.json() as { userId: string };
+    const { user_id: userId } = created.json() as { user_id: string };
     const changed = await app.inject({
       method: "POST",
       url: `/v1/users/${userId}/role`,
@@ -116,7 +116,8 @@ describe("the rows' values", () => {
     expect(changed.statusCode).toBe(200);
 
     const rows = await auditRowsFor(userId);
-    expect(rows.map((r) => r.action)).toEqual(["user.create", "role.change"]);
+    // SPEC-026 §Operational §3: the creation issues the user's invitation in its transaction.
+    expect(rows.map((r) => r.action)).toEqual(["user.create", "invitation.issue", "role.change"]);
     for (const row of rows) {
       expect(row.user_id).toBe(adminId);
       expect(row.org_id).toBe(ORG);
@@ -125,9 +126,14 @@ describe("the rows' values", () => {
       expect(row.correlation_id).not.toBe("forged");
     }
     expect(rows[0]?.correlation_id).toBe(reqIdOf("POST", "/v1/users"));
-    expect(rows[1]?.correlation_id).toBe(reqIdOf("POST", `/v1/users/${userId}/role`));
+    expect(rows[1]?.correlation_id).toBe(reqIdOf("POST", "/v1/users"));
+    expect(rows[2]?.correlation_id).toBe(reqIdOf("POST", `/v1/users/${userId}/role`));
     expect(rows[0]?.detail).toEqual({ role: "viewer" });
-    expect(rows[1]?.detail).toEqual({ from: "viewer", to: "analyst" });
+    expect(rows[1]?.detail).toEqual({
+      purpose: "invite",
+      expires_at: (created.json() as { invitation: { expires_at: string } }).invitation.expires_at,
+    });
+    expect(rows[2]?.detail).toEqual({ from: "viewer", to: "analyst" });
   });
 
   test("a login's row carries its request id and address", async () => {

@@ -1,8 +1,9 @@
 // SPEC-008 §Operational §6 — first-admin bootstrap CLI (`task api:create-user`).
 // Seeds a user directly in Postgres (Argon2 hash + pgcrypto-encrypted TOTP secret)
 // and prints the TOTP provisioning URI once to stdout — never logged. This is the
-// only way to create the FIRST admin; thereafter user creation is admin-only over
-// the authed API. No unauthenticated HTTP bootstrap path exists.
+// only way to create the FIRST admin, and the last admin's way back; the users after the
+// first are created over the authed API with an invitation the user completes (SPEC-026
+// §Operational §3, debt #136). No unauthenticated HTTP bootstrap path exists.
 //
 // SPEC-008 Amendment 2026-10-15 item 13: the address, password and role go through
 // the API's schemas and password policy, and the CLI writes the user.create audit
@@ -17,7 +18,7 @@ import type { Redis } from "ioredis";
 import pg from "pg";
 import { appendAudit } from "../auth/audit.js";
 import { hashPassword } from "../auth/password.js";
-import { CreateUserBody } from "../auth/schemas.js";
+import { CliCreateUserBody } from "../auth/schemas.js";
 import { generateSecret, provisioningUri, verifyTotp } from "../auth/totp.js";
 import { type Config, ConfigError, loadConfigFor } from "../config.js";
 import { isMain } from "../is-main.js";
@@ -89,7 +90,7 @@ export async function createUserFromCli(
   config: CreateUserConfig,
   input: { email: string; password: string; role: string },
 ): Promise<CreatedUser> {
-  const parsed = CreateUserBody.safeParse(input);
+  const parsed = CliCreateUserBody.safeParse(input);
   if (!parsed.success) {
     const fields = [...new Set(parsed.error.issues.map((i) => String(i.path[0])))].join(", ");
     throw new CliRefusal(

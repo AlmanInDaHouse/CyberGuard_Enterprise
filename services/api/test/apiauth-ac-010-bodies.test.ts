@@ -54,11 +54,7 @@ async function create(payload: unknown) {
 
 describe("a body that fails its schema is a 400, with nothing written", () => {
   test("an unknown role on create (#72) writes no user", async () => {
-    const res = await create({
-      email: "made-root@apiauth010.test",
-      password: "Valid-passw0rd",
-      role: "root",
-    });
+    const res = await create({ email: "made-root@apiauth010.test", role: "root" });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toEqual({ error: "bad_request" });
     expect(await getUserByEmail(config, "made-root@apiauth010.test")).toBeNull();
@@ -119,45 +115,51 @@ describe("a body that fails its schema is a 400, with nothing written", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  // SPEC-026 §Data contracts §3: the creation takes an address and a role; the user chooses
+  // the password at the invitation's completion, so a password is an extra field.
   test.each([
+    ["an extra field", { email: "x@apiauth010.test", role: "viewer", org_id: "other" }],
     [
-      "an extra field",
-      { email: "x@apiauth010.test", password: "Valid-passw0rd", role: "viewer", org_id: "other" },
+      "a password, which the creation no longer takes",
+      { email: "x@apiauth010.test", password: "Valid-passw0rd", role: "viewer" },
     ],
-    [
-      "a field of the wrong type",
-      { email: "x@apiauth010.test", password: 123456789012, role: "viewer" },
-    ],
-    ["a missing field", { email: "x@apiauth010.test", role: "viewer" }],
-    [
-      "an address zod refuses",
-      { email: "not-an-address", password: "Valid-passw0rd", role: "viewer" },
-    ],
+    ["a field of the wrong type", { email: "x@apiauth010.test", role: 1 }],
+    ["a missing field", { email: "x@apiauth010.test" }],
+    ["an address zod refuses", { email: "not-an-address", role: "viewer" }],
   ])("%s on create", async (_label, payload) => {
     const res = await create(payload);
     expect(res.statusCode).toBe(400);
     expect(await getUserByEmail(config, "x@apiauth010.test")).toBeNull();
   });
 
+  /** A completion of an unknown invitation: 400 when its body fails, 401 when it passes. */
+  async function completeWith(password: string) {
+    return apph.app.inject({
+      method: "POST",
+      url: "/v1/invitations/complete",
+      remoteAddress: "198.51.100.110",
+      payload: { token: "D".repeat(43), password, totp_code: "000000" },
+    });
+  }
+
+  // The policy of item 4 holds where a password is now chosen: the invitation's completion.
   test.each([
     ["11 code points", "Abcdefghi1j"],
     ["129 code points", `A1${"b".repeat(127)}`],
     ["12 with no digit", "Abcdefghijkl"],
     ["12 with no letter", "123456789012"],
-  ])("a new password of %s is refused", async (_label, password) => {
-    const res = await create({ email: "weak@apiauth010.test", password, role: "viewer" });
+  ])("a new password of %s is refused at the invitation's completion", async (_label, password) => {
+    const res = await completeWith(password);
     expect(res.statusCode).toBe(400);
-    expect(await getUserByEmail(config, "weak@apiauth010.test")).toBeNull();
+    expect(res.json()).toEqual({ error: "bad_request" });
   });
 
   test("12 code points with a letter and a digit, counted as code points, is accepted", async () => {
-    // Six astral letters (two UTF-16 units each), five ASCII letters and a digit.
-    const res = await create({
-      email: "strong@apiauth010.test",
-      password: `${"\u{1D49C}".repeat(6)}abcde1`,
-      role: "viewer",
-    });
-    expect(res.statusCode).toBe(201);
+    // Six astral letters (two UTF-16 units each), five ASCII letters and a digit: the body
+    // passes, and the unknown invitation is refused.
+    const res = await completeWith(`${"\u{1D49C}".repeat(6)}abcde1`);
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: "invitation_rejected" });
   });
 });
 

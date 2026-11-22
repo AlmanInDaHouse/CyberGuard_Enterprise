@@ -6,9 +6,14 @@ export class NotImplementedError extends Error {
   }
 }
 
-/** Authentication failed — mapped to 401. Generic by design (no oracle, NFR-008-003). */
+/** Authentication failed — mapped to 401. Generic by design (no oracle, NFR-008-003). Its
+ *  `code` is the body's `error`, `unauthorized` unless a route names another (SPEC-026's
+ *  `invitation_rejected`). */
 export class AuthError extends Error {
-  constructor(message = "authentication failed") {
+  constructor(
+    message = "authentication failed",
+    readonly code = "unauthorized",
+  ) {
     super(message);
     this.name = "AuthError";
   }
@@ -62,9 +67,13 @@ export class NotFoundError extends Error {
 }
 
 /** A change the current state refuses — mapped to 409 (SPEC-008 Amendment 2026-10-15
- *  items 5 and 10). */
+ *  items 5 and 10). Its `code` is the body's `error`: `conflict`, or the reason SPEC-026
+ *  §Data contracts §3 names (`user_has_credentials`, `user_disabled`, ...). */
 export class ConflictError extends Error {
-  constructor(message = "conflict") {
+  constructor(
+    message = "conflict",
+    readonly code = "conflict",
+  ) {
     super(message);
     this.name = "ConflictError";
   }

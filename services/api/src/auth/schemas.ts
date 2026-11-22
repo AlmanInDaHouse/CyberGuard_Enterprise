@@ -50,17 +50,33 @@ export const PasswordBody = z
   .object({ currentPassword: anyPassword, newPassword, totp_code: totpCode })
   .strict();
 
-export const CreateUserBody = z
-  .object({
-    // Trimmed and lower-cased first, then checked (Amendment item 3).
-    email: z
-      .string()
-      .transform((e) => e.trim().toLowerCase())
-      .pipe(z.string().max(254).email()),
-    password: newPassword,
-    role: z.enum(ROLES),
-  })
+/** A new user's address: trimmed and lower-cased first, then checked (Amendment item 3). */
+const newEmail = z
+  .string()
+  .transform((e) => e.trim().toLowerCase())
+  .pipe(z.string().max(254).email());
+
+/** `POST /v1/users` (SPEC-026 §Data contracts §3): an address and a role; the user chooses
+ *  the password at the invitation's completion. */
+export const CreateUserBody = z.object({ email: newEmail, role: z.enum(ROLES) }).strict();
+
+/** The host's command (SPEC-008 §Operational §6) keeps a body of its own with a password
+ *  (SPEC-026 Depends on, SPEC-008's amendment by scope). */
+export const CliCreateUserBody = z
+  .object({ email: newEmail, password: newPassword, role: z.enum(ROLES) })
   .strict();
+
+/** An invitation as its holder sends it: any text, bounded, which the api hashes. */
+const invitationToken = z.string().min(1).max(256);
+
+export const InvitationTotpBody = z.object({ token: invitationToken }).strict();
+
+export const InvitationCompleteBody = z
+  .object({ token: invitationToken, password: newPassword, totp_code: totpCode })
+  .strict();
+
+/** The body of a mutation that takes none: `{}`. */
+export const EmptyBody = z.object({}).strict();
 
 export const RoleBody = z.object({ role: z.enum(ROLES) }).strict();
 

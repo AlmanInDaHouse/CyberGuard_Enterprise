@@ -37,7 +37,7 @@ test("a viewer is DENIED an admin-only capability (server-side 403)", async () =
     url: "/v1/users",
     cookies: { cgsess: "tok-viewer-ac003" },
     headers: { "x-csrf-token": "csrf-tok-viewer-ac003" },
-    payload: { email: "made-by-viewer@ac003.test", password: "Valid-passw0rd", role: "viewer" },
+    payload: { email: "made-by-viewer@ac003.test", role: "viewer" },
   });
   // SECURITY (CI-blocking). RED: 501 (enforcement absent). GREEN: 403 (blocked).
   expect(res.statusCode).toBe(403);
@@ -52,7 +52,7 @@ test("an admin IS allowed the same capability", async () => {
     url: "/v1/users",
     cookies: { cgsess: "tok-admin-ac003" },
     headers: { "x-csrf-token": "csrf-tok-admin-ac003" },
-    payload: { email: "made-by-admin@ac003.test", password: "Valid-passw0rd", role: "viewer" },
+    payload: { email: "made-by-admin@ac003.test", role: "viewer" },
   });
   // RED: 501. GREEN: a 2xx create.
   expect(res.statusCode).toBeLessThan(400);

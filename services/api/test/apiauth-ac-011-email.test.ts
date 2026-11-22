@@ -6,7 +6,13 @@ import pg from "pg";
 import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 import { runMigrations } from "../src/db/migrate.js";
-import { buildTestApp, currentTotp, insertUserDirect, seedSession } from "./helpers/db.js";
+import {
+  buildTestApp,
+  completeInvitationAsHolder,
+  insertUserDirect,
+  seedSession,
+  totpAt,
+} from "./helpers/db.js";
 
 // apiauth_ac_011 — SPEC-008 Amendment 2026-10-15 item 3: an address is trimmed and
 // lower-cased before it is stored, looked up or counted, and migration 0004 makes
@@ -42,28 +48,28 @@ async function create(email: string) {
     url: "/v1/users",
     cookies: { cgsess: ADMIN },
     headers: { "x-csrf-token": `csrf-${ADMIN}` },
-    payload: { email, password: PASSWORD, role: "viewer" },
+    payload: { email, role: "viewer" },
   });
 }
 
 test("a user created with spaces and capitals is stored, and logs in, lower-cased", async () => {
   const res = await create("  Ann@Example.COM");
   expect(res.statusCode).toBe(201);
-  const { userId, totpProvisioningUri } = res.json() as {
-    userId: string;
-    totpProvisioningUri: string;
+  const { user_id: userId, invitation } = res.json() as {
+    user_id: string;
+    invitation: { token: string };
   };
   const [row] = await sql<{ email: string }>("SELECT email FROM users WHERE user_id = $1", [
     userId,
   ]);
   expect(row?.email).toBe("ann@example.com");
-  const secret = new URL(totpProvisioningUri).searchParams.get("secret") ?? "";
-  await sql("UPDATE users SET totp_enrolled = true WHERE user_id = $1", [userId]);
+  // The user completes the invitation (SPEC-026 §Operational §3), then signs in.
+  const secret = await completeInvitationAsHolder(apph.app, invitation.token, PASSWORD);
   const login = await apph.app.inject({
     method: "POST",
     url: "/v1/auth/login",
     remoteAddress: "198.51.100.111",
-    payload: { email: "ann@example.com", password: PASSWORD, totp_code: currentTotp(secret) },
+    payload: { email: "ann@example.com", password: PASSWORD, totp_code: totpAt(secret, 1) },
   });
   expect(login.statusCode).toBe(200);
 });

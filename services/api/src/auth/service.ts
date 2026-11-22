@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import type { Redis } from "ioredis";
 import pg, { type Pool, type PoolClient } from "pg";
 import type { Config } from "../config.js";
@@ -13,13 +14,16 @@ import { appendAudit } from "./audit.js";
 import { constantWorkHash, hashPassword, verifyPassword } from "./password.js";
 import {
   confirmFailed,
+  invitationFailed,
   loginFailed,
   loginSucceeded,
   passwordChangeFailed,
   releaseConfirm,
+  releaseInvitation,
   releaseLogin,
   releasePasswordChange,
   reserveConfirm,
+  reserveInvitation,
   reserveLogin,
   reservePasswordChange,
 } from "./ratelimit.js";
@@ -57,8 +61,12 @@ export interface LoginResult {
 }
 export interface CreateUserInput {
   email: string;
-  password: string;
   role: string;
+}
+/** An invitation as the route that issues it answers it, once (SPEC-026 §Operational §3). */
+export interface IssuedInvitation {
+  token: string;
+  expires_at: string;
 }
 export type UserStatus = "active" | "disabled";
 
@@ -80,10 +88,24 @@ export interface AuthService {
   ): Promise<{ user_id: string; email: string; role: string } | null>;
   logout(token: string, ctx: RequestContext): Promise<void>;
   resolveSession(token: string): Promise<SessionInfo | null>;
+  /** SPEC-026 §Operational §3: a user with no credentials and an `invite` invitation. */
   createUser(
     input: CreateUserInput,
     ctx: RequestContext,
-  ): Promise<{ userId: string; totpProvisioningUri: string }>;
+  ): Promise<{ user_id: string; invitation: IssuedInvitation }>;
+  /** A new invitation for a user with no password and no confirmed factor. */
+  issueInvitation(userId: string, ctx: RequestContext): Promise<IssuedInvitation>;
+  withdrawInvitation(userId: string, ctx: RequestContext): Promise<void>;
+  /** The invitation's holder: a new TOTP secret, its email and provisioning URI. */
+  invitationTotp(
+    input: { token: string },
+    ctx: RequestContext,
+  ): Promise<{ email: string; provisioning_uri: string }>;
+  /** The invitation's holder: the password and the factor set, the invitation completed. */
+  completeInvitation(
+    input: { token: string; password: string; totp_code: string },
+    ctx: RequestContext,
+  ): Promise<void>;
   listUsers(
     ctx: RequestContext,
   ): Promise<Array<{ userId: string; email: string; role: string; status: string }>>;
@@ -138,6 +160,31 @@ function isUniqueViolation(err: unknown): boolean {
   return (
     err instanceof StoreUnavailableError && (err.cause as { code?: unknown })?.code === "23505"
   );
+}
+
+/** How long an invitation lives (SPEC-026 Decision record 8), a constant of the code. */
+const INVITATION_HOURS = 72;
+
+/** An invitation's text: 32 bytes from a cryptographic random source, in base64url. */
+function newInvitationToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/** The SHA-256 the api keeps of an invitation's text, its characters as ASCII (SPEC-026 §2). */
+function invitationHash(token: string): Buffer {
+  return createHash("sha256").update(token, "ascii").digest();
+}
+
+/** The one answer of an invitation the api refuses (SPEC-026 §Operational §3). */
+function invitationRejected(): AuthError {
+  return new AuthError("invitation rejected", "invitation_rejected");
+}
+
+/** What an invitation's refusal records: whom it was for, when the token named one. */
+class InvitationRefusal extends Error {
+  constructor(readonly who: { userId: string; orgId: string; purpose: string } | null) {
+    super("invitation refused");
+  }
 }
 
 export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config): AuthService {
@@ -291,6 +338,9 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           WHERE user_id = $1`,
         [targetId, role, status],
       );
+      // SPEC-026 §Data contracts §3: a disable also withdraws the user's open invitation, with
+      // its row, after the change's own row below.
+      const disables = change.status === "disabled";
       const action =
         change.role !== undefined
           ? "role.change"
@@ -311,7 +361,176 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
         correlationId: ctx.correlationId,
         detail,
       });
+      if (disables) await withdrawOpen(db, targetId, session.org_id, ctx);
     });
+  }
+
+  /**
+   * Withdraw a user's open invitation, if any, with its `invitation.withdraw` row, in the
+   * caller's transaction, the user's row already locked. Its pending secret is cleared.
+   */
+  async function withdrawOpen(
+    db: PoolClient,
+    userId: string,
+    orgId: string,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    const open = await db.query<{ purpose: string }>(
+      `UPDATE invitations SET withdrawn_at = now(), pending_totp_secret = NULL
+        WHERE user_id = $1 AND completed_at IS NULL AND withdrawn_at IS NULL
+        RETURNING purpose`,
+      [userId],
+    );
+    const withdrawn = open.rows[0];
+    if (!withdrawn) return false;
+    await appendAudit(db, {
+      userId: ctx.session?.user_id ?? null,
+      orgId,
+      action: "invitation.withdraw",
+      targetId: userId,
+      outcome: "ok",
+      sourceIp: ctx.sourceIp,
+      correlationId: ctx.correlationId,
+      detail: { purpose: withdrawn.purpose },
+    });
+    return true;
+  }
+
+  /**
+   * Issue an invitation for a user whose row the caller's transaction has locked (SPEC-026
+   * §Operational §3): any open one is withdrawn, every earlier one's pending secret cleared,
+   * and the new one written with the database's `now()` plus 72 hours, with its
+   * `invitation.issue` row. Its text is answered once and kept nowhere.
+   */
+  async function issueFor(
+    db: PoolClient,
+    userId: string,
+    orgId: string,
+    purpose: "invite" | "reset",
+    ctx: RequestContext,
+  ): Promise<IssuedInvitation> {
+    await withdrawOpen(db, userId, orgId, ctx);
+    await db.query(
+      `UPDATE invitations SET pending_totp_secret = NULL
+        WHERE user_id = $1 AND pending_totp_secret IS NOT NULL`,
+      [userId],
+    );
+    const token = newInvitationToken();
+    const issued = await db.query<{ expires_at: Date }>(
+      `INSERT INTO invitations (invitation_id, user_id, org_id, purpose, token_sha256, expires_at)
+       VALUES ($1, $2, $3, $4, $5, now() + make_interval(hours => $6))
+       RETURNING expires_at`,
+      [
+        globalThis.crypto.randomUUID(),
+        userId,
+        orgId,
+        purpose,
+        invitationHash(token),
+        INVITATION_HOURS,
+      ],
+    );
+    const expiresAt = issued.rows[0]?.expires_at;
+    if (!expiresAt) throw new Error("unreachable: INSERT ... RETURNING returned no row");
+    const expires_at = expiresAt.toISOString();
+    await appendAudit(db, {
+      userId: ctx.session?.user_id ?? null,
+      orgId,
+      action: "invitation.issue",
+      targetId: userId,
+      outcome: "ok",
+      sourceIp: ctx.sourceIp,
+      correlationId: ctx.correlationId,
+      detail: { purpose, expires_at },
+    });
+    return { token, expires_at };
+  }
+
+  /**
+   * Lock, in the caller's transaction, the user an invitation's token names and then the
+   * invitation (users before invitations, the order every writer of both takes), and check it
+   * as SPEC-026 §Operational §3 says: known, neither completed nor withdrawn, not expired, its
+   * user active. Any other is an InvitationRefusal, naming the user when the token named one.
+   */
+  async function lockLiveInvitation(
+    db: PoolClient,
+    hash: Buffer,
+  ): Promise<{
+    invitationId: string;
+    userId: string;
+    orgId: string;
+    email: string;
+    purpose: string;
+    pendingSecret: string | null;
+  }> {
+    const named = await db.query<{ user_id: string }>(
+      "SELECT user_id FROM invitations WHERE token_sha256 = $1",
+      [hash],
+    );
+    const userId = named.rows[0]?.user_id;
+    if (!userId) throw new InvitationRefusal(null);
+    const user = await db.query<{ email: string; status: string }>(
+      "SELECT email, status FROM users WHERE user_id = $1 FOR UPDATE",
+      [userId],
+    );
+    const inv = await db.query<{
+      invitation_id: string;
+      org_id: string;
+      purpose: string;
+      live: boolean;
+      pending: string | null;
+    }>(
+      `SELECT invitation_id, org_id, purpose,
+              (completed_at IS NULL AND withdrawn_at IS NULL AND expires_at > now()) AS live,
+              pgp_sym_decrypt(pending_totp_secret, $2)::text AS pending
+         FROM invitations WHERE token_sha256 = $1 FOR UPDATE`,
+      [hash, config.API_DB_ENC_PASSPHRASE],
+    );
+    const u = user.rows[0];
+    const i = inv.rows[0];
+    if (!u || !i) throw new InvitationRefusal(null);
+    const who = { userId, orgId: i.org_id, purpose: i.purpose };
+    if (!i.live || u.status !== "active") throw new InvitationRefusal(who);
+    return {
+      invitationId: i.invitation_id,
+      userId,
+      orgId: i.org_id,
+      email: u.email,
+      purpose: i.purpose,
+      pendingSecret: i.pending,
+    };
+  }
+
+  /**
+   * Run one of the invitation's two routes behind its limits (SPEC-026 §Operational §3): the
+   * invitation's own counter and the source address's, reserved before any work (SPEC-008
+   * Amendment 2026-10-16 item 3); a refusal keeps them and answers `invitation_rejected`, a
+   * success gives them back, and any other end gives them back.
+   */
+  async function behindInvitationLimits<T>(
+    token: string,
+    ctx: RequestContext,
+    work: (hash: Buffer) => Promise<T>,
+    onRefusal: (who: InvitationRefusal["who"]) => Promise<void>,
+  ): Promise<T> {
+    const hash = invitationHash(token);
+    const key = hash.toString("hex");
+    if (!(await reserveInvitation(redis, key, ctx.sourceIp))) throw new RateLimitError();
+    let settled = false;
+    try {
+      const result = await work(hash);
+      settled = true;
+      await releaseInvitation(redis, key, ctx.sourceIp);
+      return result;
+    } catch (err) {
+      if (!(err instanceof InvitationRefusal)) {
+        if (!settled) await releaseInvitation(redis, key, ctx.sourceIp).catch(() => undefined);
+        throw err;
+      }
+      settled = true;
+      await invitationFailed(redis, key, ctx.sourceIp);
+      await onRefusal(err.who);
+      throw invitationRejected();
+    }
   }
 
   return {
@@ -462,14 +681,14 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
       const session = sessionOf(ctx);
       const email = normalizeEmail(input.email);
       const userId = globalThis.crypto.randomUUID();
-      const ph = await hashPassword(input.password);
-      const secret = generateSecret();
       try {
-        await inTransaction(async (db) => {
+        const invitation = await inTransaction(async (db) => {
+          // No password and no secret: the invitation's holder chooses the one and enrolls the
+          // other (SPEC-026 §Operational §3, debt #98).
           await db.query(
             `INSERT INTO users (user_id, org_id, email, password_hash, totp_secret, totp_enrolled, role)
-             VALUES ($1, $2, $3, $4, pgp_sym_encrypt($5, $6), false, $7)`,
-            [userId, session.org_id, email, ph, secret, config.API_DB_ENC_PASSPHRASE, input.role],
+             VALUES ($1, $2, $3, NULL, NULL, false, $4)`,
+            [userId, session.org_id, email, input.role],
           );
           await appendAudit(db, {
             userId: session.user_id,
@@ -481,12 +700,141 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
             correlationId: ctx.correlationId,
             detail: { role: input.role },
           });
+          return issueFor(db, userId, session.org_id, "invite", ctx);
         });
+        return { user_id: userId, invitation };
       } catch (err) {
         if (isUniqueViolation(err)) throw new ConflictError();
         throw err;
       }
-      return { userId, totpProvisioningUri: provisioningUri(email, secret) };
+    },
+
+    async issueInvitation(userId, ctx) {
+      const session = sessionOf(ctx);
+      return inTransaction(async (db) => {
+        const found = await db.query<{ status: string; credentialed: boolean }>(
+          `SELECT status, (password_hash IS NOT NULL OR totp_enrolled) AS credentialed
+             FROM users WHERE user_id = $1 AND org_id = $2 FOR UPDATE`,
+          [userId, session.org_id],
+        );
+        const user = found.rows[0];
+        if (!user) throw new NotFoundError();
+        if (user.status !== "active") throw new ConflictError("user disabled", "user_disabled");
+        // A user with a password or a confirmed factor is reached by the reset alone.
+        if (user.credentialed) {
+          throw new ConflictError("user has credentials", "user_has_credentials");
+        }
+        return issueFor(db, userId, session.org_id, "invite", ctx);
+      });
+    },
+
+    async withdrawInvitation(userId, ctx) {
+      const session = sessionOf(ctx);
+      await inTransaction(async (db) => {
+        const found = await db.query(
+          "SELECT 1 FROM users WHERE user_id = $1 AND org_id = $2 FOR UPDATE",
+          [userId, session.org_id],
+        );
+        if (found.rowCount === 0) throw new NotFoundError();
+        if (!(await withdrawOpen(db, userId, session.org_id, ctx))) {
+          throw new ConflictError("no open invitation", "no_open_invitation");
+        }
+      });
+    },
+
+    async invitationTotp(input, ctx) {
+      return behindInvitationLimits(
+        input.token,
+        ctx,
+        (hash) =>
+          inTransaction(async (db) => {
+            const inv = await lockLiveInvitation(db, hash);
+            // A new secret at each request; it replaces any earlier one (Decision record 6).
+            const secret = generateSecret();
+            await db.query(
+              `UPDATE invitations SET pending_totp_secret = pgp_sym_encrypt($2, $3)
+                WHERE invitation_id = $1`,
+              [inv.invitationId, secret, config.API_DB_ENC_PASSPHRASE],
+            );
+            await appendAudit(db, {
+              userId: inv.userId,
+              orgId: inv.orgId,
+              action: "invitation.totp",
+              targetId: inv.userId,
+              outcome: "ok",
+              sourceIp: ctx.sourceIp,
+              correlationId: ctx.correlationId,
+              detail: { purpose: inv.purpose },
+            });
+            return { email: inv.email, provisioning_uri: provisioningUri(inv.email, secret) };
+          }),
+        // A refused request for a secret writes no row (SPEC-026 §Data contracts §4).
+        async () => {},
+      );
+    },
+
+    async completeInvitation(input, ctx) {
+      await behindInvitationLimits(
+        input.token,
+        ctx,
+        (hash) =>
+          inTransaction(async (db) => {
+            const inv = await lockLiveInvitation(db, hash);
+            const who = { userId: inv.userId, orgId: inv.orgId, purpose: inv.purpose };
+            // The code against the secret last shown, marked used as a login's is.
+            if (inv.pendingSecret === null || !verifyTotp(inv.pendingSecret, input.totp_code)) {
+              throw new InvitationRefusal(who);
+            }
+            const firstUse = await redis.set(
+              `totp:replay:${inv.userId}:${input.totp_code}`,
+              "1",
+              "EX",
+              90,
+              "NX",
+            );
+            if (firstUse === null) throw new InvitationRefusal(who);
+            const ph = await hashPassword(input.password);
+            await db.query(
+              `UPDATE users
+                  SET password_hash = $2,
+                      totp_secret = (SELECT pending_totp_secret FROM invitations WHERE invitation_id = $3),
+                      totp_enrolled = true,
+                      authority_version = authority_version + 1,
+                      updated_at = now()
+                WHERE user_id = $1`,
+              [inv.userId, ph, inv.invitationId],
+            );
+            await db.query(
+              `UPDATE invitations SET completed_at = now(), pending_totp_secret = NULL
+                WHERE invitation_id = $1`,
+              [inv.invitationId],
+            );
+            await appendAudit(db, {
+              userId: inv.userId,
+              orgId: inv.orgId,
+              action: "invitation.complete",
+              targetId: inv.userId,
+              outcome: "ok",
+              sourceIp: ctx.sourceIp,
+              correlationId: ctx.correlationId,
+              detail: { purpose: inv.purpose },
+            });
+          }),
+        // A failure writes its denied row, naming the invitation's user when the token named
+        // one (SPEC-026 §Operational §3), after the transaction rolled back.
+        async (who) => {
+          await appendAudit(pool, {
+            userId: who?.userId ?? null,
+            orgId: who?.orgId ?? ORG,
+            action: "invitation.complete",
+            targetId: who?.userId ?? null,
+            outcome: "denied",
+            sourceIp: ctx.sourceIp,
+            correlationId: ctx.correlationId,
+            detail: who ? { purpose: who.purpose } : null,
+          });
+        },
+      );
     },
 
     async listUsers(ctx) {

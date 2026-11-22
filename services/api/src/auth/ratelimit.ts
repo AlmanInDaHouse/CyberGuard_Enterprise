@@ -143,3 +143,25 @@ export function passwordChangeFailed(redis: Redis, userId: string) {
 export function releasePasswordChange(redis: Redis, userId: string) {
   return release(redis, [passwordKey(userId)]);
 }
+
+/** An invitation's own counter (SPEC-026 §Operational §3), keyed by the hex of the SHA-256 of
+ *  the token presented, never by the token. */
+function invitationKey(tokenSha256Hex: string): string {
+  return `rl:inv:${tokenSha256Hex}`;
+}
+
+/** An invitation route's slots: the invitation's own counter and the login's per-IP one. */
+export function reserveInvitation(redis: Redis, tokenSha256Hex: string, ip: string) {
+  return reserve(redis, [
+    [invitationKey(tokenSha256Hex), ACCOUNT_MAX],
+    [ipKey(ip), IP_MAX],
+  ]);
+}
+
+export function invitationFailed(redis: Redis, tokenSha256Hex: string, ip: string) {
+  return failed(redis, [invitationKey(tokenSha256Hex), ipKey(ip)]);
+}
+
+export function releaseInvitation(redis: Redis, tokenSha256Hex: string, ip: string) {
+  return release(redis, [invitationKey(tokenSha256Hex), ipKey(ip)]);
+}

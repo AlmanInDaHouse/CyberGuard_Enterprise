@@ -10,6 +10,9 @@ import {
 } from "./prehandlers.js";
 import {
   CreateUserBody,
+  EmptyBody,
+  InvitationCompleteBody,
+  InvitationTotpBody,
   LoginBody,
   PasswordBody,
   RoleBody,
@@ -42,10 +45,13 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
   const ctxOf = (req: FastifyRequest): RequestContext =>
     requestContext(req, services.trustedProxies);
 
-  app.post("/v1/auth/login", async (req, reply) => {
+  // SPEC-026 §Data contracts §3: each route of its tables answers `Cache-Control: no-store`,
+  // its refusals included (the app's onSend hook).
+  const noStore = { noStore: true };
+
+  app.post("/v1/auth/login", { config: noStore }, async (req, reply) => {
     const body = parseBody(LoginBody, req.body);
     const result = await services.auth.login(body, ctxOf(req), req.cookies?.cgsess);
-    reply.header("cache-control", "no-store");
     reply.setCookie("cgsess", result.token, {
       httpOnly: true,
       secure: true,
@@ -56,12 +62,11 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
   });
 
   // SPEC-026 §Data contracts §3: the session's user, for the dashboard's pages.
-  app.get("/v1/auth/session", { onRequest: [requireSession] }, async (req, reply) => {
+  app.get("/v1/auth/session", { config: noStore, onRequest: [requireSession] }, async (req) => {
     const session = req.authSession;
     if (!session) throw new Error("unreachable: requireSession populates authSession");
     const user = await services.auth.sessionUser(session);
     if (!user) throw new AuthError("no session");
-    reply.header("cache-control", "no-store");
     return user;
   });
 
@@ -76,18 +81,34 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     return { ok: true };
   });
 
-  app.post("/v1/auth/password", { onRequest: [requireSession, requireCsrf] }, async (req) => {
-    const session = req.authSession;
-    if (!session) throw new Error("unreachable: requireSession populates authSession");
-    const body = parseBody(PasswordBody, req.body);
-    await services.auth.changePassword({ userId: session.user_id, ...body }, ctxOf(req));
-    return { ok: true };
+  app.post(
+    "/v1/auth/password",
+    { config: noStore, onRequest: [requireSession, requireCsrf] },
+    async (req) => {
+      const session = req.authSession;
+      if (!session) throw new Error("unreachable: requireSession populates authSession");
+      const body = parseBody(PasswordBody, req.body);
+      await services.auth.changePassword({ userId: session.user_id, ...body }, ctxOf(req));
+      return { ok: true };
+    },
+  );
+
+  // SPEC-026 §Operational §3: the invitation's two routes take no session, and so no role or
+  // CSRF check; the invitation in the body is the credential, limited per invitation and per
+  // source address.
+  app.post("/v1/invitations/totp", { config: noStore }, async (req) =>
+    services.auth.invitationTotp(parseBody(InvitationTotpBody, req.body), ctxOf(req)),
+  );
+
+  app.post("/v1/invitations/complete", { config: noStore }, async (req, reply) => {
+    await services.auth.completeInvitation(parseBody(InvitationCompleteBody, req.body), ctxOf(req));
+    return reply.code(204).send();
   });
 
   // --- admin-only user management ---
   app.post(
     "/v1/users",
-    { onRequest: [requireSession, requireAdmin, requireCsrf] },
+    { config: noStore, onRequest: [requireSession, requireAdmin, requireCsrf] },
     async (req, reply) => {
       const created = await services.auth.createUser(
         parseBody(CreateUserBody, req.body),
@@ -97,13 +118,15 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     },
   );
 
-  app.get("/v1/users", { onRequest: [requireSession, requireAdmin] }, async (req) =>
-    services.auth.listUsers(ctxOf(req)),
+  app.get(
+    "/v1/users",
+    { config: noStore, onRequest: [requireSession, requireAdmin] },
+    async (req) => services.auth.listUsers(ctxOf(req)),
   );
 
   app.post(
     "/v1/users/:id/role",
-    { onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
+    { config: noStore, onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
     async (req) => {
       const body = parseBody(RoleBody, req.body);
       await services.auth.assignRole((req.params as { id: string }).id, body.role, ctxOf(req));
@@ -114,11 +137,36 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
   // SPEC-008 Amendment 2026-10-15 item 8: disable or enable a user (§2's admin revoke).
   app.post(
     "/v1/users/:id/status",
-    { onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
+    { config: noStore, onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
     async (req) => {
       const body = parseBody(StatusBody, req.body);
       await services.auth.setStatus((req.params as { id: string }).id, body.status, ctxOf(req));
       return { ok: true };
+    },
+  );
+
+  // SPEC-026 §Data contracts §3: a new invitation for a user with no credentials, and the
+  // withdrawal of the open one.
+  app.post(
+    "/v1/users/:id/invitation",
+    { config: noStore, onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
+    async (req, reply) => {
+      parseBody(EmptyBody, req.body);
+      const issued = await services.auth.issueInvitation(
+        (req.params as { id: string }).id,
+        ctxOf(req),
+      );
+      return reply.code(201).send(issued);
+    },
+  );
+
+  app.post(
+    "/v1/users/:id/invitation/withdraw",
+    { config: noStore, onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
+    async (req, reply) => {
+      parseBody(EmptyBody, req.body);
+      await services.auth.withdrawInvitation((req.params as { id: string }).id, ctxOf(req));
+      return reply.code(204).send();
     },
   );
 }

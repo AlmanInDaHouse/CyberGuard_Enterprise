@@ -19,6 +19,13 @@ import { fromStore } from "./stores.js";
 
 type LoggerOpt = FastifyServerOptions["logger"];
 
+declare module "fastify" {
+  interface FastifyContextConfig {
+    /** The route answers `Cache-Control: no-store`, whatever its status (SPEC-026 §3). */
+    noStore?: boolean;
+  }
+}
+
 /** What a log line may say about an error: its type, code, message and stack, never the
  *  rest of the object. A Postgres error's `detail` can quote a whole row, and a `users`
  *  row holds a password hash and an encrypted TOTP secret (SPEC-009 Amendment
@@ -49,8 +56,14 @@ export function buildApp(services: Services, logger: LoggerOpt = false): Fastify
   });
   app.register(cookie);
 
+  // SPEC-026 §Data contracts §3: every route of its tables answers `Cache-Control: no-store`,
+  // its refusals included; a route declares it with `config: { noStore: true }`.
+  app.addHook("onSend", async (req, reply) => {
+    if (req.routeOptions.config?.noStore) reply.header("cache-control", "no-store");
+  });
+
   app.setErrorHandler(async (err, req, reply) => {
-    if (err instanceof AuthError) return reply.code(401).send({ error: "unauthorized" });
+    if (err instanceof AuthError) return reply.code(401).send({ error: err.code });
     if (err instanceof RateLimitError) return reply.code(429).send({ error: "rate_limited" });
     if (err instanceof ForbiddenError) {
       // SPEC-008 Amendment 2026-10-16 item 1: a role or CSRF refusal of a session's
@@ -82,7 +95,7 @@ export function buildApp(services: Services, logger: LoggerOpt = false): Fastify
     }
     if (err instanceof BadRequestError) return reply.code(400).send({ error: "bad_request" });
     if (err instanceof NotFoundError) return reply.code(404).send({ error: "not_found" });
-    if (err instanceof ConflictError) return reply.code(409).send({ error: "conflict" });
+    if (err instanceof ConflictError) return reply.code(409).send({ error: err.code });
     if (err instanceof NotImplementedError) {
       return reply.code(501).send({ error: "not_implemented" });
     }

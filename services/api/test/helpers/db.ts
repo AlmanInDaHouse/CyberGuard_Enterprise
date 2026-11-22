@@ -185,3 +185,37 @@ export async function buildTestApp(
     },
   };
 }
+
+/** A code of `secret` `steps` time steps from now: the next step's is valid too (the verify
+ *  window is ±1), when the current one was used. */
+export function totpAt(secret: string, steps = 0): string {
+  return otplib.authenticator.clone({ epoch: Date.now() + steps * 30_000 }).generate(secret);
+}
+
+/** Complete an invitation as its holder does (SPEC-026 §Operational §3): ask for a secret,
+ *  then complete with `password` and a current code of it. Returns the secret, whose current
+ *  code is then used: a login after it takes `totpAt(secret, 1)`. */
+export async function completeInvitationAsHolder(
+  app: FastifyInstance,
+  token: string,
+  password: string,
+  remoteAddress = "198.51.100.250",
+): Promise<string> {
+  const shown = await app.inject({
+    method: "POST",
+    url: "/v1/invitations/totp",
+    remoteAddress,
+    payload: { token },
+  });
+  if (shown.statusCode !== 200) throw new Error(`invitation totp: ${shown.statusCode}`);
+  const uri = (shown.json() as { provisioning_uri: string }).provisioning_uri;
+  const secret = new URL(uri).searchParams.get("secret") ?? "";
+  const done = await app.inject({
+    method: "POST",
+    url: "/v1/invitations/complete",
+    remoteAddress,
+    payload: { token, password, totp_code: currentTotp(secret) },
+  });
+  if (done.statusCode !== 204) throw new Error(`invitation complete: ${done.statusCode}`);
+  return secret;
+}
