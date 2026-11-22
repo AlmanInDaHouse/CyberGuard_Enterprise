@@ -11,8 +11,10 @@ export const ENROLL_FAILURE_LIMIT = 10;
 export const ENROLL_WINDOW_MS = 15 * 60 * 1000;
 /** One certificate per agent per this interval. */
 export const RENEWAL_INTERVAL_MS = 10 * 60 * 1000;
-/** Past this many entries, a map drops the ones whose time has passed. */
+/** Past this many entries, a map drops the ones whose time has passed, at most once a minute,
+ *  so that a failed request does not scan the maps each time. */
 const SWEEP_ABOVE = 10_000;
+const SWEEP_EVERY_MS = 60_000;
 /**
  * At most this many addresses are tracked: past it, after the sweep, the addresses whose
  * failures were recorded first are forgotten, then those refused first, so that a flood of
@@ -28,6 +30,7 @@ export const ENROLL_TRACKED_MAX = 100_000;
 export class EnrollmentLimiter {
   private readonly failures = new Map<string, number[]>();
   private readonly refusedUntil = new Map<string, number>();
+  private lastSweep = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -62,13 +65,17 @@ export class EnrollmentLimiter {
 
   private sweep(t: number): void {
     if (this.size <= SWEEP_ABOVE) return;
-    for (const [address, times] of this.failures) {
-      if (times.every((at) => t - at >= ENROLL_WINDOW_MS)) this.failures.delete(address);
+    if (t - this.lastSweep >= SWEEP_EVERY_MS) {
+      this.lastSweep = t;
+      for (const [address, times] of this.failures) {
+        if (times.every((at) => t - at >= ENROLL_WINDOW_MS)) this.failures.delete(address);
+      }
+      for (const [address, until] of this.refusedUntil) {
+        if (t >= until) this.refusedUntil.delete(address);
+      }
     }
-    for (const [address, until] of this.refusedUntil) {
-      if (t >= until) this.refusedUntil.delete(address);
-    }
-    // A Map iterates in insertion order: the first key is the oldest tracked.
+    // The bound, each time, in constant time per address forgotten. A Map iterates in
+    // insertion order: the first key is the oldest tracked.
     for (const map of [this.failures, this.refusedUntil]) {
       while (map.size > 0 && this.size > ENROLL_TRACKED_MAX) {
         map.delete(map.keys().next().value as string);
@@ -80,6 +87,7 @@ export class EnrollmentLimiter {
 /** The renewal limit: one certificate per agent per 10 minutes. */
 export class RenewalLimiter {
   private readonly signedAt = new Map<string, number>();
+  private lastSweep = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -89,7 +97,8 @@ export class RenewalLimiter {
     const last = this.signedAt.get(agentId);
     if (last !== undefined && t - last < RENEWAL_INTERVAL_MS) return false;
     this.signedAt.set(agentId, t);
-    if (this.signedAt.size > SWEEP_ABOVE) {
+    if (this.signedAt.size > SWEEP_ABOVE && t - this.lastSweep >= SWEEP_EVERY_MS) {
+      this.lastSweep = t;
       for (const [id, at] of this.signedAt) {
         if (t - at >= RENEWAL_INTERVAL_MS) this.signedAt.delete(id);
       }

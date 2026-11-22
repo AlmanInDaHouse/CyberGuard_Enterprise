@@ -60,6 +60,15 @@ test("the addresses tracked are bounded", () => {
   expect(limiter.refuses(`addr-${ENROLL_TRACKED_MAX + 49}`)).toBe(true);
 });
 
+test("past 10000 addresses, those whose failures are older than 15 minutes are dropped", () => {
+  const c = clock();
+  const limiter = new EnrollmentLimiter(c.now);
+  for (let i = 0; i < 10_001; i++) limiter.recordFailure(`old-${i}`);
+  c.advance(ENROLL_WINDOW_MS);
+  limiter.recordFailure("new");
+  expect(limiter.size).toBe(1);
+});
+
 test("one certificate per agent per 10 minutes", () => {
   const c = clock();
   const limiter = new RenewalLimiter(c.now);
