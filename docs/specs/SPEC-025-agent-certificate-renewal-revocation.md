@@ -266,6 +266,50 @@ Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day (ADR-0004
 8. **`409` for a renewal that is not due, `403` only for a revoked or superseded agent.** So that `403` keeps one meaning: the server refuses this agent.
 9. **The agent's host name, platform and version kept on its row**: Manuel's choice of 2026-11-20 (data about people), recorded with the threat model's amendment; the data-protection document's change names it. **Cut, not refused, past 255 code points.** Against refusing the request, which would be a check narrower than SPEC-004's.
 
+## Amendment 2026-11-22: the enrollment limit's bound, a CA past its end, the renewal's slot
+
+**What surfaced it.** The fresh-context review of the server half's code (Session 91, whose
+handoff records it) found three behaviours the code needs that this SPEC
+does not state:
+
+- the enrollment limit's counters, held in the process's memory (§Operational §5), grow with each
+  distinct source address that fails;
+- with a CA past its `notAfter`, §Operational §1's rule gives a certificate that ends before it
+  starts;
+- §Operational §5's "a renewal that would sign a second" leaves open whether a renewal whose
+  certificate is signed but not stored (§Operational §4's `503`) takes the agent's 10 minutes.
+
+**The amendment.**
+
+1. **The enrollment limit's bound.** A process tracks at most 100 000 source addresses for
+   §Operational §5's enrollment limit. Past that, it forgets the addresses whose failures it
+   recorded first, and then the addresses it refused first, so that a flood of distinct addresses
+   bounds its memory. An address that fails ten times within 15 minutes is refused as §5 states for
+   as long as it is tracked, and the bound forgets it only after at least 100 000 other addresses
+   have failed since its last failure. A client that rotates through that many addresses is not
+   limited by its address.
+2. **A CA that ends by the certificate's start signs nothing.** A certificate's `notBefore` is a minute before its issue,
+   in whole seconds, as X.509 stores it, so that its `notAfter` is exactly 90 days after it, as
+   renew_ac_008 asserts. When the CA's `notAfter` is no later than that `notBefore`, the CA signs
+   nothing:
+   - an enrollment writes nothing and answers `500` `internal`, the token's use unspent;
+   - a renewal answers `409 renewal_not_due`, since §Operational §4 already refuses one whose new
+     certificate would end no later than the presented one.
+3. **The renewal's slot.** The agent's 10 minutes of §Operational §5 are taken when the CA is
+   asked to sign, after §4's checks. A renewal whose certificate is then not stored, and is
+   answered `503` (§4), is followed within 10 minutes by `429 rate_limited`; the agent tries again
+   after an hour (§Operational §9).
+
+**Its effect.**
+
+- §Operational §1, §4 and §5 are read with points 1 to 3; §Risks' per-process rate limits gain
+  point 1's bound.
+- No acceptance criterion changes. renew_ac_008's `notAfter` 90 days after its `notBefore` holds
+  by point 2. The server half's tests assert point 1's bound and point 2's enrollment besides the
+  criteria.
+- Backward-compatible: no data contract and no deployment configuration changes, and the
+  constants stay in the code (§Operational §12).
+
 ## References
 
 - [ADR-0004](../adr/0004-agent-server-protocol.md) — the protocol; its Amendment 2026-11-20.
