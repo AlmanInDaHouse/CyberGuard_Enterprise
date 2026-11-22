@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-89.md](../handoff-session-89.md)).
+([handoff-session-90.md](../handoff-session-90.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -632,6 +632,10 @@ recommended option:
    with no List A (`docs/handoff-session-88.md`). S89: four more rounds over
    the ADR branch (now `e62cb09`), the last of them with one item, fixed;
    SPEC-026's seventh round had no List A (`docs/handoff-session-89.md`).
+   S90: done. Round 14 had no List A; Manuel ratified both branches on
+   2026-11-22, and ADR-0004's, ADR-0022's and ADR-0014's Amendments
+   2026-11-20, the threat model's two, SPEC-025 and SPEC-026 landed
+   (`51a1cda` to `ac9e604`, `docs/handoff-session-90.md`).
 4. **F4's server half** (#89, revocation, the renewal route), then **F3**
    (the api's routes and grants, the pages), then **F4's agent renewal**,
    under the elevated gate.
