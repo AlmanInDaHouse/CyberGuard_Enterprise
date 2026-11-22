@@ -160,6 +160,17 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     },
   );
 
+  // SPEC-026 §Operational §4: an admin's reset of another user's credentials, by an invitation.
+  app.post(
+    "/v1/users/:id/reset",
+    { config: noStore, onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },
+    async (req, reply) => {
+      parseBody(EmptyBody, req.body);
+      const issued = await services.auth.resetUser((req.params as { id: string }).id, ctxOf(req));
+      return reply.code(201).send(issued);
+    },
+  );
+
   app.post(
     "/v1/users/:id/invitation/withdraw",
     { config: noStore, onRequest: [requireSession, requireAdmin, requireCsrf, requireUserId] },

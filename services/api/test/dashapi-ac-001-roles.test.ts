@@ -84,6 +84,13 @@ const SECTION_3: Route[] = [
   },
   {
     method: "POST",
+    path: "/v1/users/:id/reset",
+    roles: ADMIN,
+    mutation: true,
+    body: {},
+  },
+  {
+    method: "POST",
     path: "/v1/users/:id/invitation/withdraw",
     roles: ADMIN,
     mutation: true,

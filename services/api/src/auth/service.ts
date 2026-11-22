@@ -96,6 +96,9 @@ export interface AuthService {
   /** A new invitation for a user with no password and no confirmed factor. */
   issueInvitation(userId: string, ctx: RequestContext): Promise<IssuedInvitation>;
   withdrawInvitation(userId: string, ctx: RequestContext): Promise<void>;
+  /** SPEC-026 §Operational §4: another active user's credentials cleared, and a reset
+   *  invitation answered. */
+  resetUser(userId: string, ctx: RequestContext): Promise<IssuedInvitation>;
   /** The invitation's holder: a new TOTP secret, its email and provisioning URI. */
   invitationTotp(
     input: { token: string },
@@ -740,6 +743,50 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           throw new ConflictError("no open invitation", "no_open_invitation");
         }
       });
+    },
+
+    /**
+     * SPEC-026 §Operational §4 (ADR-0014 Amendment 2026-11-20): in one transaction, with
+     * `user.reset`, `invitation.issue` and, when it replaces one, `invitation.withdraw`, the
+     * user's password and secret are cleared, the factor unconfirmed, the authority version
+     * raised, any open invitation withdrawn and a `reset` one issued; after the commit the
+     * user's sessions are deleted, as a disable's are. An admin's own reset and a disabled
+     * user's are refused, and change nothing.
+     */
+    async resetUser(userId, ctx) {
+      const session = sessionOf(ctx);
+      if (userId === session.user_id) {
+        throw new ConflictError("cannot reset self", "cannot_reset_self");
+      }
+      let issued: IssuedInvitation | undefined;
+      await authorityChange(userId, async (db) => {
+        const found = await db.query<{ status: string }>(
+          "SELECT status FROM users WHERE user_id = $1 AND org_id = $2 FOR UPDATE",
+          [userId, session.org_id],
+        );
+        const user = found.rows[0];
+        if (!user) throw new NotFoundError();
+        if (user.status !== "active") throw new ConflictError("user disabled", "user_disabled");
+        await db.query(
+          `UPDATE users
+              SET password_hash = NULL, totp_secret = NULL, totp_enrolled = false,
+                  authority_version = authority_version + 1, updated_at = now()
+            WHERE user_id = $1`,
+          [userId],
+        );
+        await appendAudit(db, {
+          userId: session.user_id,
+          orgId: session.org_id,
+          action: "user.reset",
+          targetId: userId,
+          outcome: "ok",
+          sourceIp: ctx.sourceIp,
+          correlationId: ctx.correlationId,
+        });
+        issued = await issueFor(db, userId, session.org_id, "reset", ctx);
+      });
+      if (!issued) throw new Error("unreachable: the reset committed without its invitation");
+      return issued;
     },
 
     async invitationTotp(input, ctx) {
