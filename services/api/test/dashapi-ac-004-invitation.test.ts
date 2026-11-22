@@ -336,6 +336,18 @@ test("an unknown, expired, withdrawn or disabled user's invitation answers 401, 
   await refusedOnBothRoutes(disabled);
 });
 
+test("a text that is not base64url is no invitation, even one that folds onto a real one", async () => {
+  const { token } = await createUser();
+  // Each character moved up by 256: as "ascii", Node would hash it as the real token.
+  const folded = Array.from(token, (c) => String.fromCharCode(c.charCodeAt(0) + 256)).join("");
+  for (const text of [folded, `${token} `, `${token}=`]) {
+    const res = await totp(text);
+    expect(res.statusCode, JSON.stringify(text)).toBe(401);
+    expect(res.json()).toEqual({ error: "invitation_rejected" });
+  }
+  expect((await totp(token)).statusCode).toBe(200);
+});
+
 test("an unknown token's failed completion writes a denied row naming no user", async () => {
   const marker = address();
   const res = await complete("B".repeat(43), "123456", marker);
@@ -529,6 +541,8 @@ test("no route that takes the admin's session answers a TOTP secret", async () =
       ...asAdmin,
     }),
     await post(`/v1/users/${userId}/invitation/withdraw`, {}),
+    await apph.app.inject({ method: "GET", url: "/v1/users/assignable", ...asAdmin }),
+    await apph.app.inject({ method: "GET", url: "/v1/auth/session", ...asAdmin }),
     await post(`/v1/users/${other}/role`, { role: "viewer" }),
     await post(`/v1/users/${other}/reset`, {}),
     await post(`/v1/users/${other}/status`, { status: "disabled" }),

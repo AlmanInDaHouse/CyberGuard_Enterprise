@@ -2,6 +2,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
 import type { Config } from "../src/config.js";
 import { buildTestApp, insertUserDirect, seedSession } from "./helpers/db.js";
+import { ensureAgent, insertAlertRow, insertIncidentRow } from "./helpers/read-schema.js";
 
 // dashapi_ac_001 (SPEC-026 §Operational §1; blocks CI) — the roles. For each route of §Data
 // contracts §3 and each of the three roles, a request with a valid session and CSRF token answers
@@ -24,8 +25,7 @@ const ORG = "dashapi-001";
 
 interface Route {
   method: "GET" | "POST";
-  /** The route's pattern; `:id` is the user routes' target, or the read routes' unknown
-   *  incident. */
+  /** The route's pattern; `:id` is the user routes' target, or the read routes' incident. */
   path: string;
   roles: Role[];
   mutation: boolean;
@@ -204,7 +204,23 @@ beforeAll(async () => {
     role: "viewer",
     orgId: ORG,
   });
+  // An incident of the org, so that each read route with an `:id` answers 200.
   incident = globalThis.crypto.randomUUID();
+  const agentId = globalThis.crypto.randomUUID();
+  const alertId = globalThis.crypto.randomUUID();
+  await ensureAgent(config, agentId, ORG);
+  await insertAlertRow(config, {
+    alertId,
+    agentId,
+    orgId: ORG,
+    sourceEvents: [globalThis.crypto.randomUUID()],
+  });
+  await insertIncidentRow(config, {
+    incidentId: incident,
+    agentId,
+    orgId: ORG,
+    alertIds: [alertId],
+  });
 });
 afterAll(async () => {
   await apph?.close();
@@ -310,8 +326,7 @@ describe("the read routes of SPEC-009, SPEC-010 and SPEC-022", () => {
       if (route.roles.includes(role)) {
         test(`${label}: ${role} passes the role check`, async () => {
           const res = await send(route, { role });
-          // An unknown incident is a 404 past the role check; the lists answer 200.
-          expect(res.statusCode, res.body).toBe(route.path.includes(":id") ? 404 : 200);
+          expect(res.statusCode, res.body).toBe(200);
         });
       } else {
         test(`${label}: ${role} is refused, 403 with access.denied`, async () => {

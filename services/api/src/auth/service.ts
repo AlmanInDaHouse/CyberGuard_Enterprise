@@ -170,6 +170,9 @@ function newInvitationToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** An invitation's text: base64url characters alone (SPEC-026 §Data contracts §2). */
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+
 /** The SHA-256 the api keeps of an invitation's text, its characters as ASCII (SPEC-026 §2). */
 function invitationHash(token: string): Buffer {
   return createHash("sha256").update(token, "ascii").digest();
@@ -517,6 +520,7 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
     if (!(await reserveInvitation(redis, key, ctx.sourceIp))) throw new RateLimitError();
     let settled = false;
     try {
+      if (!BASE64URL.test(token)) throw new InvitationRefusal(null);
       const result = await work(hash);
       settled = true;
       await releaseInvitation(redis, key, ctx.sourceIp);
@@ -829,6 +833,7 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
             if (inv.pendingSecret === null || !verifyTotp(inv.pendingSecret, input.totp_code)) {
               throw new InvitationRefusal(who);
             }
+            const ph = await hashPassword(input.password);
             const firstUse = await redis.set(
               `totp:replay:${inv.userId}:${input.totp_code}`,
               "1",
@@ -837,7 +842,6 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
               "NX",
             );
             if (firstUse === null) throw new InvitationRefusal(who);
-            const ph = await hashPassword(input.password);
             await db.query(
               `UPDATE users
                   SET password_hash = $2,
