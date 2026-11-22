@@ -355,6 +355,29 @@ Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day (ADR-0022
 11. **The phases of the pages follow their routes**, accounts first, since an installation needs its users before its triage.
 12. **The dashboard's revocation before a login stays**, though the api now ends the cookie's session: it costs one request, and holds against a deployment whose api predates this SPEC.
 
+## Amendment 2026-11-22: the revocation's runbook
+
+**What surfaced it.** SPEC-025's runbooks change (Session 92, whose handoff records it) found
+no step an operator can take to revoke an agent before this SPEC's route lands. Ingest's
+runtime role cannot write a revocation (SPEC-025 §Data contracts §1), and a step that runs SQL
+as the database's owner role would be part of the deployment contract. Manuel chose, on
+2026-11-22, that the runbooks give no step in the database, and that the revocation's steps
+come with this SPEC's route. `docs/operations/agent-identity.md`, which that change adds,
+says so in its *Revoking an agent*.
+
+**The amendment.** *Out of scope*'s runbooks item also covers, in
+`docs/operations/agent-identity.md`:
+
+1. *Revoking an agent*: the steps of an admin's revocation on the agents' page, with its
+   reason, and its `agent.revoke` audit row, in place of the paragraph that says the release
+   has no command or route for it;
+2. *A copied identity*: the copy flag read on the agents' page, in place of the sentences that
+   say the release shows it in a log line alone and that give the remedy until the
+   revocation's route lands.
+
+**Its effect.** No data contract, operational section or acceptance criterion changes. The
+runbooks' branch and pull request stay before the release, as the item says.
+
 ## References
 
 - [ADR-0014](../adr/0014-human-authentication-model.md), [ADR-0022](../adr/0022-single-node-production-deployment.md) — their Amendments 2026-11-20.
