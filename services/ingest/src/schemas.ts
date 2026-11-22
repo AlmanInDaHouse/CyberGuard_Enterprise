@@ -219,3 +219,25 @@ export function decodeB64url(v: string): Buffer | null {
     return null;
   }
 }
+
+/**
+ * SPEC-025 §Data contracts §2 — the renewal request: SPEC-003's outer envelope with a body of
+ * its own, the new raw Ed25519 public key, and `new_key_signature`, by the new key over the
+ * same bytes as `signature`.
+ */
+export const RenewRequestSchema = z.object({
+  outer_envelope_version: z.string().min(1),
+  agent_id: z.string().min(1),
+  sequence_number: NonNegativeIntegerSchema,
+  nonce: z.string().min(1),
+  sent_at: z.string().min(1),
+  body: z.object({
+    renew_version: z.literal("1"),
+    new_agent_pubkey: z.string().refine((v) => decodeB64url(v)?.length === 32, {
+      message: "new_agent_pubkey must be a base64url-encoded 32-byte key",
+    }),
+  }),
+  signature: z.string().min(1),
+  new_key_signature: z.string().min(1),
+});
+export type RenewRequest = z.infer<typeof RenewRequestSchema>;

@@ -13,8 +13,23 @@ import { runDetectionCycle } from "../src/detect/index.js";
 import type { Services } from "../src/services.js";
 import { insertCgesEvent } from "./helpers/db.js";
 import { detectConfig } from "./helpers/detect.js";
+import {
+  type RenewAnswer,
+  ageAgentCert,
+  buildRenewRequest,
+  errorOf,
+  postRenew,
+  startRenewHarness,
+  withPair,
+} from "./helpers/renew.js";
 import { POWERSHELL, WINWORD, soarHarness, testPlaybook } from "./helpers/soar.js";
-import { enroll } from "./helpers/test-client.js";
+import {
+  type AgentIdentity,
+  buildSignedEnvelope,
+  enroll,
+  generateKeyPair,
+  postHeartbeat,
+} from "./helpers/test-client.js";
 
 // SPEC-023 §Operational §4 — ingest's code runs as `cg_ingest`, its runtime role, with the
 // rights ingest's migrations grant and no other: the CA at the first start, a token issued
@@ -41,6 +56,7 @@ let runtimePool: pg.Pool;
 let superPool: pg.Pool;
 let ca: ServerCa;
 let agentId: string;
+let enrolled: AgentIdentity;
 
 function url(user: keyof typeof PASSWORDS, schema?: string): string {
   const base = `postgres://${user}:${PASSWORDS[user]}@${container.getHost()}:${container.getMappedPort(5432)}/cyberguard`;
@@ -99,8 +115,8 @@ test("issue-token.js issues a token, and the enroll route enrolls an agent with 
   await app.listen({ host: "127.0.0.1", port: 0 });
   try {
     const port = (app.server.address() as AddressInfo).port;
-    const identity = await enroll(`http://127.0.0.1:${port}`, token);
-    agentId = identity.agentId;
+    enrolled = await enroll(`http://127.0.0.1:${port}`, token);
+    agentId = enrolled.agentId;
   } finally {
     await app.close();
   }
@@ -108,11 +124,51 @@ test("issue-token.js issues a token, and the enroll route enrolls an agent with 
   expect(row.rows).toEqual([{ org_id: "default" }]);
 });
 
-test("a heartbeat's statements: the agent's key read, its last_seen written", async () => {
-  // The two statements of the heartbeat route (routes/heartbeat.ts), as the role.
-  const key = await runtimePool.query("SELECT pubkey FROM agents WHERE agent_id = $1", [agentId]);
-  expect(key.rows).toHaveLength(1);
-  await runtimePool.query("UPDATE agents SET last_seen = now() WHERE agent_id = $1", [agentId]);
+test("an agent's heartbeat, renewal, promotion and copy signal, through the routes", async () => {
+  // SPEC-025 §Operational §2 to §4, as the role: the agent's row read, its last_seen and agent
+  // block written, a pending certificate stored and promoted, and a copy signal raised.
+  const owner = { ...suite, INGEST_PG_URL: url("postgres", "ingest") };
+  const harness = await startRenewHarness(runtime);
+  try {
+    const post = async (identity: AgentIdentity, sequenceNumber: number) =>
+      postHeartbeat(harness.heartbeatUrl, {
+        caCertPem: harness.caCertPem,
+        identity,
+        envelope: await buildSignedEnvelope(identity, { sequenceNumber, hostname: "RUNTIME-ROLE" }),
+      });
+    expect((await post(enrolled, 1)).status).toBe(200);
+
+    // Due for renewal, as the owner role writes it.
+    const old = await ageAgentCert(owner, harness.ca, enrolled, 40);
+    const newKeys = await generateKeyPair();
+    const renewed = await postRenew(harness.heartbeatUrl, {
+      caCertPem: harness.caCertPem,
+      identity: old,
+      envelope: await buildRenewRequest(old, newKeys),
+    });
+    expect(renewed.status, renewed.bodyText).toBe(200);
+    const fresh = await withPair(
+      old,
+      (JSON.parse(renewed.bodyText) as RenewAnswer).client_certificate,
+      newKeys,
+    );
+    const promoted = await post(fresh, 2);
+    expect(promoted.status, promoted.bodyText).toBe(200);
+    const superseded = await post(old, 3);
+    expect(superseded.status).toBe(403);
+    expect(errorOf(superseded)).toBe("agent_superseded");
+  } finally {
+    await harness.close();
+  }
+  const row = await superPool.query(
+    "SELECT hostname, cert_pem, pending_cert_pem, duplicate_signal FROM agents WHERE agent_id = $1",
+    [agentId],
+  );
+  expect(row.rows[0]).toMatchObject({
+    hostname: "RUNTIME-ROLE",
+    pending_cert_pem: null,
+    duplicate_signal: "superseded_certificate",
+  });
 });
 
 test("a detection cycle writes an alert, an incident, its cursor and a playbook's execution", async () => {

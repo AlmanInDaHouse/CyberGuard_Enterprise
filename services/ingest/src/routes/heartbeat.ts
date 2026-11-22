@@ -1,13 +1,13 @@
-import type { TLSSocket } from "node:tls";
 import type { FastifyInstance } from "fastify";
-import { verifyEnvelopeSignature } from "../jcs.js";
+import {
+  authenticateAgentRequest,
+  cutAgentText,
+  nextProcessStarts,
+  raiseCopySignal,
+  serialOf,
+} from "../agent-request.js";
 import { type CgesEvent, OuterEnvelopeSchema } from "../schemas.js";
 import type { Services } from "../services.js";
-
-/** ±5 min skew window (SPEC-004 FR-010 step 3). */
-const SKEW_MS = 5 * 60 * 1000;
-/** Nonce TTL: 10 min, comfortably above the skew window (FR-011). */
-const NONCE_TTL_SECONDS = 600;
 
 /** RFC3339 (`...T...Z`) → ClickHouse DateTime64 input (`YYYY-MM-DD HH:MM:SS.fff`). */
 function toChDateTime(iso: string): string {
@@ -44,13 +44,17 @@ function stringNanosToChDateTime(nanos: string): string {
  * `process_name` '') and the six network columns; the other process columns keep
  * their defaults. Every column without a default is sent (§Operational §6).
  */
-function cgesEventRow(agentId: string, cgesEvent: CgesEvent): Record<string, unknown> {
+function cgesEventRow(
+  agentId: string,
+  orgId: string,
+  cgesEvent: CgesEvent,
+): Record<string, unknown> {
   if (cgesEvent.class_uid === 3002) {
     // SPEC-020 §Data contracts: the process columns without a default are set
     // empty; the source's address goes to src_ip, beside SPEC-019's.
     return {
       agent_id: agentId,
-      org_id: "default",
+      org_id: orgId,
       event_id: cgesEvent.event_id,
       class_uid: cgesEvent.class_uid,
       activity_id: cgesEvent.activity_id,
@@ -75,7 +79,7 @@ function cgesEventRow(agentId: string, cgesEvent: CgesEvent): Record<string, unk
   if (cgesEvent.class_uid === 4001) {
     return {
       agent_id: agentId,
-      org_id: "default",
+      org_id: orgId,
       event_id: cgesEvent.event_id,
       class_uid: cgesEvent.class_uid,
       activity_id: cgesEvent.activity_id,
@@ -93,7 +97,7 @@ function cgesEventRow(agentId: string, cgesEvent: CgesEvent): Record<string, unk
   }
   return {
     agent_id: agentId,
-    org_id: "default",
+    org_id: orgId,
     event_id: cgesEvent.event_id,
     class_uid: cgesEvent.class_uid,
     activity_id: cgesEvent.activity_id,
@@ -144,11 +148,15 @@ function isConnectivityError(e: unknown): boolean {
 
 /**
  * `POST /v1/agents/heartbeat` (mTLS). SPEC-004 FR-009–FR-012 with the FR-010
- * validation order and the §Behavior cross-store partial-failure forks. The
- * mTLS handshake (FR-008) is enforced by Node TLS before this handler runs.
+ * validation order and the §Behavior cross-store partial-failure forks, as SPEC-025
+ * §Operational §2 and §3 amend them: the agent's row read once, its revocation and the
+ * certificate it presents checked before the nonce is spent, every row it writes under the
+ * row's org, and its first accepted request under its pending certificate making that
+ * certificate the agent's. The mTLS handshake (FR-008) is enforced by Node TLS before this
+ * handler runs.
  */
 export function registerHeartbeatRoutes(app: FastifyInstance, services: Services): void {
-  const { pool, redis, ch } = services;
+  const { pool, ch } = services;
 
   app.post("/v1/agents/heartbeat", async (req, reply) => {
     // FR-009: structural validation.
@@ -158,79 +166,25 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
       return reply.code(400).send({ error: "invalid_request" });
     }
     const env = parsed.data;
-    const raw = req.body as Record<string, unknown>;
 
-    // FR-010 step 2: envelope agent_id must equal the client-cert CN and be a
-    // known agent. The mTLS layer already proved the cert chains to the CA.
-    const peerCn = peerCertificateCn(req.raw.socket as TLSSocket);
-    if (!peerCn || peerCn !== env.agent_id) {
-      req.log.warn(
-        { agent_id: env.agent_id, reason: "unknown_agent", response_status: 401 },
-        "heartbeat rejected",
-      );
-      return reply.code(401).send({ error: "unknown_agent" });
-    }
-
-    let agentPubkey: Buffer;
-    try {
-      const row = await pool.query<{ pubkey: Buffer }>(
-        "SELECT pubkey FROM agents WHERE agent_id = $1",
-        [env.agent_id],
-      );
-      const found = row.rows[0];
-      if (!found) {
-        req.log.warn(
-          { agent_id: env.agent_id, reason: "unknown_agent", response_status: 401 },
-          "heartbeat rejected",
-        );
-        return reply.code(401).send({ error: "unknown_agent" });
-      }
-      agentPubkey = found.pubkey;
-    } catch (err) {
-      req.log.error({ backend: "postgres", error: String(err) }, "backend unavailable");
-      return reply.code(503).send({ error: "unavailable" });
-    }
-
-    // FR-010 step 3: timestamp window.
-    const sentAtMs = new Date(env.sent_at).getTime();
-    if (Number.isNaN(sentAtMs) || Math.abs(Date.now() - sentAtMs) > SKEW_MS) {
-      req.log.warn(
-        { agent_id: env.agent_id, reason: "stale_timestamp", response_status: 422 },
-        "heartbeat rejected",
-      );
-      return reply.code(422).send({ error: "stale_timestamp" });
-    }
-
-    // FR-010 step 4 / FR-011: atomic anti-replay. SET NX both checks and
-    // persists the nonce — the first cross-store write (§Behavior order).
-    let nonceWasNew: string | null;
-    try {
-      nonceWasNew = await redis.set(`nonce:${env.nonce}`, "1", "EX", NONCE_TTL_SECONDS, "NX");
-    } catch (err) {
-      req.log.error({ backend: "redis", error: String(err) }, "backend unavailable");
-      return reply.code(503).send({ error: "unavailable" });
-    }
-    if (nonceWasNew === null) {
-      req.log.warn(
-        { agent_id: env.agent_id, reason: "replay", response_status: 409 },
-        "heartbeat rejected",
-      );
-      return reply.code(409).send({ error: "replay" });
-    }
-
-    // FR-010 step 5: signature over JCS(outer minus signature). Verified
-    // against the raw received body so the canonical bytes match the agent's.
-    const sigOk = await verifyEnvelopeSignature(raw, env.signature, new Uint8Array(agentPubkey));
-    if (!sigOk) {
-      req.log.warn(
-        { agent_id: env.agent_id, reason: "bad_signature", response_status: 401 },
-        "heartbeat rejected",
-      );
-      return reply.code(401).send({ error: "bad_signature" });
-    }
+    // SPEC-025 §Operational §2: the CN, the row, the revocation and the certificate, then
+    // FR-010's timestamp, nonce and signature.
+    const checked = await authenticateAgentRequest({
+      req,
+      reply,
+      services,
+      agentId: env.agent_id,
+      sentAt: env.sent_at,
+      nonce: env.nonce,
+      signature: env.signature,
+      signed: req.body as Record<string, unknown>,
+      rejected: "heartbeat rejected",
+    });
+    if (checked === null) return reply;
+    const { row, presented } = checked;
 
     // FR-010 step 6 / §Behavior cross-store order: ClickHouse insert
-    // (synchronous, SHOULD-2) → Postgres last_seen.
+    // (synchronous, SHOULD-2) → Postgres.
     try {
       await ch.insert({
         table: "heartbeats",
@@ -256,20 +210,24 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
 
     // SPEC-005 events[] persistence path. Inserts to cges_events per the
     // FR-010 step 6 cross-store ordering: nonce SETNX → heartbeats insert
-    // → cges_events insert → agents.last_seen UPDATE.
+    // → cges_events insert → the agent's row UPDATE. Each row carries the
+    // agent's org, read from its row (SPEC-025 §Operational §2).
     //
     // Empty events[] (SPEC-001/002/003 backward-compat envelopes) short-
     // circuits; no ClickHouse round-trip. Otherwise the insert is wrapped
     // in try-catch; isConnectivityError(e) true → 503 with Retry-After: 5;
     // false → 500 with the error logged. Failure here returns BEFORE the
-    // agents.last_seen UPDATE runs; the nonce in Redis is already burned
-    // (accepted data loss on retry per the existing cross-store policy).
+    // agent's row is updated, so a pending certificate is not promoted; the
+    // nonce in Redis is already burned (accepted data loss on retry per the
+    // existing cross-store policy).
     if (env.body.events.length > 0) {
       try {
         await ch.insert({
           table: "cges_events",
           format: "JSONEachRow",
-          values: env.body.events.map((cgesEvent) => cgesEventRow(env.agent_id, cgesEvent)),
+          values: env.body.events.map((cgesEvent) =>
+            cgesEventRow(env.agent_id, row.org_id, cgesEvent),
+          ),
         });
       } catch (e) {
         if (isConnectivityError(e)) {
@@ -285,12 +243,73 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
       }
     }
 
-    // last_seen is a denormalized cache; ClickHouse is the source of truth, so
-    // a failure here still returns 200 (§Behavior cross-store, third fork).
+    // The agent's row, in one statement (SPEC-025 §Operational §2): last_seen, what the agent
+    // block carries, and the process columns of §6; under the pending certificate, also its
+    // promotion, by a compare-and-set on the agent's certificate and the pending one (§3).
+    const agent = env.body.agent;
+    const startMs = new Date(env.body.sent_at).getTime() - env.body.uptime_seconds * 1000;
+    const starts = Number.isFinite(startMs)
+      ? nextProcessStarts(row, startMs)
+      : {
+          processStartedAt: row.process_started_at,
+          previousProcessStartedAt: row.previous_process_started_at,
+          interleaved: false,
+        };
+    const promote = presented.kind === "pending";
+    let recorded = false;
     try {
-      await pool.query("UPDATE agents SET last_seen = now() WHERE agent_id = $1", [env.agent_id]);
+      const params: unknown[] = [
+        env.agent_id,
+        cutAgentText(agent.agent_hostname),
+        cutAgentText(agent.agent_platform),
+        cutAgentText(agent.agent_version),
+        starts.processStartedAt,
+        starts.previousProcessStartedAt,
+      ];
+      let text = `UPDATE agents
+            SET last_seen = now(), hostname = $2, platform = $3, agent_version = $4,
+                process_started_at = $5, previous_process_started_at = $6`;
+      if (promote) {
+        params.push(
+          Buffer.from(presented.key),
+          presented.certPem,
+          presented.notAfter,
+          row.cert_pem,
+        );
+        text += `, pubkey = $7, cert_pem = $8, expires_at = $9, pending_cert_pem = NULL
+          WHERE agent_id = $1 AND cert_pem = $10 AND pending_cert_pem = $8`;
+      } else {
+        text += " WHERE agent_id = $1";
+      }
+      const updated = await pool.query(text, params);
+      recorded = updated.rowCount === 1;
     } catch (err) {
-      req.log.warn({ agent_id: env.agent_id, error: String(err) }, "last_seen update failed");
+      req.log.warn({ agent_id: env.agent_id, error: String(err) }, "agent row update failed");
+    }
+
+    if (promote) {
+      // A 2xx under the pending certificate always means it is the agent's (§3): a promotion
+      // the database did not record answers 503, and the next request is compared afresh.
+      if (!recorded) {
+        req.log.warn(
+          { agent_id: env.agent_id, reason: "promotion_not_recorded", response_status: 503 },
+          "heartbeat rejected",
+        );
+        return reply.code(503).send({ error: "unavailable" });
+      }
+      req.log.info(
+        {
+          agent_id: env.agent_id,
+          old_serial: serialOf(row.cert_pem),
+          new_serial: serialOf(presented.certPem),
+        },
+        "agent certificate promoted",
+      );
+    }
+    // Otherwise the row is a denormalized cache; ClickHouse is the source of truth, so a
+    // failure here still returns 200 (SPEC-004 §Behavior cross-store, third fork).
+    if (recorded && starts.interleaved && row.duplicate_signal === null) {
+      await raiseCopySignal(pool, req.log, env.agent_id, "interleaved_process");
     }
 
     req.log.info(
@@ -299,14 +318,4 @@ export function registerHeartbeatRoutes(app: FastifyInstance, services: Services
     );
     return reply.code(200).send({ status: "ok" });
   });
-}
-
-/** Extract the CN of the validated client certificate (mTLS already passed). */
-function peerCertificateCn(socket: TLSSocket): string | null {
-  if (typeof socket.getPeerCertificate !== "function") {
-    return null;
-  }
-  const cert = socket.getPeerCertificate();
-  const cn = cert?.subject?.CN;
-  return typeof cn === "string" && cn.length > 0 ? cn : null;
 }

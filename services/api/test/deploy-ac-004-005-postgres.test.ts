@@ -252,6 +252,42 @@ describe("deploy_ac_004 — the roles", () => {
       await refused(ingest, `SELECT 1 FROM api.${t}`);
   });
 
+  // SPEC-025 renew_ac_013 (the grants): ingest's runtime role writes the agents' columns its
+  // code writes, and never a revocation, nor a copy signal at the insert.
+  test("cg_ingest: on agents, last_seen written, revoked_at never, nor revocation or signal columns at insert (renew_ac_013)", async () => {
+    const ingest = as("cg_ingest", "ingest");
+    const agentId = "01934abc-def0-7000-89ab-0000000a0d13";
+    await allowed(
+      ingest,
+      `INSERT INTO agents (agent_id, org_id, pubkey, cert_pem, enrolled_at, expires_at, hostname, platform, agent_version)
+       VALUES ('${agentId}', 'default', '\\x00', 'c', now(), now() + interval '1 day', 'h', 'p', 'v')`,
+    );
+    try {
+      await allowed(ingest, `UPDATE agents SET last_seen = now() WHERE agent_id = '${agentId}'`);
+      await refused(
+        ingest,
+        `UPDATE agents SET revoked_at = now(), revocation_reason = 'r' WHERE agent_id = '${agentId}'`,
+      );
+      await refused(
+        ingest,
+        `UPDATE agents SET revocation_reason = 'r' WHERE agent_id = '${agentId}'`,
+      );
+      for (const [column, value] of [
+        ["revoked_at", "now()"],
+        ["revocation_reason", "'r'"],
+        ["duplicate_signal", "'superseded_certificate'"],
+      ] as const) {
+        await refused(
+          ingest,
+          `INSERT INTO agents (agent_id, org_id, pubkey, cert_pem, enrolled_at, expires_at, ${column})
+           VALUES (gen_random_uuid(), 'default', '\\x00', 'c', now(), now() + interval '1 day', ${value})`,
+        );
+      }
+    } finally {
+      await as("postgres").query(`DELETE FROM ingest.agents WHERE agent_id = '${agentId}'`);
+    }
+  });
+
   test("cg_ingest: INSERT into ca, and neither UPDATE nor DELETE on it", async () => {
     const ingest = as("cg_ingest", "ingest");
     await allowed(ingest, "INSERT INTO ca (id, cert_pem, private_key) VALUES (1, 'x', '\\x00')");

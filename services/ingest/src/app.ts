@@ -2,6 +2,7 @@ import type { ServerOptions as HttpsServerOptions } from "node:https";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import { registerEnrollRoutes } from "./routes/enroll.js";
 import { registerHeartbeatRoutes } from "./routes/heartbeat.js";
+import { registerRenewRoutes } from "./routes/renew.js";
 import type { Services } from "./services.js";
 
 type LoggerOpt = FastifyServerOptions["logger"];
@@ -29,7 +30,8 @@ export function buildEnrollApp(
 export const HEARTBEAT_BODY_LIMIT_BYTES = 4 * 1024 * 1024;
 
 /**
- * mTLS listener app (FR-002): `POST /v1/agents/heartbeat`. The TLS options
+ * mTLS listener app (FR-002): `POST /v1/agents/heartbeat` and SPEC-025's
+ * `POST /v1/agents/renew`. The TLS options
  * (`requestCert` + `rejectUnauthorized` against the CA) are applied by the
  * caller via Fastify's `https` server options.
  */
@@ -40,5 +42,6 @@ export function buildHeartbeatApp(
 ): FastifyInstance {
   const app = Fastify({ logger, https, bodyLimit: HEARTBEAT_BODY_LIMIT_BYTES });
   registerHeartbeatRoutes(app, services);
+  registerRenewRoutes(app, services);
   return app;
 }

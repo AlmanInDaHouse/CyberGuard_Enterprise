@@ -43,6 +43,11 @@ export interface EnvelopeOptions {
   status?: "online" | "going_offline";
   /** `body.events` (SPEC-017 §Data contracts); omitted when absent. */
   events?: Record<string, unknown>[];
+  /** The agent block's host name (SPEC-025 renew_ac_011); "TEST-PC" by default. */
+  hostname?: string;
+  /** `body.uptime_seconds`, from which the server computes the process's start (SPEC-025
+   *  §Operational §6); 0 by default. */
+  uptimeSeconds?: number;
 }
 
 export interface HeartbeatResult {
@@ -75,7 +80,12 @@ export async function rawPubkeyB64url(keyPair: webcrypto.CryptoKeyPair): Promise
 export async function enroll(
   enrollUrl: string,
   token: string,
-  opts: { hostname?: string; keyPair?: webcrypto.CryptoKeyPair } = {},
+  opts: {
+    hostname?: string;
+    platform?: string;
+    version?: string;
+    keyPair?: webcrypto.CryptoKeyPair;
+  } = {},
 ): Promise<AgentIdentity> {
   const keyPair = opts.keyPair ?? (await generateKeyPair());
   const res = await fetch(`${enrollUrl}/v1/agents/enroll`, {
@@ -86,8 +96,8 @@ export async function enroll(
       enrollment_token: token,
       agent_pubkey: await rawPubkeyB64url(keyPair),
       agent_hostname: opts.hostname ?? "TEST-PC",
-      agent_platform: "linux",
-      agent_version: "0.1.0",
+      agent_platform: opts.platform ?? "linux",
+      agent_version: opts.version ?? "0.1.0",
     }),
   });
   if (!res.ok) {
@@ -123,12 +133,12 @@ export async function buildSignedEnvelope(
         agent_id: agentId,
         agent_version: "0.1.0",
         agent_platform: "linux",
-        agent_hostname: "TEST-PC",
+        agent_hostname: opts.hostname ?? "TEST-PC",
       },
       sequence_number: sequence,
       sent_at: sentAt,
       status: opts.status ?? "online",
-      uptime_seconds: 0,
+      uptime_seconds: opts.uptimeSeconds ?? 0,
       ...(opts.events === undefined ? {} : { events: opts.events }),
     },
   };
@@ -154,7 +164,21 @@ export function postHeartbeat(
     tamperSignature?: boolean;
   },
 ): Promise<HeartbeatResult> {
-  const url = new URL(`${heartbeatUrl}/v1/agents/heartbeat`);
+  return postMtls(heartbeatUrl, "/v1/agents/heartbeat", args);
+}
+
+/** mTLS POST of an envelope to `path` on the mTLS listener, under the identity's pair. */
+export function postMtls(
+  heartbeatUrl: string,
+  path: string,
+  args: {
+    caCertPem: string;
+    identity: AgentIdentity;
+    envelope: Record<string, unknown>;
+    tamperSignature?: boolean;
+  },
+): Promise<HeartbeatResult> {
+  const url = new URL(`${heartbeatUrl}${path}`);
   const envelope = args.tamperSignature
     ? { ...args.envelope, signature: flipFirstChar(String(args.envelope.signature)) }
     : args.envelope;
@@ -170,6 +194,8 @@ export function postHeartbeat(
         cert: args.identity.certPem,
         key: args.identity.keyPkcs8Pem,
         rejectUnauthorized: true,
+        // A connection of its own for each request: no TLS session of another pair is resumed.
+        agent: false,
         headers: { "content-type": "application/json", "content-length": payload.length },
       },
       (res) => {

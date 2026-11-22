@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import pg from "pg";
 import type { Config } from "../../src/config.js";
@@ -65,28 +66,49 @@ async function stampArrival(ch: ClickHouseClient): Promise<string> {
 }
 
 /**
- * Insert an enrollment_tokens row directly (the server's CLI does this in
- * production; tests insert directly to control expiry). Returns the opaque
- * token. `expiresInMs` negative ⇒ an already-expired token (AC-007).
+ * Insert an enrollment_tokens row directly (the server's CLI does this in production; tests
+ * insert directly to control expiry and uses). Returns the opaque token. The row holds its
+ * SHA-256 alone (SPEC-025 §Data contracts §1), and its expiry is computed by the database,
+ * `expiresInMs` after its `now()`: negative ⇒ an already-expired token (AC-007).
  */
 export async function issueToken(
   config: Config,
-  opts: { expiresInMs?: number } = {},
+  opts: { expiresInMs?: number; maxUses?: number; orgId?: string; scope?: string } = {},
 ): Promise<string> {
+  return (await issueTokenRow(config, opts)).token;
+}
+
+/** The SHA-256 of a token's text, its base64url characters as ASCII (SPEC-025). */
+export function tokenSha256(token: string): Buffer {
+  return createHash("sha256").update(token, "ascii").digest();
+}
+
+/** As `issueToken`, also returning the row's `token_id`. */
+export async function issueTokenRow(
+  config: Config,
+  opts: { expiresInMs?: number; maxUses?: number; orgId?: string; scope?: string } = {},
+): Promise<{ token: string; tokenId: string }> {
   const token = Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString(
     "base64url",
   );
   const pool = new pg.Pool({ connectionString: config.INGEST_PG_URL });
   try {
-    const expiresAt = new Date(Date.now() + (opts.expiresInMs ?? 15 * 60 * 1000));
-    await pool.query(
-      "INSERT INTO enrollment_tokens (token, org_id, scope, state, expires_at) VALUES ($1, 'default', 'enroll', 'issued', $2)",
-      [token, expiresAt],
+    const r = await pool.query<{ token_id: string }>(
+      `INSERT INTO enrollment_tokens (token_id, token_sha256, org_id, scope, max_uses, expires_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, now() + make_interval(secs => $5::float8 / 1000))
+       RETURNING token_id`,
+      [
+        tokenSha256(token),
+        opts.orgId ?? "default",
+        opts.scope ?? "enroll",
+        opts.maxUses ?? 1,
+        opts.expiresInMs ?? 15 * 60 * 1000,
+      ],
     );
+    return { token, tokenId: r.rows[0]?.token_id as string };
   } finally {
     await pool.end();
   }
-  return token;
 }
 
 export interface AgentRow {

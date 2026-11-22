@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { X509Certificate, createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Kysely, Migrator, PostgresDialect } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
 import { ensureCa } from "../src/ca.js";
@@ -13,7 +14,12 @@ import {
   runMigrations,
   runPgMigrations,
 } from "../src/db/migrate.js";
-import { createPgDatabase, dropPgDatabase, pgDatabaseUrl } from "./helpers/throwaway.js";
+import {
+  createPgDatabase,
+  dropPgDatabase,
+  ingestMigrationProvider,
+  pgDatabaseUrl,
+} from "./helpers/throwaway.js";
 
 // SPEC-023 §Data contracts §4, ingest's commands, and deploy_ac_009's first half:
 // `export-ca.js` prints the CA certificate as PEM and a fingerprint equal to the SHA-256 of
@@ -98,17 +104,18 @@ test("export-ca.js, before ingest has generated its CA, says so and exits 1", as
 
 describe("issue-token.js", () => {
   test("prints a token it stored, from INGEST_PG_URL alone", async () => {
-    const r = run("src/cli/issue-token.ts", ["--org", "deploy-ac-009"], {
+    const r = run("src/cli/issue-token.ts", [], {
       INGEST_PG_URL: config.INGEST_PG_URL,
     });
     expect(r.status, r.stderr).toBe(0);
     const token = r.stdout.trim();
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // Stored as its SHA-256, for the one org enrollment admits (SPEC-025 §Operational §1).
     const rows = await holder.query<{ org_id: string; state: string }>(
-      "SELECT org_id, state FROM enrollment_tokens WHERE token = $1",
-      [token],
+      "SELECT org_id, state FROM enrollment_tokens WHERE token_sha256 = $1",
+      [createHash("sha256").update(token, "ascii").digest()],
     );
-    expect(rows.rows).toEqual([{ org_id: "deploy-ac-009", state: "issued" }]);
+    expect(rows.rows).toEqual([{ org_id: "default", state: "issued" }]);
   });
 });
 
@@ -336,9 +343,10 @@ describe("migrate.js", () => {
   const PENDING = ["0007_detect_arrival_cursor", "0008_playbook_executions", "0009_runtime_grants"];
 
   /**
-   * A database with ingest's Postgres migrations applied, and then the ledger's rows of the
-   * last three removed, so that a run has them pending. Over the applied schema they change
-   * nothing (`IF NOT EXISTS` and `IF EXISTS`, and grants to roles the tests' cluster has not), but
+   * A database with ingest's Postgres migrations applied up to 0009, and then the ledger's
+   * rows of 0007 to 0009 removed, so that a run has them pending, and the later ones after
+   * them (0010, never applied there). Over the applied schema 0007 to 0009 change nothing
+   * (`IF NOT EXISTS` and `IF EXISTS`, and grants to roles the tests' cluster has not), but
    * 0008 indexes and re-creates a trigger on `playbook_executions`, so it waits for a write
    * another session has in flight on it.
    */
@@ -346,7 +354,19 @@ describe("migrate.js", () => {
     const db = `deploy_migrate_${name}_${Date.now()}`;
     await createPgDatabase(config.INGEST_PG_URL, db);
     const url = pgDatabaseUrl(config.INGEST_PG_URL, db);
-    await runPgMigrations({ INGEST_PG_URL: url });
+    const upTo = new Kysely<unknown>({
+      dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: url }) }),
+    });
+    try {
+      const pre = await new Migrator({
+        db: upTo,
+        provider: ingestMigrationProvider(),
+        migrationTableSchema: "ingest",
+      }).migrateTo(PENDING[PENDING.length - 1] as string);
+      if (pre.error) throw pre.error instanceof Error ? pre.error : new Error(String(pre.error));
+    } finally {
+      await upTo.destroy();
+    }
     const other = new pg.Client({ connectionString: url });
     other.on("error", () => {});
     await other.connect();

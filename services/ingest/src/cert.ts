@@ -62,9 +62,27 @@ export interface IssuedClientCert {
 }
 
 /**
+ * The validity of a client certificate issued now (SPEC-025 §Operational §1): a `notBefore`
+ * a minute back, in whole seconds as X.509 stores it, and a `notAfter` the earlier of 90 days
+ * after it and the CA's `notAfter`.
+ */
+export function clientCertValidity(
+  ca: ServerCa,
+  nowMs: number,
+): { notBefore: Date; notAfter: Date } {
+  const notBefore = new Date(Math.floor((nowMs - 60_000) / 1000) * 1000);
+  const caEnd = ca.caCert.notAfter.getTime();
+  return {
+    notBefore,
+    notAfter: new Date(Math.min(notBefore.getTime() + CLIENT_VALIDITY_MS, caEnd)),
+  };
+}
+
+/**
  * Issue an Ed25519 X.509 client certificate (SPEC-004 FR-006): `CN=agentId`,
  * the agent's submitted 32-byte raw Ed25519 public key as the subject key,
- * signed by the CA's Ed25519 private key, 90-day TTL. `digitalSignature` key
+ * signed by the CA's Ed25519 private key, with `clientCertValidity`'s validity: 90 days,
+ * or less when the CA ends first (SPEC-025 §Operational §1). `digitalSignature` key
  * usage only (no EKU — matches the verified FR-006 path; the server validates
  * the chain, not an EKU).
  */
@@ -72,12 +90,12 @@ export async function issueClientCert(
   ca: ServerCa,
   agentId: string,
   rawPubkey: Uint8Array,
+  nowMs: number = Date.now(),
 ): Promise<IssuedClientCert> {
   const subjectKey = (await webcryptoProvider.subtle.importKey("raw", rawPubkey, ALG, true, [
     "verify",
   ])) as webcrypto.CryptoKey;
-  const notBefore = new Date(Date.now() - 60_000);
-  const notAfter = new Date(Date.now() + CLIENT_VALIDITY_MS);
+  const { notBefore, notAfter } = clientCertValidity(ca, nowMs);
   const cert = await x509.X509CertificateGenerator.create(
     {
       serialNumber: randomSerial(),
