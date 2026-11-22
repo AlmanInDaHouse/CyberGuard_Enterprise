@@ -17,7 +17,7 @@ Ingest accepts an agent's request only under the agent's certificate or its pend
 
 ## Reading a refusal
 
-Ingest logs each heartbeat it refuses as `heartbeat rejected`, and each renewal it refuses as `renewal rejected`, with the `agent_id` the request named, the `reason` and the `response_status`. Three reasons concern the agent itself:
+Ingest logs each heartbeat it refuses as `heartbeat rejected`, and each renewal it refuses as `renewal rejected`, with the `reason`, the `response_status` and, once the request is read, the `agent_id` it named. Three reasons concern the agent itself:
 
 | `reason` | Status | What it means |
 |---|---|---|
@@ -25,12 +25,12 @@ Ingest logs each heartbeat it refuses as `heartbeat rejected`, and each renewal 
 | `agent_revoked` | 403 | The agent is revoked ([Revoking an agent](#revoking-an-agent)). |
 | `agent_superseded` | 403 | The request presents a certificate of the agent's that is neither its certificate nor its pending one: a copy of the endpoint ([A copied identity](#a-copied-identity)), an endpoint or a server restored from a backup taken before a renewal, or a certificate signed with the CA's key outside a renewal ([The compromise of ingest's CA](#the-compromise-of-ingests-ca)). |
 
-The other reasons are the envelope's own checks: its time, its nonce and its signature. On the endpoint, the agent logs a refused heartbeat as `signed envelope rejected by server`, with the status, and keeps running; after the retries it drops that batch's events ([install.md](install.md#check-that-the-agent-reports)). No refused heartbeat stops it. At its certificate's end the server refuses its connection, and its service stops with code 7 ([install.md](install.md#the-agents-exit-codes)).
+The other reasons are a malformed request, the envelope's own checks of its time, its nonce and its signature, a pending certificate's promotion the database did not record, and a renewal's own refusals: a renewal not yet due, a second one within 10 minutes, and a new key's signature that does not verify. Ingest logs a refused enrollment as `enroll rejected`, with its reason, `rate_limited` among them ([install.md](install.md#on-the-server-the-trust-anchor-and-a-token)), and a store it cannot reach as `backend unavailable`. On the endpoint, the agent logs a refused heartbeat as `signed envelope rejected by server`, with the status, and keeps running; after the retries it drops that batch's events ([install.md](install.md#check-that-the-agent-reports)). No refused heartbeat stops it. At its certificate's end the server refuses its connection, and its service stops with code 7 ([install.md](install.md#the-agents-exit-codes)).
 
-This command prints ingest's lines of these refusals, of the copy signals and of the promotions that the container logs still hold:
+This command prints ingest's lines of these refusals and of refused enrollments, of the copy signals and of the promotions that the container logs still hold:
 
 ```sh
-docker compose logs --no-color ingest | grep -F -e 'heartbeat rejected' -e 'renewal rejected' -e 'agent duplicate suspected' -e 'agent certificate promoted'
+docker compose logs --no-color ingest | grep -F -e 'heartbeat rejected' -e 'renewal rejected' -e 'enroll rejected' -e 'agent duplicate suspected' -e 'agent certificate promoted'
 ```
 
 The container logs keep five files of 10 MB for each container ([data-protection.md](data-protection.md#container-logs)); a longer record is the installation's log shipping ([configuration.md](configuration.md#logs)).
@@ -43,7 +43,7 @@ This release has no command or route that revokes an agent. Neither running serv
 
 ## Undoing a revocation
 
-Nothing in the product undoes a revocation. Once a revocation is set, the database refuses any change to it, and neither running service has the right to write it. The database's owner role holds the trigger that refuses the change, and could disable it; this document gives no such step. An agent revoked by mistake stays revoked. Its endpoint is purged and enrolled anew with a new token, as [install.md](install.md#the-setups-result) says after its table, which gives it a new agent. The revoked agent's row and its events stay on the server.
+Nothing in the product undoes a revocation. Once a revocation is set, the database refuses any change to it, and neither running service has the right to write it. The database's owner role for ingest, `cg_ingest_owner`, holds the trigger that refuses the change, and could disable it; this document gives no such step. An agent revoked by mistake stays revoked. Its endpoint is purged and enrolled anew with a new token, as [install.md](install.md#the-setups-result) says after its table, which gives it a new agent. The revoked agent's row and its events stay on the server.
 
 ## A copied identity
 
@@ -61,7 +61,7 @@ The remedy is the revocation ([Revoking an agent](#revoking-an-agent)), which re
 A restore ([backup-and-restore.md](backup-and-restore.md#after-a-restore)) brings back the agents' rows as they were at the backup:
 
 - An agent enrolled before the backup, whose certificate has not changed since, is accepted with no new enrollment.
-- An agent that renewed its certificate after the backup has, in the restored row, its older certificate and no pending one. Ingest refuses its requests under its newer certificate with `403 agent_superseded`, and flags it as a copy; the agent cannot renew. It stays so until it is revoked and its endpoint purged and enrolled anew. Until it is revoked, a copy of the endpoint that holds the older certificate is accepted. This release's agent does not yet renew.
+- An agent that renewed its certificate after the backup has, in the restored row, its older certificate and no pending one. Ingest refuses its requests under its newer certificate with `403 agent_superseded`, and flags it as a copy; the agent cannot renew. It stays so until it is revoked ([Revoking an agent](#revoking-an-agent)) and its endpoint purged and enrolled anew. Until it is revoked, a copy of the endpoint that holds the older certificate is accepted. This release's agent does not yet renew.
 - An agent enrolled after the backup has no row: ingest refuses it as `unknown_agent`, and its endpoint is enrolled anew.
 - A revocation made after the backup is not in the restored database, and is to be made again. Neither is a copy flag raised after it, nor a use or a withdrawal of a token.
 
