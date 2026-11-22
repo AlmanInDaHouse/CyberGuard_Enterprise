@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-01
-- Last updated: 2026-06-01
+- Last updated: 2026-11-22
 - Deciders: Manuel (project owner), Claude (architecture advisor), Claude Code (implementation)
 
 ## Context
@@ -124,12 +124,22 @@ When this ADR is ratified Proposed→Accepted, the same commit:
    - `ADR-0014 → ADR-0003` (consumes the storage homes: users / RBAC / audit_log → Postgres, sessions → Redis; does **not** amend).
 4. Adds **no** amendment block — this ADR amends no Accepted ADR (see §Consequences > Neutral; the no-amendment property is contingent on §2's session-form choice).
 
+## Amendment 2026-11-20 (SPEC-026): an admin resets a user's credentials
+
+**What surfaced it.** §Out of scope leaves "Password reset / account recovery flows" to a later phase: they "Depend on the notifier/SMTP slice". Without them, a user who loses their TOTP factor or forgets their password cannot sign in again, and no admin can give them a way back: an address belongs to one user of the org (SPEC-008 §Data contracts §1), and no route deletes a user, so the user cannot be created again under the same address. Roadmap §F's F3 replaces the admins' setting of users' passwords and receipt of their TOTP secrets (R14 of `docs/security/threat-model.md`, debt #98) with an invitation the user completes, shown on screen and delivered by no email; the same invitation gives a way back. Manuel decided on 2026-11-20, in chat, taking the recommendation: "acepto cambios y sigo tus recomendaciones".
+
+**The amendment.** An admin may reset the credentials of another user of the org. The reset, in one transaction with its `audit_log` row, clears their password and their TOTP factor and issues a single-use invitation that lives a bounded time, shown once to the admin, who hands it to the user outside CyberGuard; the server keeps the invitation's hash alone. It ends every session of that user as a disable does (SPEC-008's revocation): the transaction raises the user's authority version, and the sessions are deleted after it commits. The user completes it as a new user completes the invitation that replaces an admin's setting of their password (debt #98, SPEC-026): they choose a password and enroll a new TOTP factor shown on screen, and no session is issued before the factor is confirmed. No email is sent. An admin does not reset their own credentials this way; when the org's last active admin loses theirs, the way back stays the bootstrap command on the host (SPEC-008 §Operational §6 and its Amendment 2026-10-15, item 10, for the org `default`), which creates an admin under another address, who then resets the first.
+
+**What it leaves.** Whoever obtains the invitation before the user completes it signs in as that user; and an admin can take over another user's account by resetting it and completing the invitation, which the reset's `audit_log` row and the user's lost access reveal. Both are within an admin's trust: the role already creates, disables and re-roles users (SPEC-008 §Operational §5).
+
+**Effect on other sections.** §Out of scope, its sixth bullet: an admin's reset is in scope; a reset the user starts alone, proving who they are without an admin, still depends on the notifier and stays for a later phase. §1, §2 and §4: unchanged; the reset ends sessions as §2's revocation does. §3: the api stays its own component; what it may now do on ingest's tables is ADR-0022's Amendment 2026-11-20. §Compliance: unchanged; the reset, a change an admin makes in which no password or code is presented, is audit-logged in its own transaction, and the completion of its invitation is an authentication event (SPEC-008 Amendment 2026-10-19, item 2), audit-logged as its last bullet asks. Proposed by Claude Code on 2026-11-20, on Manuel's choices of that day; ratified by Manuel on 2026-11-22, with ADR-0004's and ADR-0022's Amendments 2026-11-20 ("Sí, ratifico"). Status stays `Accepted`.
+
 ## References
 
 - [ADR-0003](0003-polyglot-storage.md) — Polyglot storage. The storage homes this ADR consumes: §Decision table "Relational state, RBAC, cases, audit log" → Postgres (`:28`) and "Cache, sessions, …" → Redis (`:31`). Consumed, not amended.
 - [ADR-0001](0001-monorepo-layout.md) — Monorepo layout. Places `services/api/` as a top-level component.
 - [ADR-0002](0002-language-per-component.md) — Language per component. Assigns `services/api/` to TypeScript / Fastify + Zod (`:13`, `:39`); its §A1/§A2 cons (a Rust or Python BFF loses dashboard type-sharing and weakens untrusted-input validation) reinforce TypeScript for the human API.
-- [ADR-0004](0004-agent-server-protocol.md) — Agent-server protocol. The *agent* trust boundary (mTLS + Redis revocation list) this ADR contrasts with; not the human boundary.
+- [ADR-0004](0004-agent-server-protocol.md) — Agent-server protocol. The *agent* trust boundary (mTLS, and since its Amendment 2026-11-20 a revocation on the agent's row in PostgreSQL) this ADR contrasts with; not the human boundary.
 - [ADR-0013](0013-incident-correlation-windowing.md) — The precedent: an ADR that decides one architectural basis before the SPEC specifies mechanics. This ADR follows the same single-layer discipline.
 - [SPEC-002](../specs/SPEC-002-agent-enrollment.md) — Agent enrollment. §Out of scope (`:40`) forward-referenced the enroll endpoint to `services/api` (stale; SPEC-004 landed it in `services/ingest` — noted as context, not corrected here); §Security considerations (`:250`) is the secret-handling template the C SPEC inherits.
 - [Threat model](../security/threat-model.md) — § `cg-api` (`:75-86`) is the authoritative auth-requirement surface (Argon2/bcrypt, TOTP every login, signed/rotating sessions, server-side object-level RBAC, CI-blocking RBAC tests, audit) and § Dashboard (`:186`) the cookie posture this model must satisfy.
