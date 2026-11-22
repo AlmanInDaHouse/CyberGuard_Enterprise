@@ -9,7 +9,8 @@ import IncidentsPage from "../app/incidents/page";
 // 2026-10-15, items 6 and 7: the incident pages read with `Cookie: cgsess=<token>` (the
 // browser's `__Host-cgsess` under the api's name, SPEC-023 §Operational §7) and
 // no other cookie, with no Cookie header without a session, and carry the sign-out
-// button. Next's `cookies()` is the browser's cookies; `fetch` is the read API.
+// button, in the navigation, after the session's read (SPEC-026 §Operational §9). Next's
+// `cookies()` is the browser's cookies; `fetch` is the read API.
 
 const jar = vi.hoisted(() => ({ header: "" }));
 vi.mock("next/headers", () => ({
@@ -51,6 +52,13 @@ function cookieSent(): string | null {
   return new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("cookie");
 }
 
+/** The session's user, which every signed-in page reads first (SPEC-026 §Operational §9). */
+const SESSION = {
+  user_id: "33333333-3333-3333-3333-333333333333",
+  email: "a@b.test",
+  role: "viewer",
+};
+
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -71,9 +79,13 @@ const PAGES = [
 
 test.each(PAGES)("%s reads with the session alone and shows sign-out", async (_n, page, body) => {
   jar.header = "theme=dark; __Host-cgsess=tok-pages; __Host-cgcsrf=csrf-pages";
+  answer(200, SESSION);
   answer(200, body);
   render(await page());
-  expect(cookieSent()).toBe("cgsess=tok-pages");
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  for (const [, init] of fetchMock.mock.calls) {
+    expect(new Headers(init?.headers).get("cookie")).toBe("cgsess=tok-pages");
+  }
   expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
 });
 
