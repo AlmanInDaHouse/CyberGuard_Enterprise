@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { AuthError } from "../errors.js";
 import type { Services } from "../services.js";
 import { requestContext } from "./context.js";
 import {
@@ -43,7 +44,8 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
 
   app.post("/v1/auth/login", async (req, reply) => {
     const body = parseBody(LoginBody, req.body);
-    const result = await services.auth.login(body, ctxOf(req));
+    const result = await services.auth.login(body, ctxOf(req), req.cookies?.cgsess);
+    reply.header("cache-control", "no-store");
     reply.setCookie("cgsess", result.token, {
       httpOnly: true,
       secure: true,
@@ -51,6 +53,16 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
       path: "/",
     });
     return reply.code(200).send({ csrf_token: result.csrfToken });
+  });
+
+  // SPEC-026 §Data contracts §3: the session's user, for the dashboard's pages.
+  app.get("/v1/auth/session", { onRequest: [requireSession] }, async (req, reply) => {
+    const session = req.authSession;
+    if (!session) throw new Error("unreachable: requireSession populates authSession");
+    const user = await services.auth.sessionUser(session);
+    if (!user) throw new AuthError("no session");
+    reply.header("cache-control", "no-store");
+    return user;
   });
 
   app.post("/v1/auth/logout", { onRequest: [requireSession, requireCsrf] }, async (req, reply) => {

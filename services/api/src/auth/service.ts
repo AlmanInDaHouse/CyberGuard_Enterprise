@@ -70,7 +70,14 @@ export interface RequestContext {
 }
 
 export interface AuthService {
-  login(input: LoginInput, ctx: RequestContext): Promise<LoginResult>;
+  /** `priorSession`, the token of the `cgsess` cookie the login carries: a successful
+   *  login deletes it (SPEC-026 §Operational §2, debt #102). */
+  login(input: LoginInput, ctx: RequestContext, priorSession?: string): Promise<LoginResult>;
+  /** The session's user's id, email and role (SPEC-026 `GET /v1/auth/session`), or null
+   *  when the session names no user of its org. */
+  sessionUser(
+    session: SessionInfo,
+  ): Promise<{ user_id: string; email: string; role: string } | null>;
   logout(token: string, ctx: RequestContext): Promise<void>;
   resolveSession(token: string): Promise<SessionInfo | null>;
   createUser(
@@ -299,7 +306,7 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
   }
 
   return {
-    async login(input, ctx) {
+    async login(input, ctx, priorSession) {
       const email = normalizeEmail(input.email);
       // Rate-limit gate BEFORE any credential work: the attempt reserves its slots on
       // both counters at once (Amendment 2026-10-16 item 3).
@@ -394,6 +401,10 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           sourceIp: ctx.sourceIp,
           correlationId: ctx.correlationId,
         });
+        // SPEC-026 §Operational §2 (#102): every check has passed and the new session is
+        // written, so the session the cookie named ends, whatever user it belonged to,
+        // before the login answers. Its `auth.login.ok` is the record.
+        if (priorSession && priorSession !== token) await revokeSession(redis, priorSession);
         return {
           token,
           csrfToken,
@@ -408,6 +419,15 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
         if (!settled) await releaseLogin(redis, ORG, email, ctx.sourceIp).catch(() => undefined);
         throw err;
       }
+    },
+
+    async sessionUser(session) {
+      const found = await pool.query<{ email: string }>(
+        "SELECT email FROM users WHERE user_id = $1 AND org_id = $2",
+        [session.user_id, session.org_id],
+      );
+      const row = found.rows[0];
+      return row ? { user_id: session.user_id, email: row.email, role: session.role } : null;
     },
 
     async logout(token, ctx) {
