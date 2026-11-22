@@ -96,6 +96,10 @@ export async function issueClientCert(
     "verify",
   ])) as webcrypto.CryptoKey;
   const { notBefore, notAfter } = clientCertValidity(ca, nowMs);
+  // A CA past its end would give a certificate that ends before it starts: none is issued.
+  if (notAfter.getTime() <= notBefore.getTime()) {
+    throw new Error("the CA's certificate has ended; no client certificate is issued");
+  }
   const cert = await x509.X509CertificateGenerator.create(
     {
       serialNumber: randomSerial(),

@@ -264,6 +264,20 @@ describe("deploy_ac_004 — the roles", () => {
     );
     try {
       await allowed(ingest, `UPDATE agents SET last_seen = now() WHERE agent_id = '${agentId}'`);
+      // The copy signal it may write is written once: the owner's trigger binds the role too.
+      await allowed(
+        ingest,
+        `UPDATE agents SET duplicate_signal = 'superseded_certificate', duplicate_signal_at = now() WHERE agent_id = '${agentId}'`,
+      );
+      const again = await ingest
+        .query(
+          `UPDATE agents SET duplicate_signal = 'interleaved_process' WHERE agent_id = '${agentId}'`,
+        )
+        .then(
+          () => null,
+          (e: unknown) => e as { code?: string },
+        );
+      expect(again?.code).toBe("P0001");
       await refused(
         ingest,
         `UPDATE agents SET revoked_at = now(), revocation_reason = 'r' WHERE agent_id = '${agentId}'`,

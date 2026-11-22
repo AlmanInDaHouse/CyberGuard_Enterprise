@@ -183,6 +183,23 @@ describe("a CA 30 days from its end", () => {
   });
 });
 
+describe("a CA past its end", () => {
+  const ctx = shortCaSuite("cyberguard_renew_ac_009_c", -1);
+
+  test("an enrollment signs nothing and writes no agent", async () => {
+    const before = await withPool(ctx.config, async (pool) =>
+      Number((await pool.query<{ n: string }>("SELECT count(*) AS n FROM agents")).rows[0]?.n),
+    );
+    await expect(enroll(ctx.harness.enrollUrl, await issueToken(ctx.config))).rejects.toMatchObject(
+      { status: 500 },
+    );
+    const after = await withPool(ctx.config, async (pool) =>
+      Number((await pool.query<{ n: string }>("SELECT count(*) AS n FROM agents")).rows[0]?.n),
+    );
+    expect(after).toBe(before);
+  });
+});
+
 test("renew_ac_009: a token inserted with an issued_at a year ahead stores the database's time", async () => {
   const pool = new pg.Pool({ connectionString: suite.INGEST_PG_URL });
   pool.on("error", () => {});

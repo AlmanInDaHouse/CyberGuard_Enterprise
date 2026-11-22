@@ -58,6 +58,14 @@ test("renew_ac_010: ten failures from one address refuse its next enrollment wit
   const limited = await enrollFrom(blocked, token);
   expect(limited.statusCode, limited.body).toBe(429);
   expect(JSON.parse(limited.body)).toEqual({ error: "rate_limited" });
+  // Every enrollment from it, a malformed one included.
+  const malformedLimited = await app.inject({
+    method: "POST",
+    url: "/v1/agents/enroll",
+    remoteAddress: blocked,
+    payload: { envelope_version: "0.1.0" },
+  });
+  expect(malformedLimited.statusCode).toBe(429);
 
   const uses = await withPool(config, (pool) =>
     pool.query<{ uses: number; state: string }>(

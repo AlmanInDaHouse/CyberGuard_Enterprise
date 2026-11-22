@@ -13,6 +13,13 @@ export const ENROLL_WINDOW_MS = 15 * 60 * 1000;
 export const RENEWAL_INTERVAL_MS = 10 * 60 * 1000;
 /** Past this many entries, a map drops the ones whose time has passed. */
 const SWEEP_ABOVE = 10_000;
+/**
+ * At most this many addresses are tracked: past it, after the sweep, the addresses whose
+ * failures were recorded first are forgotten, then those refused first, so that a flood of
+ * distinct addresses bounds the process's memory. An address rotated that fast is not
+ * limited by its address anyway.
+ */
+export const ENROLL_TRACKED_MAX = 100_000;
 
 /**
  * The enrollment limit: once ten enrollments from one address have failed within 15
@@ -38,8 +45,9 @@ export class EnrollmentLimiter {
     const t = this.now();
     const recent = (this.failures.get(address) ?? []).filter((at) => t - at < ENROLL_WINDOW_MS);
     recent.push(t);
+    // Re-inserted, so that the map's order is that of the last failure.
+    this.failures.delete(address);
     if (recent.length >= ENROLL_FAILURE_LIMIT) {
-      this.failures.delete(address);
       this.refusedUntil.set(address, t + ENROLL_WINDOW_MS);
     } else {
       this.failures.set(address, recent);
@@ -47,13 +55,24 @@ export class EnrollmentLimiter {
     this.sweep(t);
   }
 
+  /** The addresses tracked, failing and refused. */
+  get size(): number {
+    return this.failures.size + this.refusedUntil.size;
+  }
+
   private sweep(t: number): void {
-    if (this.failures.size + this.refusedUntil.size <= SWEEP_ABOVE) return;
+    if (this.size <= SWEEP_ABOVE) return;
     for (const [address, times] of this.failures) {
       if (times.every((at) => t - at >= ENROLL_WINDOW_MS)) this.failures.delete(address);
     }
     for (const [address, until] of this.refusedUntil) {
       if (t >= until) this.refusedUntil.delete(address);
+    }
+    // A Map iterates in insertion order: the first key is the oldest tracked.
+    for (const map of [this.failures, this.refusedUntil]) {
+      while (map.size > 0 && this.size > ENROLL_TRACKED_MAX) {
+        map.delete(map.keys().next().value as string);
+      }
     }
   }
 }

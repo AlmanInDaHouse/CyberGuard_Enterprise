@@ -133,6 +133,41 @@ test("renew_ac_008: a renewal under the pending certificate, due, promotes it an
   expect(row?.pubkey).toEqual(await rawPubkey(pendingKeys));
   expect(row?.pending_cert_pem).toBe(answer.client_certificate);
   expect(certRawKey(answer.client_certificate)).toEqual(await rawPubkey(newKeys));
+  expect(
+    harness.logs.filter(
+      (l) => l.msg === "agent certificate promoted" && l.agent_id === identity.agentId,
+    ),
+  ).toHaveLength(1);
+});
+
+test("renew_ac_008: a renewal whose pending certificate cannot be stored answers 503 and sends no certificate", async () => {
+  const identity = await dueAgent(45);
+  const before = await agentRow(config, identity.agentId);
+  const fn = `renew_ac_008_nostore_${identity.agentId.replaceAll("-", "")}`;
+  await withPool(config, async (pool) => {
+    await pool.query(
+      `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN RAISE EXCEPTION 'renew_ac_008 store refused'; END $$`,
+    );
+    await pool.query(
+      `CREATE TRIGGER ${fn} BEFORE UPDATE ON agents FOR EACH ROW
+       WHEN (OLD.agent_id = '${identity.agentId}') EXECUTE FUNCTION ${fn}()`,
+    );
+  });
+  try {
+    const res = await renew(identity, await generateKeyPair());
+    expect(res.status, res.bodyText).toBe(503);
+    expect(res.bodyText).not.toContain("BEGIN CERTIFICATE");
+    expect(JSON.parse(res.bodyText)).toEqual({ error: "unavailable" });
+  } finally {
+    await withPool(config, async (pool) => {
+      await pool.query(`DROP TRIGGER IF EXISTS ${fn} ON agents`);
+      await pool.query(`DROP FUNCTION IF EXISTS ${fn}()`);
+    });
+  }
+  const after = await agentRow(config, identity.agentId);
+  expect(after?.cert_pem).toBe(before?.cert_pem);
+  expect(after?.pending_cert_pem).toBeNull();
 });
 
 test("renew_ac_008: a heartbeat under the pending certificate whose write fails answers 503 and changes nothing", async () => {

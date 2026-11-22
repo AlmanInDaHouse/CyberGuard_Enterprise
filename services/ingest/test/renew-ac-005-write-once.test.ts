@@ -109,6 +109,21 @@ test("renew_ac_005: duplicate_signal once set cannot change", async () => {
   ).toMatch(/^23514/);
 });
 
+test("renew_ac_005: a token's uses only grow, and its state does not go back to issued", async () => {
+  const { tokenId } = await issueTokenRow(config, { maxUses: 3, expiresInMs: 60 * 60 * 1000 });
+  await pool.query("UPDATE enrollment_tokens SET uses = 2 WHERE token_id = $1", [tokenId]);
+  expect(
+    await failure("UPDATE enrollment_tokens SET uses = 1 WHERE token_id = $1", [tokenId]),
+  ).toMatch(/^P0001: token uses only grow/);
+  await pool.query(
+    "UPDATE enrollment_tokens SET uses = 3, state = 'consumed' WHERE token_id = $1",
+    [tokenId],
+  );
+  expect(
+    await failure("UPDATE enrollment_tokens SET state = 'issued' WHERE token_id = $1", [tokenId]),
+  ).toMatch(/^P0001: token uses only grow/);
+});
+
 test("renew_ac_005: a token's withdrawal is set once; its expiry and cap are fixed", async () => {
   const { tokenId } = await issueTokenRow(config, { maxUses: 3, expiresInMs: 60 * 60 * 1000 });
   const client = await pool.connect();

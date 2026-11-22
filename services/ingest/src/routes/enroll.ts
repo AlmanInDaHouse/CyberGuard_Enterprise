@@ -62,14 +62,16 @@ export function registerEnrollRoutes(app: FastifyInstance, services: Services): 
   }
 
   app.post("/v1/agents/enroll", async (req, reply) => {
+    // Every enrollment from a limited address, a malformed one included, before the request
+    // or its token is read (§Operational §5).
+    if (limiter.refuses(req.ip)) {
+      req.log.warn({ reason: "rate_limited", response_status: 429 }, "enroll rejected");
+      return reply.code(429).send({ error: "rate_limited" });
+    }
     const parsed = EnrollRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       req.log.warn({ reason: "invalid_request", response_status: 400 }, "enroll rejected");
       return reply.code(400).send({ error: "invalid_request" });
-    }
-    if (limiter.refuses(req.ip)) {
-      req.log.warn({ reason: "rate_limited", response_status: 429 }, "enroll rejected");
-      return reply.code(429).send({ error: "rate_limited" });
     }
     const body = parsed.data;
     const rawPubkey = Buffer.from(body.agent_pubkey, "base64url");
