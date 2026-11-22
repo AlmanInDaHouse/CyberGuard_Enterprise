@@ -252,7 +252,8 @@ test("SPEC-024 Amendment 2026-11-20: install.md offers no migration and no remov
   for (const sentence of [
     "An endpoint imaged before the setup runs on it, never after:",
     "A copy of an enrolled endpoint, an image or a clone, is purged and installed anew with a new token",
-    "its old certificate staying valid on the server until it expires or its row is deleted (R5).",
+    // SPEC-025: the agent a copy shares stays accepted until it is revoked.
+    "The agent such a copy shares stays accepted on the server until it is revoked, and ingest may flag it as a copy ([agent-identity.md](agent-identity.md#a-copied-identity)).",
     "The system volume encrypted, for instance with BitLocker: that is the deployment's control against an offline read",
   ]) {
     assert.ok(endpoint.includes(sentence), sentence);

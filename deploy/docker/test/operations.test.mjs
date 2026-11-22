@@ -37,7 +37,7 @@ function anchors(file) {
 }
 
 test("deploy_ac_021: all operator documents exist and their local document links resolve, their anchors included", () => {
-  for (const name of ["README", "install", "configuration", "backup-and-restore", "upgrade", "data-protection", "forensic-verification"]) {
+  for (const name of ["README", "install", "configuration", "backup-and-restore", "upgrade", "agent-identity", "data-protection", "forensic-verification"]) {
     const file = join(DOCS, `${name}.md`);
     assert.ok(existsSync(file), name);
     const text = readFileSync(file, "utf8");

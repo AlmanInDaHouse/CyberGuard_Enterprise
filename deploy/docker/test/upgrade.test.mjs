@@ -152,7 +152,8 @@ test("SPEC-024: upgrade.md teaches no console route; install.md names the re-enr
   // M6 (Manuel, 2026-11-17): an enrolled endpoint enrolls again by the purge and a new token, the
   // old agent left on the server (R5; SPEC-024 Amendment 2026-11-15, point 8).
   assert.ok(install.includes("To enroll an enrolled endpoint again, as when its certificate has expired (code 7) or its server is a new installation with another CA, purge it ([Remove the agent from an endpoint](#remove-the-agent-from-an-endpoint)) and run the setup again with a new token, and the server's current anchor and fingerprints, in a new bootstrap file or the wizard: the endpoint then enrolls a new agent."));
-  assert.ok(install.includes("The purge revokes nothing: the old agent stays on the server that enrolled it, which has no command that removes it yet, and its certificate stays valid there until it expires or an operator deletes its row"));
+  // SPEC-025: the old agent stays accepted until it is revoked, which nothing in the purge does.
+  assert.ok(install.includes("The purge revokes nothing: the old agent stays on the server that enrolled it, which removes no agent, and stays accepted there until it is revoked ([agent-identity.md](agent-identity.md#revoking-an-agent))"));
   assert.ok(install.includes("The purge followed by an enrollment with a new token has not been run, in CI or on an endpoint."));
   assert.ok(install.includes("for a copy of its key that a backup or a shadow copy kept (R5, and the copies of the key outside the product's custody that the [threat model](../security/threat-model.md) accepts);"));
   assert.ok(install.includes("Between the purge and the new setup an ordinary user can create `C:\\ProgramData\\CyberGuard` first, and the setup then refuses it (27 or 28)."));
