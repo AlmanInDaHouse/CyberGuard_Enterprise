@@ -33,6 +33,8 @@ interface Route {
   /** For a route whose body here is refused past the role check (a wrong current password),
    *  the denied row that shows the request passed it. */
   refusedPast?: string;
+  /** What an allowed role's request answers here. */
+  expect?: number;
 }
 
 let apph: Awaited<ReturnType<typeof buildTestApp>>;
@@ -44,7 +46,7 @@ let target = "";
 let incident = "";
 
 const SECTION_3: Route[] = [
-  { method: "GET", path: "/v1/auth/session", roles: ALL, mutation: false },
+  { method: "GET", path: "/v1/auth/session", roles: ALL, mutation: false, expect: 200 },
   {
     method: "POST",
     path: "/v1/auth/password",
@@ -53,13 +55,14 @@ const SECTION_3: Route[] = [
     body: { currentPassword: "x", newPassword: "Another-passw0rd-1", totp_code: "000000" },
     refusedPast: "user.password.change",
   },
-  { method: "GET", path: "/v1/users", roles: ADMIN, mutation: false },
+  { method: "GET", path: "/v1/users", roles: ADMIN, mutation: false, expect: 200 },
   {
     method: "POST",
     path: "/v1/users",
     roles: ADMIN,
     mutation: true,
     body: { email: `created-${globalThis.crypto.randomUUID()}@dashapi001.test`, role: "viewer" },
+    expect: 201,
   },
   {
     method: "POST",
@@ -67,6 +70,7 @@ const SECTION_3: Route[] = [
     roles: ADMIN,
     mutation: true,
     body: { role: "viewer" },
+    expect: 200,
   },
   {
     method: "POST",
@@ -74,6 +78,7 @@ const SECTION_3: Route[] = [
     roles: ADMIN,
     mutation: true,
     body: { status: "active" },
+    expect: 200,
   },
   {
     method: "POST",
@@ -81,6 +86,7 @@ const SECTION_3: Route[] = [
     roles: ADMIN,
     mutation: true,
     body: {},
+    expect: 409,
   },
   {
     method: "POST",
@@ -88,6 +94,7 @@ const SECTION_3: Route[] = [
     roles: ADMIN,
     mutation: true,
     body: {},
+    expect: 201,
   },
   {
     method: "POST",
@@ -95,6 +102,7 @@ const SECTION_3: Route[] = [
     roles: ADMIN,
     mutation: true,
     body: {},
+    expect: 204,
   },
 ];
 
@@ -149,7 +157,12 @@ async function snapshot(): Promise<string> {
   const r = await pool.query<{ users: string; invitations: string; changed: string }>(
     `SELECT (SELECT count(*) FROM users)::text AS users,
             (SELECT count(*) FROM invitations)::text AS invitations,
-            (SELECT max(updated_at)::text FROM users) AS changed`,
+            (SELECT max(updated_at)::text FROM users) AS changed,
+            (SELECT string_agg(user_id::text || role || status || totp_enrolled::text, ',' ORDER BY user_id)
+               FROM users WHERE org_id = $1) AS org_users,
+            (SELECT string_agg(coalesce(withdrawn_at::text, '-') || coalesce(completed_at::text, '-'), ',' ORDER BY invitation_id)
+               FROM invitations) AS ends`,
+    [ORG],
   );
   return JSON.stringify(r.rows[0]);
 }
@@ -226,7 +239,7 @@ describe("the routes of §Data contracts §3", () => {
             ]);
             return;
           }
-          expect([401, 403], res.body).not.toContain(res.statusCode);
+          expect(res.statusCode, res.body).toBe(route.expect);
         });
       } else {
         test(`${label}: ${role} is refused, 403 with access.denied, nothing changed, no-store`, async () => {
@@ -270,6 +283,7 @@ describe("the routes that take no session", () => {
         payload,
       });
       expect(res.statusCode).toBe(401);
+      expect(res.headers["cache-control"]).toBe("no-store");
     },
   );
 

@@ -237,6 +237,14 @@ test("the invitation's TOTP route answers the email and a new secret each call; 
   // It issued no session.
   expect(done.headers["set-cookie"]).toBeUndefined();
 
+  // The completion's code is used: it signs in no one.
+  const replayed = await apph.app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    remoteAddress: address(),
+    payload: { email, password: PASSWORD, totp_code: codeAt(secretOf(b.provisioning_uri)) },
+  });
+  expect(replayed.statusCode).toBe(401);
   // The user signs in with the chosen password and a code of that secret (the next step's: the
   // completion used the current one).
   const login = await apph.app.inject({
@@ -246,10 +254,55 @@ test("the invitation's TOTP route answers the email and a new secret each call; 
     payload: { email, password: PASSWORD, totp_code: codeAt(secretOf(b.provisioning_uri), 1) },
   });
   expect(login.statusCode, login.body).toBe(200);
+  expect(login.headers["cache-control"]).toBe("no-store");
   // The completed invitation answers 401 on both routes.
   expect((await totp(token)).statusCode).toBe(401);
   expect((await complete(token, codeAt(secretOf(b.provisioning_uri)))).statusCode).toBe(401);
 });
+
+/** The rows written from one source address. */
+async function rowsFrom(remoteAddress: string) {
+  const r = await pool.query(
+    "SELECT action, user_id, target_id, outcome, detail FROM audit_log WHERE source_ip = $1 ORDER BY id",
+    [remoteAddress],
+  );
+  return r.rows;
+}
+
+/** A secret shown for `token`, and the token: an invitation its holder has opened. */
+async function opened(): Promise<{ userId: string; token: string; secret: string }> {
+  const user = await createUser();
+  const shown = await totp(user.token);
+  expect(shown.statusCode).toBe(200);
+  const uri = (shown.json() as { provisioning_uri: string }).provisioning_uri;
+  return { userId: user.userId, token: user.token, secret: secretOf(uri) };
+}
+
+/** Both routes refuse `inv`, the completion with a code of its secret, and write a denied row
+ *  naming its user, and the user keeps no credentials. */
+async function refusedOnBothRoutes(inv: { userId: string; token: string; secret: string }) {
+  const t = await totp(inv.token);
+  expect(t.statusCode).toBe(401);
+  expect(t.json()).toEqual({ error: "invitation_rejected" });
+  expect(t.headers["cache-control"]).toBe("no-store");
+  const marker = address();
+  const c = await complete(inv.token, codeAt(inv.secret), marker);
+  expect(c.statusCode).toBe(401);
+  expect(c.json()).toEqual({ error: "invitation_rejected" });
+  expect(await rowsFrom(marker)).toEqual([
+    {
+      action: "invitation.complete",
+      user_id: inv.userId,
+      target_id: inv.userId,
+      outcome: "denied",
+      detail: { purpose: "invite" },
+    },
+  ]);
+  const u = await pool.query("SELECT password_hash, totp_enrolled FROM users WHERE user_id = $1", [
+    inv.userId,
+  ]);
+  expect(u.rows).toEqual([{ password_hash: null, totp_enrolled: false }]);
+}
 
 test("an unknown, expired, withdrawn or disabled user's invitation answers 401, one answer", async () => {
   const unknown = await totp("A".repeat(43));
@@ -259,14 +312,15 @@ test("an unknown, expired, withdrawn or disabled user's invitation answers 401, 
   expect(unknownComplete.statusCode).toBe(401);
   expect(unknownComplete.json()).toEqual({ error: "invitation_rejected" });
 
-  const expired = await createUser();
+  // Each opened first, so that the completion's code is one of the secret it holds.
+  const expired = await opened();
   await pool.query(
     "UPDATE invitations SET issued_at = now() - interval '73 hours', expires_at = now() - interval '1 hour' WHERE user_id = $1",
     [expired.userId],
   );
-  expect((await totp(expired.token)).statusCode).toBe(401);
+  await refusedOnBothRoutes(expired);
 
-  const withdrawn = await createUser();
+  const withdrawn = await opened();
   const w = await apph.app.inject({
     method: "POST",
     url: `/v1/users/${withdrawn.userId}/invitation/withdraw`,
@@ -274,12 +328,12 @@ test("an unknown, expired, withdrawn or disabled user's invitation answers 401, 
     ...asAdmin,
   });
   expect(w.statusCode, w.body).toBe(204);
-  expect((await totp(withdrawn.token)).statusCode).toBe(401);
+  await refusedOnBothRoutes(withdrawn);
 
   // A disabled user's invitation left open (disabling through the route withdraws it, below).
-  const disabled = await createUser();
+  const disabled = await opened();
   await pool.query("UPDATE users SET status = 'disabled' WHERE user_id = $1", [disabled.userId]);
-  expect((await totp(disabled.token)).statusCode).toBe(401);
+  await refusedOnBothRoutes(disabled);
 });
 
 test("an unknown token's failed completion writes a denied row naming no user", async () => {
@@ -416,8 +470,14 @@ test("a new invitation is refused to a user with credentials, or disabled; a wit
   });
   expect(none.statusCode).toBe(409);
   expect(none.json()).toEqual({ error: "no_open_invitation" });
-  // A user of another org, or none: 404.
-  for (const id of [globalThis.crypto.randomUUID()]) {
+  // A user of another org, or none: 404, and the other org's user is left as it was.
+  const foreign = globalThis.crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO users (user_id, org_id, email, password_hash, totp_secret, totp_enrolled, role)
+     VALUES ($1, 'dashapi-004-other', 'foreign@dashapi004.test', NULL, NULL, false, 'viewer')`,
+    [foreign],
+  );
+  for (const id of [foreign, globalThis.crypto.randomUUID()]) {
     for (const route of ["invitation", "invitation/withdraw"]) {
       const res = await apph.app.inject({
         method: "POST",
@@ -428,10 +488,32 @@ test("a new invitation is refused to a user with credentials, or disabled; a wit
       expect(res.statusCode, route).toBe(404);
     }
   }
+  expect(
+    (await pool.query("SELECT 1 FROM invitations WHERE user_id = $1", [foreign])).rows,
+  ).toEqual([]);
+  expect(await auditOf(foreign)).toEqual([]);
+});
+
+test("ten failures from one source address within 15 minutes answer 429 to any invitation", async () => {
+  const from = address();
+  for (let i = 0; i < 10; i += 1) {
+    const res = await totp(`${String(i).padStart(2, "0")}${"E".repeat(41)}`, from);
+    expect(res.statusCode, `failure ${i + 1}`).toBe(401);
+  }
+  const { token } = await createUser();
+  expect((await totp(token, from)).statusCode).toBe(429);
+  // Another address reaches it.
+  expect((await totp(token)).statusCode).toBe(200);
 });
 
 test("no route that takes the admin's session answers a TOTP secret", async () => {
   const { userId } = await createUser();
+  const other = await insertUserDirect(config, {
+    email: `answers-${globalThis.crypto.randomUUID()}@dashapi004.test`,
+    role: "analyst",
+  });
+  const post = (url: string, payload: object) =>
+    apph.app.inject({ method: "POST", url, payload, ...asAdmin });
   const answers = [
     await apph.app.inject({ method: "GET", url: "/v1/users", ...asAdmin }),
     await apph.app.inject({
@@ -446,6 +528,10 @@ test("no route that takes the admin's session answers a TOTP secret", async () =
       payload: {},
       ...asAdmin,
     }),
+    await post(`/v1/users/${userId}/invitation/withdraw`, {}),
+    await post(`/v1/users/${other}/role`, { role: "viewer" }),
+    await post(`/v1/users/${other}/reset`, {}),
+    await post(`/v1/users/${other}/status`, { status: "disabled" }),
   ];
   for (const res of answers) {
     expect(res.statusCode, res.body).toBeLessThan(300);

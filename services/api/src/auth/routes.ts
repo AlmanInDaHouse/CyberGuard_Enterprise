@@ -76,7 +76,7 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     return { ok: true };
   });
 
-  app.post("/v1/auth/totp/confirm", async (req) => {
+  app.post("/v1/auth/totp/confirm", { config: noStore }, async (req) => {
     await services.auth.confirmTotpEnrollment(parseBody(TotpConfirmBody, req.body), ctxOf(req));
     return { ok: true };
   });
