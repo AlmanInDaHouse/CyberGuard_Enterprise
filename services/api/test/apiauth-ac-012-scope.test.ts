@@ -57,7 +57,8 @@ const asAdmin = { cookies: { cgsess: ADMIN }, headers: { "x-csrf-token": `csrf-$
 test("the list holds only the session org's users, each with its status", async () => {
   const res = await apph.app.inject({ method: "GET", url: "/v1/users", ...asAdmin });
   expect(res.statusCode).toBe(200);
-  const users = res.json() as Array<{ userId: string; email: string; status: string }>;
+  // SPEC-026 §Data contracts §3: a page, `{ items, next_cursor }`.
+  const users = (res.json() as { items: Array<{ email: string; status: string }> }).items;
   expect(users.map((u) => u.email).sort()).toEqual(["a@apiauth012.test", "admin@apiauth012.test"]);
   expect(users.every((u) => u.status === "active")).toBe(true);
 });

@@ -21,6 +21,7 @@ import {
   parseBody,
 } from "./schemas.js";
 import type { RequestContext } from "./service.js";
+import { listAssignable, listUsersPage } from "./users-list.js";
 
 /**
  * SPEC-008 §Operational — the auth-core HTTP surface. Session lifecycle is open
@@ -36,6 +37,9 @@ import type { RequestContext } from "./service.js";
 export function registerAuthRoutes(app: FastifyInstance, services: Services): void {
   const requireSession = makeRequireSession(services);
   const requireAdmin = makeRequireRole("admin");
+  // SPEC-026 §Operational §1: assigning an incident, and the list of whom to, are an admin's
+  // and an analyst's.
+  const requireAssigner = makeRequireRole("admin", "analyst");
   const requireCsrf = makeRequireCsrf();
   const requireUserId = makeRequireIdParam();
 
@@ -121,7 +125,29 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
   app.get(
     "/v1/users",
     { config: noStore, onRequest: [requireSession, requireAdmin] },
-    async (req) => services.auth.listUsers(ctxOf(req)),
+    async (req) => {
+      const session = req.authSession;
+      if (!session) throw new Error("unreachable: requireSession populates authSession");
+      return listUsersPage(
+        services.pg,
+        session.org_id,
+        req.query as { limit?: unknown; cursor?: unknown },
+      );
+    },
+  );
+
+  app.get(
+    "/v1/users/assignable",
+    { config: noStore, onRequest: [requireSession, requireAssigner] },
+    async (req) => {
+      const session = req.authSession;
+      if (!session) throw new Error("unreachable: requireSession populates authSession");
+      return listAssignable(
+        services.pg,
+        session.org_id,
+        req.query as { limit?: unknown; cursor?: unknown },
+      );
+    },
   );
 
   app.post(

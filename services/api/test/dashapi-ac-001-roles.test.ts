@@ -57,6 +57,13 @@ const SECTION_3: Route[] = [
   },
   { method: "GET", path: "/v1/users", roles: ADMIN, mutation: false, expect: 200 },
   {
+    method: "GET",
+    path: "/v1/users/assignable",
+    roles: ["admin", "analyst"],
+    mutation: false,
+    expect: 200,
+  },
+  {
     method: "POST",
     path: "/v1/users",
     roles: ADMIN,

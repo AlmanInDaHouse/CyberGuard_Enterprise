@@ -109,9 +109,6 @@ export interface AuthService {
     input: { token: string; password: string; totp_code: string },
     ctx: RequestContext,
   ): Promise<void>;
-  listUsers(
-    ctx: RequestContext,
-  ): Promise<Array<{ userId: string; email: string; role: string; status: string }>>;
   assignRole(userId: string, role: string, ctx: RequestContext): Promise<void>;
   setStatus(userId: string, status: UserStatus, ctx: RequestContext): Promise<void>;
   changePassword(
@@ -882,24 +879,6 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           });
         },
       );
-    },
-
-    async listUsers(ctx) {
-      const session = sessionOf(ctx);
-      const res = await pool.query<{
-        user_id: string;
-        email: string;
-        role: string;
-        status: string;
-      }>("SELECT user_id, email, role, status FROM users WHERE org_id = $1 ORDER BY created_at", [
-        session.org_id,
-      ]);
-      return res.rows.map((r) => ({
-        userId: r.user_id,
-        email: r.email,
-        role: r.role,
-        status: r.status,
-      }));
     },
 
     assignRole(userId, role, ctx) {
