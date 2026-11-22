@@ -339,3 +339,40 @@ describe("the read routes of SPEC-009, SPEC-010 and SPEC-022", () => {
     }
   }
 });
+
+// SPEC-026 §Data contracts §3's order of checks on the user routes with an `:id` and a body:
+// past the session, the role and the CSRF token, a `:id` that is not canonical is a 404 before
+// the body is read, and a body its strict schema refuses is a 400; neither changes anything.
+describe("the order of checks of the new user routes", () => {
+  for (const path of [
+    "/v1/users/:id/invitation",
+    "/v1/users/:id/reset",
+    "/v1/users/:id/invitation/withdraw",
+  ]) {
+    test(`${path}: a non-canonical :id is a 404 before the body, an extra field a 400`, async () => {
+      const before = await snapshot();
+      const mark = await lastAuditId();
+      const admin = {
+        cookies: { cgsess: token("admin") },
+        headers: { "x-csrf-token": `csrf-${token("admin")}`, "content-type": "application/json" },
+      };
+      const notCanonical = await apph.app.inject({
+        method: "POST",
+        url: path.replace(":id", `{${target}}`),
+        payload: "{",
+        ...admin,
+      });
+      expect(notCanonical.statusCode).toBe(404);
+      const extra = await apph.app.inject({
+        method: "POST",
+        url: path.replace(":id", target),
+        payload: { x: 1 },
+        ...admin,
+      });
+      expect(extra.statusCode).toBe(400);
+      expect(extra.headers["cache-control"]).toBe("no-store");
+      expect(await snapshot()).toBe(before);
+      expect(await auditSince(mark)).toEqual([]);
+    });
+  }
+});
