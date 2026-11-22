@@ -1,7 +1,8 @@
-/** The api's two auth routes the dashboard's handlers call (SPEC-009's second
- *  Amendment 2026-10-15, item 1). Production uses `httpAuthApi`; the tests pass an
- *  adapter over services/api's `app.inject`, or a recording client. */
-export type AuthPath = "/v1/auth/login" | "/v1/auth/logout";
+/** The api's routes the dashboard's handlers call: the login and the logout (SPEC-009's
+ *  second Amendment 2026-10-15, item 1) and the mutations (SPEC-026 §Operational §9,
+ *  `src/lib/auth/mutations.ts`). Production uses `httpAuthApi`; the tests pass an adapter
+ *  over services/api's `app.inject`, or a recording client. */
+export type AuthPath = `/v1/${string}`;
 
 export interface AuthApiResponse {
   status: number;

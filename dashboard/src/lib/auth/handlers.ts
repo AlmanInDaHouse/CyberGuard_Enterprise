@@ -17,15 +17,15 @@ import {
 /** The login body is read up to this many bytes (item 3). */
 export const LOGIN_BODY_LIMIT = 16 * 1024;
 
-type Answer = { status: number; body: Record<string, unknown>; cookies?: string[] };
+export type Answer = { status: number; body: Record<string, unknown>; cookies?: string[] };
 
-function respond({ status, body, cookies = [] }: Answer): Response {
+export function respond({ status, body, cookies = [] }: Answer): Response {
   const headers = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
   for (const c of cookies) headers.append("set-cookie", c);
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-const CLEAR_BOTH = [clearCookie(SESSION_COOKIE), clearCookie(CSRF_COOKIE)];
+export const CLEAR_BOTH = [clearCookie(SESSION_COOKIE), clearCookie(CSRF_COOKIE)];
 
 /** The host addressed, with port 80 or 443 removed: behind a proxy that ends TLS its
  *  scheme may be unknown (item 2). */
@@ -66,13 +66,13 @@ const UPSTREAM: Answer = { status: 502, body: { error: "upstream" } };
 
 /** The request's `X-Forwarded-For`, passed on as received; none when it carries none
  *  (item 5). */
-function forwardedFor(req: Request): Record<string, string> {
+export function forwardedFor(req: Request): Record<string, string> {
   const xff = req.headers.get("x-forwarded-for");
   return xff === null ? {} : { "x-forwarded-for": xff };
 }
 
 /** The request's body as text, or `null` past the limit or when it is not UTF-8. */
-async function boundedText(req: Request, limit: number): Promise<string | null> {
+export async function boundedText(req: Request, limit: number): Promise<string | null> {
   if (req.body === null) return "";
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -103,7 +103,7 @@ async function boundedText(req: Request, limit: number): Promise<string | null> 
 /** The browser's session and CSRF cookies, read as the pages read the session (Next's
  *  `cookies()` is built on `RequestCookies`), so a repeated cookie means the same
  *  session to both. */
-function browserCookies(req: Request): { session?: string; csrf?: string } {
+export function browserCookies(req: Request): { session?: string; csrf?: string } {
   const jar = new RequestCookies(req.headers);
   return {
     session: tokenShaped(jar.get(SESSION_COOKIE)?.value),
@@ -160,7 +160,7 @@ function issuedTokens(res: AuthApiResponse): { session: string; csrf: string } |
 }
 
 /** The api's `error` code for an answer the handler passes through. */
-function apiError(res: AuthApiResponse, fallback: string): string {
+export function apiError(res: AuthApiResponse, fallback: string): string {
   const error = (res.body as { error?: unknown } | undefined)?.error;
   return typeof error === "string" ? error : fallback;
 }
