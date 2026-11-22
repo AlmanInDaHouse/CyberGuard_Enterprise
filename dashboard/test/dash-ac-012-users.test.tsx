@@ -68,6 +68,22 @@ function answer(status: number, body?: unknown) {
 }
 
 const setItem = vi.spyOn(Storage.prototype, "setItem");
+const pushState = vi.spyOn(window.history, "pushState");
+const replaceState = vi.spyOn(window.history, "replaceState");
+
+/** The token is nowhere but the view: not in the address or the history, the browser's
+ *  cookies or storage, a navigation of the router, or a request's URL. */
+function tokenNowhereElse() {
+  expect(window.location.href).not.toContain(TOKEN);
+  expect(document.cookie).not.toContain(TOKEN);
+  expect(setItem).not.toHaveBeenCalled();
+  expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(TOKEN);
+  expect(JSON.stringify(Object.entries(localStorage))).not.toContain(TOKEN);
+  for (const spy of [pushState, replaceState, router.push]) {
+    for (const args of spy.mock.calls) expect(JSON.stringify(args)).not.toContain(TOKEN);
+  }
+  for (const [url] of fetchMock.mock.calls) expect(String(url)).not.toContain(TOKEN);
+}
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -76,6 +92,8 @@ beforeEach(() => {
   setItem.mockClear();
   vi.stubGlobal("fetch", fetchMock);
   window.history.replaceState(null, "", "/users");
+  pushState.mockClear();
+  replaceState.mockClear();
   jar.header = "__Host-cgsess=tok-012; __Host-cgcsrf=csrf-012";
 });
 afterEach(() => {
@@ -126,10 +144,8 @@ describe("dash_ac_012 — an invitation's link, shown once", () => {
     });
     expect(router.refresh).toHaveBeenCalled();
 
-    // Nowhere else: not in the address, not in the browser's storage, not in a request's URL.
-    expect(window.location.href).not.toContain(TOKEN);
-    expect(setItem).not.toHaveBeenCalled();
-    for (const [url] of fetchMock.mock.calls) expect(String(url)).not.toContain(TOKEN);
+    // Nowhere else.
+    tokenNowhereElse();
 
     // The list the server renders again after the change keeps it.
     view.rerender(
@@ -160,6 +176,7 @@ describe("dash_ac_012 — an invitation's link, shown once", () => {
     admin();
     expect(screen.queryByLabelText("Invitation link")).toBeNull();
     expect(document.body.innerHTML).not.toContain(TOKEN);
+    tokenNowhereElse();
   });
 
   test("a new invitation's link and a reset's are shown once too", async () => {
@@ -177,7 +194,7 @@ describe("dash_ac_012 — an invitation's link, shown once", () => {
     fireEvent.click(row("enrolled@dash012.test").getByRole("button", { name: "Confirm reset" }));
     expect(await screen.findByLabelText("Invitation link")).toHaveValue(LINK);
     expect(lastCall()).toEqual({ url: `/api/users/${ENROLLED}/reset`, body: {} });
-    expect(setItem).not.toHaveBeenCalled();
+    tokenNowhereElse();
   });
 });
 

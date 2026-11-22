@@ -238,6 +238,7 @@ describe.each(CASES)("dash_ac_009 — POST /api/$name", (c) => {
       const res = await call(c, {}, undefined, id);
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: "not_found" });
+      expect(res.headers.get("cache-control")).toBe("no-store");
       expect(fetchMock).not.toHaveBeenCalled();
     });
   }
@@ -259,6 +260,7 @@ describe.each(CASES)("dash_ac_009 — POST /api/$name", (c) => {
     const res = await call(c, { "content-type": type }, body);
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "bad_request" });
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -278,6 +280,7 @@ describe.each(CASES)("dash_ac_009 — POST /api/$name", (c) => {
     let res = await call(c);
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ token: "t", expires_at: "2026-11-25T00:00:00.000Z" });
+    expect(res.headers.get("cache-control")).toBe("no-store");
 
     answer(204);
     res = await call(c);
@@ -305,15 +308,19 @@ describe.each(CASES)("dash_ac_009 — POST /api/$name", (c) => {
     res = await call(c);
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "upstream" });
+    expect(res.headers.get("cache-control")).toBe("no-store");
 
     answer(200);
     res = await call(c);
     expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "upstream" });
+    expect(res.headers.get("cache-control")).toBe("no-store");
 
     fetchMock.mockRejectedValue(new TypeError("fetch failed"));
     res = await call(c);
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "unavailable" });
+    expect(res.headers.get("cache-control")).toBe("no-store");
   });
 });
 
@@ -324,6 +331,7 @@ describe("dash_ac_009 — the password change", () => {
     answer(200, { ok: true });
     const res = await call(password);
     expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
     const cleared = res.headers.getSetCookie();
     expect(cleared).toContain(
       "__Host-cgsess=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0",
