@@ -348,7 +348,8 @@ describe("deploy_ac_004 — the roles", () => {
     }
   });
 
-  test("cg_api: INSERT into audit_log and forensic_key; neither UPDATE nor DELETE; no SELECT on audit_log", async () => {
+  // SPEC-026 deploy_ac_004's rows: `SELECT` on audit_log, for the audit view, besides its INSERT.
+  test("cg_api: INSERT into audit_log and forensic_key; neither UPDATE nor DELETE; SELECT on audit_log", async () => {
     const api = as("cg_api", "api");
     await allowed(api, "INSERT INTO audit_log (action, outcome) VALUES ('deploy.004', 'ok')");
     await allowed(
@@ -359,8 +360,59 @@ describe("deploy_ac_004 — the roles", () => {
     await refused(api, "UPDATE audit_log SET action = 'x'");
     await refused(api, "UPDATE forensic_key SET created_at = now()");
     for (const t of ["audit_log", "forensic_key"]) await refused(api, `DELETE FROM ${t}`);
-    await refused(api, "SELECT 1 FROM audit_log");
+    await allowed(api, "SELECT id, occurred_at, user_id, action, detail FROM audit_log");
     await as("postgres").query("DELETE FROM api.forensic_key; DELETE FROM api.audit_log");
+  });
+
+  // SPEC-026 deploy_ac_004's rows: on invitations, SELECT, the INSERT of the columns the api
+  // writes and the UPDATE of the secret and the end; no DELETE, and issued_at the database's.
+  test("cg_api: on invitations, SELECT, INSERT and UPDATE of its columns, and no DELETE", async () => {
+    const api = as("cg_api", "api");
+    const userId = "01934abc-def0-7000-89ab-0000000a0d14";
+    const invitationId = "01934abc-def0-7000-89ab-0000000a0d15";
+    await as("postgres").query(
+      `INSERT INTO api.users (user_id, org_id, email, password_hash, totp_secret, totp_enrolled, role)
+       VALUES ($1, 'default', 'invited@deploy004.test', NULL, NULL, false, 'viewer')`,
+      [userId],
+    );
+    try {
+      await allowed(
+        api,
+        `INSERT INTO invitations (invitation_id, user_id, org_id, purpose, token_sha256, expires_at)
+         VALUES ('${invitationId}', '${userId}', 'default', 'invite', '\\x01', now() + interval '72 hours')`,
+      );
+      await allowed(api, "SELECT invitation_id, issued_at, pending_totp_secret FROM invitations");
+      await allowed(
+        api,
+        `UPDATE invitations SET pending_totp_secret = '\\x02' WHERE invitation_id = '${invitationId}'`,
+      );
+      await allowed(
+        api,
+        `UPDATE invitations SET withdrawn_at = now(), pending_totp_secret = NULL WHERE invitation_id = '${invitationId}'`,
+      );
+      await allowed(
+        api,
+        `UPDATE invitations SET completed_at = NULL WHERE invitation_id = '${invitationId}'`,
+      );
+      await refused(
+        api,
+        `INSERT INTO invitations (invitation_id, user_id, org_id, purpose, token_sha256, issued_at, expires_at)
+         VALUES (gen_random_uuid(), '${userId}', 'default', 'invite', '\\x03', now(), now() + interval '1 hour')`,
+      );
+      for (const set of [
+        "token_sha256 = '\\x04'",
+        "expires_at = now()",
+        "issued_at = now()",
+        "user_id = user_id",
+        "purpose = 'reset'",
+      ]) {
+        await refused(api, `UPDATE invitations SET ${set}`);
+      }
+      await refused(api, "DELETE FROM invitations");
+    } finally {
+      await as("postgres").query("DELETE FROM api.invitations");
+      await as("postgres").query("DELETE FROM api.users WHERE user_id = $1", [userId]);
+    }
   });
 
   test("either runtime role: no temporary table, and its migration ledger neither read nor written", async () => {

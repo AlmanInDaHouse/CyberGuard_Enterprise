@@ -95,7 +95,7 @@ test("rejects an out-of-enum status", async () => {
   expect(ok).toBe(false);
 });
 
-test("rejects a NULL password_hash (NOT NULL)", async () => {
+test("rejects a NULL password_hash with a secret (NOT NULL; since 0008, the credentials' pairing)", async () => {
   const ok = await attempt(async () => {
     await insertUser({ passwordHash: null });
   });

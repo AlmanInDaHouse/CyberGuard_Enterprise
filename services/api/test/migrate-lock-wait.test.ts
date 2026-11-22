@@ -235,12 +235,18 @@ test("the wait is bounded: a lock still held after it fails the run, naming the 
 const KYSELY_LOCK_KEY = "3853314791062309107";
 
 /** The migrations a run finds pending in `withPending`'s database. */
-const PENDING = ["0005_audit_log_detail", "0006_users_authority_version", "0007_runtime_grants"];
+const PENDING = [
+  "0005_audit_log_detail",
+  "0006_users_authority_version",
+  "0007_runtime_grants",
+  "0008_dashboard",
+];
 
 /**
- * A database with the api's migrations applied, and then the ledger's rows of the last three
+ * A database with the api's migrations applied, and then the ledger's rows of the last four
  * removed, so that a run has them pending. Over the applied schema they change nothing
- * (`ADD COLUMN IF NOT EXISTS`, and grants to a role the tests' cluster has not), but 0006 alters
+ * (`ADD COLUMN IF NOT EXISTS`, constraints dropped if they exist and added again, `IF NOT
+ * EXISTS` on 0008's table and indexes, and grants to a role the tests' cluster has not), but 0006 alters
  * `users`, so it waits for any lock another session holds on it.
  */
 async function withPending(
@@ -302,7 +308,7 @@ test("a lock another session holds on a table a migration changes fails the run 
     await other.query("ROLLBACK");
     // 0005 ran before 0006 waited, in the same transaction: neither is in the ledger.
     expect(await applied(other)).toEqual([]);
-    // The run that gave up holds nothing, and the three were the run's to apply.
+    // The run that gave up holds nothing, and the four were the run's to apply.
     const held = await other.query<{ n: string }>(
       `SELECT count(*) AS n FROM pg_locks
         WHERE locktype = 'advisory' AND pid <> pg_backend_pid()

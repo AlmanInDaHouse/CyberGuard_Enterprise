@@ -104,10 +104,12 @@ interface AuthUserRow {
   org_id: string;
   role: string;
   status: string;
-  password_hash: string;
+  /** NULL, with `totp_secret`, for a user an invitation or a reset left without credentials
+   *  (SPEC-026 §Data contracts §2). */
+  password_hash: string | null;
   totp_enrolled: boolean;
   authority_version: string; // bigint, as pg returns it
-  totp_secret: string; // decrypted base32 (pgp_sym_decrypt)
+  totp_secret: string | null; // decrypted base32 (pgp_sym_decrypt)
 }
 
 /** An address as the api compares it (SPEC-008 Amendment 2026-10-15 item 3). */
@@ -251,7 +253,9 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
    * active admins and the target are locked in user-id order, the last active admin is
    * kept, the change raises the authority version and writes its row, and the user's
    * sessions are deleted after the commit. A change to the value already held is
-   * recorded like any other.
+   * recorded like any other. The last active admin counts only an admin with a password
+   * and a confirmed factor (SPEC-026 §Data contracts §2), so that an admin whose
+   * credentials were reset does not count.
    */
   async function changeUser(
     targetId: string,
@@ -260,8 +264,14 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
   ): Promise<void> {
     const session = sessionOf(ctx);
     await authorityChange(targetId, async (db) => {
-      const locked = await db.query<{ user_id: string; role: string; status: string }>(
-        `SELECT user_id, role, status FROM users
+      const locked = await db.query<{
+        user_id: string;
+        role: string;
+        status: string;
+        credentialed: boolean;
+      }>(
+        `SELECT user_id, role, status, (password_hash IS NOT NULL AND totp_enrolled) AS credentialed
+           FROM users
           WHERE org_id = $1 AND ((role = 'admin' AND status = 'active') OR user_id = $2)
           ORDER BY user_id FOR UPDATE`,
         [session.org_id, targetId],
@@ -270,12 +280,11 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
       if (!target) throw new NotFoundError();
       const role = change.role ?? target.role;
       const status = change.status ?? target.status;
-      const activeAdmins = locked.rows.filter((r) => r.role === "admin" && r.status === "active");
-      const removesAnAdmin =
-        target.role === "admin" &&
-        target.status === "active" &&
-        (role !== "admin" || status !== "active");
-      if (removesAnAdmin && activeAdmins.length <= 1) throw new ConflictError();
+      const counts = (r: (typeof locked.rows)[number]) =>
+        r.role === "admin" && r.status === "active" && r.credentialed;
+      const countedAdmins = locked.rows.filter(counts);
+      const removesAnAdmin = counts(target) && (role !== "admin" || status !== "active");
+      if (removesAnAdmin && countedAdmins.length <= 1) throw new ConflictError();
       await db.query(
         `UPDATE users
             SET role = $2, status = $3, authority_version = authority_version + 1, updated_at = now()
@@ -342,15 +351,17 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           });
           throw new AuthError();
         };
-        if (!user || user.status !== "active") {
+        if (!user || user.status !== "active" || user.password_hash === null) {
           // The same work as a wrong password (Amendment 2026-10-15 item 11): the decrypt
-          // a found row costs, and the Argon2 verification.
-          if (!user) await decryptLikeARow();
+          // a found row costs, and the Argon2 verification. A user with no credentials, an
+          // invitation's or a reset's, does the unknown address's (SPEC-026 §Data
+          // contracts §2): its row had no secret to decrypt.
+          if (!user || user.password_hash === null) await decryptLikeARow();
           await verifyPassword(await constantWorkHash(), input.password);
           return reject();
         }
         if (!(await verifyPassword(user.password_hash, input.password))) return reject();
-        if (!user.totp_enrolled) return reject();
+        if (!user.totp_enrolled || user.totp_secret === null) return reject();
         if (!verifyTotp(user.totp_secret, input.totp_code)) return reject();
         // Replay rejection: the accepted code is single-use per user within its window.
         const firstUse = await redis.set(
@@ -520,8 +531,8 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
       try {
         const res = await pool.query<{
           org_id: string;
-          password_hash: string;
-          totp_secret: string;
+          password_hash: string | null;
+          totp_secret: string | null;
         }>(
           `SELECT org_id, password_hash, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE user_id = $2`,
@@ -542,8 +553,11 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           });
           throw new AuthError();
         };
+        // A user with no credentials (SPEC-026 §Data contracts §2) has none to prove.
         if (
           !u ||
+          u.password_hash === null ||
+          u.totp_secret === null ||
           !(await verifyPassword(u.password_hash, input.currentPassword)) ||
           !verifyTotp(u.totp_secret, input.totp_code)
         ) {
@@ -601,7 +615,7 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           user_id: string;
           org_id: string;
           totp_enrolled: boolean;
-          totp_secret: string;
+          totp_secret: string | null;
         }>(
           `SELECT user_id, org_id, totp_enrolled, pgp_sym_decrypt(totp_secret, $1)::text AS totp_secret
          FROM users WHERE user_id = $2`,
@@ -621,9 +635,10 @@ export function createAuthService(rawPool: Pool, rawRedis: Redis, config: Config
           });
           throw new AuthError();
         };
-        if (!u || u.totp_enrolled) {
-          // The same work as a wrong code (item 12): the decrypt and the TOTP check.
-          if (!u) await decryptLikeARow();
+        if (!u || u.totp_enrolled || u.totp_secret === null) {
+          // The same work as a wrong code (item 12): the decrypt and the TOTP check. A user
+          // with no secret is refused as an unknown one is (SPEC-026 §Operational §3).
+          if (!u || u.totp_secret === null) await decryptLikeARow();
           verifyTotp(constantWorkSecret, input.totp_code);
           return reject();
         }
