@@ -415,6 +415,29 @@ describe("deploy_ac_004 — the roles", () => {
     }
   });
 
+  // 0008_dashboard run again over its own schema, cg_api present, changes none of its rights.
+  test("0008_dashboard run again as cg_api_owner leaves cg_api's rights as they were", async () => {
+    const rights = async () =>
+      (
+        await as("postgres").query<{ t: string; c: string | null; p: string }>(
+          `SELECT table_name AS t, NULL AS c, privilege_type AS p FROM information_schema.table_privileges
+            WHERE grantee = 'cg_api' AND table_schema = 'api'
+           UNION ALL
+           SELECT table_name, column_name, privilege_type FROM information_schema.column_privileges
+            WHERE grantee = 'cg_api' AND table_schema = 'api'
+           ORDER BY 1, 2, 3`,
+        )
+      ).rows;
+    const before = await rights();
+    expect(before).toContainEqual({ t: "invitations", c: "withdrawn_at", p: "UPDATE" });
+    const removed = await as("postgres").query(
+      "DELETE FROM api.api_kysely_migration WHERE name = '0008_dashboard'",
+    );
+    expect(removed.rowCount).toBe(1);
+    await runMigrations({ API_PG_URL: url("cg_api_owner", "api") });
+    expect(await rights()).toEqual(before);
+  });
+
   test("either runtime role: no temporary table, and its migration ledger neither read nor written", async () => {
     await refused(as("cg_ingest", "ingest"), "CREATE TEMPORARY TABLE deploy_004_tmp (x int)");
     await refused(as("cg_api", "api"), "CREATE TEMPORARY TABLE deploy_004_tmp (x int)");

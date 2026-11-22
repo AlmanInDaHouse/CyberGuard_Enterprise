@@ -90,15 +90,42 @@ test("a login of a user with no credentials runs the unknown address's work and 
 });
 
 test("the TOTP confirmation refuses a user with no secret as an unknown one", async () => {
-  const decrypted = decrypts.length;
-  const res = await app.inject({
-    method: "POST",
-    url: "/v1/auth/totp/confirm",
-    remoteAddress: "198.51.100.202",
-    payload: { userId: USER, totp_code: "123456" },
-  });
-  expect(res.statusCode).toBe(401);
-  expect(decrypts.length - decrypted).toBe(1);
+  const unknown = globalThis.crypto.randomUUID();
+  const answers = [];
+  for (const [userId, remoteAddress] of [
+    [USER, "198.51.100.202"],
+    [unknown, "198.51.100.203"],
+  ] as const) {
+    const decrypted = decrypts.length;
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/auth/totp/confirm",
+      remoteAddress,
+      payload: { userId, totp_code: "123456" },
+    });
+    // The same work, the decrypt a found row costs, for both.
+    expect(decrypts.length - decrypted, userId).toBe(1);
+    answers.push({ status: res.statusCode, body: res.json() });
+    // Each a counted failure, and no code marked used.
+    expect(Number(await services.redis.get(`rl:user:${userId}`)), userId).toBe(1);
+    expect(await services.redis.exists(`totp:replay:${userId}:123456`), userId).toBe(0);
+  }
+  expect(answers).toEqual([
+    { status: 401, body: { error: "unauthorized" } },
+    { status: 401, body: { error: "unauthorized" } },
+  ]);
+  const rows = (
+    await services.pg.query(
+      `SELECT action, user_id, outcome FROM audit_log
+        WHERE action = 'user.totp.enroll' AND source_ip IN ('198.51.100.202', '198.51.100.203')
+        ORDER BY id`,
+    )
+  ).rows;
+  // The user's row names them, as a disabled user's login row does; the unknown id's names none.
+  expect(rows).toEqual([
+    { action: "user.totp.enroll", user_id: USER, outcome: "denied" },
+    { action: "user.totp.enroll", user_id: null, outcome: "denied" },
+  ]);
   const r = await services.pg.query<{ totp_enrolled: boolean }>(
     "SELECT totp_enrolled FROM users WHERE user_id = $1",
     [USER],
