@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-93.md](../handoff-session-93.md)).
+([handoff-session-94.md](../handoff-session-94.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -644,8 +644,11 @@ recommended option:
    runbooks landed (`faae8e5`, `e5e207d`), and F3 began with the session
    route and #102 (`d259b31`). S93: the api's half of F3's phase 1, the
    accounts, landed (`5c5f404` to `cbf259e`: migration `0008`, the
-   invitations, the reset, the users' lists); the phase's pages are next
-   (`docs/handoff-session-93.md`).
+   invitations, the reset, the users' lists). S94: the phase's pages
+   landed (`9e1965e` to `a053795`: the mutation handlers, the navigation,
+   `/account`, `/invitation`, `/users`; #83 and #98 closed), with `url`
+   2.5.9 for RUSTSEC-2026-0592 (`cb073b4`); ingest's `0011` and the
+   detection change are next (`docs/handoff-session-94.md`).
 5. **The custody verb for the setup's hosts** (`show`, `in-place`,
    `aside`, and `legacy` if its restatement keeps it; #166), its contract restated first (SPEC-024 Amendment
    2026-11-20, point 6).
