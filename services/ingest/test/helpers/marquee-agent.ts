@@ -47,6 +47,20 @@ export const AGENT_ETW_SESSIONS: readonly string[] = ["CGAgent-KernelProcess"];
 const PLA_E_DCS_NOT_FOUND = 0x80300002;
 /** `logman`'s exit status for a session this process may not query or stop (E_ACCESSDENIED). */
 const E_ACCESSDENIED = 0x80070005;
+/**
+ * `logman`'s exit status for a session being torn down, its provider already gone
+ * (HRESULT_FROM_WIN32(ERROR_WMI_GUID_NOT_FOUND)): a passing answer, asked again (debt #161).
+ */
+const WMI_GUID_NOT_FOUND = 0x80071068;
+/** How many times, and how often, a query is asked again, and a stop awaited (debt #161). */
+const SESSION_POLLS = 20;
+const SESSION_POLL_MS = 250;
+
+/** Blocks for `ms` (the harness's teardown and exit handlers are synchronous). */
+export type Wait = (ms: number) => void;
+const sleepSync: Wait = (ms) => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
 
 /** Runs `logman` with `args` and returns its exit status (`null` if it did not run). */
 export type Logman = (args: readonly string[]) => number | null;
@@ -58,8 +72,13 @@ const runLogman: Logman = (args) => spawnSync("logman", [...args], { stdio: "ign
  * means it exists and this process may not query it: for a name with no
  * session the answer is PLA_E_DCS_NOT_FOUND, elevated or not.
  */
-function etwSessionRunning(name: string, logman: Logman): boolean {
-  const status = logman(["query", name, "-ets"]);
+function etwSessionRunning(name: string, logman: Logman, wait: Wait): boolean {
+  let status = logman(["query", name, "-ets"]);
+  // A session being torn down answers so for a moment: asked again, with a bound.
+  for (let i = 1; i < SESSION_POLLS && status === WMI_GUID_NOT_FOUND; i++) {
+    wait(SESSION_POLL_MS);
+    status = logman(["query", name, "-ets"]);
+  }
   if (status === 0 || status === E_ACCESSDENIED) {
     return true;
   }
@@ -74,16 +93,26 @@ function etwSessionRunning(name: string, logman: Logman): boolean {
 /**
  * Stop each named ETW session that is running (Windows). Returns the names
  * still running afterwards: an unelevated process cannot stop a session an
- * elevated agent started (debt #63, docs/handoff-session-37.md).
+ * elevated agent started (debt #63, docs/handoff-session-37.md). A stopped
+ * session is awaited until it is gone, with a bound (debt #161).
  */
-export function stopEtwSessions(names: readonly string[], logman: Logman = runLogman): string[] {
+export function stopEtwSessions(
+  names: readonly string[],
+  logman: Logman = runLogman,
+  wait: Wait = sleepSync,
+): string[] {
   const left: string[] = [];
   for (const name of names) {
-    if (!etwSessionRunning(name, logman)) {
+    if (!etwSessionRunning(name, logman, wait)) {
       continue;
     }
     logman(["stop", name, "-ets"]);
-    if (etwSessionRunning(name, logman)) {
+    let running = etwSessionRunning(name, logman, wait);
+    for (let i = 1; i < SESSION_POLLS && running; i++) {
+      wait(SESSION_POLL_MS);
+      running = etwSessionRunning(name, logman, wait);
+    }
+    if (running) {
       left.push(name);
     } else {
       console.log(JSON.stringify({ event: "marquee_agent_etw_session_stopped", session: name }));
@@ -116,6 +145,7 @@ function liveAgents(): Set<ChildProcess> {
 export function stopSessionsAfterExit(
   othersRunning: boolean,
   logman: Logman = runLogman,
+  wait: Wait = sleepSync,
 ): string[] {
   if (othersRunning) {
     console.log(
@@ -126,7 +156,7 @@ export function stopSessionsAfterExit(
     );
     return [];
   }
-  return stopEtwSessions(AGENT_ETW_SESSIONS, logman);
+  return stopEtwSessions(AGENT_ETW_SESSIONS, logman, wait);
 }
 
 export interface AgentRunResult {

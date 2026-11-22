@@ -19,6 +19,23 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 const PROBE = "CgS38HarnessProbe";
 const PLA_E_DCS_NOT_FOUND = 0x80300002;
 const E_ACCESSDENIED = 0x80070005;
+const WMI_GUID_NOT_FOUND = 0x80071068;
+/** No real wait in the fakes' tests. */
+const noWait = () => {};
+
+/** A `logman` whose queries answer `queries` in turn (the last repeated), stops `stop`. */
+function scriptedLogman(queries: (number | null)[], stop: number | null) {
+  const calls: string[][] = [];
+  let next = 0;
+  const logman: Logman = (args) => {
+    calls.push([...args]);
+    if (args[0] === "stop") return stop;
+    const answer = queries[Math.min(next, queries.length - 1)] ?? null;
+    next += 1;
+    return answer;
+  };
+  return { logman, calls };
+}
 
 function sessionRunning(name: string): boolean {
   return spawnSync("logman", ["query", name, "-ets"], { stdio: "ignore" }).status === 0;
@@ -83,6 +100,32 @@ describe("stopEtwSessions, against a logman that answers as told", () => {
     const { logman, calls } = fakeLogman({ query: PLA_E_DCS_NOT_FOUND, stop: 0 });
     expect(stopEtwSessions(["X"], logman)).toEqual([]);
     expect(calls).not.toContainEqual(["stop", "X", "-ets"]);
+  });
+
+  test("a session being torn down is asked again, and its end awaited (debt #161)", () => {
+    // Running, then stopped: the provider gone first, then the session.
+    const { logman, calls } = scriptedLogman(
+      [0, WMI_GUID_NOT_FOUND, WMI_GUID_NOT_FOUND, PLA_E_DCS_NOT_FOUND],
+      0,
+    );
+    expect(stopEtwSessions(["X"], logman, noWait)).toEqual([]);
+    expect(calls.filter((c) => c[0] === "query")).toHaveLength(4);
+  });
+
+  test("a stopped session still running is awaited, with a bound, and then reported", () => {
+    const awaited = scriptedLogman([0, 0, 0, PLA_E_DCS_NOT_FOUND], 0);
+    expect(stopEtwSessions(["X"], awaited.logman, noWait)).toEqual([]);
+    const stuck = scriptedLogman([0], 0);
+    expect(stopEtwSessions(["X"], stuck.logman, noWait)).toEqual(["X"]);
+    // One query before the stop, twenty after it.
+    expect(stuck.calls.filter((c) => c[0] === "query")).toHaveLength(21);
+  });
+
+  test("a session that keeps answering as torn down past the bound is an error", () => {
+    const { logman } = scriptedLogman([WMI_GUID_NOT_FOUND], 0);
+    expect(() => stopEtwSessions(["X"], logman, noWait)).toThrow(
+      "logman query X -ets failed: exit status 0x80071068",
+    );
   });
 
   test("any other answer to the query is an error", () => {
