@@ -9,6 +9,7 @@ import { buildEnrollApp } from "../src/app.js";
 import { type ServerCa, ensureCa } from "../src/ca.js";
 import type { Config } from "../src/config.js";
 import { runPgMigrations } from "../src/db/migrate.js";
+import { upsertIncident } from "../src/detect/incidents.js";
 import { runDetectionCycle } from "../src/detect/index.js";
 import type { Services } from "../src/services.js";
 import { insertCgesEvent } from "./helpers/db.js";
@@ -215,4 +216,38 @@ test("a detection cycle writes an alert, an incident, its cursor and a playbook'
     [agentId, ORG],
   );
   expect(counts.rows[0]).toEqual({ alerts: "1", incidents: "1", cursors: "1", runs: "1" });
+});
+
+// SPEC-026 §Data contracts §1 and §Operational §7: with ingest's `UPDATE` on incidents
+// narrowed to the columns grouping writes, grouping's update runs as `cg_ingest` and
+// accumulates the techniques, and an alert of a closed incident's key opens a new one.
+test("grouping's update and a closed incident's new one, as cg_ingest", async () => {
+  const org = `${ORG}-0011`;
+  await superPool.query("UPDATE agents SET org_id = $1 WHERE agent_id = $2", [org, agentId]);
+  const alert = (techniques: string[]) => ({
+    alertId: globalThis.crypto.randomUUID(),
+    orgId: org,
+    agentId,
+    cgMitre: { tactics: ["execution"], techniques },
+    eventTime: "2026-10-23 11:00:00.000000000",
+    severityId: 4,
+  });
+  const first = await upsertIncident(detectConfig(runtime, org), alert(["T1059.001"]));
+  const joined = await upsertIncident(detectConfig(runtime, org), alert(["T1204.002"]));
+  expect([first.created, joined.created]).toEqual([true, false]);
+  expect(joined.incidentId).toBe(first.incidentId);
+  await superPool.query("UPDATE incidents SET status = 'resolved' WHERE incident_id = $1", [
+    first.incidentId,
+  ]);
+  const reopened = await upsertIncident(detectConfig(runtime, org), alert(["T1059.001"]));
+  expect(reopened.created).toBe(true);
+  const rows = await superPool.query<{ status: string; techniques: string[]; n: number }>(
+    `SELECT status, cg_mitre -> 'techniques' AS techniques, cardinality(alert_ids) AS n
+       FROM incidents WHERE org_id = $1 ORDER BY created_at`,
+    [org],
+  );
+  expect(rows.rows).toEqual([
+    { status: "resolved", techniques: ["T1059.001", "T1204.002"], n: 2 },
+    { status: "open", techniques: ["T1059.001"], n: 1 },
+  ]);
 });

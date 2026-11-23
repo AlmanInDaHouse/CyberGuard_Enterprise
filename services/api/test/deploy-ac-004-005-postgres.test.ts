@@ -233,17 +233,24 @@ describe("deploy_ac_004 — the roles", () => {
     }
   });
 
-  test("each ingest table the api reads is owned by cg_ingest_owner, in the schema ingest", async () => {
+  test("each ingest table the api reads or writes is owned by cg_ingest_owner, in the schema ingest", async () => {
+    const tables = [
+      "agents",
+      "alerts",
+      "enrollment_tokens",
+      "incidents",
+      "playbook_executions",
+      "triage_history",
+    ];
     const r = await as("postgres").query<{ tablename: string; tableowner: string }>(
       `SELECT tablename, tableowner FROM pg_tables
-        WHERE schemaname = 'ingest' AND tablename IN ('alerts', 'incidents', 'playbook_executions')
+        WHERE schemaname = 'ingest' AND tablename = ANY($1)
         ORDER BY tablename`,
+      [tables],
     );
-    expect(r.rows).toEqual([
-      { tablename: "alerts", tableowner: "cg_ingest_owner" },
-      { tablename: "incidents", tableowner: "cg_ingest_owner" },
-      { tablename: "playbook_executions", tableowner: "cg_ingest_owner" },
-    ]);
+    expect(r.rows).toEqual(
+      tables.map((tablename) => ({ tablename, tableowner: "cg_ingest_owner" })),
+    );
   });
 
   test("cg_ingest: no SELECT on the api's users, forensic_key and audit_log", async () => {
@@ -332,10 +339,8 @@ describe("deploy_ac_004 — the roles", () => {
     },
   );
 
-  test("cg_api: no SELECT on ca, enrollment_tokens and agents", async () => {
-    const api = as("cg_api", "api");
-    for (const t of ["ca", "enrollment_tokens", "agents"])
-      await refused(api, `SELECT 1 FROM ingest.${t}`);
+  test("cg_api: no SELECT on ca", async () => {
+    await refused(as("cg_api", "api"), "SELECT 1 FROM ingest.ca");
   });
 
   test("cg_api: SELECT on alerts, incidents and playbook_executions, and no write", async () => {
@@ -345,6 +350,227 @@ describe("deploy_ac_004 — the roles", () => {
       await refused(api, `INSERT INTO ingest.${t} DEFAULT VALUES`);
       await refused(api, `UPDATE ingest.${t} SET org_id = org_id`);
       await refused(api, `DELETE FROM ingest.${t}`);
+    }
+  });
+
+  // SPEC-026 deploy_ac_004's rows for migration 0011_dashboard_rights: the api's column
+  // grants on ingest's tables, its read of the triage history, and ingest's own UPDATE on
+  // incidents narrowed to the columns grouping writes.
+
+  /** An agent, an alert and an incident of their own, written as the superuser. */
+  async function seedIngestRows(): Promise<{
+    agentId: string;
+    alertId: string;
+    incidentId: string;
+  }> {
+    const agentId = globalThis.crypto.randomUUID();
+    const alertId = globalThis.crypto.randomUUID();
+    const incidentId = globalThis.crypto.randomUUID();
+    const owner = as("postgres");
+    await owner.query(
+      `INSERT INTO ingest.agents (agent_id, org_id, pubkey, cert_pem, expires_at)
+       VALUES ($1, 'deploy-004', '\\x00', 'c', now() + interval '1 day')`,
+      [agentId],
+    );
+    await owner.query(
+      `INSERT INTO ingest.alerts
+         (alert_id, org_id, agent_id, title, severity_id, cg_detection_source, rule_id,
+          source_events, heuristic_score, final_score, cg_mitre, dedup_key, event_time)
+       VALUES ($1, 'deploy-004', $2, 't', 4, 'rule', 'rule.x', ARRAY[$1]::uuid[], 0.9, 0.9,
+               '{"tactics":["execution"],"techniques":["T1059.001"]}', $3, now())`,
+      [alertId, agentId, `dedup::${alertId}`],
+    );
+    await owner.query(
+      `INSERT INTO ingest.incidents
+         (incident_id, org_id, agent_id, title, cg_mitre, alert_ids, severity_id, grouping_key,
+          window_start)
+       VALUES ($1, 'deploy-004', $2, 't', '{"tactics":["execution"],"techniques":["T1059.001"]}',
+               ARRAY[$3]::uuid[], 4, $4, now())`,
+      [incidentId, agentId, alertId, `deploy-004::${incidentId}`],
+    );
+    return { agentId, alertId, incidentId };
+  }
+
+  test("cg_api: on enrollment_tokens, INSERT of a new token's columns, SELECT but of its hash, UPDATE of withdrawn_at", async () => {
+    const api = as("cg_api", "api");
+    const tokenId = "01934abc-def0-7000-89ab-0000000a0d16";
+    const hash = `\\x${"ab".repeat(32)}`;
+    try {
+      await allowed(
+        api,
+        `INSERT INTO ingest.enrollment_tokens (token_id, token_sha256, org_id, scope, expires_at, max_uses)
+         VALUES ('${tokenId}', '${hash}', 'deploy-004', 'enroll', now() + interval '10 minutes', 1)`,
+      );
+      await refused(
+        api,
+        `INSERT INTO ingest.enrollment_tokens (token_id, token_sha256, org_id, expires_at, uses)
+         VALUES (gen_random_uuid(), '\\x${"cd".repeat(32)}', 'deploy-004', now() + interval '1 minute', 0)`,
+      );
+      await allowed(
+        api,
+        `SELECT token_id, org_id, scope, state, issued_at, expires_at, consumed_at, max_uses, uses,
+                withdrawn_at
+           FROM ingest.enrollment_tokens WHERE token_id = '${tokenId}'`,
+      );
+      await refused(api, "SELECT token_sha256 FROM ingest.enrollment_tokens");
+      await refused(api, "SELECT * FROM ingest.enrollment_tokens");
+      await allowed(
+        api,
+        `UPDATE ingest.enrollment_tokens SET withdrawn_at = now() WHERE token_id = '${tokenId}'`,
+      );
+      await refused(api, "UPDATE ingest.enrollment_tokens SET max_uses = 2");
+      await refused(api, "UPDATE ingest.enrollment_tokens SET uses = 1");
+      await refused(api, "DELETE FROM ingest.enrollment_tokens");
+    } finally {
+      await as("postgres").query("DELETE FROM ingest.enrollment_tokens WHERE token_id = $1", [
+        tokenId,
+      ]);
+    }
+  });
+
+  test("cg_api: on agents, SELECT of the inventory's columns, not the key or certificates, UPDATE of the revocation alone", async () => {
+    const api = as("cg_api", "api");
+    const { agentId, alertId, incidentId } = await seedIngestRows();
+    try {
+      await allowed(
+        api,
+        `SELECT agent_id, org_id, enrolled_at, expires_at, last_seen, enrolled_by_token_id, hostname,
+                platform, agent_version, revoked_at, revocation_reason, duplicate_signal,
+                duplicate_signal_at
+           FROM ingest.agents WHERE agent_id = '${agentId}'`,
+      );
+      for (const column of [
+        "pubkey",
+        "cert_pem",
+        "pending_cert_pem",
+        "process_started_at",
+        "previous_process_started_at",
+      ]) {
+        await refused(api, `SELECT ${column} FROM ingest.agents`);
+      }
+      await refused(
+        api,
+        `UPDATE ingest.agents SET last_seen = now() WHERE agent_id = '${agentId}'`,
+      );
+      await refused(api, "UPDATE ingest.agents SET cert_pem = 'x'");
+      await allowed(
+        api,
+        `UPDATE ingest.agents SET revoked_at = now(), revocation_reason = 'deploy-004'
+          WHERE agent_id = '${agentId}'`,
+      );
+      await refused(
+        api,
+        `INSERT INTO ingest.agents (agent_id, org_id, pubkey, cert_pem, expires_at)
+         VALUES (gen_random_uuid(), 'deploy-004', '\\x00', 'c', now())`,
+      );
+      await refused(api, "DELETE FROM ingest.agents");
+    } finally {
+      const owner = as("postgres");
+      await owner.query("DELETE FROM ingest.incidents WHERE incident_id = $1", [incidentId]);
+      await owner.query("DELETE FROM ingest.alerts WHERE alert_id = $1", [alertId]);
+      await owner.query("DELETE FROM ingest.agents WHERE agent_id = $1", [agentId]);
+    }
+  });
+
+  test("cg_api: on incidents and alerts, UPDATE of the triage columns alone; each change in the history as cg_api", async () => {
+    const api = as("cg_api", "api");
+    const { agentId, alertId, incidentId } = await seedIngestRows();
+    try {
+      await allowed(
+        api,
+        `UPDATE ingest.incidents SET status = 'acknowledged', assigned_to = 'u-deploy-004',
+                updated_at = now()
+          WHERE incident_id = '${incidentId}'`,
+      );
+      for (const set of [
+        "alert_ids = alert_ids",
+        "cg_mitre = cg_mitre",
+        "severity_id = 1",
+        "title = 'x'",
+        "activity_id = 2",
+      ]) {
+        await refused(api, `UPDATE ingest.incidents SET ${set}`);
+      }
+      await allowed(
+        api,
+        `UPDATE ingest.alerts SET status = 'acknowledged', updated_at = now()
+          WHERE alert_id = '${alertId}'`,
+      );
+      for (const set of ["source_events = source_events", "final_score = 0", "cg_mitre = NULL"]) {
+        await refused(api, `UPDATE ingest.alerts SET ${set}`);
+      }
+      const history = await as("postgres").query<{
+        object_kind: string;
+        field: string;
+        new_value: string;
+        changed_by_role: string;
+      }>(
+        `SELECT object_kind, field, new_value, changed_by_role FROM ingest.triage_history
+          WHERE object_id = ANY($1::uuid[]) ORDER BY history_id`,
+        [[incidentId, alertId]],
+      );
+      expect(history.rows).toEqual([
+        {
+          object_kind: "incident",
+          field: "status",
+          new_value: "acknowledged",
+          changed_by_role: "cg_api",
+        },
+        {
+          object_kind: "incident",
+          field: "assigned_to",
+          new_value: "u-deploy-004",
+          changed_by_role: "cg_api",
+        },
+        {
+          object_kind: "alert",
+          field: "status",
+          new_value: "acknowledged",
+          changed_by_role: "cg_api",
+        },
+      ]);
+    } finally {
+      const owner = as("postgres");
+      await owner.query("DELETE FROM ingest.incidents WHERE incident_id = $1", [incidentId]);
+      await owner.query("DELETE FROM ingest.alerts WHERE alert_id = $1", [alertId]);
+      await owner.query("DELETE FROM ingest.agents WHERE agent_id = $1", [agentId]);
+    }
+  });
+
+  test("cg_api: SELECT on triage_history, and no INSERT, UPDATE or DELETE; cg_ingest: no right on it", async () => {
+    const api = as("cg_api", "api");
+    await allowed(api, "SELECT * FROM ingest.triage_history");
+    const insert = `INSERT INTO ingest.triage_history
+        (org_id, object_kind, object_id, field, old_value, new_value, changed_at, changed_by_role)
+      VALUES ('deploy-004', 'incident', gen_random_uuid(), 'status', 'open', 'resolved', now(), 'x')`;
+    await refused(api, insert);
+    await refused(api, "UPDATE ingest.triage_history SET new_value = 'open'");
+    await refused(api, "DELETE FROM ingest.triage_history");
+    const ingest = as("cg_ingest", "ingest");
+    await refused(ingest, "SELECT 1 FROM ingest.triage_history");
+    await refused(ingest, insert);
+  });
+
+  test("cg_ingest: on incidents, UPDATE of grouping's columns, not of the status or the assignee", async () => {
+    const ingest = as("cg_ingest", "ingest");
+    const { agentId, alertId, incidentId } = await seedIngestRows();
+    try {
+      await allowed(
+        ingest,
+        `UPDATE incidents SET alert_ids = alert_ids, severity_id = 5, cg_mitre = cg_mitre,
+                updated_at = now()
+          WHERE incident_id = '${incidentId}'`,
+      );
+      await refused(
+        ingest,
+        `UPDATE incidents SET status = 'resolved' WHERE incident_id = '${incidentId}'`,
+      );
+      await refused(ingest, "UPDATE incidents SET assigned_to = 'x'");
+    } finally {
+      const owner = as("postgres");
+      await owner.query("DELETE FROM ingest.incidents WHERE incident_id = $1", [incidentId]);
+      await owner.query("DELETE FROM ingest.alerts WHERE alert_id = $1", [alertId]);
+      await owner.query("DELETE FROM ingest.agents WHERE agent_id = $1", [agentId]);
     }
   });
 

@@ -21,8 +21,8 @@ CREATE ROLE cg_ingest_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :
 CREATE ROLE cg_ingest LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'ingest_runtime';
 CREATE ROLE cg_api_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'api_owner';
 CREATE ROLE cg_api LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'api_runtime';
--- The api reads ingest's alerts, incidents and playbook executions through this role,
--- which ingest's migrations grant SELECT on them.
+-- The api reads ingest's alerts, incidents, playbook executions and triage history through
+-- this role, which ingest's migrations grant SELECT on them.
 CREATE ROLE cg_incident_reader NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
 GRANT cg_incident_reader TO cg_api;
 SQL
