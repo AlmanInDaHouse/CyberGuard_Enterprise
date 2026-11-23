@@ -52,9 +52,21 @@ const E_ACCESSDENIED = 0x80070005;
  * (HRESULT_FROM_WIN32(ERROR_WMI_GUID_NOT_FOUND)): a passing answer, asked again (debt #161).
  */
 const WMI_GUID_NOT_FOUND = 0x80071068;
-/** How many times, and how often, a query is asked again, and a stop awaited (debt #161). */
+/** How many times, and how often, a query is asked again (debt #161). */
 const SESSION_POLLS = 20;
 const SESSION_POLL_MS = 250;
+/**
+ * How many queries a stopped session is awaited for (15 s), and every how many of them the
+ * stop is issued again: after a full suite a session has outlived its stop for more than
+ * 5 s, which alone it never did (debt #174). A stop refused for access is final.
+ */
+const STOP_POLLS = 60;
+const RESTOP_EVERY = 4;
+
+/** An exit status as the logs write it. */
+function hex(status: number | null): string | null {
+  return status === null ? null : `0x${status.toString(16)}`;
+}
 
 /** Blocks for `ms` (the harness's teardown and exit handlers are synchronous). */
 export type Wait = (ms: number) => void;
@@ -94,7 +106,9 @@ function etwSessionRunning(name: string, logman: Logman, wait: Wait): boolean {
  * Stop each named ETW session that is running (Windows). Returns the names
  * still running afterwards: an unelevated process cannot stop a session an
  * elevated agent started (debt #63, docs/handoff-session-37.md). A stopped
- * session is awaited until it is gone, with a bound (debt #161).
+ * session is awaited until it is gone, with a bound (debt #161), the stop issued
+ * again meanwhile, unless it was refused for access; a session left is logged with
+ * each stop's exit status (debt #174).
  */
 export function stopEtwSessions(
   names: readonly string[],
@@ -106,14 +120,25 @@ export function stopEtwSessions(
     if (!etwSessionRunning(name, logman, wait)) {
       continue;
     }
-    logman(["stop", name, "-ets"]);
-    let running = etwSessionRunning(name, logman, wait);
-    for (let i = 1; i < SESSION_POLLS && running; i++) {
+    const stops = [logman(["stop", name, "-ets"])];
+    const refused = stops[0] === E_ACCESSDENIED;
+    let running = refused || etwSessionRunning(name, logman, wait);
+    for (let i = 1; i < STOP_POLLS && running && !refused; i++) {
+      if (i % RESTOP_EVERY === 0) {
+        stops.push(logman(["stop", name, "-ets"]));
+      }
       wait(SESSION_POLL_MS);
       running = etwSessionRunning(name, logman, wait);
     }
     if (running) {
       left.push(name);
+      console.log(
+        JSON.stringify({
+          event: "marquee_agent_etw_session_left",
+          session: name,
+          stop_statuses: stops.map(hex),
+        }),
+      );
     } else {
       console.log(JSON.stringify({ event: "marquee_agent_etw_session_stopped", session: name }));
     }

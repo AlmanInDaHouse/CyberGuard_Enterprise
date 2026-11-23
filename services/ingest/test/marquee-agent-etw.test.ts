@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   AGENT_ETW_SESSIONS,
   type Logman,
@@ -92,8 +92,11 @@ describe("the harness's list of the agent's ETW sessions", () => {
 describe("stopEtwSessions, against a logman that answers as told", () => {
   test("a session this process may not stop is reported as still running", () => {
     const { logman, calls } = fakeLogman({ query: E_ACCESSDENIED, stop: E_ACCESSDENIED });
-    expect(stopEtwSessions(["X"], logman)).toEqual(["X"]);
-    expect(calls).toContainEqual(["stop", "X", "-ets"]);
+    const waits: number[] = [];
+    expect(stopEtwSessions(["X"], logman, (ms) => waits.push(ms))).toEqual(["X"]);
+    // A stop refused for access is final: neither issued again nor awaited (debt #174).
+    expect(calls.filter((c) => c[0] === "stop")).toEqual([["stop", "X", "-ets"]]);
+    expect(waits).toEqual([]);
   });
 
   test("a name with no session is neither stopped nor reported", () => {
@@ -116,9 +119,48 @@ describe("stopEtwSessions, against a logman that answers as told", () => {
     const awaited = scriptedLogman([0, 0, 0, PLA_E_DCS_NOT_FOUND], 0);
     expect(stopEtwSessions(["X"], awaited.logman, noWait)).toEqual([]);
     const stuck = scriptedLogman([0], 0);
-    expect(stopEtwSessions(["X"], stuck.logman, noWait)).toEqual(["X"]);
-    // One query before the stop, twenty after it.
-    expect(stuck.calls.filter((c) => c[0] === "query")).toHaveLength(21);
+    const waits: number[] = [];
+    expect(stopEtwSessions(["X"], stuck.logman, (ms) => waits.push(ms))).toEqual(["X"]);
+    // Fifty-nine waits of 250 ms between the sixty queries: 14.75 s.
+    expect(waits).toEqual(Array.from({ length: 59 }, () => 250));
+    // One query before the stop, sixty after it (15 s), and the stop issued again each
+    // fourth of them (debt #174).
+    expect(stuck.calls.filter((c) => c[0] === "query")).toHaveLength(61);
+    expect(stuck.calls.filter((c) => c[0] === "stop")).toHaveLength(15);
+  });
+
+  test("a stop that does not take is issued again, and the session's end awaited (debt #174)", () => {
+    // The session outlives the first stop and ends at the second.
+    const calls: string[][] = [];
+    let stops = 0;
+    const logman: Logman = (args) => {
+      calls.push([...args]);
+      if (args[0] === "stop") {
+        stops += 1;
+        return 0;
+      }
+      return stops >= 2 ? PLA_E_DCS_NOT_FOUND : 0;
+    };
+    expect(stopEtwSessions(["X"], logman, noWait)).toEqual([]);
+    expect(calls.filter((c) => c[0] === "stop")).toHaveLength(2);
+  });
+
+  test("a session left is logged with each stop's exit status (debt #174)", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const { logman } = scriptedLogman([0], 0x80300003);
+      expect(stopEtwSessions(["X"], logman, noWait)).toEqual(["X"]);
+      const lines = log.mock.calls.map((c) => JSON.parse(String(c[0])));
+      expect(lines).toEqual([
+        {
+          event: "marquee_agent_etw_session_left",
+          session: "X",
+          stop_statuses: Array.from({ length: 15 }, () => "0x80300003"),
+        },
+      ]);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   test("a session that keeps answering as torn down past the bound is an error", () => {
