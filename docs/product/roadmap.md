@@ -4,7 +4,7 @@ Orders the remaining MVP work by technical dependency, and lists the
 owner-STOP decisions that gate it. This is the work-order document; the
 current delivery state is the MVP scorecard in the
 [README](../../README.md) and the latest session handoff
-([handoff-session-94.md](../handoff-session-94.md)).
+([handoff-session-95.md](../handoff-session-95.md)).
 
 Not a product roadmap — see the Blueprint §15 note below.
 
@@ -647,8 +647,10 @@ recommended option:
    invitations, the reset, the users' lists). S94: the phase's pages
    landed (`9e1965e` to `a053795`: the mutation handlers, the navigation,
    `/account`, `/invitation`, `/users`; #83 and #98 closed), with `url`
-   2.5.9 for RUSTSEC-2026-0592 (`cb073b4`); ingest's `0011` and the
-   detection change are next (`docs/handoff-session-94.md`).
+   2.5.9 for RUSTSEC-2026-0592 (`cb073b4`). S95: ingest's migration `0011`
+   and the detection change landed (`13c69e6`, `ec581c0`) under the elevated
+   gate, after the harness's ETW stop (`f715eab`, #174); the triage routes
+   and phase 2's pages are next (`docs/handoff-session-95.md`).
 5. **The custody verb for the setup's hosts** (`show`, `in-place`,
    `aside`, and `legacy` if its restatement keeps it; #166), its contract restated first (SPEC-024 Amendment
    2026-11-20, point 6).
